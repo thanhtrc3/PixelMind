@@ -1,0 +1,87 @@
+/* ===== UIForge AI — Design Tokens ===== */
+:root {
+  /* Background layers */
+  --bg-base:      #0d0d0d;
+  --bg-surface:   #141414;
+  --bg-elevated:  #1a1a1a;
+  --bg-overlay:   #222222;
+  --bg-hover:     #2a2a2a;
+  --bg-active:    #333333;
+
+  /* Border */
+  --border:       #2e2e2e;
+  --border-light: #3a3a3a;
+  --border-focus: #6c63ff;
+
+  /* Text */
+  --text-primary:   #f0f0f0;
+  --text-secondary: #9a9a9a;
+  --text-muted:     #555555;
+  --text-disabled:  #3d3d3d;
+
+  /* Accent / Brand */
+  --accent:         #6c63ff;
+  --accent-hover:   #7c73ff;
+  --accent-subtle:  rgba(108, 99, 255, 0.12);
+  --accent-glow:    rgba(108, 99, 255, 0.25);
+
+  /* Status colors */
+  --color-success: #3ecf8e;
+  --color-warning: #f5a623;
+  --color-error:   #f94444;
+  --color-info:    #4ea8de;
+
+  /* Severity badges */
+  --badge-critical-bg: rgba(249, 68, 68, 0.15);
+  --badge-critical-text: #f94444;
+  --badge-warning-bg: rgba(245, 166, 35, 0.15);
+  --badge-warning-text: #f5a623;
+  --badge-ok-bg: rgba(62, 207, 142, 0.15);
+  --badge-ok-text: #3ecf8e;
+
+  /* Layout dimensions */
+  --topbar-h:     48px;
+  --statusbar-h:  26px;
+  --sidebar-w:    240px;
+  --sidebar-min-w: 180px;
+  --ai-panel-w:   320px;
+  --ai-panel-min-w: 260px;
+  --toolbar-h:    40px;
+
+  /* Typography */
+  --font-ui:   'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+
+  --font-xs:  11px;
+  --font-sm:  12px;
+  --font-md:  13px;
+  --font-lg:  14px;
+  --font-xl:  16px;
+
+  /* Spacing */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+
+  /* Border radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 120ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 350ms ease;
+
+  /* Shadow */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.6);
+  --shadow-glow: 0 0 0 2px var(--accent-glow);
+}
+

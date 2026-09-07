@@ -1,0 +1,1 @@
+Làm 1 app mà ở đó antigravity có thể kiểm tra và xem được hình ảnh mà tôi muốn thiết kế giao diện web hay app ,ở đó tôi có thể tùy thời ra lệnh cho antigravity sửa lại các lỗi giao diện, app có thể hơi giống figma

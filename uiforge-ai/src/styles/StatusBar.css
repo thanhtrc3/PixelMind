@@ -1,0 +1,59 @@
+/* ===== Status Bar ===== */
+.statusbar {
+  display: flex;
+  align-items: center;
+  height: var(--statusbar-h);
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  padding: 0 var(--sp-3);
+  gap: var(--sp-3);
+  flex-shrink: 0;
+  z-index: 100;
+}
+.statusbar__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  cursor: default;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast), color var(--transition-fast);
+  white-space: nowrap;
+}
+.statusbar__item.clickable {
+  cursor: pointer;
+}
+.statusbar__item.clickable:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+.statusbar__item-icon {
+  font-size: 10px;
+}
+.statusbar__spacer {
+  flex: 1;
+}
+.statusbar__ai-status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+.statusbar__ai-status.ready {
+  background: var(--badge-ok-bg);
+  color: var(--badge-ok-text);
+}
+.statusbar__ai-status.working {
+  background: var(--badge-warning-bg);
+  color: var(--badge-warning-text);
+}
+.statusbar__ai-status.error {
+  background: var(--badge-critical-bg);
+  color: var(--badge-critical-text);
+}
+
