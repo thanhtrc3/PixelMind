@@ -1,4 +1,9 @@
-/* ===== UIForge AI — Global Reset & Base ===== */
+/* ═══════════════════════════════════════════════════
+   UIForge AI — Global Reset & Shared Utilities
+   ═══════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -9,100 +14,159 @@ html, body, #root {
   width: 100%;
   height: 100%;
   overflow: hidden;
-}
-
-body {
-  font-family: var(--font-ui);
-  font-size: var(--font-md);
-  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: var(--font-base);
+  line-height: var(--leading-normal);
+  color: var(--text);
   background: var(--bg-base);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  user-select: none;
 }
 
-/* Scrollbar */
+/* ── Scrollbar ── */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-active);
+  background: var(--border);
   border-radius: var(--radius-full);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--border-light);
+  background: var(--text-muted);
 }
 
-/* Focus ring */
+/* ── Selection ── */
+::selection {
+  background: var(--accent-muted);
+  color: var(--text);
+}
+
+/* ── Focus Ring ── */
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
 }
 
-/* Divider */
-.divider {
-  width: 1px;
-  height: 20px;
-  background: var(--border);
-  flex-shrink: 0;
+/* ── Button resets ── */
+button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
 }
-.divider-h {
-  width: 100%;
-  height: 1px;
-  background: var(--border);
-  flex-shrink: 0;
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
-/* Icon button base */
+/* ── Input resets ── */
+input, textarea, select {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+/* ── Shared: Icon Button ── */
 .icon-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: none;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-md);
-  background: transparent;
   color: var(--text-secondary);
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: all var(--duration-fast) var(--ease-out);
   flex-shrink: 0;
 }
 .icon-btn:hover {
   background: var(--bg-hover);
-  color: var(--text-primary);
+  color: var(--text);
 }
 .icon-btn.active {
-  background: var(--accent-subtle);
+  background: var(--accent-muted);
   color: var(--accent);
 }
-.icon-btn.danger:hover {
-  background: rgba(249, 68, 68, 0.12);
-  color: var(--color-error);
-}
 
-/* Tag / badge */
+/* ── Shared: Badge ── */
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 6px;
-  border-radius: var(--radius-full);
   font-size: var(--font-xs);
   font-weight: 600;
-  letter-spacing: 0.3px;
-  line-height: 1.4;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  line-height: 1.5;
+  white-space: nowrap;
 }
-.badge-accent  { background: var(--accent-subtle); color: var(--accent); }
-.badge-success { background: var(--badge-ok-bg); color: var(--badge-ok-text); }
-.badge-warning { background: var(--badge-warning-bg); color: var(--badge-warning-text); }
-.badge-error   { background: var(--badge-critical-bg); color: var(--badge-critical-text); }
-.badge-neutral { background: var(--bg-active); color: var(--text-secondary); }
+.badge-accent {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+.badge-success {
+  background: var(--color-success-muted);
+  color: var(--color-success);
+}
+.badge-warning {
+  background: var(--color-warning-muted);
+  color: var(--color-warning);
+}
+.badge-error {
+  background: var(--color-error-muted);
+  color: var(--color-error);
+}
+.badge-neutral {
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+}
 
-/* Tooltip (CSS only, no JS) */
+/* ── Shared: Divider ── */
+.divider-v {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 0 var(--sp-1);
+  opacity: 0.6;
+}
+.divider-h {
+  height: 1px;
+  width: 100%;
+  background: var(--border);
+  opacity: 0.6;
+}
+
+/* ── Resize Handle (react-resizable-panels v4) ── */
+[data-separator] {
+  width: 3px !important;
+  background: transparent;
+  transition: background var(--duration-fast) var(--ease-out);
+  position: relative;
+  flex-shrink: 0;
+}
+[data-separator]::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1px;
+  background: var(--border-subtle);
+  transition: all var(--duration-fast) var(--ease-out);
+}
+[data-separator]:hover::after {
+  background: var(--accent);
+  width: 2px;
+  box-shadow: var(--shadow-glow);
+}
+
+/* ── Tooltip (simple CSS-only) ── */
 [data-tooltip] {
   position: relative;
 }
@@ -111,20 +175,21 @@ body {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateY(4px);
   padding: 4px 8px;
+  border-radius: var(--radius-sm);
   background: var(--bg-overlay);
-  color: var(--text-primary);
+  border: 1px solid var(--border);
+  color: var(--text);
   font-size: var(--font-xs);
   white-space: nowrap;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-light);
   pointer-events: none;
   opacity: 0;
-  transition: opacity var(--transition-fast);
-  z-index: 9999;
+  transition: all var(--duration-fast) var(--ease-out);
+  z-index: 100;
+  box-shadow: var(--shadow-md);
 }
 [data-tooltip]:hover::after {
   opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
-

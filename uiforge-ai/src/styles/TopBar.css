@@ -1,128 +1,136 @@
-/* ===== TopBar ===== */
+/* ═══════════════════════════════════════════════════
+   UIForge AI — TopBar
+   ═══════════════════════════════════════════════════ */
+
 .topbar {
   display: flex;
   align-items: center;
   height: var(--topbar-h);
+  padding: 0 var(--sp-3);
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
-  padding: 0 var(--sp-3);
   gap: var(--sp-2);
   flex-shrink: 0;
-  z-index: 100;
+  z-index: 10;
+  user-select: none;
+  -webkit-app-region: drag;
 }
 
+/* Logo */
 .topbar__logo {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 0 var(--sp-2);
-  margin-right: var(--sp-2);
-  cursor: pointer;
+  -webkit-app-region: no-drag;
 }
 .topbar__logo-icon {
   width: 26px;
   height: 26px;
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--accent), #9b59b6);
+  background: linear-gradient(135deg, var(--accent), hsl(280, 60%, 60%));
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  font-weight: 800;
-  color: #fff;
-  letter-spacing: -1px;
-  flex-shrink: 0;
+  font-size: var(--font-xs);
+  font-weight: 700;
+  color: white;
+  letter-spacing: -0.5px;
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 .topbar__logo-text {
   font-size: var(--font-md);
-  font-weight: 700;
-  color: var(--text-primary);
+  font-weight: 600;
+  color: var(--text);
   letter-spacing: -0.3px;
 }
 .topbar__logo-text span {
-  color: var(--accent);
+  background: linear-gradient(135deg, var(--accent), hsl(280, 60%, 65%));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-.topbar__group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
+/* Project button */
 .topbar__project-btn {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 4px 10px;
-  border: 1px solid var(--border);
+  padding: var(--sp-1) var(--sp-3);
   border-radius: var(--radius-md);
+  border: 1px solid var(--border);
   background: var(--bg-elevated);
-  color: var(--text-primary);
-  font-size: var(--font-sm);
-  font-family: var(--font-ui);
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-  max-width: 200px;
+  transition: all var(--duration-fast) var(--ease-out);
+  -webkit-app-region: no-drag;
 }
 .topbar__project-btn:hover {
   background: var(--bg-hover);
-  border-color: var(--border-light);
+  border-color: var(--border-focus);
 }
 .topbar__project-name {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-primary);
 }
 .topbar__project-caret {
+  font-size: 8px;
   color: var(--text-muted);
-  font-size: 10px;
-  flex-shrink: 0;
 }
 
-.topbar__spacer {
-  flex: 1;
+/* Tool groups */
+.topbar__group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
 }
+
+/* Spacer */
+.topbar__spacer { flex: 1; }
 
 /* Run button */
 .topbar__run-btn {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 5px 14px;
-  border: none;
+  padding: var(--sp-1) var(--sp-3);
   border-radius: var(--radius-md);
-  background: var(--accent);
-  color: #fff;
+  background: linear-gradient(135deg, hsl(var(--hue-success), 55%, 42%), hsl(var(--hue-success), 55%, 36%));
+  color: white;
   font-size: var(--font-sm);
-  font-family: var(--font-ui);
   font-weight: 600;
-  cursor: pointer;
-  transition: background var(--transition-fast), transform var(--transition-fast);
+  transition: all var(--duration-fast) var(--ease-out);
+  -webkit-app-region: no-drag;
+  box-shadow: 0 0 10px hsla(var(--hue-success), 55%, 50%, 0.2);
 }
 .topbar__run-btn:hover {
-  background: var(--accent-hover);
+  filter: brightness(1.15);
+  box-shadow: 0 0 16px hsla(var(--hue-success), 55%, 50%, 0.35);
 }
-.topbar__run-btn:active {
-  transform: scale(0.97);
-}
-.topbar__run-btn.running {
-  background: var(--color-success);
+.topbar__run-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* Avatar */
 .topbar__avatar {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: var(--radius-full);
-  background: linear-gradient(135deg, #f5a623, #f94444);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: var(--font-xs);
-  font-weight: 700;
-  color: #fff;
+  font-weight: 600;
+  color: var(--text-secondary);
+  -webkit-app-region: no-drag;
   cursor: pointer;
-  flex-shrink: 0;
+  transition: border-color var(--duration-fast) var(--ease-out);
 }
-
+.topbar__avatar:hover {
+  border-color: var(--accent);
+}

@@ -1,59 +1,66 @@
-/* ===== Status Bar ===== */
+/* ═══════════════════════════════════════════════════
+   UIForge AI — StatusBar
+   ═══════════════════════════════════════════════════ */
+
 .statusbar {
   display: flex;
   align-items: center;
   height: var(--statusbar-h);
+  padding: 0 var(--sp-3);
   background: var(--bg-surface);
   border-top: 1px solid var(--border);
-  padding: 0 var(--sp-3);
-  gap: var(--sp-3);
+  gap: var(--sp-1);
   flex-shrink: 0;
-  z-index: 100;
+  user-select: none;
 }
 .statusbar__item {
   display: flex;
   align-items: center;
-  gap: var(--sp-1);
+  gap: 4px;
+  padding: 0 var(--sp-2);
   font-size: var(--font-xs);
   color: var(--text-muted);
-  cursor: default;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  transition: background var(--transition-fast), color var(--transition-fast);
-  white-space: nowrap;
+  height: 100%;
 }
 .statusbar__item.clickable {
   cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--duration-fast) var(--ease-out);
 }
 .statusbar__item.clickable:hover {
-  background: var(--bg-hover);
   color: var(--text-secondary);
+  background: var(--bg-hover);
 }
 .statusbar__item-icon {
-  font-size: 10px;
+  display: flex;
+  align-items: center;
 }
-.statusbar__spacer {
-  flex: 1;
+.statusbar__item-icon svg {
+  width: 12px;
+  height: 12px;
 }
+.statusbar__spacer { flex: 1; }
+
+.statusbar__divider {
+  width: 1px;
+  height: 12px;
+  background: var(--border);
+}
+
 .statusbar__ai-status {
   display: flex;
   align-items: center;
-  gap: var(--sp-1);
+  gap: 4px;
   font-size: var(--font-xs);
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
+  font-weight: 500;
+  padding: 0 var(--sp-2);
 }
 .statusbar__ai-status.ready {
-  background: var(--badge-ok-bg);
-  color: var(--badge-ok-text);
+  color: var(--color-success);
 }
 .statusbar__ai-status.working {
-  background: var(--badge-warning-bg);
-  color: var(--badge-warning-text);
+  color: var(--color-warning);
 }
-.statusbar__ai-status.error {
-  background: var(--badge-critical-bg);
-  color: var(--badge-critical-text);
+.statusbar__ai-status.working span:first-child {
+  animation: pulse-dot 1s ease-in-out infinite;
 }
-

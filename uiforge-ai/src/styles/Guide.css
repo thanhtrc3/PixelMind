@@ -1,0 +1,273 @@
+/* ═══════════════════════════════════════════════════
+   UIForge AI — Guide Modal
+   ═══════════════════════════════════════════════════ */
+
+/* ── Overlay ── */
+.guide-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: hsla(228, 14%, 6%, 0.75);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: guide-fade-in var(--duration-normal) var(--ease-out);
+}
+
+@keyframes guide-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Modal ── */
+.guide-modal {
+  width: min(90vw, 900px);
+  height: min(85vh, 640px);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg), 0 0 60px hsla(var(--hue-accent), 60%, 60%, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: guide-slide-up var(--duration-slow) var(--ease-out);
+}
+
+@keyframes guide-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ── Header ── */
+.guide-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.guide-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  color: var(--accent);
+}
+.guide-header-title {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ── Body ── */
+.guide-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── Nav (left sidebar) ── */
+.guide-nav {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: var(--sp-2);
+  background: var(--bg-base);
+}
+.guide-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 6px var(--sp-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  text-align: left;
+  transition: all var(--duration-fast) var(--ease-out);
+  margin-bottom: 1px;
+}
+.guide-nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.guide-nav-item.active {
+  background: var(--accent-muted);
+  color: var(--accent);
+  font-weight: 500;
+}
+.guide-nav-item span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Content (right) ── */
+.guide-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-5);
+  min-width: 0;
+}
+
+/* Section header */
+.guide-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+.guide-section-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background: var(--accent-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.guide-section-title {
+  font-size: var(--font-lg);
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+  line-height: var(--leading-tight);
+}
+.guide-section-subtitle {
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+  margin: 2px 0 0;
+}
+
+/* ── Feature Cards ── */
+.guide-features {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.guide-feature-card {
+  display: flex;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.guide-feature-card:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+.guide-feature-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.guide-feature-card:hover .guide-feature-icon {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+.guide-feature-info {
+  flex: 1;
+  min-width: 0;
+}
+.guide-feature-title {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.guide-feature-desc {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-normal);
+  margin: 3px 0 0;
+}
+
+/* Keyboard shortcut badge */
+.guide-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
+/* ── Footer ── */
+.guide-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.guide-page-info {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.guide-footer-nav {
+  display: flex;
+  gap: var(--sp-2);
+}
+.guide-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.guide-nav-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--border-focus);
+}
+.guide-nav-btn:disabled {
+  opacity: 0.35;
+}
+.guide-nav-btn.primary {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
+}
+.guide-nav-btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
