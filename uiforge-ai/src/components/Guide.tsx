@@ -5,16 +5,18 @@ import {
   FolderOpen, Undo2, Redo2, MousePointer2, Hand, Square, PenTool,
   Ruler, Columns2, Camera, Smartphone, Play, Settings,
   // Sidebar icons
-  Layers, FileText, Image, FolderTree, History, Plus,
+  Layers, FileText, Image, FolderTree, History, Plus, LayoutGrid,
   // Canvas icons
-  Globe, Search, Maximize2, ZoomIn, ZoomOut,
+  Globe, Search, Maximize2, ZoomIn,
   // AI Panel icons
   MessageSquare, ListTodo, AlertTriangle, Info, Sparkles, Bot, Cpu, Monitor,
-  Paperclip, ArrowUp,
+  Paperclip, ArrowUp, MessagesSquare, Palette,
   // StatusBar icons
   GitBranch,
   // Extra
-  HelpCircle, Keyboard, BookOpen
+  HelpCircle, Keyboard, BookOpen, Command, ShieldCheck,
+  // Search Toolbox
+  Wand2, Lock, EyeOff, GripVertical,
 } from 'lucide-react';
 import '../styles/Guide.css';
 
@@ -48,7 +50,7 @@ const GUIDE_SECTIONS: GuideSection[] = [
       {
         icon: FolderOpen,
         title: 'Mở Project',
-        description: 'Chọn thư mục chứa dự án web (React, Vue, HTML…). UIForge sẽ tự nhận diện framework và cấu hình dev server.',
+        description: 'Chọn thư mục chứa dự án web (React, Vue, HTML…). PixelMind sẽ tự nhận diện framework và cấu hình dev server.',
       },
       {
         icon: Undo2,
@@ -154,12 +156,12 @@ const GUIDE_SECTIONS: GuideSection[] = [
       {
         icon: Plus,
         title: 'Thêm trang mới',
-        description: 'Tạo trang mới trong dự án. UIForge tự tạo file component và thêm route tương ứng.',
+        description: 'Tạo trang mới trong dự án. PixelMind tự tạo file component và thêm route tương ứng.',
       },
       {
         icon: Image,
         title: 'Gắn ảnh tham chiếu cho trang',
-        description: 'Mỗi trang có thể gắn một ảnh mẫu riêng. Khi so sánh, UIForge sẽ dùng đúng ảnh của trang đang xem.',
+        description: 'Mỗi trang có thể gắn một ảnh mẫu riêng. Khi so sánh, PixelMind sẽ dùng đúng ảnh của trang đang xem.',
       },
     ],
   },
@@ -209,7 +211,7 @@ const GUIDE_SECTIONS: GuideSection[] = [
       {
         icon: Search,
         title: 'Nhận diện framework',
-        description: 'UIForge tự nhận diện React, Vue, Angular, Next.js, Vite, v.v. từ package.json và cấu hình project.',
+        description: 'PixelMind tự nhận diện React, Vue, Angular, Next.js, Vite, v.v. từ package.json và cấu hình project.',
       },
     ],
   },
@@ -239,7 +241,63 @@ const GUIDE_SECTIONS: GuideSection[] = [
     ],
   },
 
-  /* ───── 7. Canvas — Các chế độ xem ───── */
+  /* ───── 6b. Sidebar — Design system ───── */
+  {
+    id: 'sidebar-design',
+    title: 'Sidebar → Design',
+    subtitle: 'Quy chuẩn thương hiệu của dự án',
+    icon: Palette,
+    features: [
+      {
+        icon: FileText,
+        title: 'DESIGN.md & tokens.css',
+        description: 'Xem và sửa quy chuẩn: màu, kiểu chữ, khoảng cách, bo góc. AI đọc hai file này trước khi sửa nên giao diện ít bị lệch thương hiệu.',
+      },
+      {
+        icon: Palette,
+        title: 'Bảng token trực quan',
+        description: 'Xem nhanh bảng màu, các mức bo góc và cặp font đang dùng. Mọi part trong kho đều bắt buộc dùng đúng biến token.',
+      },
+      {
+        icon: Sparkles,
+        title: 'Skill & Prompt mẫu',
+        description: 'Ba skill sẵn có: review-UI, fix-spacing, responsive-check, kèm prompts.md gồm các câu lệnh mẫu dùng nhiều nhất.',
+      },
+      {
+        icon: LayoutGrid,
+        title: 'Thư viện template',
+        description: 'Chọn nhanh template landing, dashboard hoặc mobile app để khởi tạo giao diện thay vì code từ đầu.',
+      },
+    ],
+  },
+
+  /* ───── 7. Bảng lệnh (đột phá) ───── */
+  {
+    id: 'palette',
+    title: 'Bảng lệnh (Ctrl+K)',
+    subtitle: 'Điều khiển ứng dụng chỉ bằng bàn phím',
+    icon: Command,
+    features: [
+      {
+        icon: Command,
+        title: 'Mở bảng lệnh',
+        shortcut: 'Ctrl+K',
+        description: 'Gõ tên lệnh, hành động hoặc phần tử cần tìm. Dùng ↑ ↓ để di chuyển và Enter để chạy ngay — không phải rời tay khỏi bàn phím.',
+      },
+      {
+        icon: Sparkles,
+        title: 'Nhóm lệnh theo ngữ cảnh',
+        description: 'Lệnh được gom nhóm: AI, Canvas, Kiểm tra, Dự án và Hệ thống. Mỗi lệnh kèm mô tả ngắn và phím tắt tương ứng.',
+      },
+      {
+        icon: Search,
+        title: 'Tìm nhanh mọi thứ',
+        description: 'Tìm theo tên lệnh, nhóm hoặc mô tả. Ví dụ gõ "so sánh", "ảnh mẫu", "kiểm tra" hoặc "xuất bài".',
+      },
+    ],
+  },
+
+  /* ───── 8. Canvas — Các chế độ xem ───── */
   {
     id: 'canvas',
     title: 'Canvas — Chế độ xem',
@@ -375,6 +433,31 @@ const GUIDE_SECTIONS: GuideSection[] = [
     ],
   },
 
+  /* ───── 10b. AI Panel — Bình luận ───── */
+  {
+    id: 'ai-comments',
+    title: 'AI Panel → Bình luận',
+    subtitle: 'Góp ý ghim ngay trên canvas',
+    icon: MessagesSquare,
+    features: [
+      {
+        icon: MessagesSquare,
+        title: 'Bình luận ghim theo vị trí',
+        description: 'Mỗi bình luận ghim vào một phần tử trên canvas, có người viết, thời điểm và trạng thái Đang mở / Đã xong. Không còn góp ý thất lạc trong tin nhắn.',
+      },
+      {
+        icon: Search,
+        title: 'Lọc theo trạng thái',
+        description: 'Lọc nhanh bình luận Đang mở, Đã xong hoặc xem tất cả để biết còn việc gì chưa xử lý.',
+      },
+      {
+        icon: Sparkles,
+        title: 'Chuyển thành lệnh AI',
+        description: 'Một cú bấm biến bình luận thành yêu cầu cho AI, kèm sẵn phần tử, ảnh chụp và ảnh mẫu tương ứng.',
+      },
+    ],
+  },
+
   /* ───── 11. AI Panel — Context ───── */
   {
     id: 'ai-context',
@@ -415,7 +498,7 @@ const GUIDE_SECTIONS: GuideSection[] = [
       {
         icon: Sparkles,
         title: 'Antigravity (Gemini)',
-        description: 'Google Antigravity Agent — tích hợp sâu với UIForge. Có khả năng đọc file, sửa code, chạy lệnh và kiểm tra trực tiếp.',
+        description: 'Google Antigravity Agent — tích hợp sâu với PixelMind. Có khả năng đọc file, sửa code, chạy lệnh và kiểm tra trực tiếp.',
       },
       {
         icon: Bot,
@@ -463,9 +546,19 @@ const GUIDE_SECTIONS: GuideSection[] = [
         description: 'Branch hiện tại (main, develop…). Click để chuyển branch hoặc xem lịch sử commit.',
       },
       {
+        icon: GitBranch,
+        title: 'Phiên bản hiện tại',
+        description: 'Phiên bản giao diện đang xem (ví dụ v4). Chấm vàng nghĩa là phiên bản này chưa được duyệt hoặc chưa lưu vào GitHub.',
+      },
+      {
+        icon: ShieldCheck,
+        title: 'Giấy phép AI',
+        description: 'Cho biết giấy phép AI của bạn còn hạn bao nhiêu ngày. Hết hạn thì AI dừng được quyền sửa, kể cả đang giữa vòng sửa.',
+      },
+      {
         icon: Sparkles,
         title: 'Trạng thái AI',
-        description: 'Hiển thị AI đang sẵn sàng (xanh), đang xử lý (vàng nhấp nháy) hay lỗi (đỏ).',
+        description: 'AI sẵn sàng (xanh lá) hoặc đang xử lý (xanh dương nhấp nháy). Màu trạng thái luôn cố định: xanh lá đạt, vàng cảnh báo, đỏ lỗi, xanh dương đang xử lý.',
       },
     ],
   },
@@ -482,12 +575,55 @@ const GUIDE_SECTIONS: GuideSection[] = [
       { icon: Square, title: 'L', description: 'Chuyển sang công cụ Region Select — vẽ vùng chọn.' },
       { icon: PenTool, title: 'T', description: 'Chuyển sang công cụ Annotation — ghi chú trên canvas.' },
       { icon: Ruler, title: 'M', description: 'Chuyển sang công cụ Measure — đo khoảng cách pixel.' },
-      { icon: Undo2, title: 'Ctrl+Z', description: 'Hoàn tác thao tác gần nhất.' },
+      { icon: Undo2, title: 'Ctrl+Z', description: 'Hoàn tác thao tác gần nhất — kể cả lần chèn part vừa rồi.' },
       { icon: Redo2, title: 'Ctrl+Y', description: 'Làm lại thao tác vừa hoàn tác.' },
+      { icon: Command, title: 'Ctrl+K', description: 'Mở Bảng lệnh — điều khiển app chỉ bằng bàn phím.' },
+      { icon: Wand2, title: 'Ctrl+Shift+P', description: 'Mở Search Toolbox — thư viện part để tìm và kéo vào khung.' },
+      { icon: FolderOpen, title: 'Ctrl+O', description: 'Mở Project Hub — đổi dự án đang làm.' },
+      { icon: Settings, title: 'Ctrl+,', description: 'Mở màn hình cài đặt.' },
       { icon: ZoomIn, title: 'Ctrl+Scroll', description: 'Zoom in/out canvas nhanh.' },
       { icon: Hand, title: 'Space + Drag', description: 'Pan canvas tạm thời (giữ Space).' },
       { icon: Play, title: 'Ctrl+R', description: 'Chạy/Restart dev server.' },
       { icon: HelpCircle, title: 'F1', description: 'Mở hướng dẫn này.' },
+    ],
+  },
+
+  /* ───── 15. Search Toolbox ───── */
+  {
+    id: 'toolbox',
+    title: 'Search Toolbox · Thư viện part',
+    subtitle: 'Mở bằng Ctrl + Shift + P hoặc mục “Search Toolbox” trong Bảng lệnh',
+    icon: Wand2,
+    features: [
+      { icon: Wand2, title: 'Kho part dùng chung', description: 'Mở Search Toolbox (Ctrl + Shift + P) để xem toàn bộ part của dự án. Mỗi part là một thư mục 5 tệp: meta.json (căn cước), preview.png (ảnh chụp để lướt mắt chọn), sample.html (khung sườn), sample.css (màu sắc, kiểu dáng) và prompt.txt (mô tả ngắn cho AI).' },
+      { icon: Search, title: 'Gõ “search” là ra part', description: 'Ô tìm kiếm lọc theo tên part, mã, nhóm, tag, tác giả và nguồn gốc. Gõ “search” sẽ hiện các part nhóm searchbox kèm ảnh để chọn; bấm nhanh chip search / card / button / form hoặc lọc theo nhóm và trạng thái duyệt.' },
+      { icon: GripVertical, title: 'Kéo part vào canvas', description: 'Kéo thẻ part thả vào khung giữa canvas: app chèn đúng sample.html + sample.css vào file đang mở và tải lại trang ngay. Part đã chèn hiện thành hàng “part” trong cây phần tử bên trái.' },
+      { icon: Undo2, title: 'Sai thì Undo', description: 'Mỗi lần chèn part đều có thông báo kèm nút Hoàn tác. Bấm Hoàn tác (hoặc Ctrl + Z, hoặc nút Undo có huy hiệu số part) để trả khung về như trước — như mọi sửa tay khác.' },
+      { icon: Lock, title: 'Part không kéo được', description: 'Part thiếu ảnh preview.png hoặc chưa qua reviewer duyệt thì không kéo vào khung được. Part bị ẩn hoặc bị khoá (chỉ dùng nội bộ) cũng vậy — thẻ nào không kéo được đều ghi rõ lý do.' },
+      { icon: EyeOff, title: 'Lịch sử & Báo cáo tháng', description: 'Part hay bị Ban kiểm thử từ chối được đếm và cộng vào báo cáo cuối tháng. Cột phải hiện lượt dùng, số lần bị từ chối và bản DESIGN.md mà part dựa theo.' },
+      { icon: Sparkles, title: 'AI dùng part thế nào', description: 'Bấm “Đính kèm prompt.txt + code vào yêu cầu AI” để app tự gửi kèm prompt.txt, sample.html và sample.css. AI mặc định chỉ chép nguyên code mẫu; muốn AI biến tấu thì bật công tắc “Cho phép AI biến tấu” và AI chỉ được dùng part trong kho đã duyệt.' },
+      { icon: FolderTree, title: 'Thêm part mới', description: 'Tạo thư mục mới trong /toolbox với đủ 5 tệp là app tự nhận part đó — không cần sửa code. Script scripts/make-parts.mjs sinh sẵn 12 part mẫu kèm ảnh preview.' },
+    ],
+  },
+
+  /* ───── 16. Settings ───── */
+  {
+    id: 'settings',
+    title: 'Màn hình cài đặt',
+    subtitle: 'Mở bằng nút bánh răng trên TopBar hoặc Ctrl + ,',
+    icon: Settings,
+    features: [
+      { icon: Settings, title: 'Cài đặt · Ctrl + ,', description: 'Mở từ icon bánh răng ở góc phải TopBar, tổ hợp Ctrl + dấu phẩy, hoặc mục “Mở cài đặt” trong Bảng lệnh. Cài đặt tự lưu, không có nút Lưu.' },
+      { icon: Search, title: 'Tìm nhanh mục cài đặt', description: 'Ô tìm ở cột trái lọc ngay theo tên, mô tả và từ khoá. Gõ “xuất”, “nền”, “giấy phép” hay “phím tắt” để nhảy thẳng tới mục cần đổi.' },
+      { icon: Palette, title: 'Giao diện', description: 'Chế độ nền, độ tương phản, mật độ, cỡ chữ và hiệu ứng. Bảng màu bên dưới chỉ để xem: một màu nhấn tím chàm cho hành động và phần tử đang chọn, bốn màu trạng thái cố định — đúng quy chuẩn ở mục 3.10.' },
+      { icon: LayoutGrid, title: 'Canvas & so sánh', description: 'Khung hiển thị và chế độ xem mặc định, lưới nền, thước đo, hít vào phần tử, ghim bình luận, ngưỡng lệch (px) và chỉ số tương đồng tối thiểu để coi là đạt.' },
+      { icon: Sparkles, title: 'AI & hồ sơ kết nối', description: 'Đổi hồ sơ bằng một lần bấm, quét PATH để tìm CLI trên máy, endpoint, mô hình, mức sáng tạo, số vòng sửa tối đa và ngân sách ngữ cảnh.' },
+      { icon: ShieldCheck, title: 'Quyền AI được phép', description: 'Bật/tắt từng quyền: đọc file, ghi file, chạy lệnh, cài gói, push GitHub. Hai quyền cuối được đánh dấu “cần xác nhận”. Nút Kiểm tra gửi một lệnh thử để chắc cầu nối còn sống.' },
+      { icon: ShieldCheck, title: 'Quyền & bảo mật', description: 'Chỉ dùng cầu nối cục bộ, mã hoá khoá API (khoá đã lưu không hiển thị lại), xác nhận trước lệnh nguy hiểm và danh sách mẫu lệnh bị chặn.' },
+      { icon: Info, title: 'Giấy phép AI', description: 'Xem hạn dùng, phạm vi quyền, dự án áp dụng và số thiết bị đang kích hoạt. Hết hạn hoặc bị thu hồi thì AI dừng ngay, kể cả đang giữa vòng sửa.' },
+      { icon: FolderTree, title: 'Lưu & xuất bài', description: 'Đường dẫn dự án và thư mục ảnh mẫu, tự lưu, số bản lưu giữ lại, định dạng xuất HTML một file hoặc ZIP kèm DESIGN.md, tokens.css và ảnh chụp.' },
+      { icon: Keyboard, title: 'Phím tắt', description: 'Bảng toàn bộ phím tắt của app: bảng lệnh, mở dự án, cài đặt, chụp màn hình, gửi yêu cầu cho AI và các công cụ canvas.' },
+      { icon: Command, title: 'Nâng cao', description: 'Cách nhận diện dev server, cổng mặc định, số phiên bản giữ lại, nhật ký chi tiết, giới hạn RAM, xuất/nhập cấu hình JSON và khôi phục mặc định.' },
     ],
   },
 ];
@@ -523,7 +659,7 @@ const Guide = ({ isOpen, onClose }: GuideProps) => {
             <BookOpen size={18} />
             <span className="guide-header-title">Hướng dẫn sử dụng</span>
           </div>
-          <button className="icon-btn" onClick={onClose} data-tooltip="Đóng">
+          <button className="icon-btn" onClick={onClose} data-tooltip="Đóng" data-tooltip-pos="dr">
             <X size={16} />
           </button>
         </div>

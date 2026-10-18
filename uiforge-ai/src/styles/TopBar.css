@@ -1,136 +1,178 @@
 /* ═══════════════════════════════════════════════════
-   UIForge AI — TopBar
+   Thanh trên cùng — theo bản thiết kế giao diện
+   (prototype/index.html → .topbar / .proj / .who / .menu)
    ═══════════════════════════════════════════════════ */
 
 .topbar {
+  flex: none;
   display: flex;
   align-items: center;
+  gap: 6px;
   height: var(--topbar-h);
-  padding: 0 var(--sp-3);
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border);
-  gap: var(--sp-2);
-  flex-shrink: 0;
-  z-index: 10;
-  user-select: none;
-  -webkit-app-region: drag;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #15171c, #101216);
+  position: relative;
+  z-index: var(--z-topbar);
 }
 
-/* Logo */
-.topbar__logo {
+/* ── Thương hiệu ───────────────────────────────── */
+.topbar__brand {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  -webkit-app-region: no-drag;
+  gap: 7px;
+  padding-right: 4px;
 }
-.topbar__logo-icon {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--accent), hsl(280, 60%, 60%));
-  display: flex;
+.topbar__mark {
+  width: 25px;
+  height: 25px;
+  flex: none;
+  border-radius: 8px;
+  background: linear-gradient(140deg, #7d6ef8, #4b31c9);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.topbar__wordmark {
+  font: 650 12.5px var(--font-family);
+  letter-spacing: -0.01em;
+}
+
+/* ── Chip dự án ────────────────────────────────── */
+.proj {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  font-size: var(--font-xs);
-  font-weight: 700;
-  color: white;
-  letter-spacing: -0.5px;
-  box-shadow: 0 0 12px var(--accent-glow);
-}
-.topbar__logo-text {
-  font-size: var(--font-md);
-  font-weight: 600;
+  gap: 6px;
+  height: 29px;
+  padding: 0 9px;
+  flex: none;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
   color: var(--text);
-  letter-spacing: -0.3px;
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 240px;
 }
-.topbar__logo-text span {
-  background: linear-gradient(135deg, var(--accent), hsl(280, 60%, 65%));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
+.proj:hover { background: var(--panel-3); border-color: var(--line-2); }
+.proj b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Project button */
-.topbar__project-btn {
+/* ── Ô tìm / bảng lệnh ─────────────────────────── */
+.topbar__palette {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-1) var(--sp-3);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  transition: all var(--duration-fast) var(--ease-out);
-  -webkit-app-region: no-drag;
+  gap: 6px;
+  height: 29px;
+  padding: 0 6px 0 10px;
+  margin-left: 8px;
+  width: 260px;
+  flex: none;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--bg-inset);
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
 }
-.topbar__project-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-focus);
-}
-.topbar__project-name {
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-  max-width: 160px;
+.topbar__palette:hover { border-color: var(--line-2); color: var(--text-2); }
+.topbar__palette-txt {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ── Hồ sơ AI ──────────────────────────────────── */
+.topbar__profile-label {
+  max-width: 150px;
   white-space: nowrap;
-}
-.topbar__project-caret {
-  font-size: 8px;
-  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Tool groups */
-.topbar__group {
-  display: flex;
+/* ── Người đang đăng nhập ──────────────────────── */
+.who {
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
-  -webkit-app-region: no-drag;
-}
-
-/* Spacer */
-.topbar__spacer { flex: 1; }
-
-/* Run button */
-.topbar__run-btn {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-1) var(--sp-3);
-  border-radius: var(--radius-md);
-  background: linear-gradient(135deg, hsl(var(--hue-success), 55%, 42%), hsl(var(--hue-success), 55%, 36%));
-  color: white;
-  font-size: var(--font-sm);
-  font-weight: 600;
-  transition: all var(--duration-fast) var(--ease-out);
-  -webkit-app-region: no-drag;
-  box-shadow: 0 0 10px hsla(var(--hue-success), 55%, 50%, 0.2);
-}
-.topbar__run-btn:hover {
-  filter: brightness(1.15);
-  box-shadow: 0 0 16px hsla(var(--hue-success), 55%, 50%, 0.35);
-}
-.topbar__run-btn svg {
-  width: 14px;
-  height: 14px;
-}
-
-/* Avatar */
-.topbar__avatar {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-full);
-  background: var(--bg-overlay);
-  border: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--font-xs);
-  font-weight: 600;
-  color: var(--text-secondary);
-  -webkit-app-region: no-drag;
+  gap: 7px;
+  height: 32px;
+  padding: 0 8px 0 4px;
+  flex: none;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
   cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out);
+  text-align: left;
 }
-.topbar__avatar:hover {
-  border-color: var(--accent);
+.who:hover { background: var(--panel-3); border-color: var(--line-2); }
+.topbar__who-txt { line-height: 1.25; }
+.topbar__who-txt b { font-size: 11.5px; font-weight: 600; }
+.topbar__who-txt span { font-size: 10px; color: var(--text-3); }
+
+/* ── Menu bật xuống ────────────────────────────── */
+.topbar__pop { position: relative; flex: none; }
+.topbar__scrim { position: fixed; inset: 0; z-index: 1; }
+.topbar__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 7px);
+  z-index: 2;
+  min-width: 232px;
+  padding: 5px;
+  border-radius: var(--r);
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+  animation: slide-down var(--duration-normal) var(--ease-out);
+}
+.topbar__menu-hd {
+  font: 600 10px var(--font-family);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 6px 8px 5px;
+}
+.topbar__menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 12px var(--font-family);
+  cursor: pointer;
+  text-align: left;
+}
+.topbar__menu button:hover { background: var(--panel-2); color: var(--text); }
+.topbar__menu button.is-on { background: var(--accent-soft); color: var(--accent-text); }
+.topbar__menu-check { font-size: 11px; }
+.topbar__menu-foot {
+  padding: 7px 8px 5px;
+  font-size: 10.5px;
+  color: var(--text-3);
+  border-top: 1px solid var(--line);
+  margin-top: 5px;
+}
+
+/* ── Thu hẹp màn hình ──────────────────────────── */
+@media (max-width: 1400px) {
+  .topbar__palette { width: 200px; }
+}
+@media (max-width: 1220px) {
+  .topbar__palette { width: 150px; }
+  .topbar__profile-label { display: none; }
+  .topbar__who-txt { display: none; }
+}
+@media (max-width: 1080px) {
+  .topbar__opt { display: none; }
+}
+@media (max-width: 920px) {
+  .topbar__palette { width: 112px; }
+  .topbar__share { display: none; }
 }

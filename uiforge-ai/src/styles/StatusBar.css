@@ -1,66 +1,65 @@
 /* ═══════════════════════════════════════════════════
-   UIForge AI — StatusBar
+   PixelMind — StatusBar
    ═══════════════════════════════════════════════════ */
 
-.statusbar {
+.status {
   display: flex;
   align-items: center;
+  gap: 2px;
   height: var(--statusbar-h);
-  padding: 0 var(--sp-3);
+  padding: 0 var(--sp-2);
   background: var(--bg-surface);
   border-top: 1px solid var(--border);
-  gap: var(--sp-1);
   flex-shrink: 0;
   user-select: none;
+  font-size: var(--font-2xs);
 }
-.statusbar__item {
+.status__item {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  height: 20px;
   padding: 0 var(--sp-2);
-  font-size: var(--font-xs);
-  color: var(--text-muted);
-  height: 100%;
-}
-.statusbar__item.clickable {
-  cursor: pointer;
   border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
   transition: all var(--duration-fast) var(--ease-out);
 }
-.statusbar__item.clickable:hover {
-  color: var(--text-secondary);
-  background: var(--bg-hover);
-}
-.statusbar__item-icon {
-  display: flex;
-  align-items: center;
-}
-.statusbar__item-icon svg {
-  width: 12px;
-  height: 12px;
-}
-.statusbar__spacer { flex: 1; }
+.status__item svg { color: var(--text-faint); }
+.status__item.link { cursor: pointer; }
+.status__item.link:hover { background: var(--bg-hover); color: var(--text-secondary); }
+.status__sep { width: 1px; height: 12px; background: var(--border); flex-shrink: 0; }
+.status__spacer { flex: 1; }
 
-.statusbar__divider {
-  width: 1px;
-  height: 12px;
-  background: var(--border);
+.status__ver-dot {
+  width: 5px; height: 5px; border-radius: var(--radius-full);
+  background: var(--color-warning);
 }
 
-.statusbar__ai-status {
+.status__license {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: var(--font-xs);
-  font-weight: 500;
+  gap: 5px;
+  height: 20px;
   padding: 0 var(--sp-2);
-}
-.statusbar__ai-status.ready {
+  border-radius: var(--radius-sm);
   color: var(--color-success);
+  background: var(--color-success-muted);
+  white-space: nowrap;
 }
-.statusbar__ai-status.working {
-  color: var(--color-warning);
+
+.status__ai {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  white-space: nowrap;
 }
-.statusbar__ai-status.working span:first-child {
-  animation: pulse-dot 1s ease-in-out infinite;
-}
+/* Xanh dương = đang xử lý (theo mục 3.10 của báo cáo) */
+.status__ai.working { color: var(--color-info); background: var(--color-info-muted); }
+.status__ai.ready { color: var(--color-success); background: var(--color-success-muted); }
+.status__ai-dot { width: 6px; height: 6px; border-radius: var(--radius-full); background: currentColor; }
+.status__ai.working .status__ai-dot { animation: pulse-dot 1.1s ease-in-out infinite; }

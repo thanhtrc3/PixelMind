@@ -1,0 +1,75 @@
+/* ═══════════════════════════════════════════════════
+   Cột điều hướng dọc — theo bản thiết kế giao diện
+   (prototype/index.html → .nav / .nav.mini)
+   ═══════════════════════════════════════════════════ */
+
+.nav {
+  flex: none;
+  width: var(--nav-w);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: width var(--duration-normal) var(--ease-out);
+}
+
+.nav__group { display: flex; flex-direction: column; gap: 1px; }
+
+.nav__label {
+  font: 600 10px var(--font-family);
+  color: var(--text-3);
+  letter-spacing: 0.07em;
+  padding: 11px 8px 4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.nav__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 30px;
+  width: 100%;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 12.5px var(--font-family);
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: left;
+}
+.nav__item:hover { background: var(--panel-2); color: var(--text); }
+.nav__item.is-on {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px rgba(109, 93, 245, 0.32);
+}
+.nav__text { overflow: hidden; text-overflow: ellipsis; }
+.nav__badge {
+  margin-left: auto;
+  font: 600 10px var(--font-family);
+  color: var(--text-3);
+}
+
+/* ── Thu gọn: chỉ còn dải icon 54px ────────────── */
+.nav--mini {
+  width: var(--nav-mini-w);
+  padding: 8px 7px;
+  align-items: center;
+}
+.nav--mini .nav__group { align-items: center; width: 100%; }
+.nav--mini .nav__label,
+.nav--mini .nav__text,
+.nav--mini .nav__badge { display: none; }
+.nav--mini .nav__item {
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}

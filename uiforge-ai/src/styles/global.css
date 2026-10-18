@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════════════
-   UIForge AI — Global Reset & Shared Utilities
+   PixelMind — Global reset, utilities & animation
    ═══════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -21,175 +21,444 @@ html, body, #root {
   background: var(--bg-base);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+/* ── Scrollbar ─────────────────────────────────── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.13);
+  border-radius: 99px;
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
 
-/* ── Selection ── */
-::selection {
-  background: var(--accent-muted);
-  color: var(--text);
-}
+/* ── Selection ─────────────────────────────────── */
+::selection { background: var(--accent-muted-2); color: var(--text); }
 
-/* ── Focus Ring ── */
+/* ── Focus ring ────────────────────────────────── */
 :focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: 1px;
+  border-radius: var(--radius-xs);
 }
 
-/* ── Button resets ── */
-button {
-  background: none;
-  border: none;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-}
-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
+/* ── Resets ────────────────────────────────────── */
+button { background: none; border: none; color: inherit; cursor: pointer; font: inherit; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+input, textarea, select { background: none; border: none; color: inherit; font: inherit; outline: none; }
+a { color: inherit; text-decoration: none; }
+svg { flex-shrink: 0; }
+kbd { font-family: var(--font-mono); }
 
-/* ── Input resets ── */
-input, textarea, select {
-  background: none;
-  border: none;
-  color: inherit;
-  font: inherit;
-  outline: none;
-}
-
-/* ── Shared: Icon Button ── */
+/* ── Icon button ───────────────────────────────── */
 .icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-md);
+  width: 29px;
+  height: 29px;
+  border-radius: var(--r-sm);
   color: var(--text-secondary);
-  transition: all var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              transform var(--duration-fast) var(--ease-out);
   flex-shrink: 0;
 }
-.icon-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
+.icon-btn:hover { background: var(--panel-2); color: var(--text); }
+.icon-btn:active { transform: scale(0.94); }
 .icon-btn.active {
-  background: var(--accent-muted);
-  color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
 }
+.icon-btn.lg { width: 33px; height: 33px; }
+.icon-btn.sm { width: 24px; height: 24px; }
 
-/* ── Shared: Badge ── */
+/* ── Buttons ───────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 29px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--text);
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+  flex: none;
+}
+.btn:hover { background: var(--panel-3); border-color: rgba(255, 255, 255, 0.2); color: var(--text); }
+.btn:active { background: var(--bg-active); }
+.btn-primary,
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 500;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+.btn-primary:hover,
+.btn.primary:hover { background: var(--accent-2); border-color: transparent; color: #fff; }
+.btn-primary:active,
+.btn.primary:active { background: var(--accent-strong); }
+.btn-ghost,
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+.btn-ghost:hover,
+.btn.ghost:hover { background: var(--panel-2); border-color: transparent; color: var(--text); }
+.btn-sm,
+.btn.sm { height: 25px; padding: 0 8px; font-size: 11.5px; border-radius: 6px; }
+.btn-sm svg,
+.btn.sm svg { width: 12px; height: 12px; }
+.btn-lg { height: 33px; padding: 0 14px; font-size: var(--font-sm); }
+.btn.wide, .btn-lg.wide { width: 100%; }
+.btn-danger,
+.btn.danger {
+  background: rgba(240, 85, 63, 0.11);
+  color: var(--color-error-text);
+  border-color: rgba(240, 85, 63, 0.4);
+}
+.btn-danger:hover,
+.btn.danger:hover { background: rgba(240, 85, 63, 0.18); color: var(--color-error-text); }
+.btn-success,
+.btn.ok {
+  background: rgba(49, 192, 122, 0.13);
+  color: var(--color-success-text);
+  border-color: rgba(49, 192, 122, 0.42);
+}
+.btn-success:hover,
+.btn.ok:hover { background: rgba(49, 192, 122, 0.2); color: var(--color-success-text); }
+
+/* ── Badge ─────────────────────────────────────── */
 .badge {
   display: inline-flex;
   align-items: center;
-  font-size: var(--font-xs);
+  gap: 4px;
+  min-height: 19px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 10.5px;
   font-weight: 600;
-  padding: 1px 6px;
-  border-radius: var(--radius-full);
   line-height: 1.5;
   white-space: nowrap;
+  letter-spacing: 0.01em;
 }
-.badge-accent {
-  background: var(--accent-muted);
-  color: var(--accent);
+/* Chấm trạng thái nhỏ, dùng kèm badge */
+.badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
 }
-.badge-success {
-  background: var(--color-success-muted);
-  color: var(--color-success);
-}
-.badge-warning {
-  background: var(--color-warning-muted);
-  color: var(--color-warning);
-}
-.badge-error {
-  background: var(--color-error-muted);
-  color: var(--color-error);
-}
-.badge-neutral {
-  background: var(--bg-overlay);
-  color: var(--text-secondary);
+.badge-accent  { background: var(--accent-muted); color: var(--accent); }
+.badge-success { background: var(--color-success-muted); color: var(--color-success); }
+.badge-warning { background: var(--color-warning-muted); color: var(--color-warning); }
+.badge-error   { background: var(--color-error-muted); color: var(--color-error); }
+.badge-info    { background: var(--color-info-muted); color: var(--color-info); }
+.badge-neutral { background: var(--bg-overlay); color: var(--text-secondary); }
+
+/* ── Chip / kbd ────────────────────────────────── */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 17px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-3);
+  line-height: 1;
 }
 
-/* ── Shared: Divider ── */
+/* ── Segmented control ─────────────────────────── */
+.seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  flex: none;
+}
+.seg__item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--text-2);
+  background: transparent;
+  border: 0;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+}
+.seg__item:hover { color: var(--text); }
+.seg__item.active {
+  background: var(--panel-3);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.seg__item.active.accent {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px rgba(109, 93, 245, 0.4);
+}
+
+/* ── Divider ───────────────────────────────────── */
 .divider-v {
   width: 1px;
   align-self: stretch;
+  margin: 9px var(--sp-1);
   background: var(--border);
-  margin: 0 var(--sp-1);
-  opacity: 0.6;
+  opacity: 0.7;
+  flex-shrink: 0;
 }
-.divider-h {
-  height: 1px;
-  width: 100%;
-  background: var(--border);
-  opacity: 0.6;
-}
+.divider-h { height: 1px; width: 100%; background: var(--border); opacity: 0.7; }
 
-/* ── Resize Handle (react-resizable-panels v4) ── */
+/* ── Panel / card ──────────────────────────────── */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  min-width: 0;
+  overflow-x: auto;
+}
+.card-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--line);
+}
+.card-hd b { font-size: 12.5px; font-weight: 600; }
+.card-bd { padding: 13px; }
+.card-bd.tight { padding: 0; }
+
+/* ── Resize separator ──────────────────────────── */
 [data-separator] {
-  width: 3px !important;
-  background: transparent;
+  width: 1px !important;
+  background: var(--border);
   transition: background var(--duration-fast) var(--ease-out);
   position: relative;
   flex-shrink: 0;
+  cursor: col-resize;
 }
 [data-separator]::after {
   content: '';
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
+  top: 0; bottom: 0; left: 50%;
   transform: translateX(-50%);
-  width: 1px;
-  background: var(--border-subtle);
-  transition: all var(--duration-fast) var(--ease-out);
+  width: 7px;
 }
-[data-separator]:hover::after {
-  background: var(--accent);
-  width: 2px;
-  box-shadow: var(--shadow-glow);
-}
+[data-separator]:hover, [data-separator][data-state="dragging"] { background: var(--accent); }
 
-/* ── Tooltip (simple CSS-only) ── */
-[data-tooltip] {
-  position: relative;
-}
+/* ── Tooltip ─────────────────────────────────────
+   Mặc định hiện BÊN DƯỚI để không bị cắt bởi thanh/pane phía trên.
+   Dùng data-tooltip-pos khi cần hướng khác:
+     top   → hàng dưới cùng (thanh trạng thái, khung soạn tin)
+     right → rail dọc (sidebar)
+     dr    → panel hẹp, canh phải để không tràn ra ngoài
+   ─────────────────────────────────────────────── */
+[data-tooltip] { position: relative; }
 [data-tooltip]::after {
   content: attr(data-tooltip);
   position: absolute;
-  bottom: calc(100% + 6px);
+  top: calc(100% + 7px);
   left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  padding: 4px 8px;
+  transform: translateX(-50%) translateY(-4px);
+  padding: 5px 9px;
   border-radius: var(--radius-sm);
-  background: var(--bg-overlay);
-  border: 1px solid var(--border);
+  background: hsl(240 6% 7%);
+  border: 1px solid var(--border-strong);
   color: var(--text);
-  font-size: var(--font-xs);
+  font-size: var(--font-2xs);
+  font-weight: 500;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
-  transition: all var(--duration-fast) var(--ease-out);
-  z-index: 100;
+  transition: opacity var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+  z-index: var(--z-toast);
   box-shadow: var(--shadow-md);
+  letter-spacing: 0.01em;
 }
-[data-tooltip]:hover::after {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
+[data-tooltip]:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Bên trên */
+[data-tooltip-pos="top"]::after {
+  top: auto;
+  bottom: calc(100% + 7px);
+  transform: translateX(-50%) translateY(4px);
 }
+[data-tooltip-pos="top"]:hover::after { transform: translateX(-50%) translateY(0); }
+
+/* Bên trên, canh trái */
+[data-tooltip-pos="tl"]::after {
+  top: auto;
+  bottom: calc(100% + 7px);
+  left: 0;
+  transform: translateY(4px);
+}
+[data-tooltip-pos="tl"]:hover::after { transform: translateY(0); }
+
+/* Bên trên, canh phải */
+[data-tooltip-pos="tr"]::after {
+  top: auto;
+  bottom: calc(100% + 7px);
+  left: auto;
+  right: 0;
+  transform: translateY(4px);
+}
+[data-tooltip-pos="tr"]:hover::after { transform: translateY(0); }
+
+/* Bên phải */
+[data-tooltip-pos="right"]::after {
+  top: 50%;
+  left: calc(100% + 9px);
+  transform: translateY(-50%) translateX(-4px);
+}
+[data-tooltip-pos="right"]:hover::after { transform: translateY(-50%) translateX(0); }
+
+/* Bên dưới, canh trái */
+[data-tooltip-pos="dl"]::after {
+  left: 0;
+  transform: translateY(-4px);
+}
+[data-tooltip-pos="dl"]:hover::after { transform: translateY(0); }
+
+/* Bên dưới, canh phải */
+[data-tooltip-pos="dr"]::after {
+  left: auto;
+  right: 0;
+  transform: translateY(-4px);
+}
+[data-tooltip-pos="dr"]:hover::after { transform: translateY(0); }
+
+/* ── Khung ứng dụng ────────────────────────────── */
+.app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-base);
+  overflow: hidden;
+}
+/* Thân app: cột điều hướng dọc + vùng nội dung */
+.app__body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+.app__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+/* Một màn trong vùng nội dung (vùng làm việc hoặc màn quản lý) */
+.app__pane {
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Animations ────────────────────────────────── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.86); }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  0% { background-position: -240px 0; }
+  100% { background-position: 240px 0; }
+}
+@keyframes sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
+}
+.spin { animation: spin 0.9s linear infinite; }
+.fade-in { animation: fade-in var(--duration-normal) var(--ease-out); }
+.slide-up { animation: slide-up var(--duration-slow) var(--ease-out); }
+
+/* ── Thông báo nổi (toast) ── */
+.toast {
+  position: fixed;
+  right: var(--sp-4);
+  bottom: calc(var(--sp-4) + 30px);
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 8px 8px 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-strong);
+  border-left: 2px solid var(--color-success);
+  box-shadow: var(--shadow-lg);
+}
+.toast__ico {
+  display: grid;
+  place-items: center;
+  width: 22px; height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-success-muted);
+  color: var(--color-success);
+}
+.toast__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.toast__text strong { font-size: var(--font-xs); color: var(--text); }
+.toast__text span {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.toast__undo { flex-shrink: 0; }
+.toast__x {
+  display: grid;
+  place-items: center;
+  width: 22px; height: 22px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.toast__x:hover { background: var(--bg-hover); color: var(--text); }
