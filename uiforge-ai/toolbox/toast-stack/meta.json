@@ -1,0 +1,28 @@
+{
+  "id": "toast-stack",
+  "name": "Hàng thông báo nổi",
+  "groups": [
+    "feedback",
+    "layout",
+    "form"
+  ],
+  "tags": [
+    "thông báo",
+    "toast",
+    "nổi",
+    "cảnh báo",
+    "feedback"
+  ],
+  "version": "0.4.0",
+  "designMd": "DESIGN.md · 2026-10-01",
+  "author": "Trần Quốc Bảo",
+  "origin": "Figma · PixelMind Kit / feedback",
+  "license": "MIT · nội bộ dự án",
+  "status": "approved",
+  "locked": false,
+  "demo": false,
+  "uses": 0,
+  "rejects": 0,
+  "updated": "2026-10-16",
+  "note": "Thiếu preview.png: ảnh chụp lỗi, chưa bổ sung nên không được kéo vào khung."
+}

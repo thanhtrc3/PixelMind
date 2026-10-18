@@ -1,0 +1,46 @@
+/* Ô tìm kiếm dạng card có viền — token lấy từ DESIGN.md */
+.pt-searchbox-card {
+  --pt-radius: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 520px;
+  padding: 12px 12px 12px 14px;
+  border-radius: var(--pt-radius);
+  background: #ffffff;
+  border: 1.5px solid #e6e6ea;
+  box-shadow: 0 8px 24px rgba(43, 39, 64, 0.06);
+  font-family: var(--font-ui);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.pt-searchbox-card:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px hsla(262, 82%, 60%, 0.16);
+}
+.pt-searchbox-card__icon { display: grid; place-items: center; color: #86868f; }
+.pt-searchbox-card__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: #24242c;
+}
+.pt-searchbox-card__input::placeholder { color: #9494a0; }
+.pt-searchbox-card__btn {
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: calc(var(--pt-radius) - 6px);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.pt-searchbox-card__btn:active { background: var(--accent-hover); }

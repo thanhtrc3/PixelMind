@@ -1,0 +1,7 @@
+Chồng ảnh đại diện kèm số người còn lại.
+- Kích thước: mỗi avatar 40×40, chồng lên nhau 10px, viền trắng 2px
+- Bo góc: tròn hoàn toàn cho avatar, viên thuốc cho nhãn "+n người khác"
+- Chữ trong avatar: 12px đậm 700, màu nhấn trên nền tím nhạt
+- Nhãn còn lại: cao 32px, padding 0 14px, nền #f3f3f6
+- Khi hover: hiện tooltip tên người dùng, không đổi kích thước
+- Màu nền avatar mặc định lấy từ --accent-muted

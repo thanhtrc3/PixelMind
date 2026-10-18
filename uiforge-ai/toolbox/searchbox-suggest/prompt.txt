@@ -1,0 +1,7 @@
+Ô tìm kiếm kèm chip gợi ý, đặt giữa vùng nội dung.
+- Ô nhập: cao 56px, bo góc 14px, padding 0 14px, viền 1.5px #e6e6ea
+- Vị trí icon: kính lúp cách trái 14px, vẽ bằng CSS
+- Chip: cao 30px, bo viên thuốc, cách nhau 8px, cách ô nhập 10px
+- Chip đang chọn: nền tím nhạt, viền màu nhấn, chữ tím đậm 600
+- Chip khi hover: viền + chữ đổi sang màu nhấn tím
+- Khi focus ô nhập: viền đổi sang màu nhấn, không đổ bóng

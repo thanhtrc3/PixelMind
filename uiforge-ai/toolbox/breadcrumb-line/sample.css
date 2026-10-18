@@ -1,0 +1,17 @@
+/* Dải đường dẫn dưới thanh điều hướng */
+.pt-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+}
+.pt-breadcrumb a { color: #86868f; text-decoration: none; }
+.pt-breadcrumb a:hover { color: var(--accent); }
+.pt-breadcrumb [aria-current="page"] { color: #24242c; font-weight: 600; }
+.pt-breadcrumb__sep {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: #d4d4da;
+  flex-shrink: 0;
+}

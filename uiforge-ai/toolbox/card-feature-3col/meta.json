@@ -1,0 +1,29 @@
+{
+  "id": "card-feature-3col",
+  "name": "Card tính năng 3 cột",
+  "groups": [
+    "card",
+    "layout",
+    "marketing",
+    "feedback"
+  ],
+  "tags": [
+    "card",
+    "feature",
+    "tính năng",
+    "lưới",
+    "3 cột",
+    "thẻ"
+  ],
+  "version": "2.2.0",
+  "designMd": "DESIGN.md · 2026-10-01",
+  "author": "Nguyễn Thanh Hiền",
+  "origin": "Figma · PixelMind Kit / card",
+  "license": "MIT · nội bộ dự án",
+  "status": "approved",
+  "locked": false,
+  "demo": true,
+  "uses": 24,
+  "rejects": 0,
+  "updated": "2026-10-11"
+}

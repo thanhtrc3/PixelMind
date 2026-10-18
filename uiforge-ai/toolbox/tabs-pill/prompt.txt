@@ -1,0 +1,7 @@
+Dãy tab dạng viên dùng để chuyển mục trong trang.
+- Kích thước: mỗi tab cao 38px, padding 0 20px, cả dãy có padding 6px, cách nhau 4px
+- Bo góc: viên thuốc hoàn toàn (999px) cho cả khung và từng tab
+- Nền khung: #f3f3f6, viền 1px #ebebef
+- Tab đang chọn: nền màu nhấn tím, chữ trắng đậm 600, bóng tím mờ
+- Tab thường: chữ #6a6a74, khi hover chữ đậm lên #24242c
+- Khi bấm tab khác: chỉ đổi nền, không đổi kích thước để tránh nhảy bố cục

@@ -1,0 +1,27 @@
+/* Cặp nút kêu gọi hành động ở vùng hero */
+.pt-button-cta { display: inline-flex; align-items: center; gap: 14px; font-family: var(--font-ui); }
+.pt-button-cta__main,
+.pt-button-cta__ghost {
+  height: 52px;
+  padding: 0 26px;
+  border-radius: 14px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 120ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+.pt-button-cta__main {
+  border: 0;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  box-shadow: 0 10px 24px hsla(262, 82%, 60%, 0.28);
+}
+.pt-button-cta__main:hover { background: var(--accent-hover); }
+.pt-button-cta__main:active { transform: translateY(1px); box-shadow: 0 4px 12px hsla(262, 82%, 60%, 0.3); }
+.pt-button-cta__ghost {
+  background: transparent;
+  color: #48484f;
+  border: 1.5px solid #dcdce2;
+}
+.pt-button-cta__ghost:hover { border-color: var(--accent); color: var(--accent); }

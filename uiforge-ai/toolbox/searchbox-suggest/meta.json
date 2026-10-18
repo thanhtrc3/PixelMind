@@ -1,0 +1,28 @@
+{
+  "id": "searchbox-suggest",
+  "name": "Ô tìm kiếm kèm chip gợi ý",
+  "groups": [
+    "search",
+    "form",
+    "feedback"
+  ],
+  "tags": [
+    "search",
+    "searchbox",
+    "gợi ý",
+    "chip",
+    "tag",
+    "tìm kiếm"
+  ],
+  "version": "1.0.3",
+  "designMd": "DESIGN.md · 2026-10-01",
+  "author": "Nguyễn Thanh Hiền",
+  "origin": "Figma · PixelMind Kit / search",
+  "license": "MIT · nội bộ dự án",
+  "status": "approved",
+  "locked": false,
+  "demo": true,
+  "uses": 6,
+  "rejects": 1,
+  "updated": "2026-10-05"
+}

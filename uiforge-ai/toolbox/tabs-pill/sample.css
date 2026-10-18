@@ -1,0 +1,30 @@
+/* Dãy tab dạng viên, cả dãy nằm trong một khung bo tròn */
+.pt-tabs-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 999px;
+  background: #f3f3f6;
+  border: 1px solid #ebebef;
+  font-family: var(--font-ui);
+}
+.pt-tabs-pill__tab {
+  height: 38px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #6a6a74;
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.pt-tabs-pill__tab:hover { color: #24242c; }
+.pt-tabs-pill__tab.is-active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-weight: 600;
+  box-shadow: 0 4px 12px hsla(262, 82%, 60%, 0.28);
+}

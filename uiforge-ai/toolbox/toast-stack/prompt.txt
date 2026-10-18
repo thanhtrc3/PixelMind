@@ -1,0 +1,7 @@
+Hàng thông báo nổi ở góc phải dưới màn hình.
+- Kích thước: mỗi thông báo rộng 300px, padding 12px 14px, cách nhau 10px
+- Bo góc: 12px; viền trái dày 4px mang màu trạng thái
+- Vị trí icon: chấm tròn 18px nằm sát trái, cách chữ 10px
+- Màu theo trạng thái: thành công xanh lá, cảnh báo vàng, lỗi đỏ (màu trạng thái cố định)
+- Khi bấm vào: thông báo mờ dần rồi biến mất sau 300ms
+- Tự ẩn sau 5 giây, xếp chồng lên nhau theo thứ tự mới nhất ở trên

@@ -1,0 +1,7 @@
+Nhóm ô nhập có nhãn phía trên, dùng trong biểu mẫu.
+- Kích thước: ô nhập cao 46px, padding 0 14px, nhóm rộng tối đa 420px, các nhóm cách nhau 16px
+- Bo góc: 10px; nhãn cách ô nhập 6px, dòng gợi ý cách 6px
+- Không đặt icon trong ô nhập
+- Khi focus: viền đổi sang màu nhấn và có vòng sáng tím nhạt 3px
+- Khi dữ liệu sai: viền đổi sang màu lỗi đỏ (--color-error)
+- Nhãn 13px đậm 600, dòng gợi ý 12px màu #86868f

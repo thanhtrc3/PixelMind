@@ -1,0 +1,90 @@
+/* ═══════════════════════════════════════════════════
+   PixelMind — Command Palette (Ctrl+K)
+   ═══════════════════════════════════════════════════ */
+
+.palette__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-palette);
+  background: hsla(240, 6%, 2%, 0.6);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  padding-top: 12vh;
+  animation: fade-in var(--duration-fast) var(--ease-out);
+}
+
+.palette {
+  width: min(92vw, 620px);
+  max-height: 66vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-xl);
+  background: var(--glass-strong);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+}
+
+.palette__input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  color: var(--accent);
+}
+.palette__input { flex: 1; font-size: var(--font-lg); color: var(--text); }
+.palette__input::placeholder { color: var(--text-faint); }
+
+.palette__results { flex: 1; overflow-y: auto; padding: var(--sp-2); }
+.palette__group { margin-bottom: var(--sp-2); }
+.palette__group-title {
+  padding: var(--sp-2) var(--sp-2) 4px;
+  font-size: var(--font-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-faint);
+}
+.palette__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  text-align: left;
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-out);
+}
+.palette__item.active { background: var(--accent-muted); color: var(--text); }
+.palette__item-icon {
+  width: 26px; height: 26px; border-radius: var(--radius-sm); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-inset); color: var(--text-secondary);
+}
+.palette__item.active .palette__item-icon { background: var(--accent); color: #fff; }
+.palette__item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.palette__item-label { font-size: var(--font-sm); }
+.palette__item-hint { font-size: var(--font-2xs); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette__enter { color: var(--accent); }
+
+.palette__empty {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-5); text-align: left;
+  font-size: var(--font-sm); color: var(--text-muted);
+}
+.palette__empty svg { color: var(--accent); }
+
+.palette__foot {
+  display: flex; align-items: center; gap: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
+  border-top: 1px solid var(--border);
+  font-size: var(--font-2xs);
+  color: var(--text-faint);
+  background: var(--bg-inset);
+}
+.palette__foot span { display: flex; align-items: center; gap: 4px; }
+.palette__foot-brand { margin-left: auto; color: var(--text-muted); font-weight: 600; }

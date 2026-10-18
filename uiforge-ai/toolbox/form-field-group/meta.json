@@ -1,0 +1,28 @@
+{
+  "id": "form-field-group",
+  "name": "Nhóm ô nhập có nhãn",
+  "groups": [
+    "form",
+    "layout",
+    "feedback"
+  ],
+  "tags": [
+    "form",
+    "ô nhập",
+    "nhãn",
+    "input",
+    "biểu mẫu"
+  ],
+  "version": "1.3.0",
+  "designMd": "DESIGN.md · 2026-10-01",
+  "author": "Trần Quốc Bảo",
+  "origin": "Figma · PixelMind Kit / form",
+  "license": "MIT · nội bộ dự án",
+  "status": "pending",
+  "locked": false,
+  "demo": false,
+  "uses": 5,
+  "rejects": 2,
+  "updated": "2026-10-13",
+  "note": "Chờ reviewer chốt trạng thái lỗi."
+}

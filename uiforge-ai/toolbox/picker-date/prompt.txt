@@ -1,0 +1,7 @@
+Ô chọn ngày dạng lịch tháng, mở từ ô nhập ngày.
+- Kích thước: rộng 280px, padding 12px, lưới 7 cột, mỗi ô cao 30px
+- Bo góc: khung 14px, mỗi ô ngày 8px, nút chuyển tháng 8px
+- Vị trí: mở ngay dưới ô nhập, cách 6px; mũi tên chuyển tháng nằm hai đầu dòng tiêu đề
+- Ngày đang chọn: nền màu nhấn, chữ trắng đậm 600
+- Ngày khi hover: nền #f3f3f6; thứ trong tuần 11px màu #aeaeb8
+- Khi bấm ngày: đóng lịch ngay và đổ vào ô nhập theo định dạng dd/mm/yyyy
