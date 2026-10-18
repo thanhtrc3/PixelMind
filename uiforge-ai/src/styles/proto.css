@@ -301,38 +301,6 @@ table.tb td.r, table.tb th.r { text-align: right; }
 .kv:last-child { border-bottom: 0; }
 .kv .k { width: 126px; flex: none; color: var(--text-3); }
 
-/* ── Thẻ part ──────────────────────────────────── */
-.pcard {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.pcard:hover { border-color: var(--line-2); }
-.pcard .pv {
-  height: 118px;
-  flex: none;
-  background: #14161c;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border-bottom: 1px solid var(--line);
-  position: relative;
-}
-.pcard .pv img { max-width: 86%; max-height: 86%; object-fit: contain; display: block; }
-.pcard .pv .ph { color: #6b7280; font-size: 11px; font-family: var(--font-mono); }
-.pcard .pv .st { position: absolute; top: 7px; right: 7px; }
-.pcard .pb { padding: 9px 10px; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.pcard .nm { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pcard .act { display: flex; gap: 5px; padding: 0 10px 10px; }
-.pcard .src { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pcard.dragging { border-color: var(--accent-line); box-shadow: 0 0 0 1px var(--accent-line); }
-.pcard.blocked .pv { background: #1c1f26; }
-.pcard.blocked .pv img { filter: grayscale(1) brightness(0.7); }
-
 /* ── Modal / menu ──────────────────────────────── */
 .modal {
   position: fixed;

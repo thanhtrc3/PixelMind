@@ -64,11 +64,11 @@ Giao diện bám theo bản thiết kế giao diện (`prototype/index.html`) v�
 | | `CanvasArea` | 5 chế độ xem (Ảnh mẫu / Trực tiếp / Song song / Chồng lớp / Khác biệt), 6 công cụ vẽ, 4 khung thiết bị, thu/phóng vừa khung, ghim bình luận |
 | | `AIPanel` | 6 tab: Chat · Tác vụ · Lỗi · **Ngữ cảnh** · Bình luận · Kết nối, vòng lặp sửa lỗi và duyệt nhiều vòng |
 | Thanh dưới | `StatusBar` | localhost, framework, khung, thu phóng, phiên bản, nhánh git, hạn giấy phép, trạng thái AI |
-| Màn quản lý | `sections/*` | Dự án · Phiếu yêu cầu · Phiếu kiểm tra · Lịch sử phiên bản · Thư viện Part · Design system · Giấy phép AI · Người dùng · Nhật ký · Báo cáo · Xuất bài |
+| Màn quản lý | `sections/*` | Dự án · Phiếu yêu cầu · Phiếu kiểm tra · Lịch sử phiên bản · Design system · Giấy phép AI · Người dùng · Nhật ký · Báo cáo · Xuất bài |
 | Lớp phủ | `CommandPalette` | Bảng lệnh mở bằng `Ctrl/⌘ + K` |
-| Lớp phủ | `ProjectHub` | Danh sách dự án mở từ chip tên dự án hoặc `Ctrl/⌘ + O` |
+| Lớp phủ | `ProjectHub` | Chỉ còn danh sách dự án; mở từ chip tên dự án hoặc `Ctrl/⌘ + O` |
 | Lớp phủ | `Settings` | 9 nhóm cài đặt, có ô tìm nhanh và tự lưu |
-| Lớp phủ | `Toolbox` | Search Toolbox — mở nhanh bằng `Ctrl/⌘ + Shift + P` |
+| Lớp phủ | `Toolbox` | **Thư viện Part** (Search Toolbox) — mở bằng `Ctrl/⌘ + Shift + P`, bằng mục *Thư viện Part* ở cột điều hướng, hoặc bằng nút *Mở thư viện Part* ở tab Part của sidebar |
 | Lớp phủ | `LockScreen` | Màn đăng nhập, mở từ menu người dùng → Đăng xuất |
 
 ### Thêm trang cho dự án (màn **Dự án**)
@@ -104,7 +104,7 @@ Kho part dùng chung nằm ở thư mục [`toolbox/`](toolbox). **Mỗi part l�
 
 Cách dùng:
 
-1. Mở bằng `Ctrl/⌘ + Shift + P`, mục “Search Toolbox” trong Bảng lệnh, hoặc nút chèn part.
+1. Mở bằng `Ctrl/⌘ + Shift + P`, bằng mục **Thư viện Part** ở cột điều hướng, bằng nút **Mở thư viện Part** ở tab Part của sidebar, hoặc bằng nút chèn part.
 2. Gõ `search` để ra các part nhóm searchbox kèm ảnh, hoặc lọc theo nhóm / trạng thái duyệt.
 3. **Kéo part thả vào khung giữa canvas** (hoặc bấm “Chèn vào canvas”): app chèn `sample.html` + `sample.css` vào trang và tải lại ngay. Part đã chèn hiện thành hàng trong cây phần tử.
 4. Sai thì **Hoàn tác** — nút trên thông báo, nút Undo (có huy hiệu số part) hoặc `Ctrl/⌘ + Z`.

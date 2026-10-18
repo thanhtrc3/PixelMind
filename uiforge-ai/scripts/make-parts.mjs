@@ -76,19 +76,21 @@ const SS = 2; // supersample để cạnh mượt
 const W = OUT_W * SS;
 const H = OUT_H * SS;
 
+/* Bảng màu cho ảnh xem trước — nền sáng cho khớp với chính code mẫu
+   (sample.css dùng thẻ trắng, viền #e6e6ea, chữ #24242c, nhấn #6d5df5) */
 const COL = {
-  bg:      [16, 16, 18, 255],
-  grid:    [26, 26, 29, 255],
-  surface: [30, 30, 33, 255],
-  raised:  [42, 42, 46, 255],
-  border:  [64, 64, 69, 255],
-  bar:     [88, 88, 94, 255],
-  barDim:  [58, 58, 63, 255],
-  accent:  [136, 104, 212, 255],
-  accentD: [105, 64, 201, 255],
-  white:   [238, 238, 242, 255],
-  green:   [61, 194, 124, 255],
-  amber:   [219, 171, 45, 255],
+  bg:      [244, 245, 248, 255],
+  grid:    [231, 233, 239, 255],
+  surface: [255, 255, 255, 255],
+  raised:  [241, 242, 246, 255],
+  border:  [222, 224, 231, 255],
+  bar:     [78, 82, 94, 255],
+  barDim:  [172, 177, 188, 255],
+  accent:  [109, 93, 245, 255],
+  accentD: [90, 74, 224, 255],
+  white:   [255, 255, 255, 255],
+  green:   [49, 192, 122, 255],
+  amber:   [226, 177, 60, 255],
 };
 
 const canvas = () => Buffer.alloc(W * H * 4);
@@ -173,7 +175,7 @@ const magnifier = (buf, cx, cy, r, c) => {
 };
 
 const panel = (buf, x, y, w, h, r = 10, bg = COL.surface, bd = COL.border) => {
-  roundRect(buf, x + 1.5, y + 3, w, h, r, [0, 0, 0, 40]);
+  roundRect(buf, x + 1.5, y + 3, w, h, r, [16, 20, 32, 20]);
   roundRect(buf, x, y, w, h, r, bg);
   strokeRound(buf, x, y, w, h, r, bd, 1.4);
 };

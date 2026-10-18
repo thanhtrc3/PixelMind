@@ -1,6 +1,5 @@
 import type { SectionId } from '../../data/sections';
 import ProjectsPage from './ProjectsPage';
-import PartsPage from './PartsPage';
 import TicketsPage from './TicketsPage';
 import ChecksPage from './ChecksPage';
 import VersionsPage from './VersionsPage';
@@ -12,39 +11,16 @@ import ReportPage from './ReportPage';
 import ExportPage from './ExportPage';
 
 type Props = {
-  section: Exclude<SectionId, 'work'>;
+  /* “work” là vùng làm việc 3 cột; “parts” mở hộp Search Toolbox nên không phải màn riêng */
+  section: Exclude<SectionId, 'work' | 'parts'>;
   onSection: (id: SectionId) => void;
-  /* Thư viện Part cần chính sách kéo thả của app */
-  onInsertPart: (partId: string) => void;
-  onDragStart: (partId: string) => void;
-  onDragEnd: () => void;
-  draggingId?: string | null;
-  insertedCount?: number;
 };
 
 /** Chọn màn quản lý theo mục điều hướng đang mở */
-const SectionView = ({
-  section,
-  onSection,
-  onInsertPart,
-  onDragStart,
-  onDragEnd,
-  draggingId,
-  insertedCount,
-}: Props) => {
+const SectionView = ({ section, onSection }: Props) => {
   switch (section) {
     case 'projects':
       return <ProjectsPage onSection={onSection} />;
-    case 'parts':
-      return (
-        <PartsPage
-          onInsert={onInsertPart}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          draggingId={draggingId}
-          insertedCount={insertedCount}
-        />
-      );
     case 'tickets':
       return <TicketsPage />;
     case 'checks':

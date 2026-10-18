@@ -93,13 +93,11 @@ const TAB_ICONS: Record<SidebarTab, typeof Layers> = {
 interface SidebarProps {
   /** Part đã kéo từ Search Toolbox vào khung, hiện thành hàng trong cây phần tử */
   inserted?: InsertedPart[];
-  /** Mở Thư viện Part kèm từ khoá tìm sẵn */
+  /** Mở hộp Search Toolbox (kèm từ khoá tìm sẵn nếu có) */
   onOpenToolbox?: (query: string) => void;
-  /** Mở màn Thư viện Part (tab Part → nút “Mở thư viện Part”) */
-  onOpenParts?: () => void;
 }
 
-const Sidebar = ({ inserted = [], onOpenToolbox, onOpenParts }: SidebarProps) => {
+const Sidebar = ({ inserted = [], onOpenToolbox }: SidebarProps) => {
   const [activeTab, setActiveTab] = useState<SidebarTab>('layers');
   const [hidden, setHidden] = useState<number[]>([8]);
   const [hiddenParts, setHiddenParts] = useState<string[]>([]);
@@ -410,7 +408,11 @@ const Sidebar = ({ inserted = [], onOpenToolbox, onOpenParts }: SidebarProps) =>
                     <ChevronRight size={13} className="dim" />
                   </button>
                 ))}
-              <button className="btn primary wide" style={{ marginTop: 8 }} onClick={onOpenParts}>
+              <button
+                className="btn primary wide"
+                style={{ marginTop: 8 }}
+                onClick={() => onOpenToolbox?.('')}
+              >
                 <Package size={13} /> Mở thư viện Part
               </button>
               <div className="sidebar__hint-line">

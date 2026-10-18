@@ -265,7 +265,7 @@
   min-height: 0;
   overflow-y: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
   grid-auto-rows: max-content;   /* tránh hàng bị co theo min-content */
   gap: var(--sp-3);
   padding-right: 4px;
@@ -314,9 +314,10 @@
 .tbx-card__thumb {
   position: relative;
   display: block;
-  height: 104px;
+  /* Ảnh xem trước có nền sáng trùng màu tấm nền nên nhìn liền mạch, rõ như ảnh mẫu */
+  height: 132px;
   flex-shrink: 0;
-  background: #101012;
+  background: #f4f5f8;
   border-bottom: 1px solid var(--border);
   overflow: hidden;
 }
@@ -336,9 +337,9 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  color: var(--text-faint);
-  border: 1px dashed var(--border-strong);
-  background: repeating-linear-gradient(45deg, hsla(240, 6%, 12%, 0.6) 0 8px, transparent 8px 16px);
+  color: #8a909d;
+  border: 1px dashed #d3d7e0;
+  background: repeating-linear-gradient(45deg, rgba(15, 20, 35, 0.045) 0 8px, transparent 8px 16px);
 }
 .tbx-card__nopreview em { font-size: 10px; font-style: normal; }
 .tbx-card__demo,
@@ -357,7 +358,7 @@
   text-transform: uppercase;
 }
 .tbx-card__demo { left: 6px; background: var(--accent); color: var(--text-on-accent); }
-.tbx-card__used { right: 6px; background: var(--color-success-muted); color: var(--color-success); }
+.tbx-card__used { right: 6px; background: #1f9d63; color: #fff; }
 .tbx-card__lock,
 .tbx-card__grip {
   position: absolute;
@@ -369,8 +370,8 @@
   background: hsla(240, 6%, 6%, 0.75);
   backdrop-filter: blur(3px);
 }
-.tbx-card__lock { color: var(--color-warning); }
-.tbx-card__grip { color: var(--text-muted); }
+.tbx-card__lock { color: #f0c04a; }
+.tbx-card__grip { color: #dfe3ea; }
 
 .tbx-card__meta { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px 10px; }
 .tbx-card__name {
@@ -444,19 +445,19 @@
   border-radius: var(--radius-sm);
   overflow: hidden;
   border: 1px solid var(--border);
-  background: hsl(240, 6%, 9%);
+  background: #f4f5f8;
   display: grid;
   place-items: center;
-  padding: var(--sp-3);
-  max-height: 300px;
+  padding: 10px;
+  max-height: 320px;
 }
 .tbx-det__preview img {
   display: block;
   width: 100%;
   max-width: 420px;
-  max-height: 254px;
+  max-height: 264px;
   object-fit: contain;
-  border-radius: 2px;
+  border-radius: 4px;
 }
 .tbx-det__nopreview {
   display: flex;

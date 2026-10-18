@@ -104,11 +104,28 @@ const App = () => {
         setPaletteOpen(false);
         setSettingsOpen(false);
         setToolboxOpen(false);
+        setHubOpen(false);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  /* ── Điều hướng: “Thư viện Part” mở hộp Search Toolbox, không phải màn riêng ── */
+  const openBox = (query = '') => {
+    setToolboxQuery(query);
+    setToolboxOpen(true);
+  };
+
+  const goto = (id: SectionId) => {
+    if (id === 'parts') {
+      /* “Thư viện Part” không còn là màn riêng: về màn hình làm việc rồi mở hộp Search Toolbox */
+      setSection('work');
+      openBox('');
+      return;
+    }
+    setSection(id);
+  };
 
   return (
     <div className="app">
@@ -121,14 +138,14 @@ const App = () => {
         onUndo={undoInsert}
         undoCount={inserted.length}
         projectName="ShopWeb"
-        onSection={setSection}
+        onSection={goto}
         onLogout={() => setLocked(true)}
         onCanvasMode={(m) => setCanvasMode(m === 'side' ? 'compare' : 'live')}
       />
 
       <div className="app__body">
         {/* Cột điều hướng dọc — thu gọn thành dải icon khi ở màn hình làm việc */}
-        <Nav section={section} onSection={setSection} mini={section === 'work'} onLogout={() => setLocked(true)} />
+        <Nav section={section} onSection={goto} mini={section === 'work'} onLogout={() => setLocked(true)} />
 
         <div className="app__main">
           {/* Vùng làm việc 3 cột — giữ nguyên trạng thái khi đổi màn khác */}
@@ -141,7 +158,6 @@ const App = () => {
                     setToolboxQuery(q);
                     setToolboxOpen(true);
                   }}
-                  onOpenParts={() => setSection('parts')}
                 />
               </Panel>
               <Separator />
@@ -170,19 +186,11 @@ const App = () => {
             </Group>
           </div>
 
-          {/* Các màn quản lý */}
-          {section !== 'work' && (
+          {/* Các màn quản lý (“Thư viện Part” mở hộp riêng nên không tính là màn) */}
+          {section !== 'work' && section !== 'parts' && (
             <SectionView
               section={section}
-              onSection={setSection}
-              onInsertPart={(id) => {
-                insertPart(id);
-                setSection('work');
-              }}
-              onDragStart={setDragPart}
-              onDragEnd={() => setDragPart(null)}
-              draggingId={dragPart}
-              insertedCount={inserted.length}
+              onSection={goto}
             />
           )}
         </div>
@@ -199,8 +207,7 @@ const App = () => {
         onOpenHub={() => setHubOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenToolbox={() => {
-          setToolboxQuery('');
-          setToolboxOpen(true);
+          openBox('');
         }}
       />
       <ProjectHub
