@@ -1,0 +1,171 @@
+/* ═══════════════════════════════════════════════════
+   PixelMind — Design Tokens
+   Hệ thống hỗ trợ thiết kế giao diện
+
+   Nguồn: bộ token của bản thiết kế giao diện (prototype/index.html)
+   đối chiếu mục 3.10 của báo cáo — Phong cách hình ảnh.
+     · Nền tối, panel chênh nhau nhẹ để phân vùng
+     · Một màu nhấn duy nhất #6d5df5
+     · 4 màu trạng thái cố định: xanh lá = đạt, vàng = cảnh báo,
+       đỏ = lỗi, xanh dương = đang xử lý
+     · Chữ sans-serif; mã nguồn và giá trị CSS dùng monospace
+     · Bo góc / khoảng cách / bóng đổ khai báo một chỗ ở đây
+   ═══════════════════════════════════════════════════ */
+
+:root {
+  color-scheme: dark;
+
+  /* ── Hue anchors (giữ cho các chỗ còn tham chiếu) ─ */
+  --hue-accent:  247;
+  --hue-success: 152;
+  --hue-warning: 40;
+  --hue-error:   6;
+  --hue-info:    217;
+
+  /* ── Nền — hệ tầng (layered surfaces) ─────────── */
+  --bg:          #0b0c0f;   /* nền app                 */
+  --bg-2:        #0f1014;   /* nền panel phụ           */
+  --panel:       #131519;   /* panel chính             */
+  --panel-2:     #191b21;   /* thẻ, ô nhập, nút        */
+  --panel-3:     #20232a;   /* chip, popover, tag      */
+
+  --bg-base:     var(--bg);
+  --bg-inset:    #0a0b0e;   /* vùng lõm, canvas, code  */
+  --bg-surface:  var(--panel);
+  --bg-elevated: var(--panel-2);
+  --bg-overlay:  var(--panel-3);
+  --bg-hover:    var(--panel-3);
+  --bg-active:   #262a33;
+
+  /* Lớp phủ mờ (chỉ dùng cho modal / popover) */
+  --glass:           rgba(19, 21, 25, 0.86);
+  --glass-strong:    rgba(15, 16, 20, 0.95);
+  --glass-border:    rgba(255, 255, 255, 0.14);
+  --glass-highlight: rgba(255, 255, 255, 0.06);
+
+  /* ── Viền ─────────────────────────────────────── */
+  --line:          rgba(255, 255, 255, 0.075);
+  --line-2:        rgba(255, 255, 255, 0.14);
+  --border:        var(--line);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-strong: var(--line-2);
+  --border-focus:  #6d5df5;
+
+  /* ── Chữ ──────────────────────────────────────── */
+  --text:           #eceef2;
+  --text-2:         #a3a9b4;
+  --text-3:         #717884;
+  --text-secondary: var(--text-2);
+  --text-muted:     var(--text-3);
+  --text-faint:     #5b626e;
+  --text-on-accent: #ffffff;
+
+  /* ── Màu nhấn (duy nhất) ──────────────────────── */
+  --accent:         #6d5df5;
+  --accent-2:       #8c7dff;   /* tông sáng hơn — dùng cho chữ trên nền nhấn */
+  --accent-hover:   #8c7dff;
+  --accent-strong:  #6d5df5;
+  --accent-soft:    rgba(109, 93, 245, 0.14);
+  --accent-text:    #d6d1ff;
+  --accent-muted:   rgba(109, 93, 245, 0.14);
+  --accent-muted-2: rgba(109, 93, 245, 0.22);
+  --accent-line:    rgba(109, 93, 245, 0.42);
+  --accent-glow:    transparent;
+  --accent-gradient: linear-gradient(180deg, #7d6ef8, #4b31c9);
+
+  /* ── Màu trạng thái cố định ───────────────────── */
+  --ok:   #31c07a;
+  --warn: #e2b13c;
+  --err:  #f0553f;
+  --info: #4a8df6;
+
+  --color-success:        var(--ok);
+  --color-success-strong: #28a86a;
+  --color-success-muted:  rgba(49, 192, 122, 0.13);
+  --color-success-text:   #79dcab;
+  --color-warning:        var(--warn);
+  --color-warning-muted:  rgba(226, 177, 60, 0.13);
+  --color-warning-text:   #efc86e;
+  --color-error:          var(--err);
+  --color-error-muted:    rgba(240, 85, 63, 0.12);
+  --color-error-text:     #ff9d8b;
+  --color-info:           var(--info);
+  --color-info-muted:     rgba(74, 141, 246, 0.13);
+  --color-info-text:      #9cc0ff;
+
+  /* ── Kiểu chữ ─────────────────────────────────── */
+  --sans: 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  --mono: 'JetBrains Mono', Consolas, 'SF Mono', ui-monospace, monospace;
+  --font-family: var(--sans);
+  --font-ui: var(--font-family);
+  --font-mono: var(--mono);
+
+  --font-2xs:  0.625rem;  /* 10px */
+  --font-xs:   0.6875rem; /* 11px */
+  --font-sm:   0.75rem;   /* 12px */
+  --font-base: 0.8125rem; /* 13px */
+  --font-md:   0.875rem;  /* 14px */
+  --font-lg:   1rem;      /* 16px */
+  --font-xl:   1.25rem;   /* 20px */
+  --font-2xl:  1.5rem;    /* 24px */
+  --font-3xl:  2rem;      /* 32px */
+
+  --leading-tight: 1.3;
+  --leading-normal: 1.5;
+  --tracking-wide: 0.05em;
+
+  /* ── Khoảng cách ──────────────────────────────── */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* ── Bố cục ───────────────────────────────────── */
+  --topbar-h:    48px;
+  --statusbar-h: 28px;
+  --toolbar-h:   42px;
+  --nav-w:       198px;
+  --nav-mini-w:  54px;
+  --sidebar-w:   284px;
+  --ai-panel-w:  320px;
+
+  /* ── Bo góc ───────────────────────────────────── */
+  --r-sm: 7px;
+  --r:    10px;
+  --r-lg: 14px;
+
+  --radius-xs:   5px;
+  --radius-sm:   var(--r-sm);
+  --radius-md:   var(--r);
+  --radius-lg:   var(--r-lg);
+  --radius-xl:   16px;
+  --radius-2xl:  18px;
+  --radius-full: 9999px;
+
+  /* ── Bóng đổ ──────────────────────────────────── */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.34);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.42);
+  --shadow-lg: 0 14px 38px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 20px 56px rgba(0, 0, 0, 0.6);
+  --sh: var(--shadow-lg);
+  --shadow-glow: none;
+  --shadow-inner: inset 0 1px 0 var(--glass-highlight);
+
+  /* ── Chuyển động ──────────────────────────────── */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast: 110ms;
+  --duration-normal: 180ms;
+  --duration-slow: 260ms;
+
+  /* ── Lớp xếp ──────────────────────────────────── */
+  --z-canvas-hud: 20;
+  --z-topbar: 40;
+  --z-palette: 900;
+  --z-modal: 1000;
+  --z-toast: 1100;
+}
