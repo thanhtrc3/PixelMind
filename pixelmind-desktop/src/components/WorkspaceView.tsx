@@ -62,6 +62,10 @@ interface WorkspaceViewProps {
   onInstall?: () => void
   onCreateIndexHtml?: () => void
   onAddDevScript?: () => void
+  previewUrl?: string | null
+  onPreviewUrlChange?: (url: string) => void
+  targetRoute?: string
+  onRouteChange?: (route: string) => void
   activeTab: 'file' | 'preview'
   onActiveTab: (tab: 'file' | 'preview') => void
   tabs: string[]
@@ -105,6 +109,10 @@ const WorkspaceView = ({
   onInstall,
   onCreateIndexHtml,
   onAddDevScript,
+  previewUrl,
+  onPreviewUrlChange,
+  targetRoute,
+  onRouteChange,
   activeTab,
   onActiveTab,
   tabs,
@@ -112,6 +120,17 @@ const WorkspaceView = ({
   onSelectTab,
 }: WorkspaceViewProps) => {
   const parsedError = useMemo(() => parseRunError(logs, run), [logs, run])
+
+  const effectivePreviewUrl = useMemo(() => {
+    if (previewUrl) return previewUrl
+    if (!run?.url) return null
+    if (targetRoute && targetRoute !== '/') {
+      const base = run.url.replace(/\/+$/, '')
+      const clean = targetRoute.startsWith('/') ? targetRoute : `/${targetRoute}`
+      return `${base}${clean}`
+    }
+    return run.url
+  }, [previewUrl, run?.url, targetRoute])
 
   if (!project) {
     return (
@@ -227,7 +246,24 @@ const WorkspaceView = ({
               <Panel minSize="22%">
                 {activeTab === 'preview' ? (
                   <PreviewPane
-                    url={run?.url ?? null}
+                    url={effectivePreviewUrl}
+                    pages={project.meta.pages}
+                    onUrlChange={onPreviewUrlChange}
+                    onSelectRoute={(route) => {
+                      let clean = route.startsWith('/') ? route : `/${route}`
+                      if (project.packageManager === 'dotnet' || project.framework?.includes('ASP.NET')) {
+                        if (clean.startsWith('/account/')) {
+                          clean = `/Identity/Account/${clean.slice(9)}`
+                        } else if (['/leaderboard', '/lobby', '/profile', '/account', '/privacy', '/room'].includes(clean.toLowerCase())) {
+                          clean = `/Home${clean}`
+                        }
+                      }
+                      onRouteChange?.(clean)
+                      if (run?.url) {
+                        const base = run.url.replace(/\/+$/, '')
+                        onPreviewUrlChange?.(clean === '/' ? base : `${base}${clean}`)
+                      }
+                    }}
                     running={run?.status === 'running' || run?.status === 'starting'}
                     projectName={project.name}
                     error={parsedError}

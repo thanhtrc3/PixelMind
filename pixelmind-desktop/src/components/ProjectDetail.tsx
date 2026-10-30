@@ -37,6 +37,7 @@ interface ProjectDetailProps {
   onRun: () => void
   onStop: () => void
   onWorkspace: () => void
+  onOpenPage?: (route: string) => void
   onRefresh: () => void
   onAddPage: () => void
   onRemovePage: (pageId: string) => void
@@ -68,6 +69,7 @@ const ProjectDetail = ({
   onRun,
   onStop,
   onWorkspace,
+  onOpenPage,
   onRefresh,
   onAddPage,
   onRemovePage,
@@ -314,8 +316,15 @@ const ProjectDetail = ({
             </thead>
             <tbody>
               {meta.pages.map((page) => (
-                <tr key={page.id} onClick={onWorkspace} title="Mở màn hình làm việc">
-                  <td className="pm-mono">{page.route}</td>
+                <tr
+                  key={page.id}
+                  onClick={() => (onOpenPage ? onOpenPage(page.route) : onWorkspace())}
+                  title={`Xem trước trang: ${page.title} (${page.route})`}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <td className="pm-mono">
+                    <span style={{ color: 'var(--color-primary, #60a5fa)', fontWeight: 600 }}>{page.route}</span>
+                  </td>
                   <td>
                     {page.title}
                     {page.route === '/' && <span className="pm-tag">trang gốc</span>}
@@ -330,6 +339,18 @@ const ProjectDetail = ({
                   <td>
                     <button
                       className="pm-ibtn"
+                      title="Xem trước trang này"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        if (onOpenPage) onOpenPage(page.route)
+                        else onWorkspace()
+                      }}
+                      style={{ marginRight: 4 }}
+                    >
+                      <ExternalLink size={12} />
+                    </button>
+                    <button
+                      className="pm-ibtn danger"
                       title="Xoá trang khỏi danh sách"
                       onClick={(event) => {
                         event.stopPropagation()

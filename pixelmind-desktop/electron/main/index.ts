@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell } from 'electron'
 import { dirname, join, resolve } from 'node:path'
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -117,6 +117,8 @@ function createWindow() {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      webSecurity: false,
+      allowRunningInsecureContent: true,
       sandbox: false,
       spellcheck: false,
     },
@@ -125,12 +127,20 @@ function createWindow() {
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Không đẩy ra trình duyệt ngoài nếu là url nội bộ hoặc dev server localhost
+    if (url.includes('localhost') || url.includes('127.0.0.1')) {
+      return { action: 'allow' }
+    }
     if (/^https?:/i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const current = mainWindow?.webContents.getURL() ?? ''
+    // Không can thiệp hoặc đẩy ra ngoài nếu là dev server localhost
+    if (url.includes('localhost') || url.includes('127.0.0.1')) {
+      return
+    }
     if (url !== current) {
       event.preventDefault()
       if (/^https?:/i.test(url)) void shell.openExternal(url)
@@ -209,8 +219,23 @@ async function mergeDetected(project: ProjectRecord, fresh: ProjectRecord): Prom
       code: project.meta.code || fresh.meta.code,
       repo: project.meta.repo || fresh.meta.repo,
       createdAt: project.meta.createdAt || fresh.meta.createdAt,
-      /* Giữ các trang người dùng đã thêm, lệnh tự nhập và nhật ký hoạt động */
-      pages: project.meta.pages.length ? project.meta.pages : fresh.meta.pages,
+      /* Đồng bộ danh sách trang: lấy các trang được quét chuẩn từ fresh.meta.pages,
+         đồng thời giữ lại các trang tự thêm/mockup của người dùng */
+      pages: (() => {
+        if (!fresh.meta.pages.length) return project.meta.pages
+        const isDotnet = project.framework?.includes('ASP.NET') || fresh.framework?.includes('ASP.NET') || fresh.packageManager === 'dotnet'
+        const userAdded = project.meta.pages.filter((p) => p.mockup)
+        const updated = fresh.meta.pages.map((fp) => {
+          const matched = project.meta.pages.find((p) => {
+            let pRoute = p.route
+            if (isDotnet && pRoute.startsWith('/account/')) pRoute = `/Identity/Account/${pRoute.slice(9)}`
+            return pRoute.toLowerCase() === fp.route.toLowerCase() || p.title.toLowerCase() === fp.title.toLowerCase()
+          })
+          return matched ? { ...fp, id: matched.id, mockup: matched.mockup, software: matched.software, frame: matched.frame } : fp
+        })
+        const extras = userAdded.filter((u) => !updated.some((p) => p.route.toLowerCase() === u.route.toLowerCase()))
+        return [...updated, ...extras]
+      })(),
       customCommand: project.meta.customCommand || fresh.meta.customCommand,
       activity: project.meta.activity,
     },
@@ -566,8 +591,47 @@ if (!gotLock) {
     mainWindow.focus()
   })
 
+  app.on('certificate-error', (event, _webContents, url, _error, _certificate, callback) => {
+    if (url.startsWith('https://localhost') || url.startsWith('https://127.0.0.1')) {
+      event.preventDefault()
+      callback(true)
+      return
+    }
+    callback(false)
+  })
+
   app.whenReady().then(() => {
     app.setAppUserModelId('com.pixelmind.desktop')
+
+    /* Gỡ bỏ triệt để X-Frame-Options, frame-ancestors và các hạn chế chính sách nhúng
+       (COOP, COEP, CORP) của các dev server (ASP.NET Core Identity, Razor, Vite...)
+       để khung iframe xem trước PreviewPane hiển thị mọi trang nội bộ mượt mà */
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      const responseHeaders = { ...details.responseHeaders }
+      for (const key of Object.keys(responseHeaders)) {
+        const lower = key.toLowerCase()
+        if (
+          lower === 'x-frame-options' ||
+          lower === 'cross-origin-opener-policy' ||
+          lower === 'cross-origin-embedder-policy' ||
+          lower === 'cross-origin-resource-policy'
+        ) {
+          delete responseHeaders[key]
+        } else if (lower === 'content-security-policy' || lower === 'content-security-policy-report-only') {
+          const list = responseHeaders[key]
+          if (Array.isArray(list)) {
+            responseHeaders[key] = list.map((csp) =>
+              csp
+                .split(';')
+                .filter((part) => !part.trim().toLowerCase().startsWith('frame-ancestors'))
+                .join('; '),
+            )
+          }
+        }
+      }
+      callback({ cancel: false, responseHeaders })
+    })
+
     buildMenu()
     createWindow()
 

@@ -25,6 +25,20 @@ const storePath = () => join(app.getPath('userData'), 'pixelmind-store.json')
 
 const normalizeProject = (project: ProjectRecord): ProjectRecord => {
   const meta = (project.meta ?? {}) as Partial<ProjectMeta>
+  const isDotnet = project.framework?.includes('ASP.NET') || project.packageManager === 'dotnet'
+  const rawPages = Array.isArray(meta.pages) ? meta.pages : []
+  const pages = rawPages.map((page) => {
+    let route = page.route
+    if (isDotnet) {
+      if (route.startsWith('/account/')) {
+        route = `/Identity/Account/${route.slice('/account/'.length)}`
+      } else if (['/leaderboard', '/lobby', '/profile', '/account', '/privacy', '/room'].includes(route.toLowerCase())) {
+        route = `/Home${route}`
+      }
+    }
+    return { ...page, route }
+  })
+
   return {
     ...project,
     previewDir: project.previewDir ?? '',
@@ -33,11 +47,11 @@ const normalizeProject = (project: ProjectRecord): ProjectRecord => {
       code: 'DA-000',
       repo: '',
       createdAt: project.addedAt ?? Date.now(),
-      pages: [],
       versions: [],
       activity: [],
       customCommand: '',
       ...meta,
+      pages,
     },
   }
 }

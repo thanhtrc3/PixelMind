@@ -85,13 +85,21 @@ export class RunnerManager {
   }
 
   private buildCommand(manager: PackageManager, script: string, matchedCommand?: string): string {
-    if (matchedCommand) return matchedCommand
+    if (matchedCommand) {
+      if (manager === 'dotnet' && !matchedCommand.includes('--no-launch-browser')) {
+        return `${matchedCommand} --no-launch-browser`
+      }
+      return matchedCommand
+    }
     if (manager === 'dotnet') {
-      if (script === 'watch' || script === 'dev') return 'dotnet watch run'
-      if (script === 'run' || script === 'start') return 'dotnet run'
+      if (script === 'watch' || script === 'dev') return 'dotnet watch --no-launch-browser run'
+      if (script === 'run' || script === 'start') return 'dotnet run --no-launch-browser'
       if (script === 'build') return 'dotnet build'
       if (script === 'test') return 'dotnet test'
-      return script.startsWith('dotnet ') ? script : `dotnet ${script}`
+      if (script.startsWith('dotnet ')) {
+        return script.includes('--no-launch-browser') ? script : `${script} --no-launch-browser`
+      }
+      return `dotnet ${script} --no-launch-browser`
     }
     if (manager === 'flutter') {
       if (script === 'dev' || script === 'watch') return 'flutter run -d chrome'
@@ -160,9 +168,16 @@ export class RunnerManager {
     const running = this.runningOf(project.id)
     if (running) return running
 
+    let finalCommand = command
+    if (finalCommand.includes('dotnet') && (finalCommand.includes('run') || finalCommand.includes('watch'))) {
+      if (!finalCommand.includes('--no-launch-browser')) {
+        finalCommand = `${finalCommand} --no-launch-browser`
+      }
+    }
+
     return this.launch(project, {
       script: 'tuỳ chỉnh',
-      command,
+      command: finalCommand,
       kind: 'command',
     })
   }
@@ -211,6 +226,8 @@ export class RunnerManager {
           FORCE_COLOR: '0',
           NO_COLOR: '1',
           BROWSER: 'none',
+          DOTNET_WATCH_SUPPRESS_LAUNCH_BROWSER: '1',
+          DOTNET_LAUNCH_BROWSER: 'false',
           CI: '0',
         },
       })

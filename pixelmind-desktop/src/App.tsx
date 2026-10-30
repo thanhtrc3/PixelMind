@@ -86,6 +86,10 @@ const App = () => {
   const [logs, setLogs] = useState<RunLog[]>([])
   const [script, setScript] = useState('')
   const [customCommand, setCustomCommand] = useState('')
+  const [targetRoute, setTargetRoute] = useState<string>('')
+  const targetRouteRef = useRef<string>('')
+  targetRouteRef.current = targetRoute
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
   const [dialog, setDialog] = useState<DialogId | null>(null)
   const [diagnosisOpen, setDiagnosisOpen] = useState(false)
@@ -173,6 +177,9 @@ const App = () => {
       setBranch(null)
       setScript('')
       setCustomCommand(opened.meta.customCommand || '')
+      setTargetRoute('')
+      targetRouteRef.current = ''
+      setPreviewUrl(null)
       lastUrlRef.current = null
       await loadTree(opened)
       const running = await api.run.ofProject(opened.id)
@@ -462,6 +469,36 @@ const App = () => {
     }
   }
 
+  const handleOpenPage = (route: string) => {
+    let cleanRoute = route.startsWith('/') ? route : `/${route}`
+    // Tự động sửa các route ASP.NET Core cũ còn lưu trong giao diện
+    if (project?.packageManager === 'dotnet' || project?.framework?.includes('ASP.NET')) {
+      if (cleanRoute.startsWith('/account/')) {
+        cleanRoute = `/Identity/Account/${cleanRoute.slice(9)}`
+      } else if (['/leaderboard', '/lobby', '/profile', '/account', '/privacy', '/room'].includes(cleanRoute.toLowerCase())) {
+        cleanRoute = `/Home${cleanRoute}`
+      }
+    }
+    setTargetRoute(cleanRoute)
+    targetRouteRef.current = cleanRoute
+
+    if (run?.url) {
+      const base = run.url.replace(/\/+$/, '')
+      const fullUrl = cleanRoute === '/' ? base : `${base}${cleanRoute}`
+      setPreviewUrl(fullUrl)
+    } else {
+      setPreviewUrl(null)
+    }
+
+    setView('workspace')
+    setActiveTab('preview')
+
+    // Nếu chưa chạy, tự động khởi động chạy
+    if (!run || (run.status !== 'running' && run.status !== 'starting')) {
+      void startRun()
+    }
+  }
+
   const startRun = async () => {
     if (!project) {
       showToast('info', 'Hãy mở một dự án trước khi chạy.')
@@ -533,6 +570,9 @@ const App = () => {
             setProjectId(opened.id)
             setView('detail')
             setCustomCommand(opened.meta.customCommand || '')
+      setTargetRoute('')
+      targetRouteRef.current = ''
+      setPreviewUrl(null)
             const [nodes, stat, git, running] = await Promise.all([
               api.fs.tree(opened.path, data.settings.showHidden),
               api.fs.stat(opened.path),
@@ -591,9 +631,13 @@ const App = () => {
       }
       if (state.url && state.url !== lastUrlRef.current) {
         lastUrlRef.current = state.url
+        const base = state.url.replace(/\/+$/, '')
+        const currentRoute = targetRouteRef.current
+        const fullUrl = currentRoute && currentRoute !== '/' ? `${base}${currentRoute}` : state.url
+        setPreviewUrl(fullUrl)
         const current = settingsRef.current
         if (current.previewMode === 'browser') {
-          void api.system.openExternal(state.url)
+          void api.system.openExternal(fullUrl)
         } else if (current.autoPreview) {
           setActiveTab('preview')
         }
@@ -871,6 +915,7 @@ const App = () => {
               onRun={() => void startRun()}
               onStop={() => void stopRun()}
               onWorkspace={() => setView('workspace')}
+              onOpenPage={handleOpenPage}
               onRefresh={() => void refreshProject()}
               onAddPage={() => setAddPageOpen(true)}
               onRemovePage={(pageId) => void removePage(pageId)}
@@ -918,6 +963,10 @@ const App = () => {
               onOpenExternal={(url) => void api.system.openExternal(url)}
               onShowInFolder={(path) => void api.fs.showInFolder(path)}
               onOpenFileExternal={(path) => void api.fs.openPath(path)}
+              previewUrl={previewUrl}
+              onPreviewUrlChange={setPreviewUrl}
+              targetRoute={targetRoute}
+              onRouteChange={setTargetRoute}
               onOpenDiagnosis={() => setDiagnosisOpen(true)}
               onInstall={() => void handleInstall()}
               onCreateIndexHtml={() => void handleCreateIndexHtml()}
