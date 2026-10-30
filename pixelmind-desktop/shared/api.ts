@@ -34,6 +34,8 @@ export interface PixelMindApi {
     removePage(projectId: string, pageId: string): Promise<ProjectRecord | null>
     diagnose(idOrPath: string): Promise<ProjectDiagnosis>
     gitInit(projectId: string): Promise<boolean>
+    createIndexHtml(projectId: string): Promise<boolean>
+    addDevScript(projectId: string): Promise<boolean>
   }
   fs: {
     tree(root: string, showHidden?: boolean): Promise<FileNode[]>

@@ -44,6 +44,10 @@ const api: PixelMindApi = {
     diagnose: (idOrPath: string): Promise<ProjectDiagnosis> =>
       ipcRenderer.invoke('project:diagnose', idOrPath),
     gitInit: (projectId: string): Promise<boolean> => ipcRenderer.invoke('project:git-init', projectId),
+    createIndexHtml: (projectId: string): Promise<boolean> =>
+      ipcRenderer.invoke('project:create-index-html', projectId),
+    addDevScript: (projectId: string): Promise<boolean> =>
+      ipcRenderer.invoke('project:add-dev-script', projectId),
   },
 
   fs: {

@@ -379,7 +379,9 @@ const App = () => {
       setRun(state)
       setLogs([])
       lastUrlRef.current = null
-      showToast('ok', `Đang chạy cài đặt thư viện (${project.packageManager || 'npm'} install)...`)
+      const installCmd =
+        project.packageManager === 'dotnet' ? 'dotnet restore' : `${project.packageManager || 'npm'} install`
+      showToast('ok', `Đang chạy cài đặt thư viện (${installCmd})...`)
       setView('workspace')
       setActiveTab('preview')
     } catch (error) {
@@ -400,6 +402,38 @@ const App = () => {
       }
     } catch (error) {
       showToast('err', `Lỗi khi khởi tạo Git: ${errorMessage(error)}`)
+    }
+  }
+
+  const handleCreateIndexHtml = async () => {
+    if (!project) return
+    try {
+      const ok = await api.projects.createIndexHtml(project.id)
+      if (ok) {
+        showToast('ok', 'Đã tự động tạo tệp index.html mẫu thành công!')
+        await refreshProject()
+        setDiagnosisOpen(false)
+      } else {
+        showToast('err', 'Không thể tạo tệp index.html.')
+      }
+    } catch (error) {
+      showToast('err', `Lỗi khi tạo index.html: ${errorMessage(error)}`)
+    }
+  }
+
+  const handleAddDevScript = async () => {
+    if (!project) return
+    try {
+      const ok = await api.projects.addDevScript(project.id)
+      if (ok) {
+        showToast('ok', 'Đã thêm script dev vào package.json thành công!')
+        await refreshProject()
+        setDiagnosisOpen(false)
+      } else {
+        showToast('err', 'Không thể cập nhật package.json.')
+      }
+    } catch (error) {
+      showToast('err', `Lỗi khi cập nhật package.json: ${errorMessage(error)}`)
     }
   }
 
@@ -661,7 +695,10 @@ const App = () => {
       },
       {
         id: 'install-deps',
-        label: `Cài đặt thư viện (${project?.packageManager || 'npm'} install)`,
+        label:
+          project?.packageManager === 'dotnet'
+            ? 'Khôi phục NuGet (dotnet restore)'
+            : `Cài đặt thư viện (${project?.packageManager || 'npm'} install)`,
         icon: Zap,
         disabled: !project,
         run: () => void handleInstall(),
@@ -810,6 +847,8 @@ const App = () => {
               onOpenExternal={(url) => void api.system.openExternal(url)}
               onOpenDiagnosis={() => setDiagnosisOpen(true)}
               onInstall={() => void handleInstall()}
+              onCreateIndexHtml={() => void handleCreateIndexHtml()}
+              onAddDevScript={() => void handleAddDevScript()}
             />
           ) : (
             <WorkspaceView
@@ -843,6 +882,8 @@ const App = () => {
               onOpenFileExternal={(path) => void api.fs.openPath(path)}
               onOpenDiagnosis={() => setDiagnosisOpen(true)}
               onInstall={() => void handleInstall()}
+              onCreateIndexHtml={() => void handleCreateIndexHtml()}
+              onAddDevScript={() => void handleAddDevScript()}
               activeTab={activeTab}
               onActiveTab={setActiveTab}
               tabs={openPaths}
@@ -899,6 +940,8 @@ const App = () => {
           onClose={() => setDiagnosisOpen(false)}
           onInstall={() => void handleInstall()}
           onGitInit={() => void handleGitInit()}
+          onCreateIndexHtml={() => void handleCreateIndexHtml()}
+          onAddDevScript={() => void handleAddDevScript()}
           onRefresh={() => void refreshProject()}
         />
       )}

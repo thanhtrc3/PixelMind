@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Clock,
   ExternalLink,
+  FileCode2,
   Files,
   FolderGit2,
   FolderOpen,
@@ -44,6 +45,8 @@ interface ProjectDetailProps {
   onOpenExternal: (url: string) => void
   onOpenDiagnosis: () => void
   onInstall: () => void
+  onCreateIndexHtml?: () => void
+  onAddDevScript?: () => void
 }
 
 const statusChip: Record<string, { label: string; cls: string }> = {
@@ -73,6 +76,8 @@ const ProjectDetail = ({
   onOpenExternal,
   onOpenDiagnosis,
   onInstall,
+  onCreateIndexHtml,
+  onAddDevScript,
 }: ProjectDetailProps) => {
   const [allVersions, setAllVersions] = useState(false)
   const [allActivity, setAllActivity] = useState(false)
@@ -151,41 +156,76 @@ const ProjectDetail = ({
 
       {/* ── Khối cảnh báo chẩn đoán dự án nếu phát hiện vấn đề ── */}
       {diagnosis && diagnosis.hasIssues && (
-        <div className={`pm-alert-banner ${missingDeps ? 'err' : 'warn'}`}>
-          <div className="pm-alert-banner__icon">
-            <TriangleAlert size={18} />
-          </div>
-          <div className="pm-alert-banner__content">
-            <h4>
-              {missingDeps
-                ? 'Phát hiện thiếu sót: Dự án chưa cài đặt thư viện (thiếu node_modules)'
-                : `Phát hiện ${issuesCount} vấn đề cần lưu ý đối với dự án này`}
-            </h4>
-            <p>
-              {missingDeps
-                ? 'Dự án khai báo thư viện trong package.json nhưng chưa được tải về máy. Nếu bấm Run sẽ bị lỗi thiếu module.'
-                : diagnosis.issues[0]?.message}
-            </p>
-          </div>
-          <div className="pm-alert-banner__actions">
-            {missingDeps && (
-              <button className="btn primary sm" onClick={onInstall} disabled={installing}>
-                {installing ? (
-                  <>
-                    <Loader2 size={13} className="pm-spin" /> Đang cài đặt...
-                  </>
-                ) : (
-                  <>
-                    <Zap size={13} /> Cài đặt ngay ({project.packageManager || 'npm'} install)
-                  </>
+        (() => {
+          const missingHtml = diagnosis.issues.find((i) => i.actionKind === 'create_index_html')
+          return (
+            <div className={`pm-alert-banner ${missingDeps ? 'err' : 'warn'}`}>
+              <div className="pm-alert-banner__icon">
+                <TriangleAlert size={18} />
+              </div>
+              <div className="pm-alert-banner__content">
+                <h4>
+                  {missingDeps
+                    ? project.packageManager === 'dotnet'
+                      ? 'Phát hiện thiếu sót: Dự án chưa khôi phục thư viện NuGet'
+                      : project.packageManager === 'flutter'
+                        ? 'Phát hiện thiếu sót: Dự án chưa tải thư viện Flutter (pub get)'
+                        : 'Phát hiện thiếu sót: Dự án chưa cài đặt thư viện (thiếu node_modules)'
+                    : missingHtml
+                      ? 'Dự án chưa có tệp index.html hoặc script dev server để xem trước'
+                      : `Phát hiện ${issuesCount} vấn đề cần lưu ý đối với dự án này`}
+                </h4>
+                <p>
+                  {missingDeps
+                    ? project.packageManager === 'dotnet'
+                      ? 'Dự án .NET cần được restore các gói NuGet trước khi biên dịch và chạy.'
+                      : project.packageManager === 'flutter'
+                        ? 'Cần chạy lệnh "flutter pub get" để tải các gói phụ thuộc trước khi chạy.'
+                        : 'Dự án khai báo thư viện trong package.json nhưng chưa được tải về máy. Nếu bấm Run sẽ bị lỗi thiếu module.'
+                    : diagnosis.issues[0]?.message}
+                </p>
+              </div>
+              <div className="pm-alert-banner__actions">
+                {missingDeps && (
+                  <button className="btn primary sm" onClick={onInstall} disabled={installing}>
+                    {installing ? (
+                      <>
+                        <Loader2 size={13} className="pm-spin" />{' '}
+                        {project.packageManager === 'dotnet'
+                          ? 'Đang khôi phục...'
+                          : project.packageManager === 'flutter'
+                            ? 'Đang tải gói...'
+                            : 'Đang cài đặt...'}
+                      </>
+                    ) : (
+                      <>
+                        <Zap size={13} />{' '}
+                        {project.packageManager === 'dotnet'
+                          ? 'Khôi phục ngay (dotnet restore)'
+                          : project.packageManager === 'flutter'
+                            ? 'Tải ngay (flutter pub get)'
+                            : `Cài đặt ngay (${project.packageManager || 'npm'} install)`}
+                      </>
+                    )}
+                  </button>
                 )}
-              </button>
-            )}
-            <button className="btn sm" onClick={onOpenDiagnosis}>
-              <ShieldAlert size={13} /> Xem báo cáo & đề xuất ({issuesCount})
-            </button>
-          </div>
-        </div>
+                {!missingDeps && missingHtml && onCreateIndexHtml && (
+                  <button className="btn primary sm" onClick={onCreateIndexHtml}>
+                    <FileCode2 size={13} /> Tạo tệp index.html ngay
+                  </button>
+                )}
+                {!missingDeps && !missingHtml && onAddDevScript && diagnosis.issues.some((i) => i.actionKind === 'add_dev_script') && (
+                  <button className="btn primary sm" onClick={onAddDevScript}>
+                    <Plus size={13} /> Thêm script dev ngay
+                  </button>
+                )}
+                <button className="btn sm" onClick={onOpenDiagnosis}>
+                  <ShieldAlert size={13} /> Xem báo cáo & đề xuất ({issuesCount})
+                </button>
+              </div>
+            </div>
+          )
+        })()
       )}
 
       {/* ── Chỉ số nhanh ── */}

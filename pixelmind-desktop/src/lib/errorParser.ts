@@ -58,7 +58,46 @@ export function parseRunError(logs: RunLog[], run?: RunState | null): ParsedErro
 
   const combined = `${allText}\n${stderrText}`
 
-  // 1. Thiếu gói thư viện (ERR_MODULE_NOT_FOUND / Cannot find package / Could not resolve)
+  // 1. Lỗi biên dịch C# / .NET (error CSxxxx)
+  const csErrorMatch = combined.match(/([^\r\n(]+)\((\d+),(\d+)\):\s*error\s*(CS\d+):\s*([^\r\n\[]+)/i)
+  if (csErrorMatch) {
+    const rawFile = csErrorMatch[1].trim()
+    const fileName = rawFile.split(/[\\/]/).pop() || rawFile
+    const line = parseInt(csErrorMatch[2], 10)
+    const col = parseInt(csErrorMatch[3], 10)
+    const code = csErrorMatch[4]
+    const msg = csErrorMatch[5].trim()
+
+    return {
+      type: 'syntax_error',
+      title: `Lỗi biên dịch C# (${code})`,
+      summary: `Tệp ${fileName} (dòng ${line}, cột ${col}): ${msg}`,
+      file: fileName,
+      line,
+      column: col,
+      recommendation: `Mở tệp ${fileName} tại dòng ${line} để kiểm tra và sửa lỗi cú pháp C# theo mã lỗi ${code}.`,
+      actionLabel: `Mở tệp ${fileName}`,
+      actionKind: 'open_file',
+    }
+  }
+
+  // 2. Lỗi chưa restore NuGet packages (.NET)
+  if (
+    /error NETSDK1004/i.test(combined) ||
+    /project\.assets\.json['"]?\s*not found/i.test(combined) ||
+    /Run a NuGet package restore/i.test(combined)
+  ) {
+    return {
+      type: 'missing_package',
+      title: 'Chưa khôi phục thư viện NuGet (.NET)',
+      summary: 'Dự án .NET cần được khôi phục các gói thư viện NuGet trước khi có thể biên dịch và chạy.',
+      recommendation: 'Bấm nút "Khôi phục NuGet ngay" bên dưới để hệ thống chạy lệnh "dotnet restore".',
+      actionLabel: 'Khôi phục NuGet (dotnet restore)',
+      actionKind: 'install',
+    }
+  }
+
+  // 3. Thiếu gói thư viện Node.js (ERR_MODULE_NOT_FOUND / Cannot find package / Could not resolve)
   const pkgMissingMatch =
     combined.match(/Cannot find package ['"](@?[^'"/]+(?:\/[^'"/]+)?)['"]/i) ||
     combined.match(/Cannot find module ['"](@?[^'"/]+(?:\/[^'"/]+)?)['"]/i) ||
@@ -84,10 +123,11 @@ export function parseRunError(logs: RunLog[], run?: RunState | null): ParsedErro
     }
   }
 
-  // 2. Xung đột cổng mạng (EADDRINUSE)
+  // 4. Xung đột cổng mạng (EADDRINUSE / Kestrel failed to bind)
   const portMatch =
     combined.match(/EADDRINUSE.*?:::?(\d{2,5})/i) ||
     combined.match(/address already in use.*?:::?(\d{2,5})/i) ||
+    combined.match(/Failed to bind to address https?:\/\/[^:]+:(\d{2,5})/i) ||
     combined.match(/Port (\d{2,5}) is (?:already )?in use/i)
 
   if (portMatch) {
@@ -102,7 +142,7 @@ export function parseRunError(logs: RunLog[], run?: RunState | null): ParsedErro
     }
   }
 
-  // 3. Xung đột Cache Electron / Access is Denied (0x5)
+  // 5. Xung đột Cache Electron / Access is Denied (0x5)
   if (combined.includes('Unable to move the cache: Access is denied. (0x5)') || combined.includes('Gpu Cache Creation failed')) {
     return {
       type: 'electron_cache_lock',
@@ -114,7 +154,22 @@ export function parseRunError(logs: RunLog[], run?: RunState | null): ParsedErro
     }
   }
 
-  // 4. Lệnh không tồn tại (Command not found / is not recognized)
+  // 6. Lệnh không tồn tại (Command not found / is not recognized)
+  if (
+    /'dotnet' is not recognized as an internal or external command/i.test(combined) ||
+    /command not found:\s*dotnet/i.test(combined) ||
+    /spawn dotnet ENOENT/i.test(combined)
+  ) {
+    return {
+      type: 'command_not_found',
+      title: 'Chưa cài đặt .NET SDK ("dotnet")',
+      summary: 'Hệ điều hành chưa nhận diện lệnh "dotnet". Cần cài đặt .NET SDK để biên dịch và chạy các dự án Visual Studio / C#.',
+      recommendation: 'Tải và cài đặt .NET SDK (khuyên dùng .NET 8.0) từ trang chủ Microsoft: https://dotnet.microsoft.com/download.',
+      actionLabel: 'Thử chạy lại',
+      actionKind: 'retry',
+    }
+  }
+
   const cmdNotFoundMatch =
     combined.match(/'([^']+)' is not recognized as an internal or external command/i) ||
     combined.match(/command not found:\s*(\w+)/i) ||

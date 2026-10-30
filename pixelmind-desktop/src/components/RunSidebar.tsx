@@ -3,6 +3,7 @@ import {
   Check,
   Copy,
   ExternalLink,
+  FileCode2,
   FolderOpen,
   GitBranch,
   Info,
@@ -36,6 +37,8 @@ interface RunSidebarProps {
   onOpenExternal: (url: string) => void
   onOpenDiagnosis?: () => void
   onInstall?: () => void
+  onCreateIndexHtml?: () => void
+  onAddDevScript?: () => void
 }
 
 const RunSidebar = ({
@@ -56,6 +59,8 @@ const RunSidebar = ({
   onOpenExternal,
   onOpenDiagnosis,
   onInstall,
+  onCreateIndexHtml,
+  onAddDevScript,
 }: RunSidebarProps) => {
   const [copied, setCopied] = useState(false)
   const running = run?.status === 'running' || run?.status === 'starting'
@@ -65,6 +70,7 @@ const RunSidebar = ({
   ]
   const canRun = options.length > 0
   const missingDeps = diagnosis?.issues.find((i) => i.type === 'missing_deps')
+  const missingHtml = diagnosis?.issues.find((i) => i.actionKind === 'create_index_html')
 
   const copyUrl = async () => {
     if (!run?.url) return
@@ -114,10 +120,22 @@ const RunSidebar = ({
             <div className="pm-side-alert err">
               <div className="pm-side-alert__top">
                 <TriangleAlert size={13} className="pm-err" />
-                <b>Chưa cài đặt thư viện!</b>
+                <b>
+                  {project.packageManager === 'dotnet'
+                    ? 'Chưa khôi phục NuGet!'
+                    : project.packageManager === 'flutter'
+                      ? 'Chưa pub get!'
+                      : 'Chưa cài đặt thư viện!'}
+                </b>
               </div>
               <p className="pm-hint" style={{ fontSize: 11, margin: '2px 0 6px' }}>
-                Thư mục <code>node_modules</code> chưa có. Hãy cài đặt trước khi chạy.
+                {project.packageManager === 'dotnet' ? (
+                  'Chưa khôi phục các gói NuGet (thiếu obj/project.assets.json).'
+                ) : project.packageManager === 'flutter' ? (
+                  'Chưa tải các gói Flutter (thiếu .dart_tool/package_config.json).'
+                ) : (
+                  <>Thư mục <code>node_modules</code> chưa có. Hãy cài đặt trước khi chạy.</>
+                )}
               </p>
               <button
                 className="btn sm primary"
@@ -127,13 +145,61 @@ const RunSidebar = ({
               >
                 {installing ? (
                   <>
-                    <Loader2 size={11} className="pm-spin" /> Đang cài đặt...
+                    <Loader2 size={11} className="pm-spin" />{' '}
+                    {project.packageManager === 'dotnet'
+                      ? 'Đang khôi phục...'
+                      : project.packageManager === 'flutter'
+                        ? 'Đang tải gói...'
+                        : 'Đang cài đặt...'}
                   </>
                 ) : (
                   <>
-                    <Zap size={11} /> Cài đặt ngay ({project.packageManager || 'npm'} install)
+                    <Zap size={11} />{' '}
+                    {project.packageManager === 'dotnet'
+                      ? 'Khôi phục ngay (dotnet restore)'
+                      : project.packageManager === 'flutter'
+                        ? 'Tải ngay (flutter pub get)'
+                        : `Cài đặt ngay (${project.packageManager || 'npm'} install)`}
                   </>
                 )}
+              </button>
+            </div>
+          )}
+
+          {!missingDeps && missingHtml && onCreateIndexHtml && (
+            <div className="pm-side-alert warn">
+              <div className="pm-side-alert__top">
+                <TriangleAlert size={13} className="pm-warn" />
+                <b>Chưa có tệp index.html!</b>
+              </div>
+              <p className="pm-hint" style={{ fontSize: 11, margin: '2px 0 6px' }}>
+                Dự án chưa có trang để xem trước. Tạo tệp index.html mẫu để bắt đầu.
+              </p>
+              <button
+                className="btn sm primary"
+                onClick={onCreateIndexHtml}
+                style={{ width: '100%' }}
+              >
+                <FileCode2 size={11} /> Tạo tệp index.html ngay
+              </button>
+            </div>
+          )}
+
+          {!missingDeps && !missingHtml && onAddDevScript && diagnosis?.issues.some((i) => i.actionKind === 'add_dev_script') && (
+            <div className="pm-side-alert warn">
+              <div className="pm-side-alert__top">
+                <TriangleAlert size={13} className="pm-warn" />
+                <b>Thiếu script dev!</b>
+              </div>
+              <p className="pm-hint" style={{ fontSize: 11, margin: '2px 0 6px' }}>
+                Thêm lệnh dev server vào package.json để khởi động xem trước.
+              </p>
+              <button
+                className="btn sm primary"
+                onClick={onAddDevScript}
+                style={{ width: '100%' }}
+              >
+                <FileCode2 size={11} /> Thêm script dev ngay
               </button>
             </div>
           )}

@@ -1,11 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from 'electron'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import type { MenuItemConstructorOptions } from 'electron'
 import type { ProjectPage, ProjectRecord, Settings, StoreData } from '../../shared/types'
 import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetStore, storeFilePath } from './store'
 import {
+  addDevScriptToPkg,
+  createIndexHtmlFile,
   detectProject,
   diagnoseProject,
   gitBranch,
@@ -179,22 +181,45 @@ ipcMain.handle('store:path', () => storeFilePath())
 
 ipcMain.handle('project:pick', async (): Promise<ProjectRecord | null> => {
   const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
-    title: 'Chọn thư mục dự án',
-    properties: ['openDirectory'],
-    buttonLabel: 'Mở thư mục này',
+    title: 'Chọn thư mục hoặc tệp dự án (.sln, .csproj, package.json)',
+    properties: ['openDirectory', 'openFile'],
+    filters: [
+      { name: 'Dự án được hỗ trợ (*.sln, *.csproj, package.json)', extensions: ['sln', 'csproj', 'json'] },
+      { name: 'Visual Studio Solution (*.sln)', extensions: ['sln'] },
+      { name: 'C# Project (*.csproj)', extensions: ['csproj'] },
+      { name: 'Tất cả tệp', extensions: ['*'] },
+    ],
+    buttonLabel: 'Mở dự án này',
   })
   if (result.canceled || !result.filePaths.length) return null
   return addProject(result.filePaths[0])
 })
 
-async function addProject(folder: string): Promise<ProjectRecord | null> {
+async function addProject(targetPath: string): Promise<ProjectRecord | null> {
+  let folder = targetPath
+  try {
+    const stat = await fs.stat(targetPath)
+    if (!stat.isDirectory()) {
+      folder = dirname(targetPath)
+    }
+  } catch {
+    return null
+  }
   if (!(await isDirectory(folder))) return null
   const detected = await detectProject(folder)
   const store = await readStore()
   const existing = store.projects.find((p) => samePath(p.path, detected.path))
   if (existing) {
+    const merged: ProjectRecord = {
+      ...existing,
+      ...detected,
+      id: existing.id,
+      favorite: existing.favorite,
+      lastOpenedAt: Date.now(),
+    }
+    await patchProject(existing.id, () => merged)
     await patchStore({ lastProjectId: existing.id })
-    return existing
+    return merged
   }
   detected.lastOpenedAt = Date.now()
   await patchStore({ projects: [...store.projects, detected], lastProjectId: detected.id })
@@ -206,17 +231,35 @@ ipcMain.handle('project:add', async (_e, folder: string): Promise<ProjectRecord 
 ipcMain.handle('project:list', async (): Promise<ProjectRecord[]> => (await readStore()).projects)
 
 ipcMain.handle('project:open', async (_e, id: string): Promise<ProjectRecord | null> => {
-  const updated = await patchProject(id, (project) => ({ ...project, lastOpenedAt: Date.now() }))
-  if (!updated) return null
-  await patchStore({ lastProjectId: id })
-  await appendActivity(id, {
-    actor: 'bạn',
-    action: `Mở dự án “${updated.name}” trong PixelMind`,
-    kind: 'người',
-    status: 'info',
-  })
   const store = await readStore()
-  return store.projects.find((project) => project.id === id) ?? updated
+  const current = store.projects.find((p) => p.id === id)
+  if (current) {
+    try {
+      const detected = await detectProject(current.path)
+      await patchProject(id, (project) => ({
+        ...project,
+        ...detected,
+        id: project.id,
+        favorite: project.favorite,
+        lastOpenedAt: Date.now(),
+      }))
+    } catch {
+      await patchProject(id, (project) => ({ ...project, lastOpenedAt: Date.now() }))
+    }
+  } else {
+    await patchProject(id, (project) => ({ ...project, lastOpenedAt: Date.now() }))
+  }
+  await patchStore({ lastProjectId: id })
+  const updated = (await readStore()).projects.find((project) => project.id === id)
+  if (updated) {
+    await appendActivity(id, {
+      actor: 'bạn',
+      action: `Mở dự án “${updated.name}” trong PixelMind`,
+      kind: 'người',
+      status: 'info',
+    })
+  }
+  return updated ?? null
 })
 
 ipcMain.handle('project:remove', async (_e, id: string): Promise<ProjectRecord[]> => {
@@ -331,6 +374,51 @@ ipcMain.handle('project:git-init', async (_e, projectId: string) => {
       actor: 'bạn',
       action: 'Khởi tạo kho Git (git init)',
       kind: 'người',
+      status: 'ok',
+    })
+  }
+  return ok
+})
+
+ipcMain.handle('project:create-index-html', async (_e, projectId: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('Không tìm thấy dự án.')
+  const ok = await createIndexHtmlFile(project.path, project.name)
+  if (ok) {
+    const updated = await detectProject(project.path)
+    await patchProject(projectId, (p) => ({
+      ...p,
+      hasIndexHtml: true,
+      diagnosis: updated.diagnosis,
+      meta: { ...p.meta, pages: updated.meta.pages },
+    }))
+    await appendActivity(projectId, {
+      actor: 'PixelMind',
+      action: 'Tự động tạo tệp index.html mẫu để xem trước',
+      kind: 'hệ thống',
+      status: 'ok',
+    })
+  }
+  return ok
+})
+
+ipcMain.handle('project:add-dev-script', async (_e, projectId: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('Không tìm thấy dự án.')
+  const ok = await addDevScriptToPkg(project.path)
+  if (ok) {
+    const updated = await detectProject(project.path)
+    await patchProject(projectId, (p) => ({
+      ...p,
+      scripts: updated.scripts,
+      diagnosis: updated.diagnosis,
+    }))
+    await appendActivity(projectId, {
+      actor: 'PixelMind',
+      action: 'Thêm script "dev" vào package.json',
+      kind: 'hệ thống',
       status: 'ok',
     })
   }

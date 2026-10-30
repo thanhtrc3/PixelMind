@@ -20,7 +20,7 @@ export interface ScriptEntry {
   kind: 'dev' | 'build' | 'start' | 'test' | 'other'
 }
 
-export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'none'
+export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'dotnet' | 'flutter' | 'none'
 
 export interface ProjectPage {
   id: string
@@ -74,7 +74,7 @@ export type IssueType =
   | 'empty_folder'
   | 'other'
 
-export type IssueActionKind = 'install' | 'git_init'
+export type IssueActionKind = 'install' | 'git_init' | 'create_index_html' | 'add_dev_script'
 
 export interface ProjectIssue {
   id: string
