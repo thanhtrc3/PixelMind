@@ -1,12 +1,17 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import {
+  ChevronDown,
+  ChevronUp,
   FileCode2,
   FolderOpen,
   Globe2,
   Loader2,
+  Maximize2,
+  Minimize2,
   RefreshCw,
   Search,
+  Terminal,
   X,
 } from 'lucide-react'
 import type {
@@ -22,7 +27,7 @@ import type {
 import { parseRunError } from '../lib/errorParser'
 import FileTree from './FileTree'
 import FileViewer from './FileViewer'
-import PreviewPane from './PreviewPane'
+import CanvasArea from './CanvasArea'
 import LogPanel from './LogPanel'
 import RunSidebar from './RunSidebar'
 
@@ -107,6 +112,22 @@ const WorkspaceView = ({
 }: WorkspaceViewProps) => {
   const parsedError = useMemo(() => parseRunError(logs, run), [logs, run])
 
+  // Trạng thái thu gọn/mở rộng Nhật ký chạy (mặc định ẩn khi mở để Canvas rộng rãi nhất)
+  const [showLogs, setShowLogs] = useState(false)
+  // Chế độ tập trung toàn màn hình Canvas (ẩn cả cây tệp và sidebar)
+  const [focusCanvas, setFocusCanvas] = useState(false)
+
+  // Lắng nghe phím Escape để thoát chế độ Focus Canvas
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && focusCanvas) {
+        setFocusCanvas(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [focusCanvas])
+
   if (!project) {
     return (
       <div className="pm-workspace" style={{ display: 'grid', placeItems: 'center' }}>
@@ -129,57 +150,61 @@ const WorkspaceView = ({
   return (
     <div className="pm-workspace">
       <Group orientation="horizontal" style={{ flex: 1 }}>
-        {/* ── Cây tệp ── */}
-        <Panel defaultSize="270px" minSize="190px" maxSize="440px" collapsible>
-          <div className="pm-panel" style={{ borderRight: '1px solid var(--line)' }}>
-            <div className="pm-panel__hd">
-              <b>Tệp</b>
-              <span className="pm-muted" style={{ fontSize: 10.5 }}>
-                {project.name}
-              </span>
-              <span style={{ flex: 1 }} />
-              <button className="pm-ibtn" onClick={onRefresh} title="Tải lại cây tệp (Ctrl+R)">
-                <RefreshCw size={12} />
-              </button>
-              <button className="pm-ibtn" onClick={onOpenFolder} title="Mở thư mục khác">
-                <FolderOpen size={12} />
-              </button>
-            </div>
-            <div className="pm-tree__filter">
-              <div className="pm-searchbox" style={{ width: '100%' }}>
-                <Search size={12} />
-                <input
-                  value={query}
-                  placeholder="Lọc theo tên tệp…"
-                  style={{ width: '100%' }}
-                  onChange={(e) => onQuery(e.target.value)}
-                  onKeyDown={(e) => e.stopPropagation()}
-                />
-              </div>
-            </div>
-            <div className="pm-panel__bd">
-              {treeLoading ? (
-                <div className="pm-row pm-muted" style={{ padding: 12, gap: 7, fontSize: 11.5 }}>
-                  <Loader2 size={12} className="spin" /> Đang đọc thư mục…
+        {/* ── Cây tệp (Ẩn khi ở chế độ Focus Canvas) ── */}
+        {!focusCanvas && (
+          <>
+            <Panel defaultSize="270px" minSize="190px" maxSize="440px" collapsible>
+              <div className="pm-panel" style={{ borderRight: '1px solid var(--line)' }}>
+                <div className="pm-panel__hd">
+                  <b>Tệp</b>
+                  <span className="pm-muted" style={{ fontSize: 10.5 }}>
+                    {project.name}
+                  </span>
+                  <span style={{ flex: 1 }} />
+                  <button className="pm-ibtn" onClick={onRefresh} title="Tải lại cây tệp (Ctrl+R)">
+                    <RefreshCw size={12} />
+                  </button>
+                  <button className="pm-ibtn" onClick={onOpenFolder} title="Mở thư mục khác">
+                    <FolderOpen size={12} />
+                  </button>
                 </div>
-              ) : (
-                <FileTree
-                  nodes={tree}
-                  rootPath={project.path}
-                  selectedPath={selectedPath}
-                  query={query}
-                  onSelect={onSelectFile}
-                />
-              )}
-            </div>
-          </div>
-        </Panel>
+                <div className="pm-tree__filter">
+                  <div className="pm-searchbox" style={{ width: '100%' }}>
+                    <Search size={12} />
+                    <input
+                      value={query}
+                      placeholder="Lọc theo tên tệp…"
+                      style={{ width: '100%' }}
+                      onChange={(e) => onQuery(e.target.value)}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                </div>
+                <div className="pm-panel__bd">
+                  {treeLoading ? (
+                    <div className="pm-row pm-muted" style={{ padding: 12, gap: 7, fontSize: 11.5 }}>
+                      <Loader2 size={12} className="spin" /> Đang đọc thư mục…
+                    </div>
+                  ) : (
+                    <FileTree
+                      nodes={tree}
+                      rootPath={project.path}
+                      selectedPath={selectedPath}
+                      query={query}
+                      onSelect={onSelectFile}
+                    />
+                  )}
+                </div>
+              </div>
+            </Panel>
+            <Separator className="pm-resize" />
+          </>
+        )}
 
-        <Separator className="pm-resize" />
-
-        {/* ── Nội dung ── */}
+        {/* ── Nội dung chính ── */}
         <Panel minSize="34%">
           <div className="pm-panel">
+            {/* Thanh Tabs */}
             <div className="pm-tabs">
               <button
                 className={`pm-tab ${activeTab === 'preview' ? 'on' : ''}`}
@@ -215,74 +240,180 @@ const WorkspaceView = ({
                 )
               })}
               <span style={{ flex: 1 }} />
+
+              {/* Nút bật/tắt Nhật ký chạy */}
+              <button
+                className={`pm-ibtn ${showLogs ? 'on' : ''}`}
+                onClick={() => setShowLogs((v) => !v)}
+                title={showLogs ? 'Thu gọn nhật ký chạy' : 'Mở rộng nhật ký chạy'}
+                style={{
+                  height: 24,
+                  fontSize: 11,
+                  gap: 4,
+                  padding: '0 8px',
+                  width: 'auto',
+                  display: 'inline-flex',
+                }}
+              >
+                <Terminal size={12} />
+                <span>Nhật ký</span>
+                {showLogs ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
+              </button>
+
+              {/* Nút Chế độ tập trung Canvas (Toàn màn hình) */}
+              {activeTab === 'preview' && (
+                <button
+                  className={`pm-ibtn ${focusCanvas ? 'on' : ''}`}
+                  onClick={() => setFocusCanvas((v) => !v)}
+                  title={focusCanvas ? 'Thoát chế độ tập trung (Esc)' : 'Chế độ tập trung toàn màn hình Canvas'}
+                  style={{
+                    height: 24,
+                    fontSize: 11,
+                    gap: 4,
+                    padding: '0 8px',
+                    width: 'auto',
+                    display: 'inline-flex',
+                    marginLeft: 4,
+                  }}
+                >
+                  {focusCanvas ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                  <span>{focusCanvas ? 'Thu nhỏ' : 'Toàn màn hình'}</span>
+                </button>
+              )}
             </div>
 
-            <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
-              <Panel minSize="22%">
-                {activeTab === 'preview' ? (
-                  <PreviewPane
-                    url={run?.url ?? null}
-                    running={run?.status === 'running' || run?.status === 'starting'}
-                    projectName={project.name}
-                    error={parsedError}
+            {/* Vùng hiển thị Canvas hoặc FileViewer */}
+            {showLogs ? (
+              <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
+                <Panel minSize="25%">
+                  {activeTab === 'preview' ? (
+                    <CanvasArea
+                      url={run?.url ?? null}
+                      running={run?.status === 'running' || run?.status === 'starting'}
+                      projectName={project.name}
+                      error={parsedError}
+                      installing={installing}
+                      onRun={onRun}
+                      onStop={onStop}
+                      onOpenExternal={onOpenExternal}
+                      onInstall={onInstall}
+                      onCreateIndexHtml={onCreateIndexHtml}
+                      onAddDevScript={onAddDevScript}
+                    />
+                  ) : (
+                    <FileViewer
+                      file={file}
+                      loading={fileLoading}
+                      onOpenExternal={onOpenFileExternal}
+                      onShowInFolder={onShowInFolder}
+                    />
+                  )}
+                </Panel>
+                <Separator className="pm-resize" style={{ height: 1, width: '100%' }} />
+                <Panel defaultSize="28%" minSize="60px" maxSize="60%" collapsible>
+                  <LogPanel
+                    logs={logs}
+                    run={run}
                     installing={installing}
-                    onRun={onRun}
-                    onStop={onStop}
-                    onOpenExternal={onOpenExternal}
                     onInstall={onInstall}
+                    onRetry={onRun}
+                    onOpenFile={(target) => {
+                      const match = tabs.find((t) => t.toLowerCase().endsWith(target.toLowerCase()))
+                      if (match) {
+                        onSelectTab(match)
+                      } else if (project) {
+                        const full = `${project.path}/${target}`.replace(/\\/g, '/')
+                        onSelectTab(full)
+                      }
+                    }}
+                    onClear={onClearLogs}
                   />
-                ) : (
-                  <FileViewer
-                    file={file}
-                    loading={fileLoading}
-                    onOpenExternal={onOpenFileExternal}
-                    onShowInFolder={onShowInFolder}
-                  />
-                )}
-              </Panel>
-              <Separator className="pm-resize" style={{ height: 1, width: '100%' }} />
-              <Panel defaultSize="26%" minSize="80px" maxSize="60%" collapsible>
-                <LogPanel
-                  logs={logs}
+                </Panel>
+              </Group>
+            ) : (
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+                  {activeTab === 'preview' ? (
+                    <CanvasArea
+                      url={run?.url ?? null}
+                      running={run?.status === 'running' || run?.status === 'starting'}
+                      projectName={project.name}
+                      error={parsedError}
+                      installing={installing}
+                      onRun={onRun}
+                      onStop={onStop}
+                      onOpenExternal={onOpenExternal}
+                      onInstall={onInstall}
+                      onCreateIndexHtml={onCreateIndexHtml}
+                      onAddDevScript={onAddDevScript}
+                    />
+                  ) : (
+                    <FileViewer
+                      file={file}
+                      loading={fileLoading}
+                      onOpenExternal={onOpenFileExternal}
+                      onShowInFolder={onShowInFolder}
+                    />
+                  )}
+                </div>
+
+                {/* Thanh mỏng 1 dòng khi thu gọn Nhật ký chạy */}
+                <div className="pm-log-collapsed-bar" onClick={() => setShowLogs(true)}>
+                  <Terminal size={12} />
+                  <span>Nhật ký chạy {logs.length > 0 ? `(${logs.length} dòng)` : ''}</span>
+                  <span style={{ flex: 1 }} />
+                  <span
+                    style={{
+                      fontSize: 10.5,
+                      color: 'var(--accent-text)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 3,
+                    }}
+                  >
+                    <ChevronUp size={11} /> Mở rộng nhật ký
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </Panel>
+
+        {/* ── RunSidebar (Ẩn khi ở chế độ Focus Canvas) ── */}
+        {!focusCanvas && (
+          <>
+            <Separator className="pm-resize" />
+            <Panel defaultSize="300px" minSize="264px" maxSize="460px" collapsible>
+              <div className="pm-panel" style={{ borderLeft: '1px solid var(--line)' }}>
+                <RunSidebar
+                  project={project}
                   run={run}
+                  settings={settings}
+                  stats={stats}
+                  branch={branch}
+                  script={script}
+                  diagnosis={diagnosis}
                   installing={installing}
+                  onScript={onScript}
+                  customCommand={customCommand}
+                  onCustomCommand={onCustomCommand}
+                  onSaveCustomCommand={onSaveCustomCommand}
+                  onRun={onRun}
+                  onStop={onStop}
+                  onReveal={onReveal}
+                  onRefresh={onRefresh}
+                  onSettings={onSettings}
+                  onOpenExternal={onOpenExternal}
+                  onOpenDiagnosis={onOpenDiagnosis}
                   onInstall={onInstall}
-                  onRetry={onRun}
-                  onClear={onClearLogs}
+onCreateIndexHtml={onCreateIndexHtml}
+                  onAddDevScript={onAddDevScript}
                 />
-              </Panel>
-            </Group>
-          </div>
-        </Panel>
+              </div>
+            </Panel>
+          </>
+        )}
 
-        <Separator className="pm-resize" />
-
-        {/* ── Chạy + thông tin ── */}
-        <Panel defaultSize="300px" minSize="264px" maxSize="460px" collapsible>
-          <div className="pm-panel" style={{ borderLeft: '1px solid var(--line)' }}>
-            <RunSidebar
-              project={project}
-              run={run}
-              settings={settings}
-              stats={stats}
-              branch={branch}
-              script={script}
-              diagnosis={diagnosis}
-              installing={installing}
-              onScript={onScript}
-              onRun={onRun}
-              onStop={onStop}
-              onReveal={onReveal}
-              onRefresh={onRefresh}
-              onSettings={onSettings}
-              onOpenExternal={onOpenExternal}
-              onOpenDiagnosis={onOpenDiagnosis}
-              onInstall={onInstall}
-              onCreateIndexHtml={onCreateIndexHtml}
-              onAddDevScript={onAddDevScript}
-            />
-          </div>
-        </Panel>
       </Group>
     </div>
   )

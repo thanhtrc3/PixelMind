@@ -2259,3 +2259,25 @@
   color: var(--accent);
   flex: none;
 }
+
+/* ── Thanh Nhật ký chạy khi thu gọn ── */
+.pm-log-collapsed-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 10px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+  transition: all var(--duration-fast, 120ms) ease;
+}
+
+.pm-log-collapsed-bar:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}

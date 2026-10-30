@@ -470,6 +470,14 @@ export function createBrowserMock(): PixelMindApi {
         return () => stateListeners.delete(cb)
       },
     },
+    inspect: {
+      async setMode(_enabled) {
+        return true
+      },
+      async applyStyle(_payload) {
+        return true
+      },
+    },
     system: {
       async openExternal(url) {
         window.open(url, '_blank', 'noopener')

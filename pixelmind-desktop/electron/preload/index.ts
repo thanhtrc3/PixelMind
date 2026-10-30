@@ -91,6 +91,12 @@ const api: PixelMindApi = {
       return () => ipcRenderer.removeListener('menu:action', listener)
     },
   },
+
+  inspect: {
+    setMode: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke('inspect:set-mode', enabled),
+    applyStyle: (payload: { styles?: Record<string, string>; textContent?: string }): Promise<boolean> =>
+      ipcRenderer.invoke('inspect:apply-style', payload),
+  },
 }
 
 export type PreloadApi = typeof api

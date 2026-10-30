@@ -119,6 +119,7 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
       spellcheck: false,
+      webSecurity: false,
     },
   })
 
