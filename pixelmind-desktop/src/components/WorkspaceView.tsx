@@ -60,6 +60,8 @@ interface WorkspaceViewProps {
   onOpenFileExternal: (path: string) => void
   onOpenDiagnosis?: () => void
   onInstall?: () => void
+  onCreateIndexHtml?: () => void
+  onAddDevScript?: () => void
   activeTab: 'file' | 'preview'
   onActiveTab: (tab: 'file' | 'preview') => void
   tabs: string[]
@@ -101,6 +103,8 @@ const WorkspaceView = ({
   onOpenFileExternal,
   onOpenDiagnosis,
   onInstall,
+  onCreateIndexHtml,
+  onAddDevScript,
   activeTab,
   onActiveTab,
   tabs,
@@ -292,6 +296,8 @@ const WorkspaceView = ({
               onOpenExternal={onOpenExternal}
               onOpenDiagnosis={onOpenDiagnosis}
               onInstall={onInstall}
+              onCreateIndexHtml={onCreateIndexHtml}
+              onAddDevScript={onAddDevScript}
             />
           </div>
         </Panel>

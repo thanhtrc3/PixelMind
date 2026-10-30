@@ -1,9 +1,11 @@
 import {
   CheckCircle2,
+  FileCode2,
   FolderGit2,
   HelpCircle,
   Lightbulb,
   Loader2,
+  PlusCircle,
   RefreshCw,
   ShieldAlert,
   TriangleAlert,
@@ -19,6 +21,8 @@ interface DiagnosisDialogProps {
   onClose: () => void
   onInstall: () => void
   onGitInit: () => void
+  onCreateIndexHtml?: () => void
+  onAddDevScript?: () => void
   onRefresh: () => void
 }
 
@@ -40,11 +44,15 @@ const DiagnosisDialog = ({
   onClose,
   onInstall,
   onGitInit,
+  onCreateIndexHtml,
+  onAddDevScript,
   onRefresh,
 }: DiagnosisDialogProps) => {
   const issues = diagnosis?.issues ?? []
   const hasErrors = issues.some((i) => i.level === 'error')
   const missingDeps = issues.find((i) => i.type === 'missing_deps')
+  const missingHtml = issues.find((i) => i.actionKind === 'create_index_html')
+  const missingDev = issues.find((i) => i.actionKind === 'add_dev_script')
 
   return (
     <Modal
@@ -60,19 +68,39 @@ const DiagnosisDialog = ({
           </button>
           <div className="grow" />
           <button className="btn" onClick={onClose}>
-            {missingDeps ? 'Để sau' : 'Đóng'}
+            {missingDeps || missingHtml || missingDev ? 'Để sau' : 'Đóng'}
           </button>
           {missingDeps && (
             <button className="btn primary" onClick={onInstall} disabled={installing}>
               {installing ? (
                 <>
-                  <Loader2 size={13} className="pm-spin" /> Đang cài đặt...
+                  <Loader2 size={13} className="pm-spin" />{' '}
+                  {project.packageManager === 'dotnet'
+                    ? 'Đang khôi phục...'
+                    : project.packageManager === 'flutter'
+                      ? 'Đang tải gói...'
+                      : 'Đang cài đặt...'}
                 </>
               ) : (
                 <>
-                  <Zap size={13} /> Cài đặt ngay ({project.packageManager || 'npm'} install)
+                  <Zap size={13} />{' '}
+                  {project.packageManager === 'dotnet'
+                    ? 'Khôi phục ngay (dotnet restore)'
+                    : project.packageManager === 'flutter'
+                      ? 'Tải ngay (flutter pub get)'
+                      : `Cài đặt ngay (${project.packageManager || 'npm'} install)`}
                 </>
               )}
+            </button>
+          )}
+          {!missingDeps && missingHtml && onCreateIndexHtml && (
+            <button className="btn primary" onClick={onCreateIndexHtml}>
+              <FileCode2 size={13} /> Tạo tệp index.html ngay
+            </button>
+          )}
+          {!missingDeps && !missingHtml && missingDev && onAddDevScript && (
+            <button className="btn primary" onClick={onAddDevScript}>
+              <PlusCircle size={13} /> Thêm script dev ngay
             </button>
           )}
         </>
@@ -122,13 +150,15 @@ const DiagnosisDialog = ({
                     </div>
                   </div>
 
-                  {/* Hộp hành động trực tiếp nếu là thiếu npm install */}
+                  {/* Hộp hành động trực tiếp nếu là thiếu install/restore */}
                   {issue.actionKind === 'install' && (
                     <div className="pm-issue-prompt">
                       <div className="pm-issue-prompt__desc">
-                        <span>👉 <b>Bạn có muốn PixelMind tự động cài đặt thư viện ngay không?</b></span>
+                        <span>
+                          👉 <b>{project.packageManager === 'dotnet' ? 'Bạn có muốn PixelMind tự động khôi phục các gói NuGet ngay không?' : 'Bạn có muốn PixelMind tự động cài đặt thư viện ngay không?'}</b>
+                        </span>
                         <p className="pm-hint">
-                          Hệ thống sẽ chạy <code>{project.packageManager || 'npm'} install</code> và hiển thị tiến trình trực tiếp.
+                          Hệ thống sẽ chạy <code>{project.packageManager === 'dotnet' ? 'dotnet restore' : `${project.packageManager || 'npm'} install`}</code> và hiển thị tiến trình trực tiếp.
                         </p>
                       </div>
                       <button
@@ -138,11 +168,14 @@ const DiagnosisDialog = ({
                       >
                         {installing ? (
                           <>
-                            <Loader2 size={13} className="pm-spin" /> Đang cài đặt thư viện...
+                            <Loader2 size={13} className="pm-spin" /> {project.packageManager === 'dotnet' ? 'Đang khôi phục...' : 'Đang cài đặt thư viện...'}
                           </>
                         ) : (
                           <>
-                            <Zap size={13} /> Cài đặt ngay ({project.packageManager || 'npm'} install)
+                            <Zap size={13} />{' '}
+                            {project.packageManager === 'dotnet'
+                              ? 'Khôi phục ngay (dotnet restore)'
+                              : `Cài đặt ngay (${project.packageManager || 'npm'} install)`}
                           </>
                         )}
                       </button>
@@ -157,6 +190,36 @@ const DiagnosisDialog = ({
                       </div>
                       <button className="btn sm" onClick={onGitInit}>
                         <FolderGit2 size={13} /> Khởi tạo Git (git init)
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Hộp hành động tạo index.html mẫu */}
+                  {issue.actionKind === 'create_index_html' && onCreateIndexHtml && (
+                    <div className="pm-issue-prompt">
+                      <div className="pm-issue-prompt__desc">
+                        <span>👉 <b>Bạn có muốn PixelMind tự động tạo tệp index.html mẫu ngay không?</b></span>
+                        <p className="pm-hint">
+                          Hệ thống sẽ tạo tệp <code>index.html</code> giao diện chuẩn đẹp mắt để bạn có thể xem trước và thiết kế ngay tức thì.
+                        </p>
+                      </div>
+                      <button className="btn primary sm" onClick={onCreateIndexHtml}>
+                        <FileCode2 size={13} /> Tạo tệp index.html mẫu ngay
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Hộp hành động thêm script dev */}
+                  {issue.actionKind === 'add_dev_script' && onAddDevScript && (
+                    <div className="pm-issue-prompt">
+                      <div className="pm-issue-prompt__desc">
+                        <span>👉 <b>Bạn có muốn PixelMind tự động thêm script dev vào package.json không?</b></span>
+                        <p className="pm-hint">
+                          Hệ thống sẽ thêm <code>"dev": "npx serve ."</code> vào tệp <code>package.json</code>.
+                        </p>
+                      </div>
+                      <button className="btn primary sm" onClick={onAddDevScript}>
+                        <PlusCircle size={13} /> Thêm script dev vào package.json
                       </button>
                     </div>
                   )}

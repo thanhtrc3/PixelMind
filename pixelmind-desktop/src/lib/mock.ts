@@ -346,6 +346,12 @@ export function createBrowserMock(): PixelMindApi {
       async gitInit() {
         return true
       },
+      async createIndexHtml() {
+        return true
+      },
+      async addDevScript() {
+        return true
+      },
       async removePage(projectId, pageId) {
         const projects = readProjects().map((p) =>
           p.id === projectId

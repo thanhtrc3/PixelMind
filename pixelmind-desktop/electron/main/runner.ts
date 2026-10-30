@@ -84,7 +84,23 @@ export class RunnerManager {
     }
   }
 
-  private buildCommand(manager: PackageManager, script: string): string {
+  private buildCommand(manager: PackageManager, script: string, matchedCommand?: string): string {
+    if (matchedCommand) return matchedCommand
+    if (manager === 'dotnet') {
+      if (script === 'watch' || script === 'dev') return 'dotnet watch run'
+      if (script === 'run' || script === 'start') return 'dotnet run'
+      if (script === 'build') return 'dotnet build'
+      if (script === 'test') return 'dotnet test'
+      return script.startsWith('dotnet ') ? script : `dotnet ${script}`
+    }
+    if (manager === 'flutter') {
+      if (script === 'dev' || script === 'watch') return 'flutter run -d chrome'
+      if (script === 'run' || script === 'start') return 'flutter run'
+      if (script === 'build') return 'flutter build web'
+      if (script === 'test') return 'flutter test'
+      if (script === 'pub-get') return 'flutter pub get'
+      return script.startsWith('flutter ') ? script : `flutter ${script}`
+    }
     const bin = manager === 'none' ? 'npm' : manager
     if (bin === 'bun') return `bun run ${script}`
     if (bin === 'yarn') return `yarn ${script}`
@@ -92,16 +108,17 @@ export class RunnerManager {
   }
 
   startScript(
-    project: { id: string; path: string; packageManager: PackageManager },
+    project: { id: string; path: string; packageManager: PackageManager; scripts?: import('../../shared/types').ScriptEntry[] },
     script: string,
     directCommand?: string,
   ): RunState {
     const running = this.runningOf(project.id)
     if (running) return running
 
+    const matchedCommand = directCommand?.trim() || project.scripts?.find((s) => s.name === script)?.command
     return this.launch(project, {
       script,
-      command: directCommand?.trim() || this.buildCommand(project.packageManager, script),
+      command: this.buildCommand(project.packageManager, script, matchedCommand),
       kind: 'script',
     })
   }
@@ -113,19 +130,28 @@ export class RunnerManager {
 
     const manager = project.packageManager === 'none' ? 'npm' : project.packageManager
     const command =
-      manager === 'yarn'
-        ? 'yarn install'
-        : manager === 'bun'
-          ? 'bun install'
-          : manager === 'pnpm'
-            ? 'pnpm install'
-            : 'npm install'
+      manager === 'dotnet'
+        ? 'dotnet restore'
+        : manager === 'flutter'
+          ? 'flutter pub get'
+          : manager === 'yarn'
+            ? 'yarn install'
+            : manager === 'bun'
+              ? 'bun install'
+              : manager === 'pnpm'
+                ? 'pnpm install'
+                : 'npm install'
 
     return this.launch(project, {
       script: 'install',
       command,
       kind: 'install',
-      note: '[system] Bắt đầu cài đặt các gói phụ thuộc...\n',
+      note:
+        manager === 'dotnet'
+          ? '[system] Đang khôi phục các gói thư viện NuGet cho giải pháp...\n'
+          : manager === 'flutter'
+            ? '[system] Đang tải các gói phụ thuộc Flutter (flutter pub get)...\n'
+            : '[system] Bắt đầu cài đặt các gói phụ thuộc...\n',
     })
   }
 
