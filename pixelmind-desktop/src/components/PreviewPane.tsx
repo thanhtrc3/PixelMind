@@ -1,16 +1,40 @@
 import { useEffect, useState } from 'react'
-import { ExternalLink, Globe2, Play, RefreshCw, Square } from 'lucide-react'
+import {
+  ExternalLink,
+  Globe2,
+  Lightbulb,
+  Loader2,
+  Play,
+  RefreshCw,
+  Square,
+  TriangleAlert,
+  Zap,
+} from 'lucide-react'
+import type { ParsedError } from '../lib/errorParser'
 
 interface PreviewPaneProps {
   url: string | null
   running: boolean
   projectName?: string
+  error?: ParsedError | null
+  installing?: boolean
   onRun: () => void
   onStop: () => void
   onOpenExternal: (url: string) => void
+  onInstall?: () => void
 }
 
-const PreviewPane = ({ url, running, projectName, onRun, onStop, onOpenExternal }: PreviewPaneProps) => {
+const PreviewPane = ({
+  url,
+  running,
+  projectName,
+  error,
+  installing = false,
+  onRun,
+  onStop,
+  onOpenExternal,
+  onInstall,
+}: PreviewPaneProps) => {
   const [draft, setDraft] = useState(url ?? '')
   const [reloadKey, setReloadKey] = useState(0)
 
@@ -64,6 +88,40 @@ const PreviewPane = ({ url, running, projectName, onRun, onStop, onOpenExternal 
       <div className="pm-preview__frame">
         {url ? (
           <iframe key={reloadKey} src={draft || url} title="Xem trước dự án" allow="clipboard-read; clipboard-write" />
+        ) : error ? (
+          /* Giao diện báo lỗi trực quan ngay giữa khung xem trước */
+          <div style={{ height: '100%', display: 'grid', placeItems: 'center', padding: 20 }}>
+            <div className="pm-preview-error-card">
+              <div className="pm-preview-error-card__ico">
+                <TriangleAlert size={28} />
+              </div>
+              <h3>Không thể khởi động xem trước</h3>
+              <div className="pm-preview-error-card__title">{error.title}</div>
+              <p className="pm-preview-error-card__desc">{error.summary}</p>
+              <div className="pm-preview-error-card__rec">
+                <Lightbulb size={13} />
+                <span>{error.recommendation}</span>
+              </div>
+              <div className="pm-row" style={{ marginTop: 14, gap: 10, justifyContent: 'center' }}>
+                {error.actionKind === 'install' && onInstall && (
+                  <button className="btn primary" onClick={onInstall} disabled={installing}>
+                    {installing ? (
+                      <>
+                        <Loader2 size={13} className="pm-spin" /> Đang cài đặt thư viện...
+                      </>
+                    ) : (
+                      <>
+                        <Zap size={13} /> Cài đặt thư viện ngay
+                      </>
+                    )}
+                  </button>
+                )}
+                <button className="btn" onClick={onRun}>
+                  <RefreshCw size={12} /> Thử chạy lại (F5)
+                </button>
+              </div>
+            </div>
+          </div>
         ) : (
           <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
             <div className="pm-empty" style={{ border: 0, background: 'transparent' }}>

@@ -106,6 +106,29 @@ export class RunnerManager {
     })
   }
 
+  /** Cài đặt thư viện của dự án bằng package manager hiện có. */
+  startInstall(project: { id: string; path: string; packageManager: PackageManager }): RunState {
+    const running = this.runningOf(project.id)
+    if (running) return running
+
+    const manager = project.packageManager === 'none' ? 'npm' : project.packageManager
+    const command =
+      manager === 'yarn'
+        ? 'yarn install'
+        : manager === 'bun'
+          ? 'bun install'
+          : manager === 'pnpm'
+            ? 'pnpm install'
+            : 'npm install'
+
+    return this.launch(project, {
+      script: 'install',
+      command,
+      kind: 'install',
+      note: '[system] Bắt đầu cài đặt các gói phụ thuộc...\n',
+    })
+  }
+
   /** Chạy một lệnh tuỳ ý trong thư mục dự án (dùng cho dự án không có script). */
   startCommand(project: { id: string; path: string }, command: string): RunState {
     const running = this.runningOf(project.id)
@@ -127,7 +150,7 @@ export class RunnerManager {
 
   private launch(
     project: { id: string; path: string },
-    options: { script: string; command: string; kind: RunState['kind'] },
+    options: { script: string; command: string; kind: RunState['kind']; note?: string },
   ): RunState {
     const id = randomUUID()
     const entry: Entry = {
@@ -149,6 +172,7 @@ export class RunnerManager {
     this.entries.set(id, entry)
     this.onState(entry.state)
     this.emitLog(id, `$ ${command}  (${entry.state.cwd})\n`, 'system')
+    if (options.note) this.emitLog(id, options.note, 'system')
 
     let child: ChildProcess
     try {
@@ -190,7 +214,17 @@ export class RunnerManager {
       if (entry.state.status !== 'error') {
         this.update(entry, { status: stopped ? 'stopped' : 'exited', exitCode: code ?? null })
       }
-      this.emitLog(id, `\n[system] Tiến trình kết thúc (mã ${code ?? 'n/a'}).\n`, 'system')
+      if (options.kind === 'install') {
+        this.emitLog(
+          id,
+          code === 0
+            ? '\n[system] Cài đặt thư viện hoàn tất thành công!\n'
+            : `\n[system] Tiến trình cài đặt kết thúc (mã ${code ?? 'n/a'}).\n`,
+          'system',
+        )
+      } else {
+        this.emitLog(id, `\n[system] Tiến trình kết thúc (mã ${code ?? 'n/a'}).\n`, 'system')
+      }
       entry.child = undefined
     })
 

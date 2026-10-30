@@ -68,6 +68,36 @@ export interface ProjectMeta {
   customCommand: string
 }
 
+export type IssueLevel = 'error' | 'warning' | 'info'
+export type IssueType =
+  | 'missing_deps'
+  | 'missing_script'
+  | 'electron_app'
+  | 'no_git'
+  | 'no_package_json'
+  | 'empty_folder'
+  | 'other'
+
+export type IssueActionKind = 'install' | 'git_init'
+
+export interface ProjectIssue {
+  id: string
+  type: IssueType
+  level: IssueLevel
+  title: string
+  message: string
+  recommendation: string
+  actionLabel?: string
+  actionKind?: IssueActionKind
+}
+
+export interface ProjectDiagnosis {
+  healthy: boolean
+  hasIssues: boolean
+  checkedAt: number
+  issues: ProjectIssue[]
+}
+
 export interface ProjectRecord {
   id: string
   name: string
@@ -81,6 +111,7 @@ export interface ProjectRecord {
   addedAt: number
   lastOpenedAt: number | null
   favorite: boolean
+  diagnosis?: ProjectDiagnosis
   meta: ProjectMeta
 }
 
@@ -116,7 +147,7 @@ export interface RunState {
   url: string | null
   exitCode: number | null
   startedAt: number
-  kind: 'script' | 'static' | 'command'
+  kind: 'script' | 'static' | 'install' | 'command'
 }
 
 export interface RunLog {

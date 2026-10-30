@@ -6,12 +6,16 @@ import {
   FolderOpen,
   GitBranch,
   Info,
+  Loader2,
   Play,
   RefreshCw,
   Settings as SettingsIcon,
+  ShieldAlert,
   Square,
+  TriangleAlert,
+  Zap,
 } from 'lucide-react'
-import type { ProjectRecord, ProjectStat, RunState, Settings } from '@shared/types'
+import type { ProjectDiagnosis, ProjectRecord, ProjectStat, RunState, Settings } from '@shared/types'
 import { formatBytes, formatTime, scriptLabel } from '../lib/format'
 
 interface RunSidebarProps {
@@ -21,6 +25,8 @@ interface RunSidebarProps {
   stats: ProjectStat | null
   branch: string | null
   script: string
+  diagnosis?: ProjectDiagnosis | null
+  installing?: boolean
   onScript: (script: string) => void
   customCommand: string
   onCustomCommand: (command: string) => void
@@ -31,6 +37,8 @@ interface RunSidebarProps {
   onRefresh: () => void
   onSettings: () => void
   onOpenExternal: (url: string) => void
+  onOpenDiagnosis?: () => void
+  onInstall?: () => void
 }
 
 const RunSidebar = ({
@@ -40,6 +48,8 @@ const RunSidebar = ({
   stats,
   branch,
   script,
+  diagnosis,
+  installing = false,
   onScript,
   customCommand,
   onCustomCommand,
@@ -50,6 +60,8 @@ const RunSidebar = ({
   onRefresh,
   onSettings,
   onOpenExternal,
+  onOpenDiagnosis,
+  onInstall,
 }: RunSidebarProps) => {
   const [copied, setCopied] = useState(false)
   const running = run?.status === 'running' || run?.status === 'starting'
@@ -62,6 +74,7 @@ const RunSidebar = ({
   const canRun = !isCustom || customCommand.trim().length > 0
   const placeholder =
     project.framework === 'Flutter' ? 'flutter run -d chrome' : 'python -m http.server 8000'
+  const missingDeps = diagnosis?.issues.find((i) => i.type === 'missing_deps')
 
   const copyUrl = async () => {
     if (!run?.url) return
@@ -78,11 +91,11 @@ const RunSidebar = ({
     if (!run) return 'Chưa chạy'
     switch (run.status) {
       case 'starting':
-        return 'Đang khởi động…'
+        return run.kind === 'install' ? 'Đang cài đặt thư viện…' : 'Đang khởi động…'
       case 'running':
-        return 'Đang chạy'
+        return run.kind === 'install' ? 'Đang cài đặt thư viện…' : 'Đang chạy'
       case 'stopped':
-        return 'Đã dừng'
+        return run.kind === 'install' ? 'Cài đặt đã xong' : 'Đã dừng'
       case 'exited':
         return `Đã kết thúc (mã ${run.exitCode ?? '—'})`
       default:
@@ -95,8 +108,46 @@ const RunSidebar = ({
       <section className="pm-card">
         <div className="pm-card__hd">
           <Play size={12} /> Chạy dự án
+          {diagnosis && (
+            <button
+              className="pm-ibtn"
+              onClick={onOpenDiagnosis}
+              title="Xem báo cáo kiểm tra dự án"
+              style={{ marginLeft: 'auto', width: 22, height: 22 }}
+            >
+              <ShieldAlert size={12} className={missingDeps ? 'pm-err' : ''} />
+            </button>
+          )}
         </div>
         <div className="pm-card__bd">
+          {missingDeps && (
+            <div className="pm-side-alert err">
+              <div className="pm-side-alert__top">
+                <TriangleAlert size={13} className="pm-err" />
+                <b>Chưa cài đặt thư viện!</b>
+              </div>
+              <p className="pm-hint" style={{ fontSize: 11, margin: '2px 0 6px' }}>
+                Thư mục <code>node_modules</code> chưa có. Hãy cài đặt trước khi chạy.
+              </p>
+              <button
+                className="btn sm primary"
+                onClick={onInstall}
+                disabled={installing}
+                style={{ width: '100%' }}
+              >
+                {installing ? (
+                  <>
+                    <Loader2 size={11} className="pm-spin" /> Đang cài đặt...
+                  </>
+                ) : (
+                  <>
+                    <Zap size={11} /> Cài đặt ngay ({project.packageManager || 'npm'} install)
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
           <div className="pm-field">
             <label htmlFor="run-script">Lệnh chạy</label>
             <select
@@ -243,6 +294,11 @@ const RunSidebar = ({
           <FolderOpen size={12} /> Hành động nhanh
         </div>
         <div className="pm-card__bd">
+          {onOpenDiagnosis && (
+            <button className="btn sm" onClick={onOpenDiagnosis}>
+              <ShieldAlert size={12} /> Báo cáo kiểm tra dự án
+            </button>
+          )}
           <button className="btn sm" onClick={onReveal}>
             <FolderOpen size={12} /> Mở trong File Explorer
           </button>

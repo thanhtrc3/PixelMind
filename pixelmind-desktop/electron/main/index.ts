@@ -7,7 +7,9 @@ import type { ProjectPage, ProjectRecord, Settings, StoreData } from '../../shar
 import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetStore, storeFilePath } from './store'
 import {
   detectProject,
+  diagnoseProject,
   gitBranch,
+  initGit,
   isDirectory,
   readFileContent,
   readTree,
@@ -186,8 +188,8 @@ ipcMain.handle('project:pick', async (): Promise<ProjectRecord | null> => {
 })
 
 /** Ghép kết quả dò mới vào bản ghi cũ, giữ dữ liệu người dùng đã tạo. */
-function mergeDetected(project: ProjectRecord, fresh: ProjectRecord): ProjectRecord {
-  return {
+async function mergeDetected(project: ProjectRecord, fresh: ProjectRecord): Promise<ProjectRecord> {
+  const merged: ProjectRecord = {
     ...fresh,
     id: project.id,
     addedAt: project.addedAt,
@@ -205,6 +207,9 @@ function mergeDetected(project: ProjectRecord, fresh: ProjectRecord): ProjectRec
       activity: project.meta.activity,
     },
   }
+  /* Chẩn đoán lại theo lệnh tự nhập để không báo thiếu script khi đã có lệnh chạy. */
+  merged.diagnosis = await diagnoseProject(merged.path, merged.meta.customCommand)
+  return merged
 }
 
 async function addProject(folder: string): Promise<ProjectRecord | null> {
@@ -214,7 +219,7 @@ async function addProject(folder: string): Promise<ProjectRecord | null> {
   const existing = store.projects.find((p) => samePath(p.path, detected.path))
   if (existing) {
     /* Dò lại để bản ghi cũ nhận được script/preview mới (ví dụ Flutter). */
-    const updated = mergeDetected(existing, detected)
+    const updated = await mergeDetected(existing, detected)
     await patchStore({
       projects: store.projects.map((p) => (p.id === existing.id ? updated : p)),
       lastProjectId: existing.id,
@@ -239,7 +244,7 @@ ipcMain.handle('project:open', async (_e, id: string): Promise<ProjectRecord | n
   if (await isDirectory(existing.path)) {
     /* Dò lại khi mở để cập nhật script mới hoặc nhận diện framework. */
     const fresh = await detectProject(existing.path)
-    project = mergeDetected(existing, fresh)
+    project = await mergeDetected(existing, fresh)
   }
   project = { ...project, lastOpenedAt: Date.now() }
   await patchStore({
@@ -281,7 +286,7 @@ ipcMain.handle('project:refresh', async (_e, id: string): Promise<ProjectRecord 
   if (!project) return null
   if (!(await isDirectory(project.path))) return null
   const fresh = await detectProject(project.path)
-  const updated = mergeDetected(project, fresh)
+  const updated = await mergeDetected(project, fresh)
   await patchStore({ projects: store.projects.map((p) => (p.id === id ? updated : p)) })
   return updated
 })
@@ -324,11 +329,48 @@ ipcMain.handle('project:remove-page', async (_e, id: string, pageId: string) => 
   return updated
 })
 
+ipcMain.handle('project:diagnose', async (_e, idOrPath: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === idOrPath)
+  const targetPath = project ? project.path : idOrPath
+  const diagnosis = await diagnoseProject(targetPath, project?.meta.customCommand ?? '')
+  if (project) {
+    await patchProject(project.id, (p) => ({ ...p, diagnosis }))
+  }
+  return diagnosis
+})
+
+ipcMain.handle('project:git-init', async (_e, projectId: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('Không tìm thấy dự án.')
+  const ok = await initGit(project.path)
+  if (ok) {
+    const updated = await detectProject(project.path)
+    await patchProject(projectId, (p) => ({
+      ...p,
+      diagnosis: updated.diagnosis,
+      meta: { ...p.meta, versions: updated.meta.versions },
+    }))
+    await appendActivity(projectId, {
+      actor: 'bạn',
+      action: 'Khởi tạo kho Git (git init)',
+      kind: 'người',
+      status: 'ok',
+    })
+  }
+  return ok
+})
+
 ipcMain.handle('project:set-command', async (_e, id: string, command: string) => {
-  return patchProject(id, (project) => ({
+  const updated = await patchProject(id, (project) => ({
     ...project,
     meta: { ...project.meta, customCommand: command.trim() },
   }))
+  if (!updated) return null
+  /* Cập nhật lại chẩn đoán để thẻ cảnh báo phản ánh đúng lệnh tự nhập. */
+  const diagnosis = await diagnoseProject(updated.path, updated.meta.customCommand)
+  return patchProject(id, (project) => ({ ...project, diagnosis }))
 })
 
 /* ───────────────────────── IPC: tệp ───────────────────────── */
@@ -390,6 +432,20 @@ ipcMain.handle('run:start', async (_e, projectId: string, script: string) => {
     action: `Chạy script “${script}” cho ${project.name}`,
     kind: 'hệ thống',
     status: 'ok',
+  })
+  return state
+})
+
+ipcMain.handle('run:install', async (_e, projectId: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('Không tìm thấy dự án trong danh sách.')
+  const state = runner.startInstall(project)
+  await appendActivity(projectId, {
+    actor: 'hệ thống',
+    action: `Bắt đầu cài đặt thư viện (${project.packageManager || 'npm'} install)`,
+    kind: 'hệ thống',
+    status: 'info',
   })
   return state
 })

@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import {
   FileCode2,
@@ -8,7 +9,17 @@ import {
   Search,
   X,
 } from 'lucide-react'
-import type { FileContent, FileNode, ProjectRecord, ProjectStat, RunLog, RunState, Settings } from '@shared/types'
+import type {
+  FileContent,
+  FileNode,
+  ProjectDiagnosis,
+  ProjectRecord,
+  ProjectStat,
+  RunLog,
+  RunState,
+  Settings,
+} from '@shared/types'
+import { parseRunError } from '../lib/errorParser'
 import FileTree from './FileTree'
 import FileViewer from './FileViewer'
 import PreviewPane from './PreviewPane'
@@ -36,6 +47,8 @@ interface WorkspaceViewProps {
   stats: ProjectStat | null
   branch: string | null
   script: string
+  diagnosis?: ProjectDiagnosis | null
+  installing?: boolean
   onScript: (value: string) => void
   customCommand: string
   onCustomCommand: (value: string) => void
@@ -45,6 +58,8 @@ interface WorkspaceViewProps {
   onOpenExternal: (url: string) => void
   onShowInFolder: (path: string) => void
   onOpenFileExternal: (path: string) => void
+  onOpenDiagnosis?: () => void
+  onInstall?: () => void
   activeTab: 'file' | 'preview'
   onActiveTab: (tab: 'file' | 'preview') => void
   tabs: string[]
@@ -73,6 +88,8 @@ const WorkspaceView = ({
   stats,
   branch,
   script,
+  diagnosis,
+  installing = false,
   onScript,
   customCommand,
   onCustomCommand,
@@ -82,12 +99,16 @@ const WorkspaceView = ({
   onOpenExternal,
   onShowInFolder,
   onOpenFileExternal,
+  onOpenDiagnosis,
+  onInstall,
   activeTab,
   onActiveTab,
   tabs,
   onCloseTab,
   onSelectTab,
 }: WorkspaceViewProps) => {
+  const parsedError = useMemo(() => parseRunError(logs, run), [logs, run])
+
   if (!project) {
     return (
       <div className="pm-workspace" style={{ display: 'grid', placeItems: 'center' }}>
@@ -205,9 +226,12 @@ const WorkspaceView = ({
                     url={run?.url ?? null}
                     running={run?.status === 'running' || run?.status === 'starting'}
                     projectName={project.name}
+                    error={parsedError}
+                    installing={installing}
                     onRun={onRun}
                     onStop={onStop}
                     onOpenExternal={onOpenExternal}
+                    onInstall={onInstall}
                   />
                 ) : (
                   <FileViewer
@@ -220,7 +244,23 @@ const WorkspaceView = ({
               </Panel>
               <Separator className="pm-resize" style={{ height: 1, width: '100%' }} />
               <Panel defaultSize="26%" minSize="80px" maxSize="60%" collapsible>
-                <LogPanel logs={logs} onClear={onClearLogs} />
+                <LogPanel
+                  logs={logs}
+                  run={run}
+                  installing={installing}
+                  onInstall={onInstall}
+                  onRetry={onRun}
+                  onOpenFile={(target) => {
+                    const match = tabs.find((t) => t.toLowerCase().endsWith(target.toLowerCase()))
+                    if (match) {
+                      onSelectTab(match)
+                    } else if (project) {
+                      const full = `${project.path}/${target}`.replace(/\\/g, '/')
+                      onSelectTab(full)
+                    }
+                  }}
+                  onClear={onClearLogs}
+                />
               </Panel>
             </Group>
           </div>
@@ -238,6 +278,8 @@ const WorkspaceView = ({
               stats={stats}
               branch={branch}
               script={script}
+              diagnosis={diagnosis}
+              installing={installing}
               onScript={onScript}
               customCommand={customCommand}
               onCustomCommand={onCustomCommand}
@@ -248,6 +290,8 @@ const WorkspaceView = ({
               onRefresh={onRefresh}
               onSettings={onSettings}
               onOpenExternal={onOpenExternal}
+              onOpenDiagnosis={onOpenDiagnosis}
+              onInstall={onInstall}
             />
           </div>
         </Panel>

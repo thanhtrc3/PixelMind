@@ -8,8 +8,10 @@ Toàn bộ mã nguồn nằm trong thư mục này; dự án web gốc `uiforge-
 | Màn hình | Nội dung |
 | --- | --- |
 | **Danh sách dự án** | Mở thư mục bằng hộp thoại Windows, tự nhận framework (Vite, Next.js, Nuxt, Astro…), package manager, script và đánh dấu yêu thích. |
-| **Màn hình dự án** | Dashboard thật của từng dự án: chỉ số nhanh, bảng *Trang và ảnh mẫu*, timeline *Phiên bản* (đọc từ `git log`), *Thông tin dự án*, *Hoạt động gần đây*. Thêm/xoá trang, quét lại, mở thư mục, Run/Dừng, mở màn hình làm việc. |
+| **Màn hình dự án** | Dashboard thật của từng dự án: chỉ số nhanh, bảng *Trang và ảnh mẫu*, timeline *Phiên bản* (đọc từ `git log`), *Thông tin dự án*, *Hoạt động gần đây*. Thêm/xoá trang, quét lại, mở thư mục, Run/Dừng, mở màn hình làm việc. Có thẻ cảnh báo sức khoẻ dự án và báo cáo kiểm tra. |
 | **Màn hình làm việc** | Cây tệp thật, xem nội dung tệp, chạy script và đọc log trực tiếp, phát hiện URL dev server và nhúng preview. Tự nhận Flutter (`flutter run -d web-server`) và cho phép nhập lệnh chạy tay cho dự án không có script. |
+| **Chẩn đoán dự án** | Khi mở thư mục, PixelMind tự kiểm tra: thiếu `node_modules`, thiếu script dev/index.html, dự án Electron, chưa có `.git`, thư mục rỗng. Có hộp thoại báo cáo, thẻ cảnh báo trên Dashboard và nút **Cài đặt ngay** (`npm/pnpm/yarn/bun install`) chạy thật. |
+| **Báo lỗi trực quan** | Log lỗi được phân tích thành thẻ dễ hiểu: thiếu gói, trùng cổng, thiếu công cụ, lỗi TypeScript/cú pháp, xung đột cache Electron… kèm đề xuất và nút sửa nhanh. Log kỹ thuật được thu gọn sau nút *Xem log kỹ thuật*. |
 | **Cài đặt / Hướng dẫn / Bảng lệnh** | Chủ đề sáng–tối, cỡ chữ, thư mục mặc định, phím tắt, hướng dẫn sử dụng. |
 
 ### Màn hình dự án lấy dữ liệu từ đâu?
