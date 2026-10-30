@@ -104,3 +104,41 @@ Nhật ký các phần công việc, tính năng và lỗi đã được sửa v
 
 
 
+
+
+---
+
+### 7. Hỗ trợ toàn diện dự án ASP.NET Core MVC & Razor Pages
+- Tự động nhận diện cấu trúc dự án ASP.NET Core qua file `.sln` và `.csproj`.
+- Quản lý gói tự động chuyển sang `dotnet`, thiết lập lệnh chạy chuẩn `dotnet watch --no-launch-browser run`.
+- Ngăn chặn triệt để tình trạng tự động bật trình duyệt ngoài (Chrome) khi bấm Chạy dự án.
+
+---
+
+### 8. Khắc phục sự cố nhúng iframe xem trước & Tự động nắn chỉnh Route
+- Bóc tách toàn diện các header bảo mật HTTP chống nhúng của ASP.NET Core (`X-Frame-Options: SAMEORIGIN`, CSP `frame-ancestors`, COOP, COEP).
+- Bật `webSecurity: false` và xử lý bỏ qua lỗi chứng chỉ SSL localhost để iframe hiển thị mượt mà không bị trắng màn hình.
+- Nhận diện chính xác tiền tố Area (`/Identity/Account/...`) và Controller (`/Home/...`), tự động nắn chỉnh đường dẫn khi chuyển trang.
+
+---
+
+### 9. Kết nối Live DOM Bridge & Soi phần tử trực tiếp (Visual Inspector)
+- Cấu hình Live DOM Bridge trong Electron để môi trường Desktop của PixelMind có toàn quyền kết nối và tương tác với trang web đang chạy trong khung xem trước.
+- **Chế độ Soi phần tử (Visual Inspector · Phím V)**:
+  - Rê chuột qua các phần tử: Hiển thị khung viền xanh bám theo phần tử kèm nhãn tag và kích thước thực tế.
+  - Click chọn phần tử: Khung viền chọn tím kèm 8 điểm neo co giãn và nhãn kích thước pixel thực tế.
+- **Bảng thông tin thuộc tính (Live Inspector Panel)**:
+  - Hiển thị tên thẻ, ID, phân cấp DOM (DOM Breadcrumbs), danh sách Class / Tailwind (có nút sao chép classes).
+  - Hiển thị Computed Styles thực tế (kích thước, display, font, padding, margin, màu sắc swatch).
+  - Nút sao chép CSS Selector chuẩn xác.
+
+---
+
+### 10. Chế độ Soi phần tử riêng biệt (Inspect Mode · Phím I) & Tối ưu không gian làm việc
+- **Chế độ Soi phần tử riêng biệt**: Mặc định tắt hoàn toàn để khung xem trước sạch sẽ, có nút công tắc riêng `[</> Soi phần tử]` và phím tắt nhanh `I`.
+- **Thanh điều khiển TopBar nâng cao**:
+  - Bổ sung nút Hoàn tác/Làm lại (Undo/Redo), nút trạng thái máy chủ [⏹ Đang chạy] / [▶ Run], Git Compare, Monitor, Camera, Bảng lệnh (Ctrl+K).
+  - Tích hợp Dropdown Hồ sơ AI (Antigravity IDE, Ollama, GPT-4o, Claude) và Menu Hồ sơ người dùng.
+- **Tối ưu không gian làm việc Workspace**:
+  - Chế độ tập trung toàn màn hình Canvas (`Focus Canvas` · Phím `Esc`) ẩn cây tệp và sidebar để mở rộng tối đa vùng xem trước.
+  - Thanh thu gọn/mở rộng Nhật ký chạy 1 dòng (`.pm-log-collapsed-bar`) giúp linh hoạt điều chỉnh diện tích làm việc.

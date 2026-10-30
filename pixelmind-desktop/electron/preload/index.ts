@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+﻿import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
   AppInfo,
@@ -15,7 +15,7 @@ import type {
 } from '../../shared/types'
 import type { PixelMindApi } from '../../shared/api'
 
-/* Cầu nối duy nhất giữa renderer và main process. Renderer không có quyền Node. */
+/* Cß║ºu nß╗æi duy nhß║Ñt giß╗»a renderer v├á main process. Renderer kh├┤ng c├│ quyß╗ün Node. */
 
 const api: PixelMindApi = {
   getAppInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:info'),
@@ -71,7 +71,7 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('run:start', projectId, script),
     install: (projectId: string): Promise<RunState> => ipcRenderer.invoke('run:install', projectId),
     startCommand: (projectId: string, command: string): Promise<RunState> =>
-      ipcRenderer.invoke('run:start-command', projectId, command),
+      ipcRenderer.invoke('run:command', projectId, command),
     stop: (runId: string): Promise<boolean> => ipcRenderer.invoke('run:stop', runId),
     list: (): Promise<RunState[]> => ipcRenderer.invoke('run:list'),
     ofProject: (projectId: string): Promise<RunState | null> => ipcRenderer.invoke('run:project', projectId),
@@ -94,6 +94,12 @@ const api: PixelMindApi = {
       ipcRenderer.on('menu:action', listener)
       return () => ipcRenderer.removeListener('menu:action', listener)
     },
+  },
+
+  inspect: {
+    setMode: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke('inspect:set-mode', enabled),
+    applyStyle: (payload: { styles?: Record<string, string>; textContent?: string }): Promise<boolean> =>
+      ipcRenderer.invoke('inspect:apply-style', payload),
   },
 }
 

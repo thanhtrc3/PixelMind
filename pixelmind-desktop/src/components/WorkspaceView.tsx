@@ -1,12 +1,16 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import {
+  ChevronUp,
   FileCode2,
   FolderOpen,
   Globe2,
   Loader2,
+  Maximize2,
+  Minimize2,
   RefreshCw,
   Search,
+  Terminal,
   X,
 } from 'lucide-react'
 import type {
@@ -34,7 +38,7 @@ interface WorkspaceViewProps {
   fileLoading: boolean
   selectedPath: string | null
   query: string
-  onQuery: (value: string) => void
+  onQuery: (query: string) => void
   onSelectFile: (node: FileNode) => void
   onRefresh: () => void
   onOpenFolder: () => void
@@ -47,18 +51,18 @@ interface WorkspaceViewProps {
   stats: ProjectStat | null
   branch: string | null
   script: string
-  diagnosis?: ProjectDiagnosis | null
+  diagnosis?: ProjectDiagnosis
   installing?: boolean
-  onScript: (value: string) => void
-  customCommand: string
-  onCustomCommand: (value: string) => void
-  onSaveCustomCommand: (value: string) => void
+  onScript: (script: string) => void
+  customCommand?: string
+  onCustomCommand?: (command: string) => void
+  onSaveCustomCommand?: (command: string) => void
   onSettings: () => void
   onReveal: () => void
   onOpenExternal: (url: string) => void
   onShowInFolder: (path: string) => void
   onOpenFileExternal: (path: string) => void
-  onOpenDiagnosis?: () => void
+  onOpenDiagnosis: () => void
   onInstall?: () => void
   onCreateIndexHtml?: () => void
   onAddDevScript?: () => void
@@ -121,6 +125,22 @@ const WorkspaceView = ({
 }: WorkspaceViewProps) => {
   const parsedError = useMemo(() => parseRunError(logs, run), [logs, run])
 
+  // Trạng thái thu gọn/mở rộng Nhật ký chạy
+  const [showLogs, setShowLogs] = useState(true)
+  // Chế độ tập trung toàn màn hình Canvas (ẩn cả cây tệp và sidebar)
+  const [focusCanvas, setFocusCanvas] = useState(false)
+
+  // Lắng nghe phím Escape để thoát chế độ Focus Canvas
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && focusCanvas) {
+        setFocusCanvas(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [focusCanvas])
+
   const effectivePreviewUrl = useMemo(() => {
     if (previewUrl) return previewUrl
     if (!run?.url) return null
@@ -154,55 +174,58 @@ const WorkspaceView = ({
   return (
     <div className="pm-workspace">
       <Group orientation="horizontal" style={{ flex: 1 }}>
-        {/* ── Cây tệp ── */}
-        <Panel defaultSize="270px" minSize="190px" maxSize="440px" collapsible>
-          <div className="pm-panel" style={{ borderRight: '1px solid var(--line)' }}>
-            <div className="pm-panel__hd">
-              <b>Tệp</b>
-              <span className="pm-muted" style={{ fontSize: 10.5 }}>
-                {project.name}
-              </span>
-              <span style={{ flex: 1 }} />
-              <button className="pm-ibtn" onClick={onRefresh} title="Tải lại cây tệp (Ctrl+R)">
-                <RefreshCw size={12} />
-              </button>
-              <button className="pm-ibtn" onClick={onOpenFolder} title="Mở thư mục khác">
-                <FolderOpen size={12} />
-              </button>
-            </div>
-            <div className="pm-tree__filter">
-              <div className="pm-searchbox" style={{ width: '100%' }}>
-                <Search size={12} />
-                <input
-                  value={query}
-                  placeholder="Lọc theo tên tệp…"
-                  style={{ width: '100%' }}
-                  onChange={(e) => onQuery(e.target.value)}
-                  onKeyDown={(e) => e.stopPropagation()}
-                />
-              </div>
-            </div>
-            <div className="pm-panel__bd">
-              {treeLoading ? (
-                <div className="pm-row pm-muted" style={{ padding: 12, gap: 7, fontSize: 11.5 }}>
-                  <Loader2 size={12} className="spin" /> Đang đọc thư mục…
+        {/* ── Cây tệp (Ẩn khi ở chế độ Focus Canvas) ── */}
+        {!focusCanvas && (
+          <>
+            <Panel defaultSize="270px" minSize="190px" maxSize="440px" collapsible>
+              <div className="pm-panel" style={{ borderRight: '1px solid var(--line)' }}>
+                <div className="pm-panel__hd">
+                  <b>Tệp</b>
+                  <span className="pm-muted" style={{ fontSize: 10.5 }}>
+                    {project.name}
+                  </span>
+                  <span style={{ flex: 1 }} />
+                  <button className="pm-ibtn" onClick={onRefresh} title="Tải lại cây tệp (Ctrl+R)">
+                    <RefreshCw size={12} />
+                  </button>
+                  <button className="pm-ibtn" onClick={onOpenFolder} title="Mở thư mục khác">
+                    <FolderOpen size={12} />
+                  </button>
                 </div>
-              ) : (
-                <FileTree
-                  nodes={tree}
-                  rootPath={project.path}
-                  selectedPath={selectedPath}
-                  query={query}
-                  onSelect={onSelectFile}
-                />
-              )}
-            </div>
-          </div>
-        </Panel>
+                <div className="pm-tree__filter">
+                  <div className="pm-searchbox" style={{ width: '100%' }}>
+                    <Search size={12} />
+                    <input
+                      value={query}
+                      placeholder="Lọc theo tên tệp…"
+                      style={{ width: '100%' }}
+                      onChange={(e) => onQuery(e.target.value)}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                </div>
+                <div className="pm-panel__bd">
+                  {treeLoading ? (
+                    <div className="pm-row pm-muted" style={{ padding: 12, gap: 7, fontSize: 11.5 }}>
+                      <Loader2 size={12} className="spin" /> Đang đọc thư mục…
+                    </div>
+                  ) : (
+                    <FileTree
+                      nodes={tree}
+                      rootPath={project.path}
+                      selectedPath={selectedPath}
+                      query={query}
+                      onSelect={onSelectFile}
+                    />
+                  )}
+                </div>
+              </div>
+            </Panel>
+            <Separator className="pm-resize" />
+          </>
+        )}
 
-        <Separator className="pm-resize" />
-
-        {/* ── Nội dung ── */}
+        {/* ── Nội dung chính ── */}
         <Panel minSize="34%">
           <div className="pm-panel">
             <div className="pm-tabs">
@@ -240,103 +263,185 @@ const WorkspaceView = ({
                 )
               })}
               <span style={{ flex: 1 }} />
+              {/* Nút bật/tắt Focus Canvas */}
+              <button
+                className={`pm-ibtn ${focusCanvas ? 'primary' : ''}`}
+                onClick={() => setFocusCanvas((v) => !v)}
+                title={focusCanvas ? 'Thoát chế độ tập trung (Esc)' : 'Chế độ tập trung toàn màn hình'}
+                style={{ marginRight: 4, height: 24, width: 24 }}
+              >
+                {focusCanvas ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              </button>
+              {/* Nút bật/tắt Nhật ký chạy */}
+              <button
+                className="pm-ibtn"
+                onClick={() => setShowLogs((v) => !v)}
+                title={showLogs ? 'Thu gọn nhật ký chạy' : 'Mở rộng nhật ký chạy'}
+                style={{ marginRight: 6, height: 24, width: 24 }}
+              >
+                <Terminal size={12} />
+              </button>
             </div>
 
-            <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
-              <Panel minSize="22%">
-                {activeTab === 'preview' ? (
-                  <PreviewPane
-                    url={effectivePreviewUrl}
-                    pages={project.meta.pages}
-                    onUrlChange={onPreviewUrlChange}
-                    onSelectRoute={(route) => {
-                      let clean = route.startsWith('/') ? route : `/${route}`
-                      if (project.packageManager === 'dotnet' || project.framework?.includes('ASP.NET')) {
-                        if (clean.startsWith('/account/')) {
-                          clean = `/Identity/Account/${clean.slice(9)}`
-                        } else if (['/leaderboard', '/lobby', '/profile', '/account', '/privacy', '/room'].includes(clean.toLowerCase())) {
-                          clean = `/Home${clean}`
+            {showLogs ? (
+              <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
+                <Panel minSize="22%">
+                  {activeTab === 'preview' ? (
+                    <PreviewPane
+                      url={effectivePreviewUrl}
+                      pages={project.meta.pages}
+                      onUrlChange={onPreviewUrlChange}
+                      onSelectRoute={(route) => {
+                        let clean = route.startsWith('/') ? route : `/${route}`
+                        if (project.packageManager === 'dotnet' || project.framework?.includes('ASP.NET')) {
+                          if (clean.startsWith('/account/')) {
+                            clean = `/Identity/Account/${clean.slice(9)}`
+                          } else if (['/leaderboard', '/lobby', '/profile', '/account', '/privacy', '/room'].includes(clean.toLowerCase())) {
+                            clean = `/Home${clean}`
+                          }
                         }
-                      }
-                      onRouteChange?.(clean)
-                      if (run?.url) {
-                        const base = run.url.replace(/\/+$/, '')
-                        onPreviewUrlChange?.(clean === '/' ? base : `${base}${clean}`)
+                        onRouteChange?.(clean)
+                        if (run?.url) {
+                          const base = run.url.replace(/\/+$/, '')
+                          onPreviewUrlChange?.(clean === '/' ? base : `${base}${clean}`)
+                        }
+                      }}
+                      running={run?.status === 'running' || run?.status === 'starting'}
+                      projectName={project.name}
+                      error={parsedError}
+                      installing={installing}
+                      onRun={onRun}
+                      onStop={onStop}
+                      onOpenExternal={onOpenExternal}
+                      onInstall={onInstall}    
+                    />
+                  ) : (
+                    <FileViewer
+                      file={file}
+                      loading={fileLoading}
+                      onOpenExternal={onOpenFileExternal}
+                      onShowInFolder={onShowInFolder}
+                    />
+                  )}
+                </Panel>
+                <Separator className="pm-resize" style={{ height: 1, width: '100%' }} />
+                <Panel defaultSize="26%" minSize="80px" maxSize="60%" collapsible>
+                  <LogPanel
+                    logs={logs}
+                    run={run}
+                    installing={installing}
+                    onInstall={onInstall}  onRetry={onRun}
+                    onOpenFile={(target) => {
+                      const match = tabs.find((t) => t.toLowerCase().endsWith(target.toLowerCase()))
+                      if (match) {
+                        onSelectTab(match)
+                      } else if (project) {
+                        const full = `${project.path}/${target}`.replace(/\\/g, '/')
+                        onSelectTab(full)
                       }
                     }}
-                    running={run?.status === 'running' || run?.status === 'starting'}
-                    projectName={project.name}
-                    error={parsedError}
-                    installing={installing}
-                    onRun={onRun}
-                    onStop={onStop}
-                    onOpenExternal={onOpenExternal}
-                    onInstall={onInstall}
+                    onClear={onClearLogs}
                   />
-                ) : (
-                  <FileViewer
-                    file={file}
-                    loading={fileLoading}
-                    onOpenExternal={onOpenFileExternal}
-                    onShowInFolder={onShowInFolder}
-                  />
-                )}
-              </Panel>
-              <Separator className="pm-resize" style={{ height: 1, width: '100%' }} />
-              <Panel defaultSize="26%" minSize="80px" maxSize="60%" collapsible>
-                <LogPanel
-                  logs={logs}
+                </Panel>
+              </Group>
+            ) : (
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+                  {activeTab === 'preview' ? (
+                    <PreviewPane
+                      url={effectivePreviewUrl}
+                      pages={project.meta.pages}
+                      onUrlChange={onPreviewUrlChange}
+                      onSelectRoute={(route) => {
+                        let clean = route.startsWith('/') ? route : `/${route}`
+                        if (project.packageManager === 'dotnet' || project.framework?.includes('ASP.NET')) {
+                          if (clean.startsWith('/account/')) {
+                            clean = `/Identity/Account/${clean.slice(9)}`
+                          } else if (['/leaderboard', '/lobby', '/profile', '/account', '/privacy', '/room'].includes(clean.toLowerCase())) {
+                            clean = `/Home${clean}`
+                          }
+                        }
+                        onRouteChange?.(clean)
+                        if (run?.url) {
+                          const base = run.url.replace(/\/+$/, '')
+                          onPreviewUrlChange?.(clean === '/' ? base : `${base}${clean}`)
+                        }
+                      }}
+                      running={run?.status === 'running' || run?.status === 'starting'}
+                      projectName={project.name}
+                      error={parsedError}
+                      installing={installing}
+                      onRun={onRun}
+                      onStop={onStop}
+                      onOpenExternal={onOpenExternal}
+                      onInstall={onInstall}    
+                    />
+                  ) : (
+                    <FileViewer
+                      file={file}
+                      loading={fileLoading}
+                      onOpenExternal={onOpenFileExternal}
+                      onShowInFolder={onShowInFolder}
+                    />
+                  )}
+                </div>
+
+                {/* Thanh mỏng 1 dòng khi thu gọn Nhật ký chạy */}
+                <div className="pm-log-collapsed-bar" onClick={() => setShowLogs(true)}>
+                  <Terminal size={12} />
+                  <span>Nhật ký chạy {logs.length > 0 ? `(${logs.length} dòng)` : ''}</span>
+                  <span style={{ flex: 1 }} />
+                  <span
+                    style={{
+                      fontSize: 10.5,
+                      color: 'var(--accent-text, #a78bfa)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 3,
+                    }}
+                  >
+                    <ChevronUp size={11} /> Mở rộng nhật ký
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </Panel>
+
+        {/* ── RunSidebar (Ẩn khi ở chế độ Focus Canvas) ── */}
+        {!focusCanvas && (
+          <>
+            <Separator className="pm-resize" />
+            <Panel defaultSize="300px" minSize="264px" maxSize="460px" collapsible>
+              <div className="pm-panel" style={{ borderLeft: '1px solid var(--line)' }}>
+                <RunSidebar
+                  project={project}
                   run={run}
+                  settings={settings}
+                  stats={stats}
+                  branch={branch}
+                  script={script}
+                  diagnosis={diagnosis}
                   installing={installing}
+                  onScript={onScript}
+                  customCommand={customCommand}
+                  onCustomCommand={onCustomCommand}
+                  onSaveCustomCommand={onSaveCustomCommand}
+                  onRun={onRun}
+                  onStop={onStop}
+                  onReveal={onReveal}
+                  onRefresh={onRefresh}
+                  onSettings={onSettings}
+                  onOpenExternal={onOpenExternal}
+                  onOpenDiagnosis={onOpenDiagnosis}
                   onInstall={onInstall}
-                  onRetry={onRun}
-                  onOpenFile={(target) => {
-                    const match = tabs.find((t) => t.toLowerCase().endsWith(target.toLowerCase()))
-                    if (match) {
-                      onSelectTab(match)
-                    } else if (project) {
-                      const full = `${project.path}/${target}`.replace(/\\/g, '/')
-                      onSelectTab(full)
-                    }
-                  }}
-                  onClear={onClearLogs}
+                  onCreateIndexHtml={onCreateIndexHtml}
+                  onAddDevScript={onAddDevScript}
                 />
-              </Panel>
-            </Group>
-          </div>
-        </Panel>
-
-        <Separator className="pm-resize" />
-
-        {/* ── Chạy + thông tin ── */}
-        <Panel defaultSize="300px" minSize="264px" maxSize="460px" collapsible>
-          <div className="pm-panel" style={{ borderLeft: '1px solid var(--line)' }}>
-            <RunSidebar
-              project={project}
-              run={run}
-              settings={settings}
-              stats={stats}
-              branch={branch}
-              script={script}
-              diagnosis={diagnosis}
-              installing={installing}
-              onScript={onScript}
-              customCommand={customCommand}
-              onCustomCommand={onCustomCommand}
-              onSaveCustomCommand={onSaveCustomCommand}
-              onRun={onRun}
-              onStop={onStop}
-              onReveal={onReveal}
-              onRefresh={onRefresh}
-              onSettings={onSettings}
-              onOpenExternal={onOpenExternal}
-              onOpenDiagnosis={onOpenDiagnosis}
-              onInstall={onInstall}
-              onCreateIndexHtml={onCreateIndexHtml}
-              onAddDevScript={onAddDevScript}
-            />
-          </div>
-        </Panel>
+              </div>
+            </Panel>
+          </>
+        )}
       </Group>
     </div>
   )

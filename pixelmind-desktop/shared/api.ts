@@ -63,4 +63,8 @@ export interface PixelMindApi {
     openExternal(url: string): Promise<boolean>
     onMenuAction(cb: (action: string) => void): () => void
   }
+  inspect: {
+    setMode(enabled: boolean): Promise<boolean>
+    applyStyle(payload: { styles?: Record<string, string>; textContent?: string }): Promise<boolean>
+  }
 }
