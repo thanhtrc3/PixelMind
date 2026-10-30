@@ -111,7 +111,8 @@ async function detectPackageManager(dir: string): Promise<PackageManager> {
   return 'none'
 }
 
-function detectFramework(pkg: RawPkg | null): string {
+function detectFramework(pkg: RawPkg | null, isFlutter = false): string {
+  if (isFlutter) return 'Flutter'
   if (!pkg) return 'Thư mục tĩnh'
   const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) }
   const has = (name: string) => Object.prototype.hasOwnProperty.call(deps, name)
@@ -292,24 +293,64 @@ async function buildMeta(dir: string, name: string): Promise<ProjectMeta> {
     pages,
     versions,
     activity: [],
+    customCommand: '',
   }
+}
+
+async function fileExists(file: string): Promise<boolean> {
+  return fs
+    .access(file)
+    .then(() => true)
+    .catch(() => false)
+}
+
+async function detectFlutter(dir: string): Promise<boolean> {
+  try {
+    const pubspec = await fs.readFile(join(dir, 'pubspec.yaml'), 'utf8')
+    return /sdk:\s*flutter|^\s*flutter:/m.test(pubspec)
+  } catch {
+    return false
+  }
+}
+
+/* Tìm thư mục có index.html để dựng máy chủ tĩnh.
+   Với Flutter chỉ dùng bản đã build (build/web), không dùng web/index.html
+   vì tệp đó cần Flutter biên dịch main.dart thành JS trước. */
+async function detectPreviewDir(dir: string, isFlutter: boolean): Promise<string> {
+  const candidates = isFlutter
+    ? ['build/web', 'build']
+    : ['', 'public', 'dist', 'build/web', 'build', 'out', 'web']
+  for (const rel of candidates) {
+    const target = rel ? join(dir, rel, 'index.html') : join(dir, 'index.html')
+    if (await fileExists(target)) return rel
+  }
+  return ''
 }
 
 export async function detectProject(folder: string): Promise<ProjectRecord> {
   const dir = resolve(folder)
   const pkg = await readJson<RawPkg>(join(dir, 'package.json'))
+  const isFlutter = await detectFlutter(dir)
   const scripts: ScriptEntry[] = Object.entries(pkg?.scripts ?? {})
     .filter(([, command]) => typeof command === 'string')
     .map(([name, command]) => ({ name, command, kind: scriptKind(name) }))
+
+  /* Flutter không có package.json nhưng vẫn chạy được bằng web-server device. */
+  if (isFlutter && !scripts.some((item) => item.name === 'run')) {
+    scripts.unshift({
+      name: 'run',
+      command: 'flutter run -d web-server --web-hostname 127.0.0.1',
+      kind: 'dev',
+      direct: true,
+    })
+  }
 
   const order: Record<ScriptEntry['kind'], number> = { dev: 0, start: 1, build: 2, test: 3, other: 4 }
   scripts.sort((a, b) => order[a.kind] - order[b.kind] || a.name.localeCompare(b.name))
 
   const manager = await detectPackageManager(dir)
-  const hasIndexHtml = await fs
-    .access(join(dir, 'index.html'))
-    .then(() => true)
-    .catch(() => false)
+  const previewDir = await detectPreviewDir(dir, isFlutter)
+  const hasIndexHtml = Boolean(previewDir) || (await fileExists(join(dir, 'index.html')))
 
   const existing = await readJson<{ name?: string }>(join(dir, 'package.json'))
   const projectName = safeName(existing?.name || basename(dir)) || basename(dir)
@@ -318,10 +359,11 @@ export async function detectProject(folder: string): Promise<ProjectRecord> {
     id: randomUUID(),
     name: projectName,
     path: dir,
-    framework: detectFramework(pkg),
+    framework: detectFramework(pkg, isFlutter),
     packageManager: manager === 'none' && hasScript(pkg, 'dev') ? 'npm' : manager,
     scripts,
     hasIndexHtml,
+    previewDir,
     addedAt: Date.now(),
     lastOpenedAt: null,
     favorite: false,

@@ -27,6 +27,7 @@ const normalizeProject = (project: ProjectRecord): ProjectRecord => {
   const meta = (project.meta ?? {}) as Partial<ProjectMeta>
   return {
     ...project,
+    previewDir: project.previewDir ?? '',
     meta: {
       owner: 'Người dùng Windows',
       code: 'DA-000',
@@ -35,6 +36,7 @@ const normalizeProject = (project: ProjectRecord): ProjectRecord => {
       pages: [],
       versions: [],
       activity: [],
+      customCommand: '',
       ...meta,
     },
   }

@@ -22,6 +22,9 @@ interface RunSidebarProps {
   branch: string | null
   script: string
   onScript: (script: string) => void
+  customCommand: string
+  onCustomCommand: (command: string) => void
+  onSaveCustomCommand: (command: string) => void
   onRun: () => void
   onStop: () => void
   onReveal: () => void
@@ -38,6 +41,9 @@ const RunSidebar = ({
   branch,
   script,
   onScript,
+  customCommand,
+  onCustomCommand,
+  onSaveCustomCommand,
   onRun,
   onStop,
   onReveal,
@@ -50,8 +56,12 @@ const RunSidebar = ({
   const options = [
     ...project.scripts.map((s) => ({ value: s.name, label: `${s.name} — ${scriptLabel(s.kind)}` })),
     ...(project.hasIndexHtml ? [{ value: 'static', label: 'Xem trước tĩnh (index.html)' }] : []),
+    { value: 'custom', label: 'Lệnh tự nhập…' },
   ]
-  const canRun = options.length > 0
+  const isCustom = script === 'custom'
+  const canRun = !isCustom || customCommand.trim().length > 0
+  const placeholder =
+    project.framework === 'Flutter' ? 'flutter run -d chrome' : 'python -m http.server 8000'
 
   const copyUrl = async () => {
     if (!run?.url) return
@@ -94,9 +104,8 @@ const RunSidebar = ({
               className="pm-select"
               value={script}
               onChange={(e) => onScript(e.target.value)}
-              disabled={!canRun || running}
+              disabled={running}
             >
-              {!canRun && <option value="">Không có script</option>}
               {options.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -104,6 +113,28 @@ const RunSidebar = ({
               ))}
             </select>
           </div>
+
+          {isCustom && (
+            <div className="pm-field">
+              <label htmlFor="run-command">Lệnh tự nhập</label>
+              <input
+                id="run-command"
+                className="pm-input mono"
+                placeholder={placeholder}
+                value={customCommand}
+                disabled={running}
+                onChange={(e) => onCustomCommand(e.target.value)}
+                onBlur={() => onSaveCustomCommand(customCommand)}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Enter' && canRun && !running) onRun()
+                }}
+              />
+              <p className="pm-hint" style={{ marginTop: 5 }}>
+                Lệnh chạy trong thư mục dự án. PixelMind tự đọc địa chỉ localhost từ log để mở xem trước.
+              </p>
+            </div>
+          )}
 
           <div className="pm-statusline">
             <span className={`pm-dot ${running ? 'live' : run?.status === 'error' ? 'err' : run ? 'warn' : ''}`} />
@@ -154,10 +185,10 @@ const RunSidebar = ({
             </div>
           )}
 
-          {!canRun && (
+          {project.scripts.length === 0 && !project.hasIndexHtml && (
             <p className="pm-hint">
-              Thư mục này không có <code>package.json</code> kèm script và cũng không có <code>index.html</code>. Bạn
-              vẫn có thể xem mã nguồn trong cây tệp.
+              Dự án chưa có script sẵn. Chọn <b>Lệnh tự nhập…</b> và nhập lệnh bạn muốn chạy — PixelMind sẽ ghi nhớ lệnh
+              này cho lần sau.
             </p>
           )}
 

@@ -40,6 +40,8 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('project:add-page', projectId, page),
     removePage: (projectId: string, pageId: string): Promise<ProjectRecord | null> =>
       ipcRenderer.invoke('project:remove-page', projectId, pageId),
+    setCommand: (projectId: string, command: string): Promise<ProjectRecord | null> =>
+      ipcRenderer.invoke('project:set-command', projectId, command),
   },
 
   fs: {
@@ -59,6 +61,8 @@ const api: PixelMindApi = {
   run: {
     start: (projectId: string, script: string): Promise<RunState> =>
       ipcRenderer.invoke('run:start', projectId, script),
+    startCommand: (projectId: string, command: string): Promise<RunState> =>
+      ipcRenderer.invoke('run:start-command', projectId, command),
     stop: (runId: string): Promise<boolean> => ipcRenderer.invoke('run:stop', runId),
     list: (): Promise<RunState[]> => ipcRenderer.invoke('run:list'),
     ofProject: (projectId: string): Promise<RunState | null> => ipcRenderer.invoke('run:project', projectId),

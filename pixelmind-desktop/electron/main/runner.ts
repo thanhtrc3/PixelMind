@@ -91,13 +91,44 @@ export class RunnerManager {
     return `${bin} run ${script}`
   }
 
-  startScript(project: { id: string; path: string; packageManager: PackageManager }, script: string): RunState {
-    const running = [...this.entries.values()].find(
-      (e) => e.state.projectId === project.id && (e.state.status === 'running' || e.state.status === 'starting'),
-    )
-    if (running) return running.state
+  startScript(
+    project: { id: string; path: string; packageManager: PackageManager },
+    script: string,
+    directCommand?: string,
+  ): RunState {
+    const running = this.runningOf(project.id)
+    if (running) return running
 
-    const command = this.buildCommand(project.packageManager, script)
+    return this.launch(project, {
+      script,
+      command: directCommand?.trim() || this.buildCommand(project.packageManager, script),
+      kind: 'script',
+    })
+  }
+
+  /** Chạy một lệnh tuỳ ý trong thư mục dự án (dùng cho dự án không có script). */
+  startCommand(project: { id: string; path: string }, command: string): RunState {
+    const running = this.runningOf(project.id)
+    if (running) return running
+
+    return this.launch(project, {
+      script: 'tuỳ chỉnh',
+      command,
+      kind: 'command',
+    })
+  }
+
+  private runningOf(projectId: string): RunState | null {
+    const entry = [...this.entries.values()].find(
+      (e) => e.state.projectId === projectId && (e.state.status === 'running' || e.state.status === 'starting'),
+    )
+    return entry?.state ?? null
+  }
+
+  private launch(
+    project: { id: string; path: string },
+    options: { script: string; command: string; kind: RunState['kind'] },
+  ): RunState {
     const id = randomUUID()
     const entry: Entry = {
       buffer: '',
@@ -105,15 +136,16 @@ export class RunnerManager {
         id,
         projectId: project.id,
         cwd: resolve(project.path),
-        script,
-        command,
+        script: options.script,
+        command: options.command,
         status: 'starting',
         url: null,
         exitCode: null,
         startedAt: Date.now(),
-        kind: 'script',
+        kind: options.kind,
       },
     }
+    const command = options.command
     this.entries.set(id, entry)
     this.onState(entry.state)
     this.emitLog(id, `$ ${command}  (${entry.state.cwd})\n`, 'system')
@@ -165,11 +197,11 @@ export class RunnerManager {
     return entry.state
   }
 
-  startStatic(project: { id: string; path: string }): Promise<RunState> {
+  startStatic(project: { id: string; path: string; previewDir?: string }): Promise<RunState> {
     const existing = this.staticServers.get(project.id)
     if (existing && existing.state.status === 'running') return Promise.resolve(existing.state)
 
-    const root = resolve(project.path)
+    const root = resolve(project.path, project.previewDir ?? '')
     const id = randomUUID()
     const entry: Entry = {
       buffer: '',

@@ -31,6 +31,7 @@ export interface PixelMindApi {
     refresh(id: string): Promise<ProjectRecord | null>
     addPage(projectId: string, page: Omit<ProjectPage, 'id'>): Promise<ProjectRecord | null>
     removePage(projectId: string, pageId: string): Promise<ProjectRecord | null>
+    setCommand(projectId: string, command: string): Promise<ProjectRecord | null>
   }
   fs: {
     tree(root: string, showHidden?: boolean): Promise<FileNode[]>
@@ -45,6 +46,7 @@ export interface PixelMindApi {
   }
   run: {
     start(projectId: string, script: string): Promise<RunState>
+    startCommand(projectId: string, command: string): Promise<RunState>
     stop(runId: string): Promise<boolean>
     list(): Promise<RunState[]>
     ofProject(projectId: string): Promise<RunState | null>

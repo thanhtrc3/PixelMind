@@ -82,6 +82,7 @@ const App = () => {
   const [run, setRun] = useState<RunState | null>(null)
   const [logs, setLogs] = useState<RunLog[]>([])
   const [script, setScript] = useState('')
+  const [customCommand, setCustomCommand] = useState('')
 
   const [dialog, setDialog] = useState<DialogId | null>(null)
   const [addPageOpen, setAddPageOpen] = useState(false)
@@ -166,6 +167,7 @@ const App = () => {
       setStats(null)
       setBranch(null)
       setScript('')
+      setCustomCommand(opened.meta.customCommand || '')
       lastUrlRef.current = null
       await loadTree(opened)
       const running = await api.run.ofProject(opened.id)
@@ -354,27 +356,48 @@ const App = () => {
     if (preferred && project.scripts.some((item) => item.name === preferred)) return preferred
     const dev = project.scripts.find((item) => item.kind === 'dev') ?? project.scripts[0]
     if (dev) return dev.name
-    return project.hasIndexHtml ? 'static' : ''
+    if (project.hasIndexHtml) return 'static'
+    /* Không có gì chạy sẵn: cho phép nhập lệnh tay. */
+    return 'custom'
   }, [project, settings.defaultScript])
 
   const effectiveScript = script || autoScript
+
+  /** Lưu lệnh tự nhập để lần sau mở dự án vẫn còn. */
+  const saveCustomCommand = async (command: string) => {
+    if (!project) return
+    if (command.trim() === (project.meta.customCommand ?? '').trim()) return
+    try {
+      const updated = await api.projects.setCommand(project.id, command)
+      if (updated) mergeProject(updated)
+    } catch {
+      /* không chặn thao tác chạy nếu chỉ lưu lệnh thất bại */
+    }
+  }
 
   const startRun = async () => {
     if (!project) {
       showToast('info', 'Hãy mở một dự án trước khi chạy.')
       return
     }
-    if (!effectiveScript) {
-      showToast('info', 'Dự án không có script chạy và cũng không có index.html để xem trước.')
+    const custom = customCommand.trim()
+    const useCustom = effectiveScript === 'custom' || !effectiveScript
+    if (useCustom && !custom) {
+      showToast(
+        'info',
+        'Dự án không có script sẵn. Nhập lệnh chạy ở ô “Lệnh tự nhập” rồi bấm Chạy (ví dụ: flutter run -d chrome).',
+      )
       return
     }
     try {
-      const state = await api.run.start(project.id, effectiveScript)
+      const state = useCustom
+        ? await api.run.startCommand(project.id, custom)
+        : await api.run.start(project.id, effectiveScript)
       setRun(state)
       setLogs([])
       lastUrlRef.current = null
       setActiveTab('preview')
-      showToast('ok', `Đang chạy “${effectiveScript}” cho ${project.name}`)
+      showToast('ok', `Đang chạy ${useCustom ? `“${custom}”` : `“${effectiveScript}”`} cho ${project.name}`)
       void refreshStoreProjects()
     } catch (error) {
       showToast('err', `Không chạy được dự án: ${errorMessage(error)}`)
@@ -413,6 +436,7 @@ const App = () => {
           if (opened) {
             setProjectId(opened.id)
             setView('detail')
+            setCustomCommand(opened.meta.customCommand || '')
             const [nodes, stat, git, running] = await Promise.all([
               api.fs.tree(opened.path, data.settings.showHidden),
               api.fs.stat(opened.path),
@@ -733,6 +757,9 @@ const App = () => {
               branch={branch}
               script={effectiveScript}
               onScript={setScript}
+              customCommand={customCommand}
+              onCustomCommand={setCustomCommand}
+              onSaveCustomCommand={(value) => void saveCustomCommand(value)}
               onSettings={() => setDialog('settings')}
               onReveal={() => project && void api.fs.openPath(project.path)}
               onOpenExternal={(url) => void api.system.openExternal(url)}

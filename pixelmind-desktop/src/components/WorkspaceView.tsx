@@ -37,6 +37,9 @@ interface WorkspaceViewProps {
   branch: string | null
   script: string
   onScript: (value: string) => void
+  customCommand: string
+  onCustomCommand: (value: string) => void
+  onSaveCustomCommand: (value: string) => void
   onSettings: () => void
   onReveal: () => void
   onOpenExternal: (url: string) => void
@@ -71,6 +74,9 @@ const WorkspaceView = ({
   branch,
   script,
   onScript,
+  customCommand,
+  onCustomCommand,
+  onSaveCustomCommand,
   onSettings,
   onReveal,
   onOpenExternal,
@@ -233,6 +239,9 @@ const WorkspaceView = ({
               branch={branch}
               script={script}
               onScript={onScript}
+              customCommand={customCommand}
+              onCustomCommand={onCustomCommand}
+              onSaveCustomCommand={onSaveCustomCommand}
               onRun={onRun}
               onStop={onStop}
               onReveal={onReveal}

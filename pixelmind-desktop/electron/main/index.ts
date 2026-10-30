@@ -185,14 +185,41 @@ ipcMain.handle('project:pick', async (): Promise<ProjectRecord | null> => {
   return addProject(result.filePaths[0])
 })
 
+/** Ghép kết quả dò mới vào bản ghi cũ, giữ dữ liệu người dùng đã tạo. */
+function mergeDetected(project: ProjectRecord, fresh: ProjectRecord): ProjectRecord {
+  return {
+    ...fresh,
+    id: project.id,
+    addedAt: project.addedAt,
+    lastOpenedAt: project.lastOpenedAt,
+    favorite: project.favorite,
+    meta: {
+      ...fresh.meta,
+      owner: project.meta.owner || fresh.meta.owner,
+      code: project.meta.code || fresh.meta.code,
+      repo: project.meta.repo || fresh.meta.repo,
+      createdAt: project.meta.createdAt || fresh.meta.createdAt,
+      /* Giữ các trang người dùng đã thêm, lệnh tự nhập và nhật ký hoạt động */
+      pages: project.meta.pages.length ? project.meta.pages : fresh.meta.pages,
+      customCommand: project.meta.customCommand || fresh.meta.customCommand,
+      activity: project.meta.activity,
+    },
+  }
+}
+
 async function addProject(folder: string): Promise<ProjectRecord | null> {
   if (!(await isDirectory(folder))) return null
   const detected = await detectProject(folder)
   const store = await readStore()
   const existing = store.projects.find((p) => samePath(p.path, detected.path))
   if (existing) {
-    await patchStore({ lastProjectId: existing.id })
-    return existing
+    /* Dò lại để bản ghi cũ nhận được script/preview mới (ví dụ Flutter). */
+    const updated = mergeDetected(existing, detected)
+    await patchStore({
+      projects: store.projects.map((p) => (p.id === existing.id ? updated : p)),
+      lastProjectId: existing.id,
+    })
+    return updated
   }
   detected.lastOpenedAt = Date.now()
   await patchStore({ projects: [...store.projects, detected], lastProjectId: detected.id })
@@ -204,17 +231,29 @@ ipcMain.handle('project:add', async (_e, folder: string): Promise<ProjectRecord 
 ipcMain.handle('project:list', async (): Promise<ProjectRecord[]> => (await readStore()).projects)
 
 ipcMain.handle('project:open', async (_e, id: string): Promise<ProjectRecord | null> => {
-  const updated = await patchProject(id, (project) => ({ ...project, lastOpenedAt: Date.now() }))
-  if (!updated) return null
-  await patchStore({ lastProjectId: id })
+  const store = await readStore()
+  const existing = store.projects.find((p) => p.id === id)
+  if (!existing) return null
+
+  let project = existing
+  if (await isDirectory(existing.path)) {
+    /* Dò lại khi mở để cập nhật script mới hoặc nhận diện framework. */
+    const fresh = await detectProject(existing.path)
+    project = mergeDetected(existing, fresh)
+  }
+  project = { ...project, lastOpenedAt: Date.now() }
+  await patchStore({
+    projects: store.projects.map((p) => (p.id === id ? project : p)),
+    lastProjectId: id,
+  })
   await appendActivity(id, {
     actor: 'bạn',
-    action: `Mở dự án “${updated.name}” trong PixelMind`,
+    action: `Mở dự án “${project.name}” trong PixelMind`,
     kind: 'người',
     status: 'info',
   })
-  const store = await readStore()
-  return store.projects.find((project) => project.id === id) ?? updated
+  const latest = await readStore()
+  return latest.projects.find((item) => item.id === id) ?? project
 })
 
 ipcMain.handle('project:remove', async (_e, id: string): Promise<ProjectRecord[]> => {
@@ -242,23 +281,7 @@ ipcMain.handle('project:refresh', async (_e, id: string): Promise<ProjectRecord 
   if (!project) return null
   if (!(await isDirectory(project.path))) return null
   const fresh = await detectProject(project.path)
-  const updated: ProjectRecord = {
-    ...fresh,
-    id: project.id,
-    addedAt: project.addedAt,
-    lastOpenedAt: project.lastOpenedAt,
-    favorite: project.favorite,
-    meta: {
-      ...fresh.meta,
-      owner: project.meta.owner || fresh.meta.owner,
-      code: project.meta.code || fresh.meta.code,
-      repo: project.meta.repo || fresh.meta.repo,
-      createdAt: project.meta.createdAt || fresh.meta.createdAt,
-      /* Giữ các trang người dùng đã thêm và nhật ký hoạt động */
-      pages: project.meta.pages.length ? project.meta.pages : fresh.meta.pages,
-      activity: project.meta.activity,
-    },
-  }
+  const updated = mergeDetected(project, fresh)
   await patchStore({ projects: store.projects.map((p) => (p.id === id ? updated : p)) })
   return updated
 })
@@ -299,6 +322,13 @@ ipcMain.handle('project:remove-page', async (_e, id: string, pageId: string) => 
     })
   }
   return updated
+})
+
+ipcMain.handle('project:set-command', async (_e, id: string, command: string) => {
+  return patchProject(id, (project) => ({
+    ...project,
+    meta: { ...project.meta, customCommand: command.trim() },
+  }))
 })
 
 /* ───────────────────────── IPC: tệp ───────────────────────── */
@@ -350,10 +380,35 @@ ipcMain.handle('run:start', async (_e, projectId: string, script: string) => {
   const store = await readStore()
   const project = store.projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Không tìm thấy dự án trong danh sách.')
-  const state = script === 'static' ? await runner.startStatic(project) : runner.startScript(project, script)
+  const entry = project.scripts.find((item) => item.name === script)
+  const state =
+    script === 'static'
+      ? await runner.startStatic(project)
+      : runner.startScript(project, script, entry?.direct ? entry.command : undefined)
   await appendActivity(projectId, {
     actor: 'hệ thống',
     action: `Chạy script “${script}” cho ${project.name}`,
+    kind: 'hệ thống',
+    status: 'ok',
+  })
+  return state
+})
+
+ipcMain.handle('run:start-command', async (_e, projectId: string, command: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('Không tìm thấy dự án trong danh sách.')
+  const clean = command.trim()
+  if (!clean) throw new Error('Hãy nhập lệnh chạy trước khi bấm Chạy.')
+  /* Lưu lại để lần sau mở dự án vẫn còn lệnh */
+  await patchProject(projectId, (item) => ({
+    ...item,
+    meta: { ...item.meta, customCommand: clean },
+  }))
+  const state = runner.startCommand(project, clean)
+  await appendActivity(projectId, {
+    actor: 'hệ thống',
+    action: `Chạy lệnh tự nhập cho ${project.name}: ${clean}`,
     kind: 'hệ thống',
     status: 'ok',
   })

@@ -9,7 +9,7 @@ Toàn bộ mã nguồn nằm trong thư mục này; dự án web gốc `uiforge-
 | --- | --- |
 | **Danh sách dự án** | Mở thư mục bằng hộp thoại Windows, tự nhận framework (Vite, Next.js, Nuxt, Astro…), package manager, script và đánh dấu yêu thích. |
 | **Màn hình dự án** | Dashboard thật của từng dự án: chỉ số nhanh, bảng *Trang và ảnh mẫu*, timeline *Phiên bản* (đọc từ `git log`), *Thông tin dự án*, *Hoạt động gần đây*. Thêm/xoá trang, quét lại, mở thư mục, Run/Dừng, mở màn hình làm việc. |
-| **Màn hình làm việc** | Cây tệp thật, xem nội dung tệp, chạy script và đọc log trực tiếp, phát hiện URL dev server và nhúng preview. |
+| **Màn hình làm việc** | Cây tệp thật, xem nội dung tệp, chạy script và đọc log trực tiếp, phát hiện URL dev server và nhúng preview. Tự nhận Flutter (`flutter run -d web-server`) và cho phép nhập lệnh chạy tay cho dự án không có script. |
 | **Cài đặt / Hướng dẫn / Bảng lệnh** | Chủ đề sáng–tối, cỡ chữ, thư mục mặc định, phím tắt, hướng dẫn sử dụng. |
 
 ### Màn hình dự án lấy dữ liệu từ đâu?
@@ -70,5 +70,8 @@ Xoá file này để đặt lại ứng dụng.
 ## Ghi chú
 
 - Mở thư mục và chạy script là thao tác thật trên đĩa; PixelMind không sửa mã nguồn dự án.
+- Dự án không có `package.json`/script vẫn chạy được: chọn **Lệnh tự nhập…** trong mục *Lệnh chạy*, nhập lệnh
+  (ví dụ `node server.js`, `python -m http.server 8000`) rồi bấm **Chạy**. Lệnh được lưu lại cho lần mở sau.
+- Dự án Flutter được nhận diện qua `pubspec.yaml` và tự có script `run` (`flutter run -d web-server`).
 - Preview nhúng phụ thuộc dev server của dự án; nếu cổng bị chiếm, đổi cổng trong script của dự án.
 - Ảnh mẫu là thông tin theo dõi, không bắt buộc — thiếu ảnh mẫu thì canvas vẫn chạy ở chế độ Live.
