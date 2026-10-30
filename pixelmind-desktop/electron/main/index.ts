@@ -7,7 +7,9 @@ import type { ProjectPage, ProjectRecord, Settings, StoreData } from '../../shar
 import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetStore, storeFilePath } from './store'
 import {
   detectProject,
+  diagnoseProject,
   gitBranch,
+  initGit,
   isDirectory,
   readFileContent,
   readTree,
@@ -248,6 +250,7 @@ ipcMain.handle('project:refresh', async (_e, id: string): Promise<ProjectRecord 
     addedAt: project.addedAt,
     lastOpenedAt: project.lastOpenedAt,
     favorite: project.favorite,
+    diagnosis: fresh.diagnosis,
     meta: {
       ...fresh.meta,
       owner: project.meta.owner || fresh.meta.owner,
@@ -299,6 +302,39 @@ ipcMain.handle('project:remove-page', async (_e, id: string, pageId: string) => 
     })
   }
   return updated
+})
+
+ipcMain.handle('project:diagnose', async (_e, idOrPath: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === idOrPath)
+  const targetPath = project ? project.path : idOrPath
+  const diagnosis = await diagnoseProject(targetPath)
+  if (project) {
+    await patchProject(project.id, (p) => ({ ...p, diagnosis }))
+  }
+  return diagnosis
+})
+
+ipcMain.handle('project:git-init', async (_e, projectId: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('Không tìm thấy dự án.')
+  const ok = await initGit(project.path)
+  if (ok) {
+    const updated = await detectProject(project.path)
+    await patchProject(projectId, (p) => ({
+      ...p,
+      diagnosis: updated.diagnosis,
+      meta: { ...p.meta, versions: updated.meta.versions },
+    }))
+    await appendActivity(projectId, {
+      actor: 'bạn',
+      action: 'Khởi tạo kho Git (git init)',
+      kind: 'người',
+      status: 'ok',
+    })
+  }
+  return ok
 })
 
 /* ───────────────────────── IPC: tệp ───────────────────────── */
@@ -356,6 +392,20 @@ ipcMain.handle('run:start', async (_e, projectId: string, script: string) => {
     action: `Chạy script “${script}” cho ${project.name}`,
     kind: 'hệ thống',
     status: 'ok',
+  })
+  return state
+})
+
+ipcMain.handle('run:install', async (_e, projectId: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('Không tìm thấy dự án trong danh sách.')
+  const state = runner.startInstall(project)
+  await appendActivity(projectId, {
+    actor: 'hệ thống',
+    action: `Bắt đầu cài đặt thư viện (${project.packageManager || 'npm'} install)`,
+    kind: 'hệ thống',
+    status: 'info',
   })
   return state
 })

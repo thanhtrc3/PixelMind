@@ -8,6 +8,8 @@ import type {
   FileContent,
   FileNode,
   PackageManager,
+  ProjectDiagnosis,
+  ProjectIssue,
   ProjectMeta,
   ProjectPage,
   ProjectRecord,
@@ -295,6 +297,169 @@ async function buildMeta(dir: string, name: string): Promise<ProjectMeta> {
   }
 }
 
+export async function initGit(folder: string): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['-C', folder, 'init'], { windowsHide: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function diagnoseProject(folder: string): Promise<ProjectDiagnosis> {
+  const dir = resolve(folder)
+  const issues: ProjectIssue[] = []
+
+  if (!(await isDirectory(dir))) {
+    return {
+      healthy: false,
+      hasIssues: true,
+      checkedAt: Date.now(),
+      issues: [
+        {
+          id: 'invalid_dir',
+          type: 'other',
+          level: 'error',
+          title: 'Thư mục không tồn tại hoặc không thể truy cập',
+          message: `Không thể đọc đường dẫn thư mục: ${dir}`,
+          recommendation: 'Kiểm tra lại đường dẫn hoặc chọn thư mục hợp lệ khác.',
+        },
+      ],
+    }
+  }
+
+  try {
+    const entries = await fs.readdir(dir)
+    const validEntries = entries.filter((e) => e !== '.git' && e !== '.DS_Store' && e !== '.vs' && e !== '.vscode')
+    if (validEntries.length === 0) {
+      issues.push({
+        id: 'empty_folder',
+        type: 'empty_folder',
+        level: 'warning',
+        title: 'Thư mục trống',
+        message: 'Thư mục này hiện chưa có tệp hoặc mã nguồn nào.',
+        recommendation: 'Thêm mã nguồn vào thư mục hoặc khởi tạo dự án mới để bắt đầu.',
+      })
+      return {
+        healthy: false,
+        hasIssues: true,
+        checkedAt: Date.now(),
+        issues,
+      }
+    }
+  } catch {
+    /* bỏ qua */
+  }
+
+  const pkg = await readJson<RawPkg>(join(dir, 'package.json'))
+  const manager = await detectPackageManager(dir)
+  const actualManager = manager === 'none' ? 'npm' : manager
+
+  const hasIndexHtml = await fs
+    .access(join(dir, 'index.html'))
+    .then(() => true)
+    .catch(() => false)
+
+  if (pkg) {
+    const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) }
+    const depCount = Object.keys(deps).length
+
+    if (depCount > 0) {
+      const nodeModulesPath = join(dir, 'node_modules')
+      let hasNodeModules = false
+      try {
+        const stat = await fs.stat(nodeModulesPath)
+        if (stat.isDirectory()) {
+          const files = await fs.readdir(nodeModulesPath)
+          hasNodeModules = files.some((f) => !f.startsWith('.') && f !== '.package-lock.json')
+        }
+      } catch {
+        hasNodeModules = false
+      }
+
+      if (!hasNodeModules) {
+        issues.push({
+          id: 'missing_deps',
+          type: 'missing_deps',
+          level: 'error',
+          title: 'Chưa cài đặt thư viện (thiếu node_modules)',
+          message: `Dự án có khai báo ${depCount} gói phụ thuộc trong package.json nhưng chưa có thư mục node_modules. Khi chạy sẽ gặp lỗi thiếu module (Module not found).`,
+          recommendation: `Cần chạy lệnh "${actualManager} install" để tải các gói phụ thuộc về máy.`,
+          actionLabel: `Cài đặt thư viện (${actualManager} install)`,
+          actionKind: 'install',
+        })
+      }
+    }
+
+    const scriptKeys = Object.keys(pkg.scripts ?? {})
+    const hasDevOrStart = scriptKeys.some((s) => /^(dev|start|serve|preview)$/i.test(s))
+    if (!hasDevOrStart && !hasIndexHtml) {
+      issues.push({
+        id: 'missing_script',
+        type: 'missing_script',
+        level: 'warning',
+        title: 'Thiếu script dev server và index.html',
+        message: 'Dự án không có script dev/start trong package.json và không có tệp index.html tĩnh.',
+        recommendation: 'Thêm script "dev": "..." vào package.json hoặc tạo file index.html để có thể xem trước.',
+      })
+    }
+
+    const hasElectron = Boolean(
+      (pkg.dependencies && 'electron' in pkg.dependencies) ||
+        (pkg.devDependencies && 'electron' in pkg.devDependencies) ||
+        (pkg.devDependencies && 'electron-vite' in pkg.devDependencies),
+    )
+    if (hasElectron) {
+      issues.push({
+        id: 'electron_app',
+        type: 'electron_app',
+        level: 'warning',
+        title: 'Dự án là ứng dụng Desktop (Electron)',
+        message:
+          'Dự án này là phần mềm Desktop xây dựng trên Electron. Lệnh dev sẽ mở một cửa sổ desktop độc lập thay vì hiển thị trực tiếp trong khung xem trước Web.',
+        recommendation:
+          'Để xem trước giao diện trên Web, hãy dùng script web preview nếu có hoặc mở dự án web thuần.',
+      })
+    }
+  } else {
+    if (!hasIndexHtml) {
+      issues.push({
+        id: 'no_package_json',
+        type: 'no_package_json',
+        level: 'warning',
+        title: 'Không tìm thấy package.json hoặc index.html',
+        message: 'Thư mục không có package.json để chạy script và cũng không có index.html tĩnh.',
+        recommendation: 'Chạy "npm init -y" hoặc tạo tệp index.html để bắt đầu thiết kế.',
+      })
+    }
+  }
+
+  const hasGit = await fs
+    .access(join(dir, '.git'))
+    .then(() => true)
+    .catch(() => false)
+
+  if (!hasGit) {
+    issues.push({
+      id: 'no_git',
+      type: 'no_git',
+      level: 'info',
+      title: 'Chưa khởi tạo Git (.git)',
+      message: 'Thư mục chưa có kho lưu trữ Git để theo dõi các phiên bản và lịch sử thay đổi.',
+      recommendation: 'Khởi tạo Git giúp PixelMind tự động ghi nhận các phiên bản trên thanh timeline.',
+      actionLabel: 'Khởi tạo Git (git init)',
+      actionKind: 'git_init',
+    })
+  }
+
+  return {
+    healthy: !issues.some((i) => i.level === 'error'),
+    hasIssues: issues.length > 0,
+    checkedAt: Date.now(),
+    issues,
+  }
+}
+
 export async function detectProject(folder: string): Promise<ProjectRecord> {
   const dir = resolve(folder)
   const pkg = await readJson<RawPkg>(join(dir, 'package.json'))
@@ -313,6 +478,7 @@ export async function detectProject(folder: string): Promise<ProjectRecord> {
 
   const existing = await readJson<{ name?: string }>(join(dir, 'package.json'))
   const projectName = safeName(existing?.name || basename(dir)) || basename(dir)
+  const diagnosis = await diagnoseProject(dir)
 
   return {
     id: randomUUID(),
@@ -325,6 +491,7 @@ export async function detectProject(folder: string): Promise<ProjectRecord> {
     addedAt: Date.now(),
     lastOpenedAt: null,
     favorite: false,
+    diagnosis,
     meta: await buildMeta(dir, projectName),
   }
 }

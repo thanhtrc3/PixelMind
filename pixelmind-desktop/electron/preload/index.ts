@@ -4,6 +4,7 @@ import type {
   AppInfo,
   FileContent,
   FileNode,
+  ProjectDiagnosis,
   ProjectPage,
   ProjectRecord,
   ProjectStat,
@@ -40,6 +41,9 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('project:add-page', projectId, page),
     removePage: (projectId: string, pageId: string): Promise<ProjectRecord | null> =>
       ipcRenderer.invoke('project:remove-page', projectId, pageId),
+    diagnose: (idOrPath: string): Promise<ProjectDiagnosis> =>
+      ipcRenderer.invoke('project:diagnose', idOrPath),
+    gitInit: (projectId: string): Promise<boolean> => ipcRenderer.invoke('project:git-init', projectId),
   },
 
   fs: {
@@ -59,6 +63,7 @@ const api: PixelMindApi = {
   run: {
     start: (projectId: string, script: string): Promise<RunState> =>
       ipcRenderer.invoke('run:start', projectId, script),
+    install: (projectId: string): Promise<RunState> => ipcRenderer.invoke('run:install', projectId),
     stop: (runId: string): Promise<boolean> => ipcRenderer.invoke('run:stop', runId),
     list: (): Promise<RunState[]> => ipcRenderer.invoke('run:list'),
     ofProject: (projectId: string): Promise<RunState | null> => ipcRenderer.invoke('run:project', projectId),

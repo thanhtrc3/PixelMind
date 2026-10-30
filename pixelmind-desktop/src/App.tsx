@@ -9,9 +9,12 @@ import {
   Play,
   RefreshCw,
   Settings as SettingsIcon,
+  ShieldAlert,
   Square,
   SunMoon,
   Trash2,
+  TriangleAlert,
+  Zap,
 } from 'lucide-react'
 import { DEFAULT_SETTINGS } from '@shared/types'
 import type {
@@ -43,7 +46,7 @@ import type { PaletteCommand } from './components/CommandPalette'
 import Modal from './components/Modal'
 import ToastStack from './components/ToastStack'
 import type { ToastMessage } from './components/ToastStack'
-import { TriangleAlert } from 'lucide-react'
+import DiagnosisDialog from './components/DiagnosisDialog'
 
 const EMPTY_STORE: StoreData = {
   settings: { ...DEFAULT_SETTINGS },
@@ -84,6 +87,8 @@ const App = () => {
   const [script, setScript] = useState('')
 
   const [dialog, setDialog] = useState<DialogId | null>(null)
+  const [diagnosisOpen, setDiagnosisOpen] = useState(false)
+  const [installing, setInstalling] = useState(false)
   const [addPageOpen, setAddPageOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<ProjectRecord | null>(null)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
@@ -170,6 +175,13 @@ const App = () => {
       await loadTree(opened)
       const running = await api.run.ofProject(opened.id)
       setRun(running)
+
+      // Kiểm tra chẩn đoán và tự động mở báo cáo nếu phát hiện lỗi nghiêm trọng (như thiếu node_modules)
+      const diag = opened.diagnosis ?? (await api.projects.diagnose(opened.path))
+      if (diag && diag.issues.some((i) => i.level === 'error')) {
+        setDiagnosisOpen(true)
+      }
+
       if (notify) showToast('ok', `Đã mở dự án “${opened.name}”`)
     } catch (error) {
       showToast('err', `Không mở được dự án: ${errorMessage(error)}`)
@@ -346,7 +358,7 @@ const App = () => {
     })
   }
 
-  /* ── Chạy dự án ───────────────────────────────────────── */
+  /* ── Chạy dự án & Cài đặt thư viện ────────────────────── */
 
   const autoScript = useMemo(() => {
     if (!project) return ''
@@ -359,11 +371,52 @@ const App = () => {
 
   const effectiveScript = script || autoScript
 
+  const handleInstall = async () => {
+    if (!project) return
+    setInstalling(true)
+    try {
+      const state = await api.run.install(project.id)
+      setRun(state)
+      setLogs([])
+      lastUrlRef.current = null
+      showToast('ok', `Đang chạy cài đặt thư viện (${project.packageManager || 'npm'} install)...`)
+      setView('workspace')
+      setActiveTab('preview')
+    } catch (error) {
+      setInstalling(false)
+      showToast('err', `Không thể bắt đầu cài đặt: ${errorMessage(error)}`)
+    }
+  }
+
+  const handleGitInit = async () => {
+    if (!project) return
+    try {
+      const ok = await api.projects.gitInit(project.id)
+      if (ok) {
+        showToast('ok', 'Đã khởi tạo kho Git (.git) thành công!')
+        await refreshProject()
+      } else {
+        showToast('err', 'Không khởi tạo được Git. Hãy kiểm tra git trên máy.')
+      }
+    } catch (error) {
+      showToast('err', `Lỗi khi khởi tạo Git: ${errorMessage(error)}`)
+    }
+  }
+
   const startRun = async () => {
     if (!project) {
       showToast('info', 'Hãy mở một dự án trước khi chạy.')
       return
     }
+
+    // Nếu phát hiện thiếu node_modules, hỏi người dùng và mở báo cáo đề xuất cài đặt ngay
+    const missingDeps = project.diagnosis?.issues.find((i) => i.type === 'missing_deps')
+    if (missingDeps) {
+      setDiagnosisOpen(true)
+      showToast('err', 'Dự án chưa cài đặt thư viện! Vui lòng chọn “Cài đặt ngay” trong báo cáo.')
+      return
+    }
+
     if (!effectiveScript) {
       showToast('info', 'Dự án không có script chạy và cũng không có index.html để xem trước.')
       return
@@ -423,6 +476,11 @@ const App = () => {
             setStats(stat)
             setBranch(git)
             setRun(running)
+
+            // Kiểm tra chẩn đoán ban đầu
+            if (opened.diagnosis?.issues.some((i) => i.level === 'error')) {
+              setDiagnosisOpen(true)
+            }
           }
         }
       } catch (error) {
@@ -441,6 +499,29 @@ const App = () => {
     })
     const offState = api.run.onState((state) => {
       setRun(state)
+      if (state.kind === 'install') {
+        if (state.status === 'running') {
+          setInstalling(true)
+        } else if (state.status === 'stopped' || state.status === 'exited') {
+          setInstalling(false)
+          if (state.exitCode === 0) {
+            showToast('ok', 'Cài đặt thư viện hoàn tất thành công! Bạn có thể bấm Chạy dự án (F5).')
+            void refreshStoreProjects()
+            if (projectId) {
+              void api.projects.refresh(projectId).then((fresh) => {
+                if (fresh) {
+                  setStoreData((prev) => ({
+                    ...prev,
+                    projects: prev.projects.map((p) => (p.id === fresh.id ? fresh : p)),
+                  }))
+                }
+              })
+            }
+          } else {
+            showToast('err', `Cài đặt thư viện kết thúc với mã lỗi ${state.exitCode ?? 'n/a'}.`)
+          }
+        }
+      }
       if (state.url && state.url !== lastUrlRef.current) {
         lastUrlRef.current = state.url
         const current = settingsRef.current
@@ -455,7 +536,7 @@ const App = () => {
       offLog?.()
       offState?.()
     }
-  }, [])
+  }, [projectId])
 
   /* ── Phím tắt + menu hệ thống ──────────────────────────── */
 
@@ -466,8 +547,9 @@ const App = () => {
     refreshProject,
     setView,
     setDialog,
+    setDiagnosisOpen,
   })
-  actionsRef.current = { openFolder, startRun, stopRun, refreshProject, setView, setDialog }
+  actionsRef.current = { openFolder, startRun, stopRun, refreshProject, setView, setDialog, setDiagnosisOpen }
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -496,6 +578,7 @@ const App = () => {
         setDialog('guide')
       } else if (event.key === 'Escape') {
         setDialog(null)
+        setDiagnosisOpen(false)
         setPendingDelete(null)
       }
     }
@@ -568,6 +651,20 @@ const App = () => {
         icon: LayoutDashboard,
         disabled: !project,
         run: () => setView('workspace'),
+      },
+      {
+        id: 'diagnose',
+        label: 'Báo cáo kiểm tra và đề xuất cho dự án',
+        icon: ShieldAlert,
+        disabled: !project,
+        run: () => setDiagnosisOpen(true),
+      },
+      {
+        id: 'install-deps',
+        label: `Cài đặt thư viện (${project?.packageManager || 'npm'} install)`,
+        icon: Zap,
+        disabled: !project,
+        run: () => void handleInstall(),
       },
       {
         id: 'run',
@@ -696,6 +793,8 @@ const App = () => {
               run={run}
               stats={stats}
               branch={branch}
+              diagnosis={project.diagnosis}
+              installing={installing}
               onOpenFolder={() => void openFolder()}
               onRun={() => void startRun()}
               onStop={() => void stopRun()}
@@ -709,6 +808,8 @@ const App = () => {
                 setActiveTab('preview')
               }}
               onOpenExternal={(url) => void api.system.openExternal(url)}
+              onOpenDiagnosis={() => setDiagnosisOpen(true)}
+              onInstall={() => void handleInstall()}
             />
           ) : (
             <WorkspaceView
@@ -732,12 +833,16 @@ const App = () => {
               stats={stats}
               branch={branch}
               script={effectiveScript}
+              diagnosis={project?.diagnosis}
+              installing={installing}
               onScript={setScript}
               onSettings={() => setDialog('settings')}
               onReveal={() => project && void api.fs.openPath(project.path)}
               onOpenExternal={(url) => void api.system.openExternal(url)}
               onShowInFolder={(path) => void api.fs.showInFolder(path)}
               onOpenFileExternal={(path) => void api.fs.openPath(path)}
+              onOpenDiagnosis={() => setDiagnosisOpen(true)}
+              onInstall={() => void handleInstall()}
               activeTab={activeTab}
               onActiveTab={setActiveTab}
               tabs={openPaths}
@@ -785,6 +890,18 @@ const App = () => {
       )}
 
       {dialog === 'guide' && <GuideDialog isDesktop={isDesktop} onClose={() => setDialog(null)} />}
+
+      {diagnosisOpen && project && (
+        <DiagnosisDialog
+          project={project}
+          diagnosis={project.diagnosis ?? null}
+          installing={installing}
+          onClose={() => setDiagnosisOpen(false)}
+          onInstall={() => void handleInstall()}
+          onGitInit={() => void handleGitInit()}
+          onRefresh={() => void refreshProject()}
+        />
+      )}
 
       {addPageOpen && project && (
         <AddPageDialog

@@ -2,6 +2,7 @@ import type {
   AppInfo,
   FileContent,
   FileNode,
+  ProjectDiagnosis,
   ProjectPage,
   ProjectRecord,
   ProjectStat,
@@ -31,6 +32,8 @@ export interface PixelMindApi {
     refresh(id: string): Promise<ProjectRecord | null>
     addPage(projectId: string, page: Omit<ProjectPage, 'id'>): Promise<ProjectRecord | null>
     removePage(projectId: string, pageId: string): Promise<ProjectRecord | null>
+    diagnose(idOrPath: string): Promise<ProjectDiagnosis>
+    gitInit(projectId: string): Promise<boolean>
   }
   fs: {
     tree(root: string, showHidden?: boolean): Promise<FileNode[]>
@@ -45,6 +48,7 @@ export interface PixelMindApi {
   }
   run: {
     start(projectId: string, script: string): Promise<RunState>
+    install(projectId: string): Promise<RunState>
     stop(runId: string): Promise<boolean>
     list(): Promise<RunState[]>
     ofProject(projectId: string): Promise<RunState | null>

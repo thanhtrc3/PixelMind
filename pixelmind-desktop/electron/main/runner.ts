@@ -165,6 +165,92 @@ export class RunnerManager {
     return entry.state
   }
 
+  startInstall(project: { id: string; path: string; packageManager: PackageManager }): RunState {
+    const running = [...this.entries.values()].find(
+      (e) => e.state.projectId === project.id && (e.state.status === 'running' || e.state.status === 'starting'),
+    )
+    if (running) return running.state
+
+    const manager = project.packageManager === 'none' ? 'npm' : project.packageManager
+    const command =
+      manager === 'yarn'
+        ? 'yarn install'
+        : manager === 'bun'
+          ? 'bun install'
+          : manager === 'pnpm'
+            ? 'pnpm install'
+            : 'npm install'
+
+    const id = randomUUID()
+    const entry: Entry = {
+      buffer: '',
+      state: {
+        id,
+        projectId: project.id,
+        cwd: resolve(project.path),
+        script: 'install',
+        command,
+        status: 'starting',
+        url: null,
+        exitCode: null,
+        startedAt: Date.now(),
+        kind: 'install',
+      },
+    }
+    this.entries.set(id, entry)
+    this.onState(entry.state)
+    this.emitLog(id, `$ ${command}  (${entry.state.cwd})\n`, 'system')
+    this.emitLog(id, `[system] Bắt đầu cài đặt các gói phụ thuộc...\n`, 'system')
+
+    let child: ChildProcess
+    try {
+      child = spawn(command, {
+        cwd: entry.state.cwd,
+        shell: true,
+        windowsHide: true,
+        env: {
+          ...process.env,
+          FORCE_COLOR: '0',
+          NO_COLOR: '1',
+          CI: '0',
+        },
+      })
+    } catch (error) {
+      this.update(entry, { status: 'error' })
+      this.emitLog(id, `[error] ${(error as Error).message}\n`, 'stderr')
+      return entry.state
+    }
+
+    entry.child = child
+    this.update(entry, { status: 'running' })
+
+    const pipe = (stream: 'stdout' | 'stderr') => (chunk: Buffer) => {
+      const text = chunk.toString('utf8')
+      this.emitLog(id, text, stream)
+    }
+
+    child.stdout?.on('data', pipe('stdout'))
+    child.stderr?.on('data', pipe('stderr'))
+    child.on('error', (error) => {
+      this.emitLog(id, `[error] ${error.message}\n`, 'stderr')
+      this.update(entry, { status: 'error' })
+    })
+    child.on('close', (code) => {
+      const stopped = entry.state.status === 'stopped'
+      if (entry.state.status !== 'error') {
+        this.update(entry, { status: stopped ? 'stopped' : 'exited', exitCode: code ?? null })
+      }
+      if (code === 0) {
+        this.emitLog(id, `\n[system] Cài đặt thư viện hoàn tất thành công!\n`, 'system')
+      } else {
+        this.emitLog(id, `\n[system] Tiến trình cài đặt kết thúc (mã ${code ?? 'n/a'}).\n`, 'system')
+      }
+      entry.child = undefined
+    })
+
+    return entry.state
+  }
+
   startStatic(project: { id: string; path: string }): Promise<RunState> {
     const existing = this.staticServers.get(project.id)
     if (existing && existing.state.status === 'running') return Promise.resolve(existing.state)

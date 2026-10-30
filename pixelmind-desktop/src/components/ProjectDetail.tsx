@@ -1,5 +1,6 @@
 import {
   Activity,
+  CheckCircle2,
   ChevronRight,
   Clock,
   ExternalLink,
@@ -10,15 +11,18 @@ import {
   Info,
   LayoutDashboard,
   ListChecks,
+  Loader2,
   Play,
   Plus,
   RefreshCw,
+  ShieldAlert,
   Square,
   Trash2,
   TriangleAlert,
+  Zap,
 } from 'lucide-react'
 import { useState } from 'react'
-import type { ProjectRecord, ProjectStat, RunState } from '@shared/types'
+import type { ProjectDiagnosis, ProjectRecord, ProjectStat, RunState } from '@shared/types'
 import { formatTime, scriptLabel } from '../lib/format'
 
 interface ProjectDetailProps {
@@ -26,6 +30,8 @@ interface ProjectDetailProps {
   run: RunState | null
   stats: ProjectStat | null
   branch: string | null
+  diagnosis?: ProjectDiagnosis | null
+  installing?: boolean
   onOpenFolder: () => void
   onRun: () => void
   onStop: () => void
@@ -36,6 +42,8 @@ interface ProjectDetailProps {
   onReveal: () => void
   onOpenLog: () => void
   onOpenExternal: (url: string) => void
+  onOpenDiagnosis: () => void
+  onInstall: () => void
 }
 
 const statusChip: Record<string, { label: string; cls: string }> = {
@@ -51,6 +59,8 @@ const ProjectDetail = ({
   run,
   stats,
   branch,
+  diagnosis,
+  installing = false,
   onOpenFolder,
   onRun,
   onStop,
@@ -61,6 +71,8 @@ const ProjectDetail = ({
   onReveal,
   onOpenLog,
   onOpenExternal,
+  onOpenDiagnosis,
+  onInstall,
 }: ProjectDetailProps) => {
   const [allVersions, setAllVersions] = useState(false)
   const [allActivity, setAllActivity] = useState(false)
@@ -73,6 +85,9 @@ const ProjectDetail = ({
   const visibleVersions = allVersions ? meta.versions : meta.versions.slice(0, 3)
   const visibleActivity = allActivity ? meta.activity : meta.activity.slice(0, 5)
 
+  const missingDeps = diagnosis?.issues.find((i) => i.type === 'missing_deps')
+  const issuesCount = diagnosis?.issues.length ?? 0
+
   return (
     <section className="pm-detail">
       <header className="pm-detail__hd">
@@ -80,6 +95,19 @@ const ProjectDetail = ({
           <div className="pm-detail__title">
             <h1>{project.name}</h1>
             <span className="pm-fw">{project.framework}</span>
+            {diagnosis?.healthy && !diagnosis.hasIssues ? (
+              <button className="pm-tag ok" onClick={onOpenDiagnosis} title="Dự án đã kiểm tra và sẵn sàng">
+                <CheckCircle2 size={12} /> Sẵn sàng
+              </button>
+            ) : issuesCount > 0 ? (
+              <button
+                className={`pm-tag ${missingDeps ? 'err' : 'warn'}`}
+                onClick={onOpenDiagnosis}
+                title="Bấm để xem báo cáo kiểm tra dự án"
+              >
+                <ShieldAlert size={12} /> {missingDeps ? 'Thiếu thư viện' : `${issuesCount} lưu ý`}
+              </button>
+            ) : null}
             {running ? (
               <span className="pm-devpill">
                 <span className="pm-dot live" /> dev server {port ? `:${port}` : '…'}
@@ -100,6 +128,9 @@ const ProjectDetail = ({
         </div>
 
         <div className="pm-row" style={{ flex: 'none' }}>
+          <button className="btn" onClick={onOpenDiagnosis} title="Báo cáo kiểm tra và đề xuất cho thư mục này">
+            <ShieldAlert size={13} /> Kiểm tra dự án {issuesCount > 0 && `(${issuesCount})`}
+          </button>
           <button className="btn" onClick={onOpenFolder}>
             <FolderOpen size={13} /> Mở thư mục
           </button>
@@ -117,6 +148,45 @@ const ProjectDetail = ({
           </button>
         </div>
       </header>
+
+      {/* ── Khối cảnh báo chẩn đoán dự án nếu phát hiện vấn đề ── */}
+      {diagnosis && diagnosis.hasIssues && (
+        <div className={`pm-alert-banner ${missingDeps ? 'err' : 'warn'}`}>
+          <div className="pm-alert-banner__icon">
+            <TriangleAlert size={18} />
+          </div>
+          <div className="pm-alert-banner__content">
+            <h4>
+              {missingDeps
+                ? 'Phát hiện thiếu sót: Dự án chưa cài đặt thư viện (thiếu node_modules)'
+                : `Phát hiện ${issuesCount} vấn đề cần lưu ý đối với dự án này`}
+            </h4>
+            <p>
+              {missingDeps
+                ? 'Dự án khai báo thư viện trong package.json nhưng chưa được tải về máy. Nếu bấm Run sẽ bị lỗi thiếu module.'
+                : diagnosis.issues[0]?.message}
+            </p>
+          </div>
+          <div className="pm-alert-banner__actions">
+            {missingDeps && (
+              <button className="btn primary sm" onClick={onInstall} disabled={installing}>
+                {installing ? (
+                  <>
+                    <Loader2 size={13} className="pm-spin" /> Đang cài đặt...
+                  </>
+                ) : (
+                  <>
+                    <Zap size={13} /> Cài đặt ngay ({project.packageManager || 'npm'} install)
+                  </>
+                )}
+              </button>
+            )}
+            <button className="btn sm" onClick={onOpenDiagnosis}>
+              <ShieldAlert size={13} /> Xem báo cáo & đề xuất ({issuesCount})
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Chỉ số nhanh ── */}
       <div className="pm-stats">

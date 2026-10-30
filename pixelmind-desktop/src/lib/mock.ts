@@ -338,6 +338,12 @@ export function createBrowserMock(): PixelMindApi {
         writeProjects(projects)
         return projects.find((p) => p.id === projectId) ?? null
       },
+      async diagnose() {
+        return { healthy: true, hasIssues: false, checkedAt: Date.now(), issues: [] }
+      },
+      async gitInit() {
+        return true
+      },
       async removePage(projectId, pageId) {
         const projects = readProjects().map((p) =>
           p.id === projectId
@@ -388,6 +394,31 @@ export function createBrowserMock(): PixelMindApi {
       },
     },
     run: {
+      async install(projectId) {
+        clear()
+        currentRun = {
+          id: `mock-install-${Date.now()}`,
+          projectId,
+          cwd: DEMO_ROOT,
+          script: 'install',
+          command: 'npm install',
+          status: 'running',
+          url: null,
+          exitCode: null,
+          startedAt: Date.now(),
+          kind: 'install',
+        }
+        emitLog('system', `$ npm install  (${DEMO_ROOT})\n`)
+        emitLog('system', '[system] Bắt đầu cài đặt các gói phụ thuộc...\n')
+        timers.push(
+          window.setTimeout(() => emitLog('stdout', 'added 28 packages in 1.4s\n'), 800),
+          window.setTimeout(() => {
+            emitLog('system', '\n[system] Cài đặt thư viện hoàn tất thành công!\n')
+            emitState({ status: 'stopped', exitCode: 0 })
+          }, 1500),
+        )
+        return currentRun
+      },
       async start(projectId, script) {
         clear()
         currentRun = {
