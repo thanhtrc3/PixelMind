@@ -1,0 +1,277 @@
+/* ═══════════════════════════════════════════════════
+   PixelMind — TopBar & Header Controls (Ảnh 2)
+   ═══════════════════════════════════════════════════ */
+
+/* ── Nút trạng thái máy chủ (Đang chạy / Run) ── */
+.pm-topbar__run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 29px;
+  padding: 0 10px;
+  border-radius: var(--r-sm, 7px);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  transition: all var(--duration-fast, 120ms) ease;
+}
+
+.pm-topbar__run-status:hover {
+  background: var(--panel-3);
+  border-color: var(--line-2);
+}
+
+.pm-topbar__run-status.running {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
+.pm-topbar__run-status.running:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.pm-topbar__run-status.idle {
+  background: rgba(49, 192, 122, 0.12);
+  border-color: rgba(49, 192, 122, 0.35);
+  color: #34d399;
+}
+
+.pm-topbar__run-status.idle:hover {
+  background: rgba(49, 192, 122, 0.2);
+  border-color: rgba(49, 192, 122, 0.5);
+}
+
+/* ── Ô tìm kiếm Bảng lệnh nổi bật (Ảnh 2) ── */
+.pm-topbar__palette {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 29px;
+  padding: 0 8px 0 10px;
+  width: 250px;
+  border-radius: var(--r-sm, 7px);
+  border: 1px solid var(--line);
+  background: var(--bg-inset);
+  color: var(--text-3);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: all var(--duration-fast, 120ms) ease;
+}
+
+.pm-topbar__palette:hover {
+  border-color: var(--line-2);
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.pm-topbar__palette-text {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pm-topbar__palette-keys {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pm-topbar__palette-keys kbd {
+  display: inline-block;
+  padding: 1px 4px;
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-3);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+/* ── Nút Share ── */
+.pm-topbar__share {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 29px;
+  padding: 0 10px;
+  border-radius: var(--r-sm, 7px);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-fast, 120ms) ease;
+}
+
+.pm-topbar__share:hover {
+  background: var(--panel-3);
+  border-color: var(--line-2);
+  color: var(--text);
+}
+
+/* ── Hồ sơ AI Dropdown (Ảnh 2) ── */
+.pm-topbar__ai-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 29px;
+  padding: 0 9px;
+  border-radius: var(--r-sm, 7px);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-fast, 120ms) ease;
+}
+
+.pm-topbar__ai-pill:hover {
+  background: var(--panel-3);
+  border-color: var(--line-2);
+}
+
+.pm-topbar__ai-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+}
+
+.pm-topbar__ai-dot.warn {
+  background: #f59e0b;
+}
+
+/* ── Hồ sơ người dùng / Avatar (Ảnh 2: [TH] Nguyễn Thanh Hiền ▾) ── */
+.pm-topbar__user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px 0 4px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--duration-fast, 120ms) ease;
+}
+
+.pm-topbar__user:hover {
+  background: var(--panel-3);
+  border-color: var(--line-2);
+}
+
+.pm-topbar__user-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6d5df5, #a855f7);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  letter-spacing: -0.02em;
+}
+
+.pm-topbar__user-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.pm-topbar__user-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pm-topbar__user-sub {
+  font-size: 9.5px;
+  color: var(--text-3);
+}
+
+/* ── Popover Menu chung của TopBar ── */
+.pm-topbar__pop {
+  position: relative;
+}
+
+.pm-topbar__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+
+.pm-topbar__dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 101;
+  min-width: 220px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  animation: pm-slide-down 140ms ease-out;
+}
+
+@keyframes pm-slide-down {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.pm-topbar__dropdown-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 6px 8px 4px;
+}
+
+.pm-topbar__dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 100ms ease;
+}
+
+.pm-topbar__dropdown-item:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.pm-topbar__dropdown-item.active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 500;
+}
+
+.pm-topbar__dropdown-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 0;
+}
+

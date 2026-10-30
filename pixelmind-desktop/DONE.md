@@ -233,3 +233,143 @@ Nhật ký các phần công việc, tính năng và lỗi đã được sửa v
     - Bấm nút công tắc, hoặc bấm phím `Esc`, hoặc bấm nút `[X]` trên góc bảng Inspector: Bảng lập tức đóng lại và biến mất hoàn toàn, giải phóng 100% không gian cho Canvas.
   - **Cải thiện độ tương phản giao diện**:
     - Chỉnh sửa toàn bộ màu chữ của Bảng Inspector sang màu trắng sáng `#ffffff` và xám bạc `#cbd5e1`, hộp mẹo có viền tím tinh tế, hiển thị sắc nét trên nền tối.
+
+
+---
+
+### 11. Phục hồi toàn bộ về nhánh `main` & Giải quyết triệt để lỗi click nhảy trang trong iframe + Tích hợp Live Style & Text Editor (Phân hệ 2)
+- **Vấn đề người dùng gặp phải**:
+  - Người dùng vô tình chuyển nhầm branch khiến các thay đổi trên nhánh làm việc bị gián đoạn.
+  - Khi bật Chế độ Soi phần tử (Inspect Mode), người dùng nhấp vào link/chữ "Product" trên menu thì trang web trong iframe tự động điều hướng sang trang `/product` thay vì chọn phần tử để soi và hiển thị thuộc tính để chỉnh sửa.
+  - Inspector Panel không nhận được dữ liệu và người dùng không có công cụ trực tiếp để sửa chữa.
+- **Nguyên nhân cốt lõi**:
+  - Chromium trong Electron áp dụng cơ chế Site Isolation / Out-of-Process iframes (OOPIF) giữa các port khác nhau (`localhost:5174` vs `localhost:5162`), khiến `iframe.contentDocument` trả về `null` hoặc bị chặn Same-Origin Policy.
+  - Sự kiện click trên thẻ `<a>` kích hoạt hành vi mặc định của trình duyệt điều hướng trang trước khi parent frame có thể bắt sự kiện.
+- **Giải pháp kỹ thuật đã triển khai**:
+  - **Phục hồi nhánh `main`**: Đưa toàn bộ 100% mã nguồn (CanvasArea, styles, topbar, workspace, DONE.md) về nhánh `main` an toàn tuyệt đối.
+  - **Cấu hình Chromium Switch trong Electron**:
+    - `disable-web-security`
+    - `disable-site-isolation-trials`
+    - `disable-features=IsolateOrigins,site-per-process`
+    - Gỡ bỏ giới hạn CSP & X-Frame-Options qua session `onHeadersReceived`.
+  - **Cơ chế IPC Frame Script Auto-Injection**:
+    - Khi frame tải (`did-frame-finish-load`), Electron tự động inject script giám sát trực tiếp vào context của iframe.
+    - Script đăng ký sự kiện `click` ở **capture phase (`capture: true`)**: Gọi `e.preventDefault()`, `e.stopPropagation()`, `e.stopImmediatePropagation()` để **ngăn chặn 100% việc nhảy trang** khi đang ở chế độ Soi.
+    - Trích xuất dữ liệu DOM thật 100% (tag, id, class, rect, computed styles, text snippet, dom path) và gửi ra parent qua `window.parent.postMessage`.
+  - **Tích hợp Bảng Chỉnh sửa Trực quan (Live Style & Text Editor - Phân hệ 2)**:
+    - Khi chọn phần tử (ví dụ chữ "Product"), Inspector Panel mở ra ngay lập tức với viền tím bao quanh phần tử.
+    - **Sửa nội dung chữ (Text)**: Ô input cho phép người dùng sửa text trực tiếp -> thay đổi hiển thị ngay trên web trong iframe thời gian thực.
+    - **Sửa màu sắc**: Bộ chọn màu chữ (`color`) và màu nền (`background-color`) với bảng màu HTML5 + mã màu hiển thị trực quan.
+    - **Sửa cỡ chữ & Bo góc**: Nút tăng/giảm Cỡ chữ (Font size) và Bo góc (Border radius) tương tác trực tiếp lên DOM thật.
+    - **Nút [Khôi phục thuộc tính gốc]**: Cho phép đưa phần tử trở về trạng thái CSS và nội dung ban đầu chỉ với 1 click.
+
+
+---
+
+### 12. Tách Inspector thành Dedicated Side Panel cạnh phải & Chặn triệt để lỗi cuộn chuột lan truyền
+- **Vấn đề người dùng phản ánh**:
+  - Khi lăn chuột giữa trong bảng soi thì cả Canvas bên dưới cũng bị lướt/pan theo, gây khó chịu và mất vị trí quan sát.
+  - Bảng soi trước đó là một popup chữ nhật trôi nổi đè lên trên trang web, che khuất tầm nhìn, bố cục chưa hoàn thiện.
+- **Giải pháp kỹ thuật đã triển khai**:
+  - **Tách kiến trúc DOM**: Chuyển từ popup absolute trôi nổi bên trong `canvas__stage` sang cấu trúc bố cục 2 cột song song (`.canvas__body = .canvas__stage (trái) + .canvas__inspector-sidebar (phải)`).
+  - **Chặn 100% sự kiện cuộn chuột (Event Propagation)**:
+    - Gắn `onWheel={(e) => e.stopPropagation()}` trực tiếp trên `.canvas__inspector-sidebar`.
+    - Khi người dùng lăn chuột giữa trong Side Panel, sự kiện cuộn chỉ tác động lên nội dung của Panel, Canvas bên cạnh đứng yên tuyệt đối.
+  - **Cơ chế ẩn/hiện đồng bộ**:
+    - **Khi tắt chế độ Soi (`isInspectMode = false`)**: Side Panel biến mất hoàn toàn 100%, Canvas tự động chiếm trọn vẹn toàn bộ màn hình.
+    - **Khi bật chế độ Soi (`isInspectMode = true`)**: Side Panel trượt vào mượt mà ở cạnh phải (rộng 360px), Canvas tự co lại để cả hai cùng hiển thị rõ ràng, không che khuất nhau.
+  - **Thiết kế hoàn chỉnh, chuyên nghiệp chuẩn Webflow / Figma**:
+    - **Header**: LED pulsing xanh lá `Live DOM`, tên thẻ lớn (`<A>`, `<BUTTON>...`), `#id` badge, nút copy CSS Selector, nút đóng X (Esc).
+    - **Hero Card**: Tóm tắt phần tử, phân cấp DOM Breadcrumbs, Class Pills kèm nút sao chép toàn bộ classes.
+    - **Section 1 (Live Text Editor)**: Ô nhập liệu sửa nội dung văn bản trực tiếp lên trang web.
+    - **Section 2 (Layout & Box Model)**: Thẻ lưới hiển thị Kích thước (Width x Height), Display, Padding, Margin.
+    - **Section 3 (Colors & Appearance)**: Bộ chọn màu chữ (`color`) và màu nền (`background`) với ô màu preview + color picker HTML5 + mã màu hex.
+    - **Section 4 (Typography & Radius)**: Bộ điều khiển stepper `[ - ]` giá trị `[ + ]` cho Cỡ chữ (Font size) và Bo góc (Border radius), hiển thị Font family.
+    - **Sticky Action Footer**: Nút `[Khôi phục thuộc tính gốc]` + Nút `[Nhờ AI sửa phần tử này]` (nổi bật với gradient tím).
+    - **Empty State chuyên nghiệp**: Icon radar định vị, hướng dẫn cụ thể và bảng phím tắt nhanh (`I`, `Space/H`, `F`, `Esc`).
+
+
+---
+
+### 13. Kích hoạt tính năng kéo tương tác: 8 điểm neo phần tử (Live Resize Handles) & Thanh co giãn độ rộng Side Panel
+- **Vấn đề người dùng phản ánh**:
+  - Xung quanh phần tử được chọn có 8 điểm neo co giãn (hình vuông nhỏ ở góc và cạnh) nhưng người dùng bấm vào kéo thì không có phản hồi gì.
+  - Bảng Soi phần tử bên phải chưa có thanh kéo để điều chỉnh độ rộng tùy biến.
+- **Nguyên nhân**:
+  - Trước đó các thẻ handle chỉ là các thẻ `<span>` hiển thị tĩnh, thuộc tính CSS cha mang `pointer-events: none` nên không nhận sự kiện chuột.
+  - Chưa có bộ lắng nghe sự kiện chuột (`onMouseDown`, `mousemove`, `mouseup`) tính toán delta khoảng cách và cập nhật kích thước DOM.
+- **Giải pháp kỹ thuật đã hoàn thành**:
+  - **Tương tác 8 điểm neo co giãn phần tử thật (`Live Resize Handles`)**:
+    - Bật `pointer-events: auto` và gắn các con trỏ resize chuẩn (`nwse-resize`, `nesw-resize`, `ns-resize`, `ew-resize`).
+    - Gắn sự kiện `onMouseDown` cho từng điểm neo: `'nw'`, `'n'`, `'ne'`, `'e'`, `'se'`, `'s'`, `'sw'`, `'w'`.
+    - Tính toán delta khoảng cách kéo chuột chia theo tỉ lệ `zoom / 100` của Canvas để đảm bảo dù zoom bao nhiêu % thì kéo cũng chính xác từng pixel.
+    - Cập nhật kích thước `width` và `height` thời gian thực lên khung viền tím và đồng bộ ngay lập tức vào DOM thật trong iframe thông qua IPC / PostMessage.
+    - Nhãn kích thước pixel (`width × height`) trên đầu phần tử nhảy số động liên tục theo tay người dùng.
+  - **Thanh kéo co giãn độ rộng Side Panel (`Inspector Resizer Bar`)**:
+    - Bổ sung thanh phân cách ở mép trái Side Panel với con trỏ `col-resize`, hover sáng màu tím accent.
+    - Cho phép kéo sang trái/phải để co giãn độ rộng Panel linh hoạt từ `280px` đến `680px`.
+  - **Lớp Drag Shield toàn màn hình chống trôi chuột**:
+    - Khi đang kéo (resizing), tự động kích hoạt lớp chắn trong suốt phủ toàn màn hình (`zIndex: 9999`) để giữ con trỏ chuột không bị iframe bắt mất sự kiện `mousemove` và `mouseup`, đảm bảo thao tác kéo mượt mà 60fps.
+
+
+---
+
+### 14. Khắc phục triệt để lỗi nút "Khôi phục thuộc tính gốc" (True Element Original Reset)
+- **Vấn đề người dùng phản ánh**:
+  - Người dùng bấm nút "Khôi phục thuộc tính gốc" nhưng không có tác dụng, phần tử không quay lại trạng thái ban đầu.
+- **Nguyên nhân cốt lõi**:
+  - **Lỗi ghi đè State ban đầu**: Trước đó, mỗi khi người dùng kéo co giãn kích thước hoặc sửa text, iframe lại gửi thông điệp `PM_SELECT_ELEMENT`. Bộ lắng nghe ở parent vô tình gọi `setOriginalStyles` ghi đè bằng giá trị vừa sửa, khiến bộ nhớ thuộc tính gốc bị thay thế bằng thuộc tính mới!
+  - **Thiếu khôi phục Kích thước**: `originalStyles` trước đó không lưu `width` và `height` ban đầu, nên khi kéo co giãn xong thì nút reset không thể trả về kích thước gốc.
+  - **Cơ chế Inline Style trong DOM**: Khi chỉnh sửa, các thuộc tính được gán vào `target.style`. Khi khôi phục gốc, phần tử cần được đưa về đúng `target.style.cssText` ban đầu (hoặc xóa sạch các inline styles tạm) để nhường lại quyền điều khiển cho CSS/Tailwind gốc của trang web.
+- **Giải pháp kỹ thuật đã hoàn thành**:
+  - **Lưu Snapshot gốc trong DOM iframe**: Ngay khi click chọn phần tử lần đầu, script inject lưu ngay `target.__PM_ORIGINAL = { cssText: target.style.cssText, textContent: target.textContent }`.
+  - **Bảo vệ State ban đầu ở Parent**: Chỉ gán `originalStyles` lần đầu tiên khi chọn phần tử mới (hoặc sau khi reset); chặn triệt để việc ghi đè state gốc trong suốt quá trình người dùng đang sửa đổi.
+  - **Cơ chế True Reset 2 chiều**:
+    - Gửi thông điệp `PM_RESET_ORIGINAL` qua IPC và PostMessage vào iframe -> DOM thực thi `lastSelected.style.cssText = lastSelected.__PM_ORIGINAL.cssText` và khôi phục text ban đầu.
+    - Cập nhật state `selectedEl` ở Side Panel về đầy đủ: kích thước `width`, `height`, màu chữ, màu nền, font size, border radius và text ban đầu.
+    - Khung viền chọn tím và các ô thông số trên Side Panel lập tức co lại về kích thước và thuộc tính gốc chuẩn xác 100%.
+
+
+---
+
+### 15. Hoàn thành 100% Phân hệ 2: Visual Style Editor (Bảng chỉnh sửa thuộc tính như Webflow) & Two-Way Code Sync
+- **Mục tiêu**: Chỉnh sửa giao diện trực quan bằng thanh trượt, bảng màu, dropdown mà không cần viết mã tay, phản chiếu tức thì 60fps và sinh diff cập nhật ngược vào mã nguồn thật (.cshtml, .tsx, .jsx, .html, .vue, .razor).
+- **Chi tiết các nhóm tính năng đã hoàn thiện trọn vẹn**:
+  1. **Layout & Flexbox / Grid**:
+     - Chuyển đổi hiển thị: `block`, `flex`, `grid`, `inline-block`, `inline`.
+     - Bộ điều khiển Flexbox nâng cao:
+       - **Direction**: Hàng ngang (`row`), Cột dọc (`column`), Đảo ngang (`row-reverse`), Đảo dọc (`column-reverse`).
+       - **Align Items**: Căn trục phụ (`flex-start`, `center`, `flex-end`, `stretch`).
+       - **Justify Content**: Căn trục chính (`flex-start`, `center`, `flex-end`, `space-between`).
+       - **Gap**: Thanh trượt khoảng cách từ 0px đến 48px với số đo pixel nhảy số thời gian thực.
+  2. **Spacing (Hộp trực quan Webflow Box Model)**:
+     - Sơ đồ lồng hộp 2 lớp:
+       - Lớp ngoài: **MARGIN** (màu cam nhạt) với số đo 4 cạnh.
+       - Lớp trong: **PADDING** (màu xanh lá) với số đo 4 cạnh.
+       - Trung tâm: Kích thước pixel `Width × Height` của phần tử.
+     - Bộ nút tăng giảm khoảng cách nhanh `+` / `-` cho Padding và Margin.
+  3. **Typography (Chữ & Kiểu dáng)**:
+     - **Cỡ chữ (Font size)**: Bộ stepper `+` / `-` và thanh trượt trực quan.
+     - **Độ đậm (Font weight)**: 5 mức lựa chọn nhanh: 300 (Nhẹ), 400 (Thường), 500 (Vừa), 600 (Đậm), 700 (Rất đậm).
+     - **Căn lề (Text align)**: 4 nút biểu tượng Trái (`AlignLeft`), Giữa (`AlignCenter`), Phải (`AlignRight`), Đều (`AlignJustify`).
+     - **Trang trí (Text decoration)**: None, Gạch chân (`Underline`), Gạch ngang (`Strikethrough`).
+     - **Kiểu chữ hoa/thường (Text transform)**: `Aa` (Bình thường), `AA` (VIẾT HOA), `aa` (viết thường).
+     - **Màu chữ (Text color)**: Color picker HTML5 + nhập mã màu Hex/RGBA + dải màu mẫu swatch thông dụng.
+  4. **Backgrounds, Borders & Effects (Màu nền, Gradient, Viền & Đổ bóng)**:
+     - **Màu nền (Background color)**: Color picker + mã Hex + nút gán nhanh `Trong suốt` + dải swatch.
+     - **Dải màu Gradient**: 4 mẫu dải gradient hiện đại (Tím Cyber, Xanh Ngọc, Hoàng Hôn, Tối Sâu).
+     - **Độ mờ (Opacity)**: Thanh trượt từ 0% đến 100% với nhãn số % trực quan.
+     - **Đường viền (Borders)**: Lựa chọn kiểu viền (`none`, `solid`, `dashed`, `dotted`), tăng giảm độ dày viền (0-12px) và chọn màu viền.
+     - **Bo góc (Border radius)**: Thanh trượt (0-50px) + các mức bo nhanh: `0px`, `4px`, `8px`, `16px`, `9999px (Tròn/Viên thuốc)`.
+     - **Đổ bóng (Box shadow)**: 5 cấp độ bóng: Không bóng (`none`), Nhẹ (`sm`), Vừa (`md`), Đậm (`lg`), Phát sáng tím (`glow`).
+  5. **Live Move & Live Resize**:
+     - Thanh kéo `[✥ Di chuyển]` gắn trên selection box: tự động chuyển sang `position: relative` và cập nhật tọa độ `left/top`.
+     - 8 điểm neo co giãn kích thước (Resize Handles): tự động chuyển `display: inline` sang `display: inline-block` trên thẻ inline (như thẻ `<a>`) để nhận `width/height` chuẩn W3C CSS.
+  6. **Sinh Diff & Đồng bộ hai chiều (Two-Way Code Sync Engine)**:
+     - **Code Locator**: Quét đệ quy tìm chính xác file và số dòng chứa phần tử.
+     - **Tab Mã nguồn thật**: Hiển thị đường dẫn file, số lượng thay đổi đang chờ lưu.
+     - **Bảng so sánh mã nguồn (Diff View)**:
+       - 🔴 Dòng cũ: Mã nguồn gốc hiện tại trên đĩa.
+       - 🟢 Dòng mới: Mã nguồn sau khi đã thêm/sửa text và thuộc tính `style="..."` (hoặc `style={{...}}` với JSX).
+     - **Nút [💾 Lưu thay đổi vào mã nguồn thật]**: 1-click ghi đè vật lý vào tệp mã nguồn trên ổ đĩa.
+     - **Nút [↺ Khôi phục gốc]**: Hoàn tác toàn bộ inline styles và trả về thuộc tính gốc ban đầu.

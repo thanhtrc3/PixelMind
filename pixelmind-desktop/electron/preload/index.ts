@@ -96,6 +96,21 @@ const api: PixelMindApi = {
     setMode: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke('inspect:set-mode', enabled),
     applyStyle: (payload: { styles?: Record<string, string>; textContent?: string }): Promise<boolean> =>
       ipcRenderer.invoke('inspect:apply-style', payload),
+    resetOriginal: (): Promise<boolean> => ipcRenderer.invoke('inspect:reset-original'),
+    locateSource: (payload: {
+      projectPath: string
+      textSnippet: string
+      tagName: string
+      className: string
+    }) => ipcRenderer.invoke('inspect:locate-source', payload),
+    syncCode: (payload: {
+      fullPath: string
+      oldText?: string
+      newText?: string
+      styles?: Record<string, string>
+      tagName?: string
+      lineNumber?: number
+    }) => ipcRenderer.invoke('inspect:sync-code', payload),
   },
 }
 

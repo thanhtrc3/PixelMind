@@ -64,5 +64,20 @@ export interface PixelMindApi {
   inspect: {
     setMode(enabled: boolean): Promise<boolean>
     applyStyle(payload: { styles?: Record<string, string>; textContent?: string }): Promise<boolean>
+    resetOriginal(): Promise<boolean>
+    locateSource(payload: {
+      projectPath: string
+      textSnippet: string
+      tagName: string
+      className: string
+    }): Promise<{ filePath: string; fullPath: string; lineNumber: number; lineContent: string } | null>
+    syncCode(payload: {
+      fullPath: string
+      oldText?: string
+      newText?: string
+      styles?: Record<string, string>
+      tagName?: string
+      lineNumber?: number
+    }): Promise<{ success: boolean; error?: string; oldLine?: string; newLine?: string }>
   }
 }

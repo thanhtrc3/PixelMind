@@ -291,6 +291,7 @@ const WorkspaceView = ({
                       url={run?.url ?? null}
                       running={run?.status === 'running' || run?.status === 'starting'}
                       projectName={project.name}
+                      projectPath={project.path}
                       error={parsedError}
                       installing={installing}
                       onRun={onRun}
@@ -338,6 +339,7 @@ const WorkspaceView = ({
                       url={run?.url ?? null}
                       running={run?.status === 'running' || run?.status === 'starting'}
                       projectName={project.name}
+                      projectPath={project.path}
                       error={parsedError}
                       installing={installing}
                       onRun={onRun}
@@ -395,9 +397,6 @@ const WorkspaceView = ({
                   diagnosis={diagnosis}
                   installing={installing}
                   onScript={onScript}
-                  customCommand={customCommand}
-                  onCustomCommand={onCustomCommand}
-                  onSaveCustomCommand={onSaveCustomCommand}
                   onRun={onRun}
                   onStop={onStop}
                   onReveal={onReveal}

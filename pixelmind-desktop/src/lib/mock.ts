@@ -477,6 +477,15 @@ export function createBrowserMock(): PixelMindApi {
       async applyStyle(_payload) {
         return true
       },
+      async resetOriginal() {
+        return true
+      },
+      async locateSource(_payload) {
+        return null
+      },
+      async syncCode(_payload) {
+        return { success: true, oldLine: '<span>Old</span>', newLine: '<span>New</span>' }
+      },
     },
     system: {
       async openExternal(url) {
