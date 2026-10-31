@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
   AppInfo,
+  DesignTokens,
   FileContent,
   FileNode,
   ProjectDiagnosis,
@@ -99,9 +100,12 @@ const api: PixelMindApi = {
     resetOriginal: (): Promise<boolean> => ipcRenderer.invoke('inspect:reset-original'),
     locateSource: (payload: {
       projectPath: string
-      textSnippet: string
-      tagName: string
-      className: string
+      textSnippet?: string
+      tagName?: string
+      className?: string
+      currentPath?: string
+      id?: string
+      selector?: string
     }) => ipcRenderer.invoke('inspect:locate-source', payload),
     syncCode: (payload: {
       fullPath: string
@@ -111,6 +115,11 @@ const api: PixelMindApi = {
       tagName?: string
       lineNumber?: number
     }) => ipcRenderer.invoke('inspect:sync-code', payload),
+  },
+  tokens: {
+    get: (projectPath: string) => ipcRenderer.invoke('tokens:get', projectPath),
+    save: (payload: { projectPath: string; tokens: DesignTokens; syncTarget?: 'css' | 'tailwind' | 'both' }) =>
+      ipcRenderer.invoke('tokens:save', payload),
   },
 }
 

@@ -1147,6 +1147,98 @@ export async function diagnoseProject(folder: string, dotnet?: DotnetProjectInfo
     issues,
   }
 }
+async function detectOtherProject(dir: string): Promise<{
+  framework: string
+  packageManager: PackageManager
+  scripts: ScriptEntry[]
+  hasIndexHtml: boolean
+} | null> {
+  const exists = async (f: string) =>
+    fs.access(join(dir, f)).then(() => true).catch(() => false)
+
+  // 1. Python Django
+  if (await exists('manage.py')) {
+    return {
+      framework: 'Django (Python)',
+      packageManager: 'python',
+      scripts: [
+        { name: 'runserver', command: 'python manage.py runserver', kind: 'dev' },
+        { name: 'migrate', command: 'python manage.py migrate', kind: 'other' },
+      ],
+      hasIndexHtml: false,
+    }
+  }
+
+  // 2. Python Flask / FastAPI / General
+  if (
+    (await exists('app.py')) ||
+    (await exists('main.py')) ||
+    (await exists('requirements.txt')) ||
+    (await exists('pyproject.toml'))
+  ) {
+    const mainFile = (await exists('main.py'))
+      ? 'main.py'
+      : (await exists('app.py'))
+        ? 'app.py'
+        : null
+    const devCmd = mainFile ? `python ${mainFile}` : 'python -m http.server 8000'
+    return {
+      framework: 'Python App',
+      packageManager: 'pip',
+      scripts: [{ name: 'run', command: devCmd, kind: 'dev' }],
+      hasIndexHtml: false,
+    }
+  }
+
+  // 3. PHP Laravel / Native
+  if (await exists('artisan')) {
+    return {
+      framework: 'Laravel (PHP)',
+      packageManager: 'composer',
+      scripts: [{ name: 'serve', command: 'php artisan serve', kind: 'dev' }],
+      hasIndexHtml: false,
+    }
+  }
+  if (await exists('index.php')) {
+    return {
+      framework: 'PHP App',
+      packageManager: (await exists('composer.json')) ? 'composer' : 'none',
+      scripts: [{ name: 'dev', command: 'php -S localhost:8000', kind: 'dev' }],
+      hasIndexHtml: false,
+    }
+  }
+
+  // 4. Rust
+  if (await exists('Cargo.toml')) {
+    return {
+      framework: 'Rust App',
+      packageManager: 'cargo',
+      scripts: [
+        { name: 'run', command: 'cargo run', kind: 'dev' },
+        { name: 'build', command: 'cargo build', kind: 'build' },
+        { name: 'test', command: 'cargo test', kind: 'test' },
+      ],
+      hasIndexHtml: false,
+    }
+  }
+
+  // 5. Go
+  if (await exists('go.mod')) {
+    return {
+      framework: 'Go App',
+      packageManager: 'go',
+      scripts: [
+        { name: 'run', command: 'go run .', kind: 'dev' },
+        { name: 'build', command: 'go build', kind: 'build' },
+        { name: 'test', command: 'go test ./...', kind: 'test' },
+      ],
+      hasIndexHtml: false,
+    }
+  }
+
+  return null
+}
+
 
 export async function detectProject(folder: string): Promise<ProjectRecord> {
   const dir = resolve(folder)
@@ -1207,6 +1299,28 @@ export async function detectProject(folder: string): Promise<ProjectRecord> {
       favorite: false,
       diagnosis,
       meta: await buildMeta(dir, projectName),
+    }
+  }
+
+  if (!pkg) {
+    const other = await detectOtherProject(dir)
+    if (other) {
+      const projectName = basename(dir)
+      const diagnosis = await diagnoseProject(dir)
+      return {
+        id: randomUUID(),
+        name: projectName,
+        path: dir,
+        framework: other.framework,
+        packageManager: other.packageManager,
+        scripts: other.scripts,
+        hasIndexHtml: other.hasIndexHtml,
+        addedAt: Date.now(),
+        lastOpenedAt: null,
+        favorite: false,
+        diagnosis,
+        meta: await buildMeta(dir, projectName),
+      }
     }
   }
 

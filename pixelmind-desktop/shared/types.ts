@@ -20,7 +20,42 @@ export interface ScriptEntry {
   kind: 'dev' | 'build' | 'start' | 'test' | 'other'
 }
 
-export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'dotnet' | 'flutter' | 'none'
+export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'dotnet' | 'flutter' | 'python' | 'pip' | 'composer' | 'cargo' | 'go' | 'none'
+
+export interface ColorToken {
+  id: string
+  name: string
+  value: string
+  category: 'brand' | 'background' | 'status' | 'neutral'
+}
+
+export interface TypographyToken {
+  id: string
+  name: string
+  fontSize: string
+  lineHeight: string
+  fontWeight?: string
+}
+
+export interface SpacingToken {
+  id: string
+  name: string
+  value: string
+}
+
+export interface RadiusToken {
+  id: string
+  name: string
+  value: string
+}
+
+export interface DesignTokens {
+  colors: ColorToken[]
+  typography: TypographyToken[]
+  spacing: SpacingToken[]
+  radius: RadiusToken[]
+  updatedAt?: number
+}
 
 export interface ProjectPage {
   id: string

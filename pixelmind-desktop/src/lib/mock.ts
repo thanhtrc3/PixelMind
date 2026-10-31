@@ -1,4 +1,5 @@
 import type { PixelMindApi } from '@shared/api'
+import { DEFAULT_DESIGN_TOKENS } from './designTokens'
 import type {
   FileContent,
   FileNode,
@@ -485,6 +486,14 @@ export function createBrowserMock(): PixelMindApi {
       },
       async syncCode(_payload) {
         return { success: true, oldLine: '<span>Old</span>', newLine: '<span>New</span>' }
+      },
+    },
+    tokens: {
+      async get(_projectPath) {
+        return { ...DEFAULT_DESIGN_TOKENS }
+      },
+      async save(_payload) {
+        return { success: true, filePath: 'src/styles/variables.css' }
       },
     },
     system: {

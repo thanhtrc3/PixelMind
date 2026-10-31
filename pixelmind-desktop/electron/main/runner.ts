@@ -4,6 +4,7 @@ import type { ChildProcess } from 'node:child_process'
 import { createServer } from 'node:http'
 import type { Server } from 'node:http'
 import { promises as fs } from 'node:fs'
+import { Socket } from 'node:net'
 import { extname, join, normalize, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { PackageManager, RunLog, RunState } from '../../shared/types'
@@ -70,7 +71,36 @@ export class RunnerManager {
     this.onState(entry.state)
   }
 
-  private scanUrl(entry: Entry, text: string) {
+  private async waitForPort(port: number, timeoutMs = 3000): Promise<boolean> {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      const { promise, resolve } = Promise.withResolvers<boolean>()
+      const socket = new Socket()
+      socket.setTimeout(250)
+      socket.once('connect', () => {
+        socket.destroy()
+        resolve(true)
+      })
+      socket.once('error', () => {
+        socket.destroy()
+        resolve(false)
+      })
+      socket.once('timeout', () => {
+        socket.destroy()
+        resolve(false)
+      })
+      socket.connect(port, '127.0.0.1')
+
+      const ok = await promise
+      if (ok) return true
+      const { promise: delayPromise, resolve: delayResolve } = Promise.withResolvers<void>()
+      setTimeout(delayResolve, 120)
+      await delayPromise
+    }
+    return true
+  }
+
+  private async scanUrl(entry: Entry, text: string) {
     const clean = text.replace(ANSI, '')
     entry.buffer = `${entry.buffer}${clean}`.slice(-4000)
     const match = entry.buffer.match(URL_RE)
@@ -79,8 +109,11 @@ export class RunnerManager {
     if (!port) return
     const url = `http://localhost:${port}`
     if (entry.state.url !== url) {
-      this.update(entry, { url })
-      this.emitLog(entry.state.id, `\n[system] Đã phát hiện địa chỉ xem trước: ${url}\n`, 'system')
+      const ready = await this.waitForPort(port)
+      if (ready && entry.state.url !== url) {
+        this.update(entry, { url })
+        this.emitLog(entry.state.id, `\n[system] Đã phát hiện địa chỉ xem trước: ${url}\n`, 'system')
+      }
     }
   }
 
@@ -101,6 +134,10 @@ export class RunnerManager {
       if (script === 'pub-get') return 'flutter pub get'
       return script.startsWith('flutter ') ? script : `flutter ${script}`
     }
+    if (manager === 'python' || manager === 'pip') return matchedCommand || script
+    if (manager === 'composer') return matchedCommand || `composer ${script}`
+    if (manager === 'cargo') return matchedCommand || `cargo ${script}`
+    if (manager === 'go') return matchedCommand || `go ${script}`
     const bin = manager === 'none' ? 'npm' : manager
     if (bin === 'bun') return `bun run ${script}`
     if (bin === 'yarn') return `yarn ${script}`

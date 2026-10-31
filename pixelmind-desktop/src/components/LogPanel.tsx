@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Eraser, Terminal } from 'lucide-react'
+import { ChevronDown, ChevronUp, Eraser, Terminal } from 'lucide-react'
 import type { RunLog, RunState } from '@shared/types'
 import { parseRunError } from '../lib/errorParser'
 import VisualErrorCard from './VisualErrorCard'
@@ -13,6 +13,8 @@ interface LogPanelProps {
   onInstall?: () => void
   onRetry?: () => void
   onOpenFile?: (file: string) => void
+  onToggleCollapse?: () => void
+  isCollapsed?: boolean
 }
 
 const LogPanel = ({
@@ -24,6 +26,8 @@ const LogPanel = ({
   onInstall,
   onRetry,
   onOpenFile,
+  onToggleCollapse,
+  isCollapsed = false,
 }: LogPanelProps) => {
   const bodyRef = useRef<HTMLDivElement>(null)
   const [showRawLogs, setShowRawLogs] = useState(false)
@@ -37,7 +41,12 @@ const LogPanel = ({
 
   return (
     <div className="pm-logs" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div className="pm-panel__hd">
+      <div
+        className="pm-panel__hd"
+        style={{ cursor: 'pointer', userSelect: 'none' }}
+        onDoubleClick={onToggleCollapse}
+        title="Nhấp đúp để thu gọn / mở rộng nhật ký"
+      >
         <Terminal size={12} />
         <b>{heading ?? 'Nhật ký chạy'}</b>
         <span className="pm-muted" style={{ fontSize: 10.5 }}>
@@ -49,11 +58,44 @@ const LogPanel = ({
           </span>
         )}
         <span style={{ flex: 1 }} />
-        <button className="pm-ibtn" onClick={onClear} title="Xoá nhật ký" style={{ width: 24, height: 24 }}>
-          <Eraser size={12} />
+        <span className="pm-muted" style={{ fontSize: 10, marginRight: 6 }}>
+          (Kéo thanh ngang để chỉnh chiều cao)
+        </span>
+        <button
+          className="pm-ibtn"
+          onClick={(e) => {
+            e.stopPropagation()
+            onClear()
+          }}
+          title="Xoá nhật ký"
+          style={{ width: 22, height: 22 }}
+        >
+          <Eraser size={11} />
         </button>
+        {onToggleCollapse && (
+          <button
+            className="pm-ibtn"
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleCollapse()
+            }}
+            title={isCollapsed ? 'Mở rộng nhật ký' : 'Thu gọn nhật ký'}
+            style={{
+              height: 22,
+              padding: '0 6px',
+              fontSize: 10.5,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 3,
+              marginLeft: 4,
+              color: isCollapsed ? 'var(--accent, #6d5df5)' : 'inherit',
+              fontWeight: isCollapsed ? 600 : 400,
+            }}
+          >
+            {isCollapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </button>
+        )}
       </div>
-
       <div className="pm-logs__content" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {/* Khung báo lỗi trực quan nếu có lỗi */}
         {parsedError && (

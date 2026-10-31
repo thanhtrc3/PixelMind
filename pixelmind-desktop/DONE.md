@@ -373,3 +373,247 @@ Nhật ký các phần công việc, tính năng và lỗi đã được sửa v
        - 🟢 Dòng mới: Mã nguồn sau khi đã thêm/sửa text và thuộc tính `style="..."` (hoặc `style={{...}}` với JSX).
      - **Nút [💾 Lưu thay đổi vào mã nguồn thật]**: 1-click ghi đè vật lý vào tệp mã nguồn trên ổ đĩa.
      - **Nút [↺ Khôi phục gốc]**: Hoàn tác toàn bộ inline styles và trả về thuộc tính gốc ban đầu.
+
+
+---
+
+### 16. Kích hoạt tính năng Hoàn tác/Làm lại (Undo/Redo) & Áp dụng mô hình In-Memory Buffer chuẩn Visual Studio 2022 Designer
+- **Vấn đề & Nhu cầu**:
+  - Người dùng mong muốn 2 nút Undo (`↶`) và Redo (`↷`) trên thanh TopBar hoạt động thực tế 100%.
+  - Trải nghiệm thiết kế cần giống như WinForms trong Visual Studio 2022: sửa trực tiếp, kéo thả, đổi thuộc tính tự nhiên mà không bắt người dùng phải bấm "Lưu vào code" sau mỗi lần chỉnh sửa.
+  - Tuyệt đối không ghi đĩa liên tục trong lúc đang kéo rê / thiết kế để tránh giật lag, nghẽn I/O và làm sập Dev Server Hot Reload.
+- **Đã thực hiện**:
+  1. **Bộ quản lý bộ nhớ đệm In-Memory Buffer (`src/lib/editorBuffer.ts`)**:
+     - Lưu trữ toàn bộ lịch sử thao tác (`undoStack` và `redoStack`) trong bộ nhớ RAM.
+     - Cơ chế `pushAction()` ghi lại ảnh chụp trạng thái trước (`before`) và sau (`after`) cho từng phần tử: kiểu dáng CSS, văn bản và tọa độ bounding box.
+     - Quản lý danh sách file bẩn (`dirtyFiles` Map) đánh dấu những file có thay đổi trong RAM chưa ghi xuống đĩa.
+  2. **Kích hoạt 2 nút Hoàn tác & Làm lại trên TopBar**:
+     - Biểu tượng `Undo2` (`↶`) và `Redo2` (`↷`) sáng lên khi có lịch sử thao tác.
+     - Tooltip hiển thị rõ thao tác sẽ được hoàn tác/làm lại (ví dụ: `Hoàn tác: Di chuyển <a> (Ctrl+Z)`).
+     - Kết nối phím tắt toàn cục: `Ctrl + Z` (Undo), `Ctrl + Y` hoặc `Ctrl + Shift + Z` (Redo).
+     - Hỗ trợ bắt phím tắt xuyên suốt ngay cả khi con trỏ chuột đang focus bên trong iframe trang web.
+  3. **Hiển thị dấu hoa thị `*` chưa lưu chuẩn Visual Studio**:
+     - Tab `Xem trước*` hiển thị dấu hoa thị `*` ngay khi có bất kỳ thay đổi nào trong RAM.
+     - Các tab tệp mã nguồn mở (`${fileName}*`) tự động gắn cờ `*` nếu tệp đó đang có thay đổi chờ lưu.
+     - Dấu hoa thị tự động biến mất khi hoàn tác sạch hoặc khi đã bấm lưu.
+  4. **Cơ chế lưu đĩa an toàn (Ctrl + S & Auto-Save before Run)**:
+     - Nhấn `Ctrl + S` hoặc bấm `[💾 Lưu mã nguồn (Ctrl+S)]` để flush toàn bộ buffer trong RAM xuống tệp vật lý trên đĩa.
+     - Nút `[▶ Run] (F5)` tự động lưu toàn bộ các tệp dirty trong RAM trước khi biên dịch/chạy máy chủ.
+  5. **Bổ sung cụm thuộc tính chuẩn WinForms: Location (X, Y) & Size (Width, Height)**:
+     - Ô nhập tọa độ X (Left) và Y (Top) kèm stepper `[-]` `[+]` và nút preset `X: 0`, `Y: 0`, `Về gốc (0, 0)`.
+     - Tự động chuyển `position: relative` khi phần tử đang là `static` để nhận tọa độ mượt mà.
+     - Ô nhập kích thước Chiều rộng (W) và Chiều cao (H) kèm stepper `[-]` `[+]` và các nút preset `Auto W`, `100% W`, `Auto H`, `Fill`.
+  6. **Tối ưu trải nghiệm chỉnh sửa văn bản & Kéo thả 60fps**:
+     - Kéo di chuyển (Move) và co giãn (Resize) cập nhật DOM siêu mượt 60fps trong lúc drag và chỉ ghi đúng 1 bước lịch sử hoàn tác khi thả chuột (MouseUp).
+     - Nhập văn bản trực tiếp phản chiếu ngay lập tức trên màn hình và chỉ ghi 1 bước lịch sử khi rời ô nhập (Blur / Enter).
+     - Thao tác "Khôi phục gốc" cũng được đưa vào lịch sử Undo để người dùng có thể khôi phục lại nếu lỡ tay bấm nhầm.
+
+
+---
+
+### 17. Bộ đồng bộ mã nguồn phổ quát (Universal Multi-Framework Style & Position Engine)
+- **Vấn đề**: Khi di chuyển phần tử, văn bản lưu được nhưng khi reload trang web thì vị trí bị nhảy về chỗ cũ.
+- **Nguyên nhân**:
+  - CSS chuẩn W3C quy định: Thẻ mang `position: static` (mặc định) sẽ bị trình duyệt lờ đi hoàn toàn các thuộc tính `left`, `top`.
+  - Bộ trích xuất `extractElementInfo` trước đó thiếu trường `position`, khiến file lưu chỉ ghi `left/top` mà quên `position: relative`.
+- **Đã giải quyết phổ quát cho MỌI loại dự án (React/Next.js JSX, Vue, Svelte, HTML, PHP/Laravel, ASP.NET Razor)**:
+  1. **Bảo toàn định vị CSS W3C (Position Protection Guard)**:
+     - Bất cứ khi nào có thay đổi `left` hoặc `top` (kéo rê chuột hoặc nhập tọa độ X/Y), hệ thống tự động ép buộc gắn `position: relative` (hoặc giữ `absolute`/`fixed` nếu đã có).
+  2. **Tự động chuyển đổi thẻ inline khi co giãn kích thước**:
+     - Các thẻ inline như `<a>`, `<span>`, `<strong>`, `<b>` khi co giãn `width`/`height` được tự động bổ sung `display: inline-block` để chuẩn CSS W3C.
+  3. **Hỗ trợ cú pháp đa nền tảng**:
+     - **React JSX/TSX**: Tự động sinh hoặc merge `style={{ position: 'relative', left: '100px', top: '40px' }}`.
+     - **HTML / CSHTML / Vue / Svelte / PHP / Blade**: Tự động sinh hoặc merge `style="position: relative; left: 100px; top: 40px;"` bảo tồn các thuộc tính màu sắc, viền cũ đã có.
+  4. **Bộ quét thẻ mở đa dòng (Multi-line Reverse Scanner)**:
+     - Quét ngược tìm chính xác thẻ mở dù thẻ và chữ nằm ở các dòng khác nhau.
+
+---
+
+### 18. Khắc phục triệt để lỗi Undo/Redo làm vỡ giao diện & Hoàn thiện toàn diện Visual Style Editor (Webflow / Chrome DevTools Box Model)
+- **Vấn đề & Triệu chứng**:
+  - Khi bấm Hoàn tác (`Ctrl+Z`), giao diện bị vỡ nghiêm trọng: Thẻ container `<div>` bị bóp hẹp lại thành cột dọc 408px, toàn bộ tiêu đề dài bị bẻ gãy chữ, thanh điều khiển nhảy loạn xạ.
+  - Sơ đồ Box Model trước đây chỉ là chuỗi text tĩnh (`- 8px 16px 8px 16px +`), không cho phép chỉnh sửa từng cạnh, bấm `+` hoặc `-` làm ghi đè sai cả 4 cạnh của padding/margin.
+- **Nguyên nhân cốt lõi**:
+  1. *Lỗi gán sai phần tử mục tiêu (Target Blindness)*: Trong injected script, `PM_APPLY_STYLE` chỉ dùng biến `var targetEl = lastSelected`. Khi người dùng click sang thẻ khác (ví dụ click vào `<div>`), rồi bấm Undo cho một thao tác của thẻ `<a>`, toàn bộ thuộc tính của thẻ `<a>` bị trút ngược đè lên thẻ `<div>`.
+  2. *Lỗi áp đặt 50 Computed Styles (Style Explosion)*: Khi hoàn tác, hệ thống gửi nguyên vẹn 50 thuộc tính trình duyệt đã tính toán (`width: 408px`, `padding: 48px`,...). Việc gán `width: 408px` vào `<div>` container làm bóp nát khung chứa.
+- **Đã xử lý & Hoàn thiện**:
+  1. **Cơ chế định danh phần tử chuẩn xác (`uid` Tracking & `findTargetElement`)**:
+     - Gán tự động thuộc tính định danh duy nhất `data-pm-uid` cho mọi phần tử DOM được soi.
+     - Hàm `findTargetElement(target)` truy vết phần tử mục tiêu theo độ ưu tiên: `uid` -> `id` -> `domPath` (CSS selector & breadcrumb) -> `tagName`.
+     - Tuyệt đối không bao giờ áp dụng nhầm style của phần tử này lên phần tử khác khi Undo/Redo.
+  2. **Bộ hoàn tác Delta-Only Styles**:
+     - Khi Undo/Redo, chỉ tính toán và đảo ngược đúng các thuộc tính thực sự bị thay đổi (`deltaStyles`).
+     - Khi xóa style (ví dụ hoàn tác xóa màu nền hoặc xóa width), injected script gọi `targetEl.style.removeProperty()` giúp khôi phục hoàn hảo về quy tắc CSS ban đầu của class thay vì để lại style inline rác.
+     - Tự động tái tính toán danh sách `dirtyFiles` (`rebuildDirtyFiles`) từ ngăn xếp lịch sử, không bao giờ ghi computed styles xuống file ổ đĩa.
+  3. **Hoàn thiện Webflow & Chrome DevTools Interactive Box Model**:
+     - Sơ đồ lồng hộp tương tác 2 chiều 100%: 4 ô input số pixel đặt trực tiếp tại các vị trí Trên (Top), Dưới (Bottom), Trái (Left), Phải (Right) của cả hộp Margin (vàng hổ phách) và hộp Padding (xanh ngọc).
+     - Bộ điều khiển 4 hướng chi tiết kèm nút tăng/giảm pixel (stepper `[-]` `[+]`) và ô nhập số riêng biệt cho từng cạnh: `marginTop`, `marginRight`, `marginBottom`, `marginLeft`, `paddingTop`, `paddingRight`, `paddingBottom`, `paddingLeft`.
+     - Phím tắt đặt nhanh (Presets):
+       - Margin: `Auto` (căn giữa nội dung), `0px`, `16px`.
+       - Padding: `Nút` (8px 16px), `Card` (16px 24px), `0px`.
+  4. **Bổ sung các bộ điều khiển kiểu dáng trực quan cao cấp**:
+     - *Xuống dòng Flexbox (`flexWrap`)*: Hỗ trợ `nowrap` và `wrap`.
+     - *Con trỏ chuột & Tương tác (`cursor`)*: Tùy chỉnh `default`, `pointer` (bàn tay liên kết/nút), `text` (văn bản), `not-allowed` (vô hiệu hóa).
+  5. **Kiểm tra chất lượng**:
+     - Biên dịch TypeScript (`npm run typecheck`) và đóng gói (`npm run build`) đạt chuẩn 0 lỗi.
+
+---
+
+### 19. Sửa lỗi tráo văn bản khi Hoàn tác kéo nhiều phần tử & Kích hoạt toàn diện tính năng Làm lại (Redo)
+- **Vấn đề & Triệu chứng**:
+  - Khi kéo di chuyển lần lượt 3 phần tử (Tiêu đề `h1`, Mô tả `p`, Nút bấm `a`), sau đó bấm Hoàn tác (`Ctrl+Z`), chữ của Tiêu đề bất ngờ bị gán đè vào trong nút bấm `a`, tiêu đề và mô tả không quay về chỗ cũ.
+  - Người dùng phản ánh nút Làm lại (Redo) không có tác dụng hoặc không biết cách dùng.
+- **Nguyên nhân cốt lõi**:
+  1. *Lỗi gửi kèm `textContent` trong thao tác di chuyển (`MOVE`)*:
+     - Trước đây, khi hoàn tác, hệ thống gửi `textContent: textToApply` trong mọi loại thao tác (kể cả di chuyển vị trí `MOVE` hay co giãn `RESIZE`).
+     - Khi `findTargetElement` gặp khó khăn trong việc định danh và fallback vào `lastSelected` (đang là nút `<a>`), nút `<a>` bị gán đè chữ của `<h1>`!
+  2. *Lỗi Fallback sai phần tử mục tiêu*:
+     - Trước đây, khi không tìm thấy phần tử mục tiêu, script tự động fallback vào `lastSelected` bất kể `lastSelected` là thẻ gì (`<a>` thay vì `<h1>`), khiến thao tác của thẻ này bị áp đặt lên thẻ khác.
+  3. *Lý do Làm lại (Redo) không thấy tác dụng*:
+     - Vì cả Undo lẫn Redo đều bị dồn vào `lastSelected`, hai phần tử kia (`h1` và `p`) chưa từng được Undo về vị trí ban đầu nên khi Redo chúng cũng không có bất kỳ thay đổi nào.
+     - Ngoài ra, thiếu bộ lắng nghe phím tắt `Ctrl+Y` / `Ctrl+Shift+Z` ở tầng cửa sổ ứng dụng (ngoài iframe).
+- **Đã xử lý & Hoàn thiện**:
+  1. **Tách biệt tuyệt đối thao tác Di chuyển (`MOVE`) và Văn bản (`TEXT`)**:
+     - Khi hoàn tác / làm lại thao tác `MOVE`, `RESIZE`, `STYLE`: Thuộc tính `textContent` luôn là `undefined`, **TUYỆT ĐỐI KHÔNG BAO GIỜ** chạm vào chữ của bất kỳ phần tử nào!
+     - Chỉ khi người dùng thực sự sửa chữ (thao tác `TEXT`), `textContent` mới được gửi đi.
+  2. **Bộ tạo CSS Selector độc nhất (`:nth-of-type`)**:
+     - Bổ sung hàm `getUniqueSelector` tự động sinh selector phân cấp CSS chuẩn W3C (ví dụ `body > div:nth-of-type(1) > ... > h1:nth-of-type(1)`).
+     - Định vị phần tử mục tiêu với độ chính xác 100% qua: `uid` -> `id` -> `unique selector` -> `domPath` -> `textSnippet`.
+     - Quy tắc an toàn: Nếu không tìm thấy đúng phần tử có cùng `tagName`, hệ thống **DỪNG LẠI NGAY LẬP TỨC** (`return;`), tuyệt đối không bao giờ gán đè lên phần tử khác.
+  3. **Tự động chuyển đổi phần tử đang chọn khi Undo/Redo**:
+     - Khi bấm Undo/Redo, khung viền chọn xanh và bảng thuộc tính trong PixelMind tự động nhảy đến đúng phần tử đang được hoàn tác (từ `<a>` sang `<p>` rồi sang `<h1>`), giúp người dùng quan sát trực quan từng bước thay đổi.
+  4. **Kích hoạt toàn diện phím tắt Làm lại (Redo)**:
+     - Hỗ trợ `Ctrl + Y` và `Ctrl + Shift + Z` xuyên suốt cả trong iframe lẫn ngoài canvas.
+     - Nút bấm Làm lại (`↷`) trên TopBar phản hồi tức thời theo từng bước lịch sử.
+
+---
+
+### 20. Khắc phục lỗi ghi nhầm tệp mã nguồn từ trang Product sang Home, tách Nhật ký chạy thành Dock kéo co giãn và phổ quát hóa nền tảng
+- **Vấn đề & Triệu chứng người dùng báo cáo**:
+  1. *Lỗi sửa nút Xóa / Sửa trên trang Product làm vỡ nút trang Home*: Người dùng vào trang Product sửa nút Xóa, Sửa thì nút "Khám Phá Sản Phẩm Ngay" bên trang Home bất ngờ bị đổi thành chữ "Sửa" và dính kèm một loạt style inline (width 97px, height 31px, line-through...).
+  2. *Lỗi bấm Nhật ký làm web tự động nhảy về trang Home*: Khi đang xem bất kỳ trang nào (ví dụ `/Product`), người dùng bấm vào nút "Nhật ký" thì khung xem trước bị tải lại và quay ngoắt về trang chủ (`/`).
+  3. *Nhu cầu giao diện Nhật ký*: Người dùng muốn Nhật ký có thể cầm kéo mép lên xuống thoải mái như 2 thanh trái phải của ứng dụng chứ không phải là một nút chật chội nằm chung hàng với thanh tab "Xem trước".
+  4. *Lỗi báo đỏ Terminal (`ERR_CONNECTION_REFUSED`)*: Electron cố gắng tải địa chỉ dev server trước khi port thực sự lắng nghe.
+  5. *Phổ quát hóa tính năng*: Hỗ trợ mở rộng cho các thể loại dự án khác nhau (Python, PHP, Flutter, Rust, Go...) chứ không chỉ riêng web tĩnh hay Node.
+- **Nguyên nhân cốt lõi**:
+  1. *Thuật toán tìm tệp mã nguồn (`scanProjectForSource`)*:
+     - Trước đây, thuật toán duyệt thư mục theo thứ tự alphabet (`Views/Home` đến trước `Views/Product`).
+     - Trong vòng lặp từng file, nếu `textSnippet` chưa khớp, code lập tức fallback sang so khớp class đầu tiên: `firstClass = className.split(/\s+/)[0]`.
+     - Với các framework CSS phổ biến (Bootstrap, Tailwind...), class đầu tiên của nút luôn là `btn`!
+     - `Views/Home/Index.cshtml` có `<a class="btn ...">`, nên hàm lập tức `return` luôn tệp `Home/Index.cshtml` dòng 11 mà không thèm kiểm tra xem các file tiếp theo (`Product/Index.cshtml`) có chứa chính xác text "Sửa" hay không!
+     - Code locator hoàn toàn không biết URL / Route hiện tại mà người dùng đang duyệt trong webview là gì.
+  2. *Cấu trúc cây DOM của WorkspaceView*:
+     - Khi bấm nút "Nhật ký", `showLogs` đổi từ `false` sang `true`, dẫn đến việc hoán đổi component cha từ thẻ `<div>` sang `<Group orientation="vertical">`.
+     - React nhận diện đây là 2 cây component khác nhau nên unmount hoàn toàn `<CanvasArea>` cũ và mount `<CanvasArea>` mới.
+     - Khi mount mới, thẻ `<iframe>` bị tạo lại từ đầu và tải lại `src={url}` gốc (`http://localhost:5162/` - Trang Chủ)!
+- **Đã xử lý & Hoàn thiện**:
+  1. **Khôi phục nguyên trạng tệp `Home/Index.cshtml`**:
+     - Trả lại đúng nội dung ban đầu cho dự án của người dùng: nút "Khám Phá Sản Phẩm Ngay", khôi phục giao diện trang chủ trong sáng, không còn bị đè chữ "Sửa".
+  2. **Thuật toán chấm điểm thông minh đa yếu tố cho Code Locator (`scanProjectForSource`)**:
+     - Tự động truyền `currentPath` (URL route hiện tại, ví dụ `/Product`) từ iframe lên bộ dò tìm mã nguồn.
+     - Hệ thống tính điểm trọng số (`score`):
+       - Điểm Route (+80 điểm nếu đường dẫn tệp chứa token của route như `product`, phạt -40 điểm nếu thuộc trang khác như `home`).
+       - Điểm ID (+160 điểm nếu khớp ID thuộc tính).
+       - Điểm Text Snippet (+70 điểm nếu chứa đúng chữ, +80 điểm nếu thẻ `tagName` tương ứng bao bọc chữ đó).
+       - Điểm Class đặc trưng (+40 đến +80 điểm nếu khớp các class riêng biệt như `btn-warning`, `btn-danger`, `product-card`).
+       - Loại trừ hoàn toàn các generic classes (`btn`, `row`, `col`, `container`, `card`...) không cho phép khớp đơn lẻ.
+       - Thu thập tất cả ứng viên và chỉ lấy ứng viên có điểm số cao nhất (tối thiểu 40 điểm). Tránh tuyệt đối việc gán nhầm sang file khác!
+  3. **Tách Nhật ký chạy thành Panel kéo co giãn dọc chuẩn IDE**:
+     - Loại bỏ nút "Nhật ký" chật chội trên thanh tab Xem trước.
+     - Cấu trúc cố định vĩnh viễn `<Group orientation="vertical">`:
+       - Phía trên: Khung Canvas / FileViewer.
+       - Dải phân cách ngang: `<Separator className="pm-resize-horizontal" />` với con trỏ `row-resize` và dải kéo mượt mà, tiện dụng như 2 bên trái phải.
+       - Phía dưới: `<Panel collapsible defaultSize="24%" minSize="34px" maxSize="75%">` chứa `LogPanel`.
+     - **Giữ CanvasArea luôn sống (Không Unmount)**: Bất kể người dùng kéo Nhật ký lên, hạ xuống, thu gọn hay mở rộng, CanvasArea và iframe bên trong KHÔNG BAO GIỜ bị tải lại, giữ nguyên trang người dùng đang xem!
+     - Header của `LogPanel` hỗ trợ nhấp đúp để thu gọn/mở rộng tức thì, kèm nút chevron và thông báo trực quan.
+  4. **Triệt tiêu lỗi `ERR_CONNECTION_REFUSED` khi máy chủ khởi động**:
+     - Bổ sung hàm `waitForPort(port)` trong `runner.ts` kiểm tra socket TCP thực sự mở và chấp nhận kết nối trước khi phát tín hiệu URL cho iframe.
+  5. **Phổ quát hóa hỗ trợ đa nền tảng dự án**:
+     - Hỗ trợ thêm các dự án Python (Django, FastAPI, Flask), PHP (Laravel, Native), Rust (Cargo), Go (go.mod) với việc tự động nhận diện framework, script khởi chạy và đuôi tệp mã nguồn (`.cshtml`, `.razor`, `.tsx`, `.jsx`, `.vue`, `.svelte`, `.html`, `.php`, `.py`, `.dart`, `.xaml`, `.css`...).
+     - Chuẩn hóa các thuật ngữ hiển thị thành đa năng ("Giao diện ứng dụng", "Xem trước", "Máy chủ dự án").
+
+---
+
+### 21. Sửa lỗi nhãn soi bị che khuất ở đỉnh Header & Hoàn thiện dải kéo Dock Nhật ký chạy chống biến mất
+- **Vấn đề & Triệu chứng người dùng phản hồi sau khi test**:
+  1. *Nhãn soi phần tử (Tag Badge) ở phần Header bị che khuất* (`step1_inspect_hover2.png`): Khi rê chuột vào thẻ `<header>` hoặc `<nav>` ở sát mép trên cùng của trang web, nhãn thẻ bị biến mất hoặc che khuất sau thanh tiêu đề khung nhìn.
+  2. *Không kéo được Nhật ký chạy, bấm nút xuống là biến mất không lên lại được* (Bước 7): Khi bấm nút mũi tên xuống, panel Nhật ký bị collapse về 0px (biến mất hoàn toàn), không còn bất kỳ nút nào để mở lại; dải phân cách quá mỏng (2px) và thiếu gờ cầm kéo rõ ràng.
+- **Nguyên nhân cốt lõi**:
+  1. *Lỗi vị trí nhãn đỉnh*: Thuộc tính `.canvas__inspect-hover-tag` và `.canvas__inspect-selected-tag` đặt cố định `top: -22px`. Khi phần tử nằm sát mép trên (`rect.top < 24`), vị trí -22px bị đẩy ra ngoài vùng chứa của thẻ cha vốn có `overflow: hidden`, dẫn đến bị cắt đứt không nhìn thấy.
+  2. *Lỗi `collapsible` của thư viện react-resizable-panels*: Khi đặt thuộc tính `collapsible` trên `<Panel>`, lệnh `collapse()` sẽ kéo chiều cao panel về `0%` (0px). Khi panel về 0px, toàn bộ header của Nhật ký bị ẩn mất. Đồng thời dải phân cách thiếu chiều cao và gờ kéo trực quan.
+- **Đã xử lý & Hoàn thiện**:
+  1. **Tự động lật vị trí nhãn soi khi ở đỉnh trang**:
+     - Trong `CanvasArea.tsx`, khi phần tử có tọa độ đỉnh `rect.top < 24` (như header, menu trên cùng), hệ thống tự động lật nhãn `hover-tag` và `selected-tag` vào phía trong mép trên (`top: 2px, left: 2px`) kèm bóng đổ nổi bật.
+     - Thanh kéo di chuyển `✥ Di chuyển` cũng tự động lùi xuống `top: 26px` khi phần tử ở mép trên, đảm bảo không bao giờ bị cắt khuất.
+  2. **Dải kéo Dock Nhật ký trực quan chuẩn công nghiệp (`.pm-resize-horizontal`)**:
+     - Bỏ thuộc tính `collapsible` $\rightarrow$ Panel Nhật ký có chiều cao tối thiểu vĩnh viễn là `36px` (chiều cao thanh header), **TUYỆT ĐỐI KHÔNG BAO GIỜ BIẾN MẤT VỀ 0PX**.
+     - Dải phân cách được nâng độ cao lên `6px`, có gờ cầm kéo màu xám bo tròn (`width: 48px, height: 3px`) ở chính giữa thanh. Khi rê chuột vào, thanh sáng màu tím chủ đạo, gờ kéo chuyển sang màu trắng sáng và mở rộng ra `64px`.
+     - Con trỏ chuột luôn luôn hiển thị chuẩn `row-resize` kèm vùng bắt chuột rộng 16px.
+     - Khóa tạm thời `pointer-events` của iframe khi kéo thanh phân cách, ngăn chặn tình trạng iframe "cướp" chuột làm đứt quãng chuyển động kéo.
+  3. **Bộ nút bấm Mở rộng / Thu gọn rõ ràng trên thanh Dock**:
+     - Khi ở trạng thái thanh dock mỏng 36px: Nút hiển thị chữ nổi bật `[ ⌃ Mở rộng ]`. Nhấp đúp vào thanh dock hoặc bấm nút sẽ mở rộng bung lên 24% chiều cao màn hình.
+     - Khi ở trạng thái mở rộng: Nút hiển thị `[ ⌄ Thu gọn ]`. Bấm nút sẽ thu gọn về thanh dock 36px.
+
+---
+
+### 22. Hoàn thành Phân hệ 3: Design Tokens & Theme Manager (Hệ thống thiết kế chuẩn W3C & Tailwind)
+- **Mục tiêu**: Quản lý tập trung các quy chuẩn thiết kế của toàn dự án (Bảng màu, Tỷ lệ font, Khoảng cách, Bo góc) và tự động đồng bộ hai chiều với `variables.css` / `tailwind.config.js`.
+- **Các tính năng đã triển khai & Kiểm thử đa vòng tự động (Automated Multiple Rounds Passed)**:
+  1. **Bảng màu chuẩn (Color Palette)**:
+     - Phân loại rõ theo 4 nhóm: *Thương hiệu (Brand), Nền & Khung (Background & Surface), Trạng thái (Status), Chữ & Trung tính (Neutral & Text)*.
+     - Tự động sinh biến CSS W3C chuẩn: `--color-primary`, `--color-accent`, `--color-success`, `--color-warning`, `--color-danger`...
+     - Hỗ trợ thêm màu mới không giới hạn, chỉnh sửa tên/mã HEX và xóa màu với bảng màu trực quan.
+  2. **Thang tỷ lệ phông chữ (Typography Scale)**:
+     - 8 bậc chuẩn: `xs`, `sm`, `base`, `lg`, `xl`, `2xl`, `3xl`, `4xl`.
+     - Hiển thị xem trước chữ mẫu theo kích thước thực và line-height theo thời gian thực.
+  3. **Thang khoảng cách (Spacing Scale) & Bán kính bo góc (Border Radius Scale)**:
+     - Spacing từ `1` (4px) đến `16` (64px) có thanh đo pixel trực quan.
+     - Radius từ `none` (0px) đến `full` (9999px) có hộp xem trước bo tròn trực tiếp.
+  4. **Bộ sinh mã & Đồng bộ 2 chiều vào dự án (`tokens:save` & `tokens:get`)**:
+     - Tự động phát hiện cấu trúc dự án để lưu `variables.css` đúng thư mục (`wwwroot/css/` cho ASP.NET Core, `src/styles/` cho React/Vite/Next, hoặc thư mục gốc).
+     - Tự động sinh `tailwind.tokens.js` cấu hình chuẩn `theme.extend` cho Tailwind CSS.
+     - Lưu trữ metadata chuẩn xác trong `.pixelmind/tokens.json`.
+     - Bơm trực tiếp các biến CSS vào webview đang chạy (`PM_APPLY_DESIGN_TOKENS`) giúp thay đổi có hiệu lực ngay lập tức không cần F5.
+  5. **Tích hợp sâu vào Bảng chỉnh sửa kiểu dáng (Visual Style Editor - Phân hệ 2)**:
+     - Các thẻ Màu chữ và Màu nền hiển thị dòng chọn nhanh **"Màu Theme (Design Tokens)"** giúp người dùng nhấp chọn màu chuẩn thương hiệu chỉ với 1-Click.
+  6. **Giao diện & Cổng truy cập linh hoạt**:
+     - Nút icon `Palette 🎨` trên thanh NavRail bên trái.
+     - Nút `[🎨 Tokens]` trên thanh công cụ Canvas đỉnh bản xem trước.
+     - Lệnh "Hệ thống thiết kế" trong Command Palette (`Ctrl + K`).
+
+---
+
+### 23. Thanh lọc triệt để dữ liệu ảo, loại bỏ tính năng chưa làm (Phân hệ 4-5-6), tinh gọn giao diện và khắc phục Step 4
+- **Yêu cầu của người dùng**:
+  1. *Lỗi Step 4 (Không tìm thấy `variables.css` trong `TrangWebBanHang/wwwroot/css`)*: Khi đồng bộ tokens, file bị lưu nhầm ra thư mục gốc Solution thay vì thư mục web con của dự án.
+  2. *Gác lại Phân hệ 4, 5, 6*: Tạm thời chưa làm, tập trung tối ưu hóa triệt để Phân hệ 1, 2, 3.
+  3. *Giao diện thanh đỉnh (Head) quá cồng kềnh, chiếm diện tích Canvas (Ảnh 1)*: Có quá nhiều thanh công cụ xếp chồng lên nhau làm hẹp chiều cao khung xem trước; cần thu gọn lại được tương tự thanh Nhật ký.
+  4. *Lỗi thanh TopBar khi co nhỏ cửa sổ bị mất nút (Ảnh 2)*: Co nhỏ cửa sổ làm thanh tìm kiếm và các nút bên phải tràn ra ngoài và biến mất; cần thiết kế co giãn đồng bộ chuẩn ứng dụng desktop.
+  5. *Loại bỏ toàn bộ dữ liệu ảo (Ảnh 3, Ảnh 4)*: Không cho phép dùng dữ liệu ảo, xóa bỏ các phần chưa làm và ghi chép chi tiết danh sách đã xóa để sau này có thể thêm lại.
+- **Chi tiết các phần và dữ liệu ảo ĐÃ XÓA BỎ**:
+  1. *Hồ sơ kết nối AI (Ảnh 3)*: Xóa bỏ danh sách AI ảo (`AI_PROFILES`: Antigravity IDE, Ollama · qwen2.5-coder, GPT-4o, Claude 3.5 Sonnet) và dropdown trên TopBar.
+  2. *Hồ sơ người dùng giả lập (Ảnh 4)*: Xóa bỏ Avatar `[TH]`, tên `Nguyễn Thanh Hiền`, email `hien.nguyen@pixelmind.ai`, nhãn `Giấy phép Pro · Còn hạn 12 ngày`, và dropdown tài khoản trên TopBar.
+  3. *Nút Share*: Xóa bỏ nút Share giả lập trên TopBar vì chưa có hệ thống chia sẻ backend.
+  4. *Các nút phụ không gắn sự kiện thật trên TopBar*: Xóa nút `Camera` (chụp màn hình trùng lặp), `Monitor` (chế độ cửa sổ ảo), `GitCompare` (so sánh nhánh chưa hoàn thiện).
+  5. *Chế độ đối chiếu nguyên mẫu Phân hệ 6*: Xóa bỏ danh sách `MODES` trên Canvas (`Ảnh mẫu`, `Song song`, `Chồng lớp`, `Khác biệt` - `reqMock: true`) vốn chỉ hiện toast thông báo chưa hỗ trợ.
+  6. *Nút AI Phân hệ 5*: Xóa bỏ nút tím `✨ Nhờ AI sửa phần tử này` trong chân trang Inspector.
+  7. *Công cụ vẽ chưa hoàn thiện*: Xóa bỏ nút `Bình luận (C)` và `Đo thước (M)` trên thanh Canvas.
+- **Các cải tiến kỹ thuật đã thực hiện**:
+  1. **Khắc phục triệt để Step 4 (Lưu đúng thư mục `TrangWebBanHang/wwwroot/css/variables.css`)**:
+     - Xây dựng hàm `findProjectCssDir(rootDir)` tự động quét sâu vào các thư mục dự án con trong Solution / Monorepo đa tầng (.NET Solution, WebProject con, Client/Server).
+     - Xác định chuẩn xác thư mục `TrangWebBanHang/wwwroot/css` và ghi file `variables.css` trực tiếp vào đây.
+     - Tự động kiểm tra file `site.css` (hoặc `main.css`, `style.css`...) và chèn dòng `@import './variables.css';` lên đầu tệp nếu chưa có, giúp toàn bộ trang web lập tức nhận diện hệ thống Design Tokens.
+  2. **Gộp và Tinh gọn Thanh công cụ Canvas thành 1 DÒNG DUY NHẤT (Tiết kiệm ngay 38px)**:
+     - Gộp toàn bộ công cụ vẽ (Soi phần tử, Con trỏ chọn, Kéo Pan) và bộ chọn kích thước thiết bị (Mobile, Tablet, Desktop, Rộng), nút Tokens, Tải lại, Mở ngoài và Zoom vào **một thanh công cụ duy nhất cao 36px**.
+     - Loại bỏ hoàn toàn thanh hàng 2 (`.canvas__modes`) cồng kềnh.
+  3. **Bổ sung tính năng Thu gọn Thanh công cụ Canvas (Tương tự Dock Nhật ký)**:
+     - Thêm nút mũi tên `[ ⌃ ]` ở góc phải thanh công cụ.
+     - Khi bấm `[ ⌃ ]`, thanh công cụ thu gọn lại thành một thanh mỏng 22px với nút `[ ⌄ Mở rộng ]`.
+     - Nhường **100% chiều cao màn hình** cho sân khấu Canvas, mang lại không gian thiết kế cực kỳ rộng rãi và thoáng đãng!
+  4. **Tối ưu hóa TopBar co giãn mượt mà theo chuẩn Desktop IDE**:
+     - Giữ lại các thành phần cốt lõi và thực tế: Thương hiệu PixelMind, Tên thư mục dự án (với `text-overflow: ellipsis`), Hoàn tác/Làm lại (`↶ ↷`), Lưu mã nguồn (`💾 Lưu (Ctrl+S)*`), Chạy/Dừng máy chủ (`▶ Run / ⏹ Đang chạy`).
+     - Thanh tìm kiếm `Ctrl+K` có `min-width: 120px; flex-shrink: 1`, tự động co giãn linh hoạt khi thu hẹp cửa sổ.
+     - Nhóm công cụ bên phải chỉ gồm 3 nút biểu tượng chuẩn: Tải lại tệp (`Ctrl+R`), Hướng dẫn (`F1`), Cài đặt (`Ctrl+,`).
+     - Triệt tiêu hoàn toàn hiện tượng tràn nút hay biến mất trên màn hình nhỏ (sửa triệt để Ảnh 2).
+
+
