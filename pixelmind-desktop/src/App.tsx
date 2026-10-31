@@ -87,6 +87,11 @@ const App = () => {
   const [run, setRun] = useState<RunState | null>(null)
   const [logs, setLogs] = useState<RunLog[]>([])
   const [script, setScript] = useState('')
+  const [customCommand, setCustomCommand] = useState('')
+  const [targetRoute, setTargetRoute] = useState<string>('')
+  const targetRouteRef = useRef<string>('')
+  targetRouteRef.current = targetRoute
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
   const [dialog, setDialog] = useState<DialogId | null>(null)
   const [diagnosisOpen, setDiagnosisOpen] = useState(false)
@@ -173,6 +178,10 @@ const App = () => {
       setStats(null)
       setBranch(null)
       setScript('')
+      setCustomCommand(opened.meta.customCommand || '')
+      setTargetRoute('')
+      targetRouteRef.current = ''
+      setPreviewUrl(null)
       lastUrlRef.current = null
       await loadTree(opened)
       const running = await api.run.ofProject(opened.id)
@@ -368,10 +377,29 @@ const App = () => {
     if (preferred && project.scripts.some((item) => item.name === preferred)) return preferred
     const dev = project.scripts.find((item) => item.kind === 'dev') ?? project.scripts[0]
     if (dev) return dev.name
-    return project.hasIndexHtml ? 'static' : ''
+    if (project.hasIndexHtml) return 'static'
+    /* Không có gì chạy sẵn: cho phép nhập lệnh tay. */
+    return 'custom'
   }, [project, settings.defaultScript])
 
   const effectiveScript = script || autoScript
+
+  /** Lưu lệnh tự nhập để lần sau mở dự án vẫn còn. */
+  const saveCustomCommand = async (command: string) => {
+    if (!project) return
+    if (command.trim() === (project.meta.customCommand ?? '').trim()) return
+    try {
+      const updated = await api.projects.setCommand(project.id, command)
+      if (updated) {
+        setStoreData((prev) => ({
+          ...prev,
+          projects: prev.projects.map((item) => (item.id === updated.id ? updated : item)),
+        }))
+      }
+    } catch {
+      /* không chặn thao tác chạy nếu chỉ lưu lệnh thất bại */
+    }
+  }
 
   const handleInstall = async () => {
     if (!project) return
@@ -382,7 +410,11 @@ const App = () => {
       setLogs([])
       lastUrlRef.current = null
       const installCmd =
-        project.packageManager === 'dotnet' ? 'dotnet restore' : `${project.packageManager || 'npm'} install`
+        project.packageManager === 'dotnet'
+          ? 'dotnet restore'
+          : project.packageManager === 'flutter'
+            ? 'flutter pub get'
+            : `${project.packageManager || 'npm'} install`
       showToast('ok', `Đang chạy cài đặt thư viện (${installCmd})...`)
       setView('workspace')
       setActiveTab('preview')
@@ -439,6 +471,36 @@ const App = () => {
     }
   }
 
+  const handleOpenPage = (route: string) => {
+    let cleanRoute = route.startsWith('/') ? route : `/${route}`
+    // Tự động sửa các route ASP.NET Core cũ còn lưu trong giao diện
+    if (project?.packageManager === 'dotnet' || project?.framework?.includes('ASP.NET')) {
+      if (cleanRoute.startsWith('/account/')) {
+        cleanRoute = `/Identity/Account/${cleanRoute.slice(9)}`
+      } else if (['/leaderboard', '/lobby', '/profile', '/account', '/privacy', '/room'].includes(cleanRoute.toLowerCase())) {
+        cleanRoute = `/Home${cleanRoute}`
+      }
+    }
+    setTargetRoute(cleanRoute)
+    targetRouteRef.current = cleanRoute
+
+    if (run?.url) {
+      const base = run.url.replace(/\/+$/, '')
+      const fullUrl = cleanRoute === '/' ? base : `${base}${cleanRoute}`
+      setPreviewUrl(fullUrl)
+    } else {
+      setPreviewUrl(null)
+    }
+
+    setView('workspace')
+    setActiveTab('preview')
+
+    // Nếu chưa chạy, tự động khởi động chạy
+    if (!run || (run.status !== 'running' && run.status !== 'starting')) {
+      void startRun()
+    }
+  }
+
   const startRun = async () => {
     if (!project) {
       showToast('info', 'Hãy mở một dự án trước khi chạy.')
@@ -453,17 +515,24 @@ const App = () => {
       return
     }
 
-    if (!effectiveScript) {
-      showToast('info', 'Dự án không có script chạy và cũng không có index.html để xem trước.')
+    const custom = customCommand.trim()
+    const useCustom = effectiveScript === 'custom' || !effectiveScript
+    if (useCustom && !custom) {
+      showToast(
+        'info',
+        'Dự án không có script sẵn. Nhập lệnh chạy ở ô “Lệnh tự nhập” rồi bấm Chạy (ví dụ: flutter run -d chrome).',
+      )
       return
     }
     try {
-      const state = await api.run.start(project.id, effectiveScript)
+      const state = useCustom
+        ? await api.run.startCommand(project.id, custom)
+        : await api.run.start(project.id, effectiveScript)
       setRun(state)
       setLogs([])
       lastUrlRef.current = null
       setActiveTab('preview')
-      showToast('ok', `Đang chạy “${effectiveScript}” cho ${project.name}`)
+      showToast('ok', `Đang chạy ${useCustom ? `“${custom}”` : `“${effectiveScript}”`} cho ${project.name}`)
       void refreshStoreProjects()
     } catch (error) {
       showToast('err', `Không chạy được dự án: ${errorMessage(error)}`)
@@ -502,6 +571,10 @@ const App = () => {
           if (opened) {
             setProjectId(opened.id)
             setView('detail')
+            setCustomCommand(opened.meta.customCommand || '')
+      setTargetRoute('')
+      targetRouteRef.current = ''
+      setPreviewUrl(null)
             const [nodes, stat, git, running] = await Promise.all([
               api.fs.tree(opened.path, data.settings.showHidden),
               api.fs.stat(opened.path),
@@ -560,9 +633,13 @@ const App = () => {
       }
       if (state.url && state.url !== lastUrlRef.current) {
         lastUrlRef.current = state.url
+        const base = state.url.replace(/\/+$/, '')
+        const currentRoute = targetRouteRef.current
+        const fullUrl = currentRoute && currentRoute !== '/' ? `${base}${currentRoute}` : state.url
+        setPreviewUrl(fullUrl)
         const current = settingsRef.current
         if (current.previewMode === 'browser') {
-          void api.system.openExternal(state.url)
+          void api.system.openExternal(fullUrl)
         } else if (current.autoPreview) {
           setActiveTab('preview')
         }
@@ -700,7 +777,9 @@ const App = () => {
         label:
           project?.packageManager === 'dotnet'
             ? 'Khôi phục NuGet (dotnet restore)'
-            : `Cài đặt thư viện (${project?.packageManager || 'npm'} install)`,
+            : project?.packageManager === 'flutter'
+              ? 'Tải gói Flutter (flutter pub get)'
+              : `Cài đặt thư viện (${project?.packageManager || 'npm'} install)`,
         icon: Zap,
         disabled: !project,
         run: () => void handleInstall(),
@@ -845,6 +924,7 @@ const App = () => {
               onRun={() => void startRun()}
               onStop={() => void stopRun()}
               onWorkspace={() => setView('workspace')}
+              onOpenPage={handleOpenPage}
               onRefresh={() => void refreshProject()}
               onAddPage={() => setAddPageOpen(true)}
               onRemovePage={(pageId) => void removePage(pageId)}
@@ -884,11 +964,15 @@ const App = () => {
               diagnosis={project?.diagnosis}
               installing={installing}
               onScript={setScript}
+              customCommand={customCommand}
+              onCustomCommand={setCustomCommand}
+              onSaveCustomCommand={(value) => void saveCustomCommand(value)}
               onSettings={() => setDialog('settings')}
               onReveal={() => project && void api.fs.openPath(project.path)}
               onOpenExternal={(url) => void api.system.openExternal(url)}
               onShowInFolder={(path) => void api.fs.showInFolder(path)}
               onOpenFileExternal={(path) => void api.fs.openPath(path)}
+              previewUrl={previewUrl}
               onOpenDiagnosis={() => setDiagnosisOpen(true)}
               onInstall={() => void handleInstall()}
               onCreateIndexHtml={() => void handleCreateIndexHtml()}

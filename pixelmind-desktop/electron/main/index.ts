@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell } from 'electron'
 import { dirname, join, resolve } from 'node:path'
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -128,10 +128,10 @@ function createWindow() {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
-      spellcheck: false,
       webSecurity: false,
       allowRunningInsecureContent: true,
+      sandbox: false,
+      spellcheck: false,
     },
   })
 
@@ -153,12 +153,20 @@ function createWindow() {
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Không đẩy ra trình duyệt ngoài nếu là url nội bộ hoặc dev server localhost
+    if (url.includes('localhost') || url.includes('127.0.0.1')) {
+      return { action: 'allow' }
+    }
     if (/^https?:/i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const current = mainWindow?.webContents.getURL() ?? ''
+    // Không can thiệp hoặc đẩy ra ngoài nếu là dev server localhost
+    if (url.includes('localhost') || url.includes('127.0.0.1')) {
+      return
+    }
     if (url !== current) {
       event.preventDefault()
       if (/^https?:/i.test(url)) void shell.openExternal(url)
@@ -223,6 +231,46 @@ ipcMain.handle('project:pick', async (): Promise<ProjectRecord | null> => {
   return addProject(result.filePaths[0])
 })
 
+/** Ghép kết quả dò mới vào bản ghi cũ, giữ dữ liệu người dùng đã tạo. */
+async function mergeDetected(project: ProjectRecord, fresh: ProjectRecord): Promise<ProjectRecord> {
+  const merged: ProjectRecord = {
+    ...fresh,
+    id: project.id,
+    addedAt: project.addedAt,
+    lastOpenedAt: project.lastOpenedAt,
+    favorite: project.favorite,
+    meta: {
+      ...fresh.meta,
+      owner: project.meta.owner || fresh.meta.owner,
+      code: project.meta.code || fresh.meta.code,
+      repo: project.meta.repo || fresh.meta.repo,
+      createdAt: project.meta.createdAt || fresh.meta.createdAt,
+      /* Đồng bộ danh sách trang: lấy các trang được quét chuẩn từ fresh.meta.pages,
+         đồng thời giữ lại các trang tự thêm/mockup của người dùng */
+      pages: (() => {
+        if (!fresh.meta.pages.length) return project.meta.pages
+        const isDotnet = project.framework?.includes('ASP.NET') || fresh.framework?.includes('ASP.NET') || fresh.packageManager === 'dotnet'
+        const userAdded = project.meta.pages.filter((p) => p.mockup)
+        const updated = fresh.meta.pages.map((fp) => {
+          const matched = project.meta.pages.find((p) => {
+            let pRoute = p.route
+            if (isDotnet && pRoute.startsWith('/account/')) pRoute = `/Identity/Account/${pRoute.slice(9)}`
+            return pRoute.toLowerCase() === fp.route.toLowerCase() || p.title.toLowerCase() === fp.title.toLowerCase()
+          })
+          return matched ? { ...fp, id: matched.id, mockup: matched.mockup, software: matched.software, frame: matched.frame } : fp
+        })
+        const extras = userAdded.filter((u) => !updated.some((p) => p.route.toLowerCase() === u.route.toLowerCase()))
+        return [...updated, ...extras]
+      })(),
+      customCommand: project.meta.customCommand || fresh.meta.customCommand,
+      activity: project.meta.activity,
+    },
+  }
+  /* Chẩn đoán lại theo lệnh tự nhập để không báo thiếu script khi đã có lệnh chạy. */
+  merged.diagnosis = await diagnoseProject(merged.path, merged.meta.customCommand)
+  return merged
+}
+
 async function addProject(targetPath: string): Promise<ProjectRecord | null> {
   let folder = targetPath
   try {
@@ -238,16 +286,13 @@ async function addProject(targetPath: string): Promise<ProjectRecord | null> {
   const store = await readStore()
   const existing = store.projects.find((p) => samePath(p.path, detected.path))
   if (existing) {
-    const merged: ProjectRecord = {
-      ...existing,
-      ...detected,
-      id: existing.id,
-      favorite: existing.favorite,
-      lastOpenedAt: Date.now(),
-    }
-    await patchProject(existing.id, () => merged)
-    await patchStore({ lastProjectId: existing.id })
-    return merged
+    /* Dò lại để bản ghi cũ nhận được script/preview mới (ví dụ Flutter). */
+    const updated = await mergeDetected(existing, detected)
+    await patchStore({
+      projects: store.projects.map((p) => (p.id === existing.id ? updated : p)),
+      lastProjectId: existing.id,
+    })
+    return updated
   }
   detected.lastOpenedAt = Date.now()
   await patchStore({ projects: [...store.projects, detected], lastProjectId: detected.id })
@@ -260,34 +305,28 @@ ipcMain.handle('project:list', async (): Promise<ProjectRecord[]> => (await read
 
 ipcMain.handle('project:open', async (_e, id: string): Promise<ProjectRecord | null> => {
   const store = await readStore()
-  const current = store.projects.find((p) => p.id === id)
-  if (current) {
-    try {
-      const detected = await detectProject(current.path)
-      await patchProject(id, (project) => ({
-        ...project,
-        ...detected,
-        id: project.id,
-        favorite: project.favorite,
-        lastOpenedAt: Date.now(),
-      }))
-    } catch {
-      await patchProject(id, (project) => ({ ...project, lastOpenedAt: Date.now() }))
-    }
-  } else {
-    await patchProject(id, (project) => ({ ...project, lastOpenedAt: Date.now() }))
+  const existing = store.projects.find((p) => p.id === id)
+  if (!existing) return null
+
+  let project = existing
+  if (await isDirectory(existing.path)) {
+    /* Dò lại khi mở để cập nhật script mới hoặc nhận diện framework. */
+    const fresh = await detectProject(existing.path)
+    project = await mergeDetected(existing, fresh)
   }
-  await patchStore({ lastProjectId: id })
-  const updated = (await readStore()).projects.find((project) => project.id === id)
-  if (updated) {
-    await appendActivity(id, {
-      actor: 'bạn',
-      action: `Mở dự án “${updated.name}” trong PixelMind`,
-      kind: 'người',
-      status: 'info',
-    })
-  }
-  return updated ?? null
+  project = { ...project, lastOpenedAt: Date.now() }
+  await patchStore({
+    projects: store.projects.map((p) => (p.id === id ? project : p)),
+    lastProjectId: id,
+  })
+  await appendActivity(id, {
+    actor: 'bạn',
+    action: `Mở dự án “${project.name}” trong PixelMind`,
+    kind: 'người',
+    status: 'info',
+  })
+  const latest = await readStore()
+  return latest.projects.find((item) => item.id === id) ?? project
 })
 
 ipcMain.handle('project:remove', async (_e, id: string): Promise<ProjectRecord[]> => {
@@ -315,24 +354,7 @@ ipcMain.handle('project:refresh', async (_e, id: string): Promise<ProjectRecord 
   if (!project) return null
   if (!(await isDirectory(project.path))) return null
   const fresh = await detectProject(project.path)
-  const updated: ProjectRecord = {
-    ...fresh,
-    id: project.id,
-    addedAt: project.addedAt,
-    lastOpenedAt: project.lastOpenedAt,
-    favorite: project.favorite,
-    diagnosis: fresh.diagnosis,
-    meta: {
-      ...fresh.meta,
-      owner: project.meta.owner || fresh.meta.owner,
-      code: project.meta.code || fresh.meta.code,
-      repo: project.meta.repo || fresh.meta.repo,
-      createdAt: project.meta.createdAt || fresh.meta.createdAt,
-      /* Giữ các trang người dùng đã thêm và nhật ký hoạt động */
-      pages: project.meta.pages.length ? project.meta.pages : fresh.meta.pages,
-      activity: project.meta.activity,
-    },
-  }
+  const updated = await mergeDetected(project, fresh)
   await patchStore({ projects: store.projects.map((p) => (p.id === id ? updated : p)) })
   return updated
 })
@@ -379,7 +401,7 @@ ipcMain.handle('project:diagnose', async (_e, idOrPath: string) => {
   const store = await readStore()
   const project = store.projects.find((p) => p.id === idOrPath)
   const targetPath = project ? project.path : idOrPath
-  const diagnosis = await diagnoseProject(targetPath)
+  const diagnosis = await diagnoseProject(targetPath, project?.meta.customCommand ?? '')
   if (project) {
     await patchProject(project.id, (p) => ({ ...p, diagnosis }))
   }
@@ -406,6 +428,17 @@ ipcMain.handle('project:git-init', async (_e, projectId: string) => {
     })
   }
   return ok
+})
+
+ipcMain.handle('project:set-command', async (_e, id: string, command: string) => {
+  const updated = await patchProject(id, (project) => ({
+    ...project,
+    meta: { ...project.meta, customCommand: command.trim() },
+  }))
+  if (!updated) return null
+  /* Cập nhật lại chẩn đoán để thẻ cảnh báo phản ánh đúng lệnh tự nhập. */
+  const diagnosis = await diagnoseProject(updated.path, updated.meta.customCommand)
+  return patchProject(id, (project) => ({ ...project, diagnosis }))
 })
 
 ipcMain.handle('project:create-index-html', async (_e, projectId: string) => {
@@ -502,7 +535,11 @@ ipcMain.handle('run:start', async (_e, projectId: string, script: string) => {
   const store = await readStore()
   const project = store.projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Không tìm thấy dự án trong danh sách.')
-  const state = script === 'static' ? await runner.startStatic(project) : runner.startScript(project, script)
+  const entry = project.scripts.find((item) => item.name === script)
+  const state =
+    script === 'static'
+      ? await runner.startStatic(project)
+      : runner.startScript(project, script, entry?.direct ? entry.command : undefined)
   await appendActivity(projectId, {
     actor: 'hệ thống',
     action: `Chạy script “${script}” cho ${project.name}`,
@@ -522,6 +559,27 @@ ipcMain.handle('run:install', async (_e, projectId: string) => {
     action: `Bắt đầu cài đặt thư viện (${project.packageManager || 'npm'} install)`,
     kind: 'hệ thống',
     status: 'info',
+  })
+  return state
+})
+
+ipcMain.handle('run:start-command', async (_e, projectId: string, command: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('Không tìm thấy dự án trong danh sách.')
+  const clean = command.trim()
+  if (!clean) throw new Error('Hãy nhập lệnh chạy trước khi bấm Chạy.')
+  /* Lưu lại để lần sau mở dự án vẫn còn lệnh */
+  await patchProject(projectId, (item) => ({
+    ...item,
+    meta: { ...item.meta, customCommand: clean },
+  }))
+  const state = runner.startCommand(project, clean)
+  await appendActivity(projectId, {
+    actor: 'hệ thống',
+    action: `Chạy lệnh tự nhập cho ${project.name}: ${clean}`,
+    kind: 'hệ thống',
+    status: 'ok',
   })
   return state
 })
@@ -1499,8 +1557,47 @@ if (!gotLock) {
     mainWindow.focus()
   })
 
+  app.on('certificate-error', (event, _webContents, url, _error, _certificate, callback) => {
+    if (url.startsWith('https://localhost') || url.startsWith('https://127.0.0.1')) {
+      event.preventDefault()
+      callback(true)
+      return
+    }
+    callback(false)
+  })
+
   app.whenReady().then(() => {
     app.setAppUserModelId('com.pixelmind.desktop')
+
+    /* Gỡ bỏ triệt để X-Frame-Options, frame-ancestors và các hạn chế chính sách nhúng
+       (COOP, COEP, CORP) của các dev server (ASP.NET Core Identity, Razor, Vite...)
+       để khung iframe xem trước PreviewPane hiển thị mọi trang nội bộ mượt mà */
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      const responseHeaders = { ...details.responseHeaders }
+      for (const key of Object.keys(responseHeaders)) {
+        const lower = key.toLowerCase()
+        if (
+          lower === 'x-frame-options' ||
+          lower === 'cross-origin-opener-policy' ||
+          lower === 'cross-origin-embedder-policy' ||
+          lower === 'cross-origin-resource-policy'
+        ) {
+          delete responseHeaders[key]
+        } else if (lower === 'content-security-policy' || lower === 'content-security-policy-report-only') {
+          const list = responseHeaders[key]
+          if (Array.isArray(list)) {
+            responseHeaders[key] = list.map((csp) =>
+              csp
+                .split(';')
+                .filter((part) => !part.trim().toLowerCase().startsWith('frame-ancestors'))
+                .join('; '),
+            )
+          }
+        }
+      }
+      callback({ cancel: false, responseHeaders })
+    })
+
     buildMenu()
     createWindow()
 

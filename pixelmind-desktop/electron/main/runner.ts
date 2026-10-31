@@ -118,13 +118,21 @@ export class RunnerManager {
   }
 
   private buildCommand(manager: PackageManager, script: string, matchedCommand?: string): string {
-    if (matchedCommand) return matchedCommand
+    if (matchedCommand) {
+      if (manager === 'dotnet' && !matchedCommand.includes('--no-launch-browser')) {
+        return `${matchedCommand} --no-launch-browser`
+      }
+      return matchedCommand
+    }
     if (manager === 'dotnet') {
-      if (script === 'watch' || script === 'dev') return 'dotnet watch run'
-      if (script === 'run' || script === 'start') return 'dotnet run'
+      if (script === 'watch' || script === 'dev') return 'dotnet watch --no-launch-browser run'
+      if (script === 'run' || script === 'start') return 'dotnet run --no-launch-browser'
       if (script === 'build') return 'dotnet build'
       if (script === 'test') return 'dotnet test'
-      return script.startsWith('dotnet ') ? script : `dotnet ${script}`
+      if (script.startsWith('dotnet ')) {
+        return script.includes('--no-launch-browser') ? script : `${script} --no-launch-browser`
+      }
+      return `dotnet ${script} --no-launch-browser`
     }
     if (manager === 'flutter') {
       if (script === 'dev' || script === 'watch') return 'flutter run -d chrome'
@@ -147,14 +155,81 @@ export class RunnerManager {
   startScript(
     project: { id: string; path: string; packageManager: PackageManager; scripts?: import('../../shared/types').ScriptEntry[] },
     script: string,
+    directCommand?: string,
   ): RunState {
-    const running = [...this.entries.values()].find(
-      (e) => e.state.projectId === project.id && (e.state.status === 'running' || e.state.status === 'starting'),
-    )
-    if (running) return running.state
+    const running = this.runningOf(project.id)
+    if (running) return running
 
-    const matchedCommand = project.scripts?.find((s) => s.name === script)?.command
-    const command = this.buildCommand(project.packageManager, script, matchedCommand)
+    const matchedCommand = directCommand?.trim() || project.scripts?.find((s) => s.name === script)?.command
+    return this.launch(project, {
+      script,
+      command: this.buildCommand(project.packageManager, script, matchedCommand),
+      kind: 'script',
+    })
+  }
+
+  /** Cài đặt thư viện của dự án bằng package manager hiện có. */
+  startInstall(project: { id: string; path: string; packageManager: PackageManager }): RunState {
+    const running = this.runningOf(project.id)
+    if (running) return running
+
+    const manager = project.packageManager === 'none' ? 'npm' : project.packageManager
+    const command =
+      manager === 'dotnet'
+        ? 'dotnet restore'
+        : manager === 'flutter'
+          ? 'flutter pub get'
+          : manager === 'yarn'
+            ? 'yarn install'
+            : manager === 'bun'
+              ? 'bun install'
+              : manager === 'pnpm'
+                ? 'pnpm install'
+                : 'npm install'
+
+    return this.launch(project, {
+      script: 'install',
+      command,
+      kind: 'install',
+      note:
+        manager === 'dotnet'
+          ? '[system] Đang khôi phục các gói thư viện NuGet cho giải pháp...\n'
+          : manager === 'flutter'
+            ? '[system] Đang tải các gói phụ thuộc Flutter (flutter pub get)...\n'
+            : '[system] Bắt đầu cài đặt các gói phụ thuộc...\n',
+    })
+  }
+
+  /** Chạy một lệnh tuỳ ý trong thư mục dự án (dùng cho dự án không có script). */
+  startCommand(project: { id: string; path: string }, command: string): RunState {
+    const running = this.runningOf(project.id)
+    if (running) return running
+
+    let finalCommand = command
+    if (finalCommand.includes('dotnet') && (finalCommand.includes('run') || finalCommand.includes('watch'))) {
+      if (!finalCommand.includes('--no-launch-browser')) {
+        finalCommand = `${finalCommand} --no-launch-browser`
+      }
+    }
+
+    return this.launch(project, {
+      script: 'tuỳ chỉnh',
+      command: finalCommand,
+      kind: 'command',
+    })
+  }
+
+  private runningOf(projectId: string): RunState | null {
+    const entry = [...this.entries.values()].find(
+      (e) => e.state.projectId === projectId && (e.state.status === 'running' || e.state.status === 'starting'),
+    )
+    return entry?.state ?? null
+  }
+
+  private launch(
+    project: { id: string; path: string },
+    options: { script: string; command: string; kind: RunState['kind']; note?: string },
+  ): RunState {
     const id = randomUUID()
     const entry: Entry = {
       buffer: '',
@@ -162,18 +237,20 @@ export class RunnerManager {
         id,
         projectId: project.id,
         cwd: resolve(project.path),
-        script,
-        command,
+        script: options.script,
+        command: options.command,
         status: 'starting',
         url: null,
         exitCode: null,
         startedAt: Date.now(),
-        kind: 'script',
+        kind: options.kind,
       },
     }
+    const command = options.command
     this.entries.set(id, entry)
     this.onState(entry.state)
     this.emitLog(id, `$ ${command}  (${entry.state.cwd})\n`, 'system')
+    if (options.note) this.emitLog(id, options.note, 'system')
 
     let child: ChildProcess
     try {
@@ -186,6 +263,8 @@ export class RunnerManager {
           FORCE_COLOR: '0',
           NO_COLOR: '1',
           BROWSER: 'none',
+          DOTNET_WATCH_SUPPRESS_LAUNCH_BROWSER: '1',
+          DOTNET_LAUNCH_BROWSER: 'false',
           CI: '0',
         },
       })
@@ -215,104 +294,16 @@ export class RunnerManager {
       if (entry.state.status !== 'error') {
         this.update(entry, { status: stopped ? 'stopped' : 'exited', exitCode: code ?? null })
       }
-      this.emitLog(id, `\n[system] Tiến trình kết thúc (mã ${code ?? 'n/a'}).\n`, 'system')
-      entry.child = undefined
-    })
-
-    return entry.state
-  }
-
-  startInstall(project: { id: string; path: string; packageManager: PackageManager }): RunState {
-    const running = [...this.entries.values()].find(
-      (e) => e.state.projectId === project.id && (e.state.status === 'running' || e.state.status === 'starting'),
-    )
-    if (running) return running.state
-
-    const manager = project.packageManager === 'none' ? 'npm' : project.packageManager
-    const command =
-      manager === 'dotnet'
-        ? 'dotnet restore'
-        : manager === 'flutter'
-          ? 'flutter pub get'
-          : manager === 'yarn'
-            ? 'yarn install'
-            : manager === 'bun'
-              ? 'bun install'
-              : manager === 'pnpm'
-                ? 'pnpm install'
-                : 'npm install'
-
-    const id = randomUUID()
-    const entry: Entry = {
-      buffer: '',
-      state: {
-        id,
-        projectId: project.id,
-        cwd: resolve(project.path),
-        script: 'install',
-        command,
-        status: 'starting',
-        url: null,
-        exitCode: null,
-        startedAt: Date.now(),
-        kind: 'install',
-      },
-    }
-    this.entries.set(id, entry)
-    this.onState(entry.state)
-    this.emitLog(id, `$ ${command}  (${entry.state.cwd})\n`, 'system')
-    this.emitLog(
-      id,
-      manager === 'dotnet'
-        ? '[system] Đang khôi phục các gói thư viện NuGet cho giải pháp...\n'
-        : manager === 'flutter'
-          ? '[system] Đang tải các gói phụ thuộc Flutter (flutter pub get)...\n'
-          : '[system] Bắt đầu cài đặt các gói phụ thuộc...\n',
-      'system',
-    )
-
-    let child: ChildProcess
-    try {
-      child = spawn(command, {
-        cwd: entry.state.cwd,
-        shell: true,
-        windowsHide: true,
-        env: {
-          ...process.env,
-          FORCE_COLOR: '0',
-          NO_COLOR: '1',
-          CI: '0',
-        },
-      })
-    } catch (error) {
-      this.update(entry, { status: 'error' })
-      this.emitLog(id, `[error] ${(error as Error).message}\n`, 'stderr')
-      return entry.state
-    }
-
-    entry.child = child
-    this.update(entry, { status: 'running' })
-
-    const pipe = (stream: 'stdout' | 'stderr') => (chunk: Buffer) => {
-      const text = chunk.toString('utf8')
-      this.emitLog(id, text, stream)
-    }
-
-    child.stdout?.on('data', pipe('stdout'))
-    child.stderr?.on('data', pipe('stderr'))
-    child.on('error', (error) => {
-      this.emitLog(id, `[error] ${error.message}\n`, 'stderr')
-      this.update(entry, { status: 'error' })
-    })
-    child.on('close', (code) => {
-      const stopped = entry.state.status === 'stopped'
-      if (entry.state.status !== 'error') {
-        this.update(entry, { status: stopped ? 'stopped' : 'exited', exitCode: code ?? null })
-      }
-      if (code === 0) {
-        this.emitLog(id, `\n[system] Cài đặt thư viện hoàn tất thành công!\n`, 'system')
+      if (options.kind === 'install') {
+        this.emitLog(
+          id,
+          code === 0
+            ? '\n[system] Cài đặt thư viện hoàn tất thành công!\n'
+            : `\n[system] Tiến trình cài đặt kết thúc (mã ${code ?? 'n/a'}).\n`,
+          'system',
+        )
       } else {
-        this.emitLog(id, `\n[system] Tiến trình cài đặt kết thúc (mã ${code ?? 'n/a'}).\n`, 'system')
+        this.emitLog(id, `\n[system] Tiến trình kết thúc (mã ${code ?? 'n/a'}).\n`, 'system')
       }
       entry.child = undefined
     })
@@ -320,11 +311,11 @@ export class RunnerManager {
     return entry.state
   }
 
-  startStatic(project: { id: string; path: string }): Promise<RunState> {
+  startStatic(project: { id: string; path: string; previewDir?: string }): Promise<RunState> {
     const existing = this.staticServers.get(project.id)
     if (existing && existing.state.status === 'running') return Promise.resolve(existing.state)
 
-    const root = resolve(project.path)
+    const root = resolve(project.path, project.previewDir ?? '')
     const id = randomUUID()
     const entry: Entry = {
       buffer: '',

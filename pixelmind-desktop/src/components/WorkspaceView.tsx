@@ -53,6 +53,11 @@ interface WorkspaceViewProps {
   diagnosis?: ProjectDiagnosis | null
   installing?: boolean
   onScript: (value: string) => void
+  customCommand?: string
+  onCustomCommand?: (value: string) => void
+  onSaveCustomCommand?: (value: string) => void
+  /** URL xem trước do App quản lý (đã nắn chỉnh route) — ưu tiên hơn run.url. */
+  previewUrl?: string | null
   onSettings: () => void
   onReveal: () => void
   onOpenExternal: (url: string) => void
@@ -93,6 +98,10 @@ const WorkspaceView = ({
   diagnosis,
   installing = false,
   onScript,
+  customCommand = '',
+  onCustomCommand,
+  onSaveCustomCommand,
+  previewUrl,
   onSettings,
   onReveal,
   onOpenExternal,
@@ -109,6 +118,8 @@ const WorkspaceView = ({
   onSelectTab,
 }: WorkspaceViewProps) => {
   const parsedError = useMemo(() => parseRunError(logs, run), [logs, run])
+  /* App có thể đã nắn chỉnh route ASP.NET Core; ưu tiên URL đó. */
+  const canvasUrl = previewUrl ?? run?.url ?? null
 
   const logPanelRef = usePanelRef()
   const [isLogCollapsed, setIsLogCollapsed] = useState(false)
@@ -314,7 +325,7 @@ const WorkspaceView = ({
                 <div style={{ width: '100%', height: '100%', position: 'relative' }}>
                   {activeTab === 'preview' ? (
                     <CanvasArea
-                      url={run?.url ?? null}
+                      url={canvasUrl}
                       running={run?.status === 'running' || run?.status === 'starting'}
                       projectName={project.name}
                       projectPath={project.path}
@@ -406,6 +417,9 @@ const WorkspaceView = ({
                   diagnosis={diagnosis}
                   installing={installing}
                   onScript={onScript}
+                  customCommand={customCommand}
+                  onCustomCommand={onCustomCommand}
+                  onSaveCustomCommand={onSaveCustomCommand}
                   onRun={onRun}
                   onStop={onStop}
                   onReveal={onReveal}
@@ -414,7 +428,7 @@ const WorkspaceView = ({
                   onOpenExternal={onOpenExternal}
                   onOpenDiagnosis={onOpenDiagnosis}
                   onInstall={onInstall}
-onCreateIndexHtml={onCreateIndexHtml}
+                  onCreateIndexHtml={onCreateIndexHtml}
                   onAddDevScript={onAddDevScript}
                 />
               </div>

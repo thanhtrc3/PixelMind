@@ -30,6 +30,7 @@ const demoProject: ProjectRecord = {
     { name: 'lint', command: 'eslint .', kind: 'other' },
   ],
   hasIndexHtml: true,
+  previewDir: '',
   addedAt: now - 86_400_000 * 6,
   lastOpenedAt: now - 3_600_000,
   favorite: true,
@@ -38,6 +39,7 @@ const demoProject: ProjectRecord = {
     code: 'DA-004',
     repo: 'hien-nguyen/shopweb',
     createdAt: now - 86_400_000 * 16,
+    customCommand: '',
     pages: [
       { id: 'p1', route: '/', title: 'Trang chủ', mockup: true, software: 'Figma', frame: '1440×900' },
       { id: 'p2', route: '/dang-nhap', title: 'Đăng nhập', mockup: true, software: 'Photoshop', frame: '390×844' },
@@ -360,6 +362,13 @@ export function createBrowserMock(): PixelMindApi {
         writeProjects(projects)
         return projects.find((p) => p.id === projectId) ?? null
       },
+      async setCommand(projectId, command) {
+        const projects = readProjects().map((p) =>
+          p.id === projectId ? { ...p, meta: { ...p.meta, customCommand: command.trim() } } : p,
+        )
+        writeProjects(projects)
+        return projects.find((p) => p.id === projectId) ?? null
+      },
     },
     fs: {
       async tree() {
@@ -433,20 +442,43 @@ export function createBrowserMock(): PixelMindApi {
           projectId,
           cwd: DEMO_ROOT,
           script,
-          command: `npm run ${script}`,
+          command: script === 'static' ? 'static-server' : `npm run ${script}`,
           status: 'running',
           url: null,
           exitCode: null,
           startedAt: Date.now(),
-          kind: 'script',
+          kind: script === 'static' ? 'static' : 'script',
         }
-        emitLog('system', `$ npm run ${script}  (${DEMO_ROOT})\n`)
+        emitLog('system', `$ ${currentRun.command}  (${DEMO_ROOT})\n`)
         timers.push(
           window.setTimeout(() => emitLog('stdout', '\n  VITE v8.3.5  ready in 412 ms\n\n'), 700),
           window.setTimeout(() => {
             emitLog('stdout', '  ➜  Local:   http://localhost:5173/\n  ➜  Network: use --host to expose\n')
             emitState({ url: 'http://localhost:5173' })
           }, 1400),
+        )
+        return currentRun
+      },
+      async startCommand(projectId, command) {
+        clear()
+        currentRun = {
+          id: `mock-${Date.now()}`,
+          projectId,
+          cwd: DEMO_ROOT,
+          script: 'tuỳ chỉnh',
+          command,
+          status: 'running',
+          url: null,
+          exitCode: null,
+          startedAt: Date.now(),
+          kind: 'command',
+        }
+        emitLog('system', `$ ${command}  (${DEMO_ROOT})\n`)
+        timers.push(
+          window.setTimeout(() => {
+            emitLog('stdout', '  ➜  Local:   http://localhost:5180/\n')
+            emitState({ url: 'http://localhost:5180' })
+          }, 1200),
         )
         return currentRun
       },

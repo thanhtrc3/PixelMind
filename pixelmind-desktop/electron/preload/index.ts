@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+﻿import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
   AppInfo,
@@ -16,7 +16,7 @@ import type {
 } from '../../shared/types'
 import type { PixelMindApi } from '../../shared/api'
 
-/* Cầu nối duy nhất giữa renderer và main process. Renderer không có quyền Node. */
+/* Cß║ºu nß╗æi duy nhß║Ñt giß╗»a renderer v├á main process. Renderer kh├┤ng c├│ quyß╗ün Node. */
 
 const api: PixelMindApi = {
   getAppInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:info'),
@@ -49,6 +49,8 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('project:create-index-html', projectId),
     addDevScript: (projectId: string): Promise<boolean> =>
       ipcRenderer.invoke('project:add-dev-script', projectId),
+    setCommand: (projectId: string, command: string): Promise<ProjectRecord | null> =>
+      ipcRenderer.invoke('project:set-command', projectId, command),
   },
 
   fs: {
@@ -69,6 +71,8 @@ const api: PixelMindApi = {
     start: (projectId: string, script: string): Promise<RunState> =>
       ipcRenderer.invoke('run:start', projectId, script),
     install: (projectId: string): Promise<RunState> => ipcRenderer.invoke('run:install', projectId),
+    startCommand: (projectId: string, command: string): Promise<RunState> =>
+      ipcRenderer.invoke('run:start-command', projectId, command),
     stop: (runId: string): Promise<boolean> => ipcRenderer.invoke('run:stop', runId),
     list: (): Promise<RunState[]> => ipcRenderer.invoke('run:list'),
     ofProject: (projectId: string): Promise<RunState | null> => ipcRenderer.invoke('run:project', projectId),

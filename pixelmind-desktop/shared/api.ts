@@ -37,6 +37,7 @@ export interface PixelMindApi {
     gitInit(projectId: string): Promise<boolean>
     createIndexHtml(projectId: string): Promise<boolean>
     addDevScript(projectId: string): Promise<boolean>
+    setCommand(projectId: string, command: string): Promise<ProjectRecord | null>
   }
   fs: {
     tree(root: string, showHidden?: boolean): Promise<FileNode[]>
@@ -52,6 +53,7 @@ export interface PixelMindApi {
   run: {
     start(projectId: string, script: string): Promise<RunState>
     install(projectId: string): Promise<RunState>
+    startCommand(projectId: string, command: string): Promise<RunState>
     stop(runId: string): Promise<boolean>
     list(): Promise<RunState[]>
     ofProject(projectId: string): Promise<RunState | null>

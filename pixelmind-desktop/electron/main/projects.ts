@@ -658,13 +658,60 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
     push(route.replace(/\/+/g, '/'), titleFromName(name))
   }
 
-  /* ASP.NET Core Views: Views/<Controller>/<Action>.cshtml */
+  /* ASP.NET Core Views / Razor Pages:
+     - Views/<Controller>/<Action>.cshtml
+     - Areas/<Area>/Views/<Controller>/<Action>.cshtml
+     - Areas/<Area>/Pages/<SubPath>.cshtml
+     - Pages/<SubPath>.cshtml
+  */
   const cshtmlFiles = await listFiles(dir, ['.cshtml'], 5)
+  // Ưu tiên sắp xếp: các file Views MVC chính lên trước, các file trong Areas (như Identity) xếp sau
+  cshtmlFiles.sort((a, b) => {
+    const aIsArea = /(^|\/)Areas\//i.test(a)
+    const bIsArea = /(^|\/)Areas\//i.test(b)
+    if (aIsArea && !bIsArea) return 1
+    if (!aIsArea && bIsArea) return -1
+    return 0
+  })
+
   for (const rel of cshtmlFiles) {
     const filename = rel.split('/').pop() ?? rel
     if (filename.startsWith('_')) continue
 
-    // Khớp Views/<Controller>/<Action>.cshtml
+    let title = ''
+    try {
+      const c = await fs.readFile(join(dir, rel), 'utf8')
+      const titleMatch =
+        c.match(/ViewData\[["']Title["']\]\s*=\s*["']([^"']+)["']/i) ||
+        c.match(/ViewBag\.Title\s*=\s*["']([^"']+)["']/i) ||
+        c.match(/<title>([^<]+)<\/title>/i)
+      if (titleMatch) title = titleMatch[1].trim()
+    } catch {
+      /* bỏ qua */
+    }
+
+    // 1. Khớp Areas/<Area>/Views/<Controller>/<Action>.cshtml
+    const areaViewsMatch = rel.match(/(?:^|\/)Areas\/([^/]+)\/Views\/([^/]+)\/([^/]+)\.cshtml$/i)
+    if (areaViewsMatch) {
+      const [, area, controller, action] = areaViewsMatch
+      const route = action.toLowerCase() === 'index' ? `/${area}/${controller}` : `/${area}/${controller}/${action}`
+      if (!title) title = `${titleFromName(area)}: ${titleFromName(controller)} - ${titleFromName(action)}`
+      push(route, title)
+      continue
+    }
+
+    // 2. Khớp Areas/<Area>/Pages/<SubPath>.cshtml (ví dụ Areas/Identity/Pages/Account/AccessDenied.cshtml)
+    const areaPagesMatch = rel.match(/(?:^|\/)Areas\/([^/]+)\/Pages\/(.+)\.cshtml$/i)
+    if (areaPagesMatch) {
+      const [, area, rawPath] = areaPagesMatch
+      const cleanPath = rawPath.replace(/\/Index$/i, '')
+      const route = cleanPath ? `/${area}/${cleanPath}` : `/${area}`
+      if (!title) title = titleFromName(filename.replace(/\.cshtml$/i, ''))
+      push(route, title)
+      continue
+    }
+
+    // 3. Khớp Views/<Controller>/<Action>.cshtml (Views MVC chính)
     const viewsMatch = rel.match(/(?:^|\/)Views\/([^/]+)\/([^/]+)\.cshtml$/i)
     if (viewsMatch) {
       const [, controller, action] = viewsMatch
@@ -672,24 +719,13 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
       if (controller.toLowerCase() === 'home' && action.toLowerCase() === 'index') {
         route = '/'
       } else if (controller.toLowerCase() === 'home') {
-        route = `/${action.toLowerCase()}`
+        route = `/Home/${action}`
       } else if (action.toLowerCase() === 'index') {
-        route = `/${controller.toLowerCase()}`
+        route = `/${controller}`
       } else {
-        route = `/${controller.toLowerCase()}/${action.toLowerCase()}`
+        route = `/${controller}/${action}`
       }
 
-      let title = ''
-      try {
-        const content = await fs.readFile(join(dir, rel), 'utf8')
-        const titleMatch =
-          content.match(/ViewData\[["']Title["']\]\s*=\s*["']([^"']+)["']/i) ||
-          content.match(/ViewBag\.Title\s*=\s*["']([^"']+)["']/i) ||
-          content.match(/<title>([^<]+)<\/title>/i)
-        if (titleMatch) title = titleMatch[1].trim()
-      } catch {
-        /* bỏ qua */
-      }
       if (!title) {
         title = controller.toLowerCase() === 'home' ? titleFromName(action) : `${titleFromName(controller)} - ${titleFromName(action)}`
       }
@@ -697,25 +733,15 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
       continue
     }
 
-    // Khớp Pages/<Name>.cshtml (Razor Pages)
+    // 4. Khớp Pages/<Name>.cshtml (Razor Pages gốc)
     const pagesMatch = rel.match(/(?:^|\/)Pages\/(.+)\.cshtml$/i)
     if (pagesMatch) {
       const rawRoute = pagesMatch[1]
       const clean = rawRoute.replace(/\/Index$/i, '') || '/'
       const route = clean.startsWith('/') ? clean : `/${clean}`
-      let title = ''
-      try {
-        const content = await fs.readFile(join(dir, rel), 'utf8')
-        const titleMatch =
-          content.match(/ViewData\[["']Title["']\]\s*=\s*["']([^"']+)["']/i) ||
-          content.match(/ViewBag\.Title\s*=\s*["']([^"']+)["']/i) ||
-          content.match(/<title>([^<]+)<\/title>/i)
-        if (titleMatch) title = titleMatch[1].trim()
-      } catch {
-        /* bỏ qua */
-      }
-      if (!title) title = titleFromName(filename)
-      push(route.toLowerCase(), title)
+      if (!title) title = titleFromName(filename.replace(/\.cshtml$/i, ''))
+      push(route, title)
+      continue
     }
   }
 
@@ -754,7 +780,7 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
     if (hasIndex) push('/', 'Trang chủ')
   }
 
-  return pages.slice(0, 24)
+  return pages.slice(0, 60)
 }
 
 /* ── Lịch sử git để hiển thị danh sách phiên bản ──────────── */
@@ -829,6 +855,7 @@ async function buildMeta(dir: string, name: string): Promise<ProjectMeta> {
     pages,
     versions,
     activity: [],
+    customCommand: '',
   }
 }
 
@@ -841,7 +868,18 @@ export async function initGit(folder: string): Promise<boolean> {
   }
 }
 
-export async function diagnoseProject(folder: string, dotnet?: DotnetProjectInfo | null): Promise<ProjectDiagnosis> {
+export async function diagnoseProject(
+  folder: string,
+  dotnetOrCustomCommand?: DotnetProjectInfo | null | string,
+  customCommandParam = '',
+): Promise<ProjectDiagnosis> {
+  const customCommand =
+    typeof dotnetOrCustomCommand === 'string'
+      ? dotnetOrCustomCommand
+      : customCommandParam
+  const dotnet =
+    typeof dotnetOrCustomCommand === 'object' ? dotnetOrCustomCommand : undefined
+  const hasCustomCommand = customCommand.trim().length > 0
   const dir = resolve(folder)
   const issues: ProjectIssue[] = []
 
@@ -1077,7 +1115,7 @@ export async function diagnoseProject(folder: string, dotnet?: DotnetProjectInfo
 
     const scriptKeys = Object.keys(pkg.scripts ?? {})
     const hasDevOrStart = scriptKeys.some((s) => /^(dev|start|serve|preview)$/i.test(s))
-    if (!hasDevOrStart && !hasIndexHtml) {
+    if (!hasDevOrStart && !hasIndexHtml && !hasCustomCommand) {
       issues.push({
         id: 'missing_script',
         type: 'missing_script',
@@ -1108,7 +1146,7 @@ export async function diagnoseProject(folder: string, dotnet?: DotnetProjectInfo
       })
     }
   } else {
-    if (!hasIndexHtml) {
+    if (!hasIndexHtml && !hasCustomCommand) {
       issues.push({
         id: 'no_package_json',
         type: 'no_package_json',
@@ -1266,6 +1304,7 @@ export async function detectProject(folder: string): Promise<ProjectRecord> {
       packageManager: 'dotnet',
       scripts,
       hasIndexHtml: dotnetInfo.hasIndexHtml,
+      previewDir: dotnetInfo.hasIndexHtml ? (dotnetInfo.projectDir ? join(dotnetInfo.projectDir, 'wwwroot').replace(/\\/g, '/') : 'wwwroot') : '',
       addedAt: Date.now(),
       lastOpenedAt: null,
       favorite: false,
@@ -1294,6 +1333,7 @@ export async function detectProject(folder: string): Promise<ProjectRecord> {
       packageManager: 'flutter',
       scripts,
       hasIndexHtml: flutterInfo.hasIndexHtml,
+      previewDir: flutterInfo.hasIndexHtml ? 'web' : '',
       addedAt: Date.now(),
       lastOpenedAt: null,
       favorite: false,
@@ -1315,6 +1355,7 @@ export async function detectProject(folder: string): Promise<ProjectRecord> {
         packageManager: other.packageManager,
         scripts: other.scripts,
         hasIndexHtml: other.hasIndexHtml,
+        previewDir: '',
         addedAt: Date.now(),
         lastOpenedAt: null,
         favorite: false,
@@ -1359,6 +1400,7 @@ export async function detectProject(folder: string): Promise<ProjectRecord> {
     packageManager: manager === 'none' && hasScript(pkg, 'dev') ? 'npm' : manager,
     scripts,
     hasIndexHtml,
+    previewDir: '',
     addedAt: Date.now(),
     lastOpenedAt: null,
     favorite: false,

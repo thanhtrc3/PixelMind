@@ -18,6 +18,8 @@ export interface ScriptEntry {
   name: string
   command: string
   kind: 'dev' | 'build' | 'start' | 'test' | 'other'
+  /** Chạy thẳng lệnh, không bọc qua package manager (vd. Flutter). */
+  direct?: boolean
 }
 
 export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'dotnet' | 'flutter' | 'python' | 'pip' | 'composer' | 'cargo' | 'go' | 'none'
@@ -97,6 +99,8 @@ export interface ProjectMeta {
   pages: ProjectPage[]
   versions: ProjectVersion[]
   activity: ProjectActivity[]
+  /** Lệnh người dùng tự nhập cho dự án không có script sẵn. */
+  customCommand: string
 }
 
 export type IssueLevel = 'error' | 'warning' | 'info'
@@ -129,6 +133,21 @@ export interface ProjectDiagnosis {
   issues: ProjectIssue[]
 }
 
+/** Kết quả dò tệp mã nguồn chứa một phần tử DOM. */
+export interface SourceLocation {
+  filePath: string
+  fullPath: string
+  lineNumber: number
+  lineContent: string
+}
+
+export interface SyncCodeResult {
+  success: boolean
+  error?: string
+  oldLine?: string
+  newLine?: string
+}
+
 export interface ProjectRecord {
   id: string
   name: string
@@ -137,6 +156,8 @@ export interface ProjectRecord {
   packageManager: PackageManager
   scripts: ScriptEntry[]
   hasIndexHtml: boolean
+  /** Thư mục con chứa index.html để xem trước tĩnh (rỗng = gốc dự án). */
+  previewDir: string
   addedAt: number
   lastOpenedAt: number | null
   favorite: boolean
@@ -176,7 +197,7 @@ export interface RunState {
   url: string | null
   exitCode: number | null
   startedAt: number
-  kind: 'script' | 'static' | 'install'
+  kind: 'script' | 'static' | 'install' | 'command'
 }
 
 export interface RunLog {

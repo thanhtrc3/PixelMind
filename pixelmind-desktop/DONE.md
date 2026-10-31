@@ -374,6 +374,24 @@ Nhật ký các phần công việc, tính năng và lỗi đã được sửa v
      - **Nút [💾 Lưu thay đổi vào mã nguồn thật]**: 1-click ghi đè vật lý vào tệp mã nguồn trên ổ đĩa.
      - **Nút [↺ Khôi phục gốc]**: Hoàn tác toàn bộ inline styles và trả về thuộc tính gốc ban đầu.
 
+---
+
+### 16. Hỗ trợ toàn diện dự án ASP.NET Core MVC & Razor Pages
+- Tự động nhận diện cấu trúc dự án ASP.NET Core qua file `.sln` và `.csproj`.
+- Quản lý gói tự động chuyển sang `dotnet`, thiết lập lệnh chạy chuẩn `dotnet watch --no-launch-browser run`.
+- Ngăn chặn triệt để tình trạng tự động bật trình duyệt ngoài (Chrome) khi bấm Chạy dự án.
+
+---
+
+### 17. Khắc phục sự cố nhúng iframe xem trước & Tự động nắn chỉnh Route
+- Bóc tách toàn diện các header bảo mật HTTP chống nhúng của ASP.NET Core (`X-Frame-Options: SAMEORIGIN`, CSP `frame-ancestors`, COOP, COEP).
+- Bật `webSecurity: false` và xử lý bỏ qua lỗi chứng chỉ SSL localhost để iframe hiển thị mượt mà không bị trắng màn hình.
+- Nhận diện chính xác tiền tố Area (`/Identity/Account/...`) và Controller (`/Home/...`), tự động nắn chỉnh đường dẫn khi chuyển trang.
+
+---
+
+---
+
 
 ---
 
