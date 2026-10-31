@@ -1,5 +1,6 @@
 import type {
   AppInfo,
+  DesignTokens,
   FileContent,
   FileNode,
   ProjectDiagnosis,
@@ -69,9 +70,12 @@ export interface PixelMindApi {
     resetOriginal(): Promise<boolean>
     locateSource(payload: {
       projectPath: string
-      textSnippet: string
-      tagName: string
-      className: string
+      textSnippet?: string
+      tagName?: string
+      className?: string
+      currentPath?: string
+      id?: string
+      selector?: string
     }): Promise<{ filePath: string; fullPath: string; lineNumber: number; lineContent: string } | null>
     syncCode(payload: {
       fullPath: string
@@ -81,5 +85,13 @@ export interface PixelMindApi {
       tagName?: string
       lineNumber?: number
     }): Promise<{ success: boolean; error?: string; oldLine?: string; newLine?: string }>
+  }
+  tokens: {
+    get(projectPath: string): Promise<DesignTokens>
+    save(payload: {
+      projectPath: string
+      tokens: DesignTokens
+      syncTarget?: 'css' | 'tailwind' | 'both'
+    }): Promise<{ success: boolean; filePath?: string; tailwindPath?: string; error?: string }>
   }
 }

@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Group, Panel, Separator } from 'react-resizable-panels'
+import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import {
-  ChevronDown,
-  ChevronUp,
   FileCode2,
   FolderOpen,
   Globe2,
@@ -11,7 +9,6 @@ import {
   Minimize2,
   RefreshCw,
   Search,
-  Terminal,
   X,
 } from 'lucide-react'
 import type {
@@ -25,6 +22,7 @@ import type {
   Settings,
 } from '@shared/types'
 import { parseRunError } from '../lib/errorParser'
+import { editorBuffer } from '../lib/editorBuffer'
 import FileTree from './FileTree'
 import FileViewer from './FileViewer'
 import CanvasArea from './CanvasArea'
@@ -123,10 +121,57 @@ const WorkspaceView = ({
   /* App có thể đã nắn chỉnh route ASP.NET Core; ưu tiên URL đó. */
   const canvasUrl = previewUrl ?? run?.url ?? null
 
-  // Trạng thái thu gọn/mở rộng Nhật ký chạy (mặc định ẩn khi mở để Canvas rộng rãi nhất)
-  const [showLogs, setShowLogs] = useState(false)
+  const logPanelRef = usePanelRef()
+  const [isLogCollapsed, setIsLogCollapsed] = useState(false)
   // Chế độ tập trung toàn màn hình Canvas (ẩn cả cây tệp và sidebar)
   const [focusCanvas, setFocusCanvas] = useState(false)
+  const [isBufferDirty, setIsBufferDirty] = useState(editorBuffer.isDirty())
+
+  // Đăng ký lắng nghe thay đổi của EditorBuffer (RAM Model chuẩn VS 2022)
+  useEffect(() => {
+    return editorBuffer.subscribe(() => {
+      setIsBufferDirty(editorBuffer.isDirty())
+    })
+  }, [])
+
+  // Phím tắt bàn phím toàn cục: Ctrl+S (Lưu), Ctrl+Z (Hoàn tác), Ctrl+Y (Làm lại)
+  useEffect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+
+      // Ctrl + S: Lưu tất cả thay đổi RAM buffer vào tệp vật lý
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        editorBuffer.saveAllDirtyFiles()
+        return
+      }
+
+      // Ctrl + Z: Hoàn tác
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        if (!isInput && editorBuffer.canUndo()) {
+          e.preventDefault()
+          editorBuffer.undo()
+        }
+        return
+      }
+
+      // Ctrl + Y hoặc Ctrl + Shift + Z: Làm lại
+      if (
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')
+      ) {
+        if (!isInput && editorBuffer.canRedo()) {
+          e.preventDefault()
+          editorBuffer.redo()
+        }
+        return
+      }
+    }
+
+    window.addEventListener('keydown', handleGlobalShortcuts)
+    return () => window.removeEventListener('keydown', handleGlobalShortcuts)
+  }, [])
 
   // Lắng nghe phím Escape để thoát chế độ Focus Canvas
   useEffect(() => {
@@ -221,7 +266,7 @@ const WorkspaceView = ({
                 className={`pm-tab ${activeTab === 'preview' ? 'on' : ''}`}
                 onClick={() => onActiveTab('preview')}
               >
-                <Globe2 size={11} /> Xem trước
+                <Globe2 size={11} /> Xem trước{isBufferDirty ? '*' : ''}
                 {run?.url && <span className="pm-dot live" style={{ marginLeft: 2 }} />}
               </button>
               {tabs.map((path) => {
@@ -234,7 +279,7 @@ const WorkspaceView = ({
                     title={path}
                   >
                     <FileCode2 size={11} />
-                    <span>{name}</span>
+                    <span>{name}{editorBuffer.isDirty(path) ? '*' : ''}</span>
                     <span
                       className="pm-tab__x"
                       role="button"
@@ -251,25 +296,6 @@ const WorkspaceView = ({
                 )
               })}
               <span style={{ flex: 1 }} />
-
-              {/* Nút bật/tắt Nhật ký chạy */}
-              <button
-                className={`pm-ibtn ${showLogs ? 'on' : ''}`}
-                onClick={() => setShowLogs((v) => !v)}
-                title={showLogs ? 'Thu gọn nhật ký chạy' : 'Mở rộng nhật ký chạy'}
-                style={{
-                  height: 24,
-                  fontSize: 11,
-                  gap: 4,
-                  padding: '0 8px',
-                  width: 'auto',
-                  display: 'inline-flex',
-                }}
-              >
-                <Terminal size={12} />
-                <span>Nhật ký</span>
-                {showLogs ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
-              </button>
 
               {/* Nút Chế độ tập trung Canvas (Toàn màn hình) */}
               {activeTab === 'preview' && (
@@ -293,58 +319,10 @@ const WorkspaceView = ({
               )}
             </div>
 
-            {/* Vùng hiển thị Canvas hoặc FileViewer */}
-            {showLogs ? (
-              <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
-                <Panel minSize="25%">
-                  {activeTab === 'preview' ? (
-                    <CanvasArea
-                      url={canvasUrl}
-                      running={run?.status === 'running' || run?.status === 'starting'}
-                      projectName={project.name}
-                      projectPath={project.path}
-                      error={parsedError}
-                      installing={installing}
-                      onRun={onRun}
-                      onStop={onStop}
-                      onOpenExternal={onOpenExternal}
-                      onInstall={onInstall}
-                      onCreateIndexHtml={onCreateIndexHtml}
-                      onAddDevScript={onAddDevScript}
-                    />
-                  ) : (
-                    <FileViewer
-                      file={file}
-                      loading={fileLoading}
-                      onOpenExternal={onOpenFileExternal}
-                      onShowInFolder={onShowInFolder}
-                    />
-                  )}
-                </Panel>
-                <Separator className="pm-resize" style={{ height: 1, width: '100%' }} />
-                <Panel defaultSize="28%" minSize="60px" maxSize="60%" collapsible>
-                  <LogPanel
-                    logs={logs}
-                    run={run}
-                    installing={installing}
-                    onInstall={onInstall}
-                    onRetry={onRun}
-                    onOpenFile={(target) => {
-                      const match = tabs.find((t) => t.toLowerCase().endsWith(target.toLowerCase()))
-                      if (match) {
-                        onSelectTab(match)
-                      } else if (project) {
-                        const full = `${project.path}/${target}`.replace(/\\/g, '/')
-                        onSelectTab(full)
-                      }
-                    }}
-                    onClear={onClearLogs}
-                  />
-                </Panel>
-              </Group>
-            ) : (
-              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+            {/* Vùng hiển thị Canvas hoặc FileViewer kết hợp Nhật ký chạy phía dưới (kéo thả linh hoạt như 2 bên trái phải) */}
+            <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
+              <Panel minSize="20%">
+                <div style={{ width: '100%', height: '100%', position: 'relative' }}>
                   {activeTab === 'preview' ? (
                     <CanvasArea
                       url={canvasUrl}
@@ -369,26 +347,57 @@ const WorkspaceView = ({
                     />
                   )}
                 </div>
+              </Panel>
 
-                {/* Thanh mỏng 1 dòng khi thu gọn Nhật ký chạy */}
-                <div className="pm-log-collapsed-bar" onClick={() => setShowLogs(true)}>
-                  <Terminal size={12} />
-                  <span>Nhật ký chạy {logs.length > 0 ? `(${logs.length} dòng)` : ''}</span>
-                  <span style={{ flex: 1 }} />
-                  <span
-                    style={{
-                      fontSize: 10.5,
-                      color: 'var(--accent-text)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 3,
-                    }}
-                  >
-                    <ChevronUp size={11} /> Mở rộng nhật ký
-                  </span>
-                </div>
-              </div>
-            )}
+              {/* Dải phân cách kéo co giãn dọc mượt mà như 2 bên trái phải */}
+              <Separator className="pm-resize-horizontal" />
+
+              {/* Panel Nhật ký chạy ở dưới cùng, có thể kéo lên kéo xuống thoải mái */}
+              <Panel
+                panelRef={logPanelRef}
+                defaultSize="24%"
+                minSize="36px"
+                maxSize="75%"
+                onResize={() => {
+                  if (logPanelRef.current) {
+                    try {
+                      const px = logPanelRef.current.getSize().inPixels
+                      setIsLogCollapsed(px <= 45)
+                    } catch {}
+                  }
+                }}
+              >
+                <LogPanel
+                  logs={logs}
+                  run={run}
+                  installing={installing}
+                  onInstall={onInstall}
+                  onRetry={onRun}
+                  onOpenFile={(target) => {
+                    const match = tabs.find((t) => t.toLowerCase().endsWith(target.toLowerCase()))
+                    if (match) {
+                      onSelectTab(match)
+                    } else if (project) {
+                      const full = `${project.path}/${target}`.replace(/\\/g, '/')
+                      onSelectTab(full)
+                    }
+                  }}
+                  onClear={onClearLogs}
+                  isCollapsed={isLogCollapsed}
+                  onToggleCollapse={() => {
+                    if (logPanelRef.current) {
+                      if (isLogCollapsed) {
+                        logPanelRef.current.resize('24%')
+                        setIsLogCollapsed(false)
+                      } else {
+                        logPanelRef.current.resize('36px')
+                        setIsLogCollapsed(true)
+                      }
+                    }
+                  }}
+                />
+              </Panel>
+            </Group>
           </div>
         </Panel>
 

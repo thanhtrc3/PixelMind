@@ -6,6 +6,7 @@ import {
   FolderKanban,
   FolderOpen,
   LayoutDashboard,
+  Palette,
   Play,
   RefreshCw,
   Settings as SettingsIcon,
@@ -40,6 +41,7 @@ import AddPageDialog from './components/AddPageDialog'
 import WorkspaceView from './components/WorkspaceView'
 import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
+import DesignTokensDialog from './components/DesignTokensDialog'
 import GuideDialog from './components/GuideDialog'
 import CommandPalette from './components/CommandPalette'
 import type { PaletteCommand } from './components/CommandPalette'
@@ -58,7 +60,7 @@ const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : typeof error === 'string' ? error : 'Đã xảy ra lỗi không xác định.'
 
 type View = 'projects' | 'detail' | 'workspace'
-type DialogId = 'settings' | 'guide' | 'palette'
+type DialogId = 'settings' | 'guide' | 'palette' | 'tokens'
 
 const App = () => {
   const [storeData, setStoreData] = useState<StoreData>(EMPTY_STORE)
@@ -820,6 +822,12 @@ const App = () => {
         run: () => setDialog('settings'),
       },
       {
+        id: 'tokens',
+        label: 'Hệ thống thiết kế (Design Tokens & Theme Manager)',
+        icon: Palette,
+        run: () => setDialog('tokens'),
+      },
+      {
         id: 'guide',
         label: 'Mở hướng dẫn sử dụng',
         icon: BookOpen,
@@ -888,6 +896,7 @@ const App = () => {
           onOpenFolder={() => void openFolder()}
           onSettings={() => setDialog('settings')}
           onGuide={() => setDialog('guide')}
+          onTokens={() => setDialog('tokens')}
         />
 
         <main className="pm-main">
@@ -1015,6 +1024,15 @@ const App = () => {
       )}
 
       {dialog === 'guide' && <GuideDialog isDesktop={isDesktop} onClose={() => setDialog(null)} />}
+
+      {dialog === 'tokens' && (
+        <DesignTokensDialog
+          projectPath={project?.path}
+          projectName={project?.name}
+          onClose={() => setDialog(null)}
+          showToast={(msg) => showToast('info', msg)}
+        />
+      )}
 
       {diagnosisOpen && project && (
         <DiagnosisDialog

@@ -53,7 +53,10 @@
   gap: 8px;
   height: 29px;
   padding: 0 8px 0 10px;
-  width: 250px;
+  width: 220px;
+  max-width: 260px;
+  min-width: 120px;
+  flex-shrink: 1;
   border-radius: var(--r-sm, 7px);
   border: 1px solid var(--line);
   background: var(--bg-inset);

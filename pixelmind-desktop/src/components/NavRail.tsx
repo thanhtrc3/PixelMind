@@ -1,4 +1,4 @@
-import { BookOpen, ClipboardList, FolderKanban, FolderOpen, LayoutDashboard, Settings as SettingsIcon } from 'lucide-react'
+import { BookOpen, ClipboardList, FolderKanban, FolderOpen, LayoutDashboard, Palette, Settings as SettingsIcon } from 'lucide-react'
 
 interface NavRailProps {
   view: 'projects' | 'detail' | 'workspace'
@@ -9,6 +9,7 @@ interface NavRailProps {
   onOpenFolder: () => void
   onSettings: () => void
   onGuide: () => void
+  onTokens?: () => void
 }
 
 const NavRail = ({
@@ -20,6 +21,7 @@ const NavRail = ({
   onOpenFolder,
   onSettings,
   onGuide,
+  onTokens,
 }: NavRailProps) => (
   <nav className="pm-rail" aria-label="Điều hướng chính">
     <button
@@ -45,6 +47,15 @@ const NavRail = ({
     >
       <LayoutDashboard size={17} />
     </button>
+    {hasProject && onTokens && (
+      <button
+        className="pm-rail__btn"
+        onClick={onTokens}
+        title="Hệ thống thiết kế (Design Tokens)"
+      >
+        <Palette size={17} />
+      </button>
+    )}
 
     <div className="pm-rail__sep" />
 

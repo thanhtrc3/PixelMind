@@ -517,14 +517,86 @@
   overflow: auto;
 }
 
-.pm-resize {
+.pm-resize,
+.pm-resize-vertical {
   width: 1px;
   background: var(--line);
+  position: relative;
+  cursor: col-resize;
   transition: background var(--duration-fast) var(--ease-out);
 }
+.pm-resize::after,
+.pm-resize-vertical::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+  z-index: 10;
+}
 .pm-resize:hover,
-.pm-resize[data-resize-handle-active] {
+.pm-resize[data-resize-handle-active],
+.pm-resize-vertical:hover,
+.pm-resize-vertical[data-resize-handle-active] {
   background: var(--accent);
+}
+
+.pm-resize-horizontal,
+[data-separator][aria-orientation='horizontal'] {
+  height: 6px !important;
+  width: 100% !important;
+  background: var(--line) !important;
+  position: relative !important;
+  cursor: row-resize !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 50 !important;
+  user-select: none !important;
+  touch-action: none !important;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+.pm-resize-horizontal::before,
+[data-separator][aria-orientation='horizontal']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -6px;
+  bottom: -6px;
+  z-index: 51;
+  cursor: row-resize !important;
+}
+.pm-resize-horizontal::after,
+[data-separator][aria-orientation='horizontal']::after {
+  content: '';
+  width: 48px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--text-muted, #94a3b8);
+  opacity: 0.6;
+  pointer-events: none;
+  transition: opacity 0.15s, background 0.15s, width 0.15s;
+}
+.pm-resize-horizontal:hover,
+.pm-resize-horizontal[data-separator='active'],
+[data-separator][aria-orientation='horizontal']:hover,
+[data-separator][aria-orientation='horizontal'][data-separator='active'] {
+  background: var(--accent, #6d5df5) !important;
+}
+.pm-resize-horizontal:hover::after,
+.pm-resize-horizontal[data-separator='active']::after,
+[data-separator][aria-orientation='horizontal']:hover::after,
+[data-separator][aria-orientation='horizontal'][data-separator='active']::after {
+  background: #ffffff;
+  opacity: 1;
+  width: 64px;
+}
+
+body:has([data-separator='active']) iframe,
+.pm-workspace:has([data-separator='active']) iframe {
+  pointer-events: none !important;
 }
 
 /* Panel của react-resizable-panels bọc nội dung trong một div trung gian:

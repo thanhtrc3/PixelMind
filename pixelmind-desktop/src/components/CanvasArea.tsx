@@ -9,26 +9,22 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
-  Camera,
   Check,
+  ChevronDown,
+  ChevronUp,
   Code2,
-  Columns2,
   Copy,
   ExternalLink,
   Globe,
   Hand,
-  Image as ImageIcon,
   Layers,
   Maximize2,
-  MessageSquarePlus,
   Monitor,
   MonitorUp,
   MousePointer2,
   Play,
   RefreshCw,
   RotateCcw,
-  Ruler,
-  ScanSearch,
   Smartphone,
   Sparkles,
   SlidersHorizontal,
@@ -47,6 +43,9 @@ import {
 } from 'lucide-react'
 import type { ParsedError } from '../lib/errorParser'
 import VisualErrorCard from './VisualErrorCard'
+import DesignTokensDialog from './DesignTokensDialog'
+import type { DesignTokens } from '@shared/types'
+import { editorBuffer, type ActionType, type ElementSnapshot } from '../lib/editorBuffer'
 
 export type CanvasMode = 'reference' | 'live' | 'compare' | 'overlay' | 'diff'
 export type ViewportKey = 'mobile' | 'tablet' | 'desktop' | 'wide'
@@ -89,20 +88,8 @@ const VIEWPORTS: ViewportConfig[] = [
   { key: 'wide', label: 'Rộng', icon: MonitorUp, w: 1920, h: 1080 },
 ]
 
-interface ModeConfig {
-  key: CanvasMode
-  label: string
-  icon: typeof Globe
-  reqMock?: boolean
-}
 
-const MODES: ModeConfig[] = [
-  { key: 'reference', label: 'Ảnh mẫu', icon: ImageIcon, reqMock: true },
-  { key: 'live', label: 'Trực tiếp', icon: Globe },
-  { key: 'compare', label: 'Song song', icon: Columns2, reqMock: true },
-  { key: 'overlay', label: 'Chồng lớp', icon: Layers, reqMock: true },
-  { key: 'diff', label: 'Khác biệt', icon: ScanSearch, reqMock: true },
-]
+
 
 interface ToolConfig {
   key: ToolKey
@@ -114,13 +101,10 @@ interface ToolConfig {
 const TOOLS: ToolConfig[] = [
   { key: 'select', label: 'Chọn (V)', icon: MousePointer2, shortcut: 'V' },
   { key: 'pan', label: 'Kéo (H)', icon: Hand, shortcut: 'H' },
-  { key: 'rect', label: 'Khung (R)', icon: Square, shortcut: 'R' },
-  { key: 'text', label: 'Văn bản (T)', icon: Type, shortcut: 'T' },
-  { key: 'comment', label: 'Bình luận (C)', icon: MessageSquarePlus, shortcut: 'C' },
-  { key: 'measure', label: 'Đo thước (M)', icon: Ruler, shortcut: 'M' },
 ]
 
 export interface HoverElementInfo {
+  uid?: string
   tagName: string
   className: string
   rect: {
@@ -132,11 +116,16 @@ export interface HoverElementInfo {
 }
 
 export interface RealElementInfo {
+  uid?: string
+  selector?: string
   tagName: string
   id: string
   className: string
   isLeaf?: boolean
   childrenCount?: number
+  currentPath?: string
+  currentUrl?: string
+  pageTitle?: string
   rect: {
     top: number
     left: number
@@ -177,10 +166,12 @@ export interface RealElementInfo {
     borderColor: string
     boxShadow: string
     opacity: string
-    top?: string
-    left?: string
+    position: string
+    top: string
+    left: string
     width: string
     height: string
+    [key: string]: string
   }
   domPath: string
   textSnippet: string
@@ -241,7 +232,7 @@ const CanvasArea = ({
   onCreateIndexHtml: _onCreateIndexHtml,
   onAddDevScript: _onAddDevScript,
 }: CanvasAreaProps) => {
-  const [mode, setMode] = useState<CanvasMode>('live')
+
   const [viewport, setViewport] = useState<ViewportKey>('desktop')
   const [tool, setTool] = useState<ToolKey>('select')
   const [zoom, setZoom] = useState(51)
@@ -266,7 +257,47 @@ const CanvasArea = ({
   const [inspectorTab, setInspectorTab] = useState<'design' | 'code'>('design')
   const [modifiedStyles, setModifiedStyles] = useState<Record<string, string>>({})
   const [isMovingEl, setIsMovingEl] = useState(false)
-  const moveStartRef = useRef({ startX: 0, startY: 0, initialLeft: 0, initialTop: 0 })
+  const [isDirtyBuffer, setIsDirtyBuffer] = useState(editorBuffer.isDirty())
+  const initialTextRef = useRef<string>('')
+  const currentRouteRef = useRef<string>('/')
+  const [isTokensDialogOpen, setIsTokensDialogOpen] = useState(false)
+  const [projectTokens, setProjectTokens] = useState<DesignTokens | null>(null)
+  const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false)
+  // Tải Design Tokens của dự án để dùng làm mẫu chọn màu & tỷ lệ
+  useEffect(() => {
+    let isMounted = true
+    if (projectPath && api?.tokens?.get) {
+      api.tokens
+        .get(projectPath)
+        .then((t) => {
+          if (isMounted) setProjectTokens(t)
+        })
+        .catch(() => {})
+    }
+    return () => {
+      isMounted = false
+    }
+  }, [projectPath])
+  const moveStartRef = useRef<{
+    startX: number
+    startY: number
+    initialLeft: number
+    initialTop: number
+    beforeStyles: Record<string, string>
+    beforeRect?: { top: number; left: number; width: number; height: number }
+    beforeText?: string
+  }>({ startX: 0, startY: 0, initialLeft: 0, initialTop: 0, beforeStyles: {} })
+
+  const resizeStartRef = useRef<{
+    startX: number
+    startY: number
+    startWidth: number
+    startHeight: number
+    beforeStyles: Record<string, string>
+    beforeRect?: { top: number; left: number; width: number; height: number }
+    beforeText?: string
+  }>({ startX: 0, startY: 0, startWidth: 0, startHeight: 0, beforeStyles: {} })
+
   const [sourceLoc, setSourceLoc] = useState<{
     filePath: string
     fullPath: string
@@ -314,6 +345,29 @@ const CanvasArea = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
         return
+      }
+
+      // Phím tắt toàn cục: Hoàn tác (Ctrl+Z), Làm lại (Ctrl+Y hoặc Ctrl+Shift+Z), Lưu (Ctrl+S)
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z' || e.key === 'Z') {
+          e.preventDefault()
+          if (e.shiftKey) {
+            if (editorBuffer.canRedo()) editorBuffer.redo()
+          } else {
+            if (editorBuffer.canUndo()) editorBuffer.undo()
+          }
+          return
+        }
+        if (e.key === 'y' || e.key === 'Y') {
+          e.preventDefault()
+          if (editorBuffer.canRedo()) editorBuffer.redo()
+          return
+        }
+        if (e.key === 's' || e.key === 'S') {
+          e.preventDefault()
+          editorBuffer.saveAllDirtyFiles(showToast)
+          return
+        }
       }
 
       if (e.code === 'Space' && !e.repeat) {
@@ -408,8 +462,13 @@ const CanvasArea = ({
     const handleWindowMessage = (e: MessageEvent) => {
       if (!e.data || typeof e.data !== 'object') return
 
-      if (e.data.type === 'PM_HOVER_ELEMENT') {
-        if (isInspectMode && !selectedEl) {
+      if (e.data.type === 'PM_LOCATION_CHANGE') {
+        const { pathname } = e.data.payload || {}
+        if (pathname) {
+          currentRouteRef.current = pathname
+        }
+      } else if (e.data.type === 'PM_HOVER_ELEMENT') {
+        if (isInspectMode) {
           setHoverEl(e.data.payload)
         }
       } else if (e.data.type === 'PM_SELECT_ELEMENT') {
@@ -417,13 +476,24 @@ const CanvasArea = ({
           const payload = e.data.payload as RealElementInfo
           setSelectedEl(payload)
           setHoverEl(null)
-
+          if (payload.currentPath) {
+            currentRouteRef.current = payload.currentPath
+          }
           if (!e.data.isReset && !originalStyles) {
             setOriginalStyles({
               text: payload.textSnippet,
               styles: { ...payload.computedStyles },
             })
           }
+        }
+      } else if (e.data.type === 'PM_KEYBOARD_SHORTCUT') {
+        const { key, shiftKey } = e.data.payload || {}
+        if (key === 's') {
+          editorBuffer.saveAllDirtyFiles(showToast)
+        } else if (key === 'z' && !shiftKey) {
+          if (editorBuffer.canUndo()) editorBuffer.undo()
+        } else if (key === 'y' || (key === 'z' && shiftKey)) {
+          if (editorBuffer.canRedo()) editorBuffer.redo()
         }
       }
     }
@@ -447,11 +517,133 @@ const CanvasArea = ({
   // Reset modified styles khi chọn phần tử khác
   useEffect(() => {
     setModifiedStyles({})
+    setOriginalStyles(null)
   }, [selectedEl?.domPath])
 
-  // ─── ÁP DỤNG THAY ĐỔI LIVE (STYLE / TEXT) ───
+  // Lắng nghe thay đổi của EditorBuffer (Dirty flag cho RAM Designer)
+  useEffect(() => {
+    return editorBuffer.subscribe(() => {
+      setIsDirtyBuffer(editorBuffer.isDirty())
+    })
+  }, [])
+
+  // Đăng ký bộ xử lý phản chiếu Undo/Redo lên DOM thật trong iframe
+  useEffect(() => {
+    const unsub = editorBuffer.onApplyHistory((action, isUndo) => {
+      // 1. Chỉ lấy đúng các thuộc tính style delta thực tế thay vì áp đặt cả 50 computed styles
+      const delta = action.deltaStyles || {}
+      const deltaKeys = Object.keys(delta)
+      if (deltaKeys.length === 0 && action.after.styles && action.before.styles) {
+        for (const [k, v] of Object.entries(action.after.styles)) {
+          if (action.before.styles[k] !== v) {
+            deltaKeys.push(k)
+          }
+        }
+      }
+
+      const stylesToApply: Record<string, string> = {}
+      for (const k of deltaKeys) {
+        if (isUndo) {
+          // Khi Hoàn tác (Undo): khôi phục lại giá trị trước đó (hoặc đặt rỗng '' để xóa inline style)
+          stylesToApply[k] = action.before.styles[k] || ''
+        } else {
+          // Khi Làm lại (Redo): áp dụng lại giá trị sau thay đổi
+          stylesToApply[k] = action.after.styles[k] || delta[k] || ''
+        }
+      }
+
+      // QUAN TRỌNG: Chỉ gửi textContent khi hành động là TEXT! Tuyệt đối không gửi textContent khi hành động là MOVE, RESIZE, hoặc STYLE
+      const isTextAction = action.type === 'TEXT'
+      const textToApply = isTextAction ? (isUndo ? action.before.text : action.after.text) : undefined
+
+      // 2. Phản chiếu ngược lại iframe DOM cho ĐÚNG phần tử mục tiêu (action.target)
+      if (iframeRef.current?.contentWindow) {
+        iframeRef.current.contentWindow.postMessage(
+          {
+            type: 'PM_APPLY_STYLE',
+            payload: {
+              target: {
+                tagName: action.target.tagName,
+                id: action.target.id,
+                className: action.target.className,
+                domPath: action.target.domPath,
+                uid: action.target.uid,
+                selector: action.target.selector,
+                textSnippet: action.target.textSnippet,
+              },
+              styles: stylesToApply,
+              textContent: textToApply,
+            },
+          },
+          '*'
+        )
+      }
+
+      // 3. Cập nhật state selectedEl chuyển sang đúng phần tử mục tiêu
+      setSelectedEl((prev) => {
+        const isSame = prev && (
+          (action.target.uid && prev.uid === action.target.uid) ||
+          (action.target.selector && prev.selector === action.target.selector) ||
+          (action.target.id && prev.id === action.target.id) ||
+          (action.target.domPath && prev.domPath === action.target.domPath)
+        )
+
+        const baseStyles = isSame ? { ...prev.computedStyles } : { ...(action.before.styles || {}) }
+        for (const k of deltaKeys) {
+          if (isUndo) {
+            if (action.before.styles[k]) {
+              baseStyles[k] = action.before.styles[k]
+            } else {
+              delete (baseStyles as any)[k]
+            }
+          } else {
+            baseStyles[k] = stylesToApply[k]
+          }
+        }
+
+        const rectToUse = isUndo ? action.before.rect : action.after.rect
+
+        return {
+          uid: action.target.uid || prev?.uid,
+          selector: action.target.selector || prev?.selector,
+          tagName: action.target.tagName,
+          id: action.target.id || '',
+          className: action.target.className || '',
+          domPath: action.target.domPath || prev?.domPath || '',
+          textSnippet: isTextAction && textToApply !== undefined ? textToApply : (action.before.text || prev?.textSnippet || ''),
+          rect: rectToUse ? { ...(prev?.rect || { top: 0, left: 0, width: 0, height: 0 }), ...rectToUse } : (prev?.rect || { top: 0, left: 0, width: 0, height: 0 }),
+          computedStyles: baseStyles as any,
+          isLeaf: prev?.isLeaf,
+          childrenCount: prev?.childrenCount,
+        }
+      })
+
+      // 4. Cập nhật modifiedStyles
+      setModifiedStyles((prev) => {
+        const next = { ...prev }
+        for (const k of deltaKeys) {
+          if (isUndo) {
+            delete next[k]
+          } else {
+            next[k] = stylesToApply[k]
+          }
+        }
+        return next
+      })
+
+      showToast(isUndo ? `↶ Hoàn tác: ${action.description}` : `↷ Làm lại: ${action.description}`)
+    })
+
+    return unsub
+  }, [showToast])
+
+  // ─── ÁP DỤNG THAY ĐỔI LIVE (STYLE / TEXT) & ĐẨY VÀO RAM BUFFER ───
   const handleApplyLiveChange = useCallback(
-    (styles?: Record<string, string>, textContent?: string) => {
+    (
+      styles?: Record<string, string>,
+      textContent?: string,
+      options?: { skipHistory?: boolean; description?: string; actionType?: ActionType }
+    ) => {
       if (!selectedEl) return
 
       if (styles) {
@@ -462,7 +654,19 @@ const CanvasArea = ({
         iframeRef.current.contentWindow.postMessage(
           {
             type: 'PM_APPLY_STYLE',
-            payload: { styles, textContent },
+            payload: {
+              target: {
+                tagName: selectedEl.tagName,
+                id: selectedEl.id,
+                className: selectedEl.className,
+                domPath: selectedEl.domPath,
+                uid: selectedEl.uid,
+                selector: selectedEl.selector,
+                textSnippet: selectedEl.textSnippet,
+              },
+              styles,
+              textContent,
+            },
           },
           '*'
         )
@@ -470,19 +674,58 @@ const CanvasArea = ({
 
       api.inspect.applyStyle({ styles, textContent }).catch(() => {})
 
+      const beforeSnapshot: ElementSnapshot = {
+        styles: { ...selectedEl.computedStyles },
+        text: selectedEl.textSnippet,
+        rect: { ...selectedEl.rect },
+      }
+
+      const nextStyles = {
+        ...selectedEl.computedStyles,
+        ...(styles || {}),
+      }
+      const nextText = typeof textContent === 'string' ? textContent : selectedEl.textSnippet
+
       setSelectedEl((prev) => {
         if (!prev) return null
         return {
           ...prev,
-          textSnippet: typeof textContent === 'string' ? textContent : prev.textSnippet,
-          computedStyles: {
-            ...prev.computedStyles,
-            ...(styles || {}),
-          },
+          textSnippet: nextText,
+          computedStyles: nextStyles,
         }
       })
+
+      if (!options?.skipHistory) {
+        editorBuffer.pushAction({
+          type: options?.actionType || (textContent !== undefined ? 'TEXT' : 'STYLE'),
+          description: options?.description || `Chỉnh sửa <${selectedEl.tagName.toLowerCase()}>`,
+          target: {
+            tagName: selectedEl.tagName,
+            id: selectedEl.id,
+            className: selectedEl.className,
+            domPath: selectedEl.domPath,
+            uid: selectedEl.uid,
+            selector: selectedEl.selector,
+            textSnippet: selectedEl.textSnippet,
+          },
+          sourceLoc: sourceLoc
+            ? {
+                filePath: sourceLoc.filePath,
+                fullPath: sourceLoc.fullPath,
+                lineNumber: sourceLoc.lineNumber,
+              }
+            : undefined,
+          before: beforeSnapshot,
+          after: {
+            styles: nextStyles,
+            text: nextText,
+            rect: { ...selectedEl.rect },
+          },
+          deltaStyles: styles,
+        })
+      }
     },
-    [selectedEl]
+    [selectedEl, sourceLoc]
   )
 
   // ─── KÉO CO GIÃN 8 ĐIỂM NEO PHẦN TỬ THẬT ───
@@ -490,6 +733,16 @@ const CanvasArea = ({
     e.preventDefault()
     e.stopPropagation()
     if (!selectedEl) return
+
+    resizeStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startWidth: selectedEl.rect.width,
+      startHeight: selectedEl.rect.height,
+      beforeStyles: { ...selectedEl.computedStyles },
+      beforeRect: { ...selectedEl.rect },
+      beforeText: selectedEl.textSnippet,
+    }
 
     setResizingEl({
       handle,
@@ -546,14 +799,64 @@ const CanvasArea = ({
         }
       })
 
-      handleApplyLiveChange({
-        width: `${Math.round(newWidth)}px`,
-        height: `${Math.round(newHeight)}px`,
-      })
+      handleApplyLiveChange(
+        {
+          width: `${Math.round(newWidth)}px`,
+          height: `${Math.round(newHeight)}px`,
+        },
+        undefined,
+        { skipHistory: true }
+      )
     }
 
     const handleMouseUp = () => {
       setResizingEl(null)
+      const initial = resizeStartRef.current
+      if (!selectedEl || !initial.startWidth) return
+
+      const curW = parseInt(selectedEl.computedStyles.width) || selectedEl.rect.width
+      const curH = parseInt(selectedEl.computedStyles.height) || selectedEl.rect.height
+
+      if (curW !== initial.startWidth || curH !== initial.startHeight) {
+        editorBuffer.pushAction({
+          type: 'RESIZE',
+          description: `Co giãn <${selectedEl.tagName.toLowerCase()}> (${Math.round(curW)} × ${Math.round(curH)})`,
+          target: {
+            tagName: selectedEl.tagName,
+            id: selectedEl.id,
+            className: selectedEl.className,
+            domPath: selectedEl.domPath,
+            uid: selectedEl.uid,
+            selector: selectedEl.selector,
+            textSnippet: selectedEl.textSnippet,
+          },
+          sourceLoc: sourceLoc
+            ? {
+                filePath: sourceLoc.filePath,
+                fullPath: sourceLoc.fullPath,
+                lineNumber: sourceLoc.lineNumber,
+              }
+            : undefined,
+          before: {
+            styles: initial.beforeStyles,
+            text: initial.beforeText,
+            rect: initial.beforeRect,
+          },
+          after: {
+            styles: {
+              ...selectedEl.computedStyles,
+              width: `${Math.round(curW)}px`,
+              height: `${Math.round(curH)}px`,
+            },
+            text: selectedEl.textSnippet,
+            rect: { ...selectedEl.rect },
+          },
+          deltaStyles: {
+            width: `${Math.round(curW)}px`,
+            height: `${Math.round(curH)}px`,
+          },
+        })
+      }
     }
 
     window.addEventListener('mousemove', handleMouseMove)
@@ -562,7 +865,7 @@ const CanvasArea = ({
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [resizingEl, zoom, handleApplyLiveChange])
+  }, [resizingEl, zoom, handleApplyLiveChange, selectedEl, sourceLoc])
 
   // ─── KÉO DI CHUYỂN VỊ TRÍ PHẦN TỬ THẬT (LIVE MOVE) ───
   const handleStartElementMove = (e: React.MouseEvent) => {
@@ -579,6 +882,9 @@ const CanvasArea = ({
       startY: e.clientY,
       initialLeft: curLeft,
       initialTop: curTop,
+      beforeStyles: { ...selectedEl.computedStyles },
+      beforeRect: { ...selectedEl.rect },
+      beforeText: selectedEl.textSnippet,
     }
   }
 
@@ -593,15 +899,72 @@ const CanvasArea = ({
 
       const nextLeft = Math.round(moveStartRef.current.initialLeft + dx)
       const nextTop = Math.round(moveStartRef.current.initialTop + dy)
+      const curPos = selectedEl?.computedStyles?.position
+      const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
 
-      handleApplyLiveChange({
-        left: `${nextLeft}px`,
-        top: `${nextTop}px`,
-      })
+      handleApplyLiveChange(
+        {
+          position: targetPos,
+          left: `${nextLeft}px`,
+          top: `${nextTop}px`,
+        },
+        undefined,
+        { skipHistory: true }
+      )
     }
 
     const handleMouseUp = () => {
       setIsMovingEl(false)
+      const initial = moveStartRef.current
+      if (!selectedEl) return
+
+      const curLeft = parseInt(selectedEl.computedStyles.left || '0') || 0
+      const curTop = parseInt(selectedEl.computedStyles.top || '0') || 0
+      const curPos = selectedEl.computedStyles.position
+      const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+
+      if (curLeft !== initial.initialLeft || curTop !== initial.initialTop) {
+        editorBuffer.pushAction({
+          type: 'MOVE',
+          description: `Di chuyển <${selectedEl.tagName.toLowerCase()}> (X: ${curLeft}, Y: ${curTop})`,
+          target: {
+            tagName: selectedEl.tagName,
+            id: selectedEl.id,
+            className: selectedEl.className,
+            domPath: selectedEl.domPath,
+            uid: selectedEl.uid,
+            selector: selectedEl.selector,
+            textSnippet: selectedEl.textSnippet,
+          },
+          sourceLoc: sourceLoc
+            ? {
+                filePath: sourceLoc.filePath,
+                fullPath: sourceLoc.fullPath,
+                lineNumber: sourceLoc.lineNumber,
+              }
+            : undefined,
+          before: {
+            styles: initial.beforeStyles,
+            text: initial.beforeText,
+            rect: initial.beforeRect,
+          },
+          after: {
+            styles: {
+              ...selectedEl.computedStyles,
+              left: `${curLeft}px`,
+              top: `${curTop}px`,
+              position: targetPos,
+            },
+            text: selectedEl.textSnippet,
+            rect: { ...selectedEl.rect },
+          },
+          deltaStyles: {
+            left: `${curLeft}px`,
+            top: `${curTop}px`,
+            position: targetPos,
+          },
+        })
+      }
     }
 
     window.addEventListener('mousemove', handleMouseMove)
@@ -610,7 +973,7 @@ const CanvasArea = ({
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isMovingEl, zoom, handleApplyLiveChange])
+  }, [isMovingEl, zoom, handleApplyLiveChange, selectedEl, sourceLoc])
 
   // ─── TỰ ĐỘNG DÒ TÌM TỆP MÃ NGUỒN CHỨA PHẦN TỬ (CODE LOCATOR) ───
   useEffect(() => {
@@ -629,6 +992,9 @@ const CanvasArea = ({
           textSnippet: selectedEl.textSnippet,
           tagName: selectedEl.tagName,
           className: selectedEl.className,
+          currentPath: selectedEl.currentPath || currentRouteRef.current,
+          id: selectedEl.id,
+          selector: selectedEl.selector,
         })
         .then((loc) => {
           if (isMounted) {
@@ -728,6 +1094,12 @@ const CanvasArea = ({
     api.inspect.resetOriginal().catch(() => {})
 
     if (originalStyles) {
+      const beforeSnapshot = {
+        styles: { ...selectedEl.computedStyles },
+        text: selectedEl.textSnippet,
+        rect: { ...selectedEl.rect },
+      }
+
       setSelectedEl((prev) => {
         if (!prev) return null
         return {
@@ -739,9 +1111,37 @@ const CanvasArea = ({
           },
         }
       })
+
+      editorBuffer.pushAction({
+        type: 'STYLE',
+        description: `Khôi phục cài đặt gốc <${selectedEl.tagName.toLowerCase()}>`,
+        target: {
+          tagName: selectedEl.tagName,
+          id: selectedEl.id,
+          className: selectedEl.className,
+          domPath: selectedEl.domPath,
+          uid: selectedEl.uid,
+          selector: selectedEl.selector,
+          textSnippet: selectedEl.textSnippet,
+        },
+        sourceLoc: sourceLoc
+          ? {
+              filePath: sourceLoc.filePath,
+              fullPath: sourceLoc.fullPath,
+              lineNumber: sourceLoc.lineNumber,
+            }
+          : undefined,
+        before: beforeSnapshot,
+        after: {
+          styles: { ...selectedEl.computedStyles, ...originalStyles.styles },
+          text: originalStyles.text,
+          rect: { ...selectedEl.rect },
+        },
+      })
+
       showToast('Đã khôi phục thuộc tính gốc của phần tử')
     }
-  }, [selectedEl, originalStyles, showToast])
+  }, [selectedEl, originalStyles, sourceLoc, showToast])
 
   // Sao chép CSS Selector
   const handleCopySelector = () => {
@@ -764,15 +1164,7 @@ const CanvasArea = ({
     showToast('Đã sao chép danh sách class!')
   }
 
-  // Chuyển chế độ xem
-  const handleSelectMode = (nextMode: CanvasMode) => {
-    const target = MODES.find((m) => m.key === nextMode)
-    if (target?.reqMock) {
-      showToast(`Chế độ "${target.label}" cần ảnh mẫu thiết kế (PNG, JPG, Figma). Đang hoàn thiện ở Phân hệ 6!`)
-      return
-    }
-    setMode(nextMode)
-  }
+
 
   // Tính toán dòng Diff Preview cho Tab Mã nguồn thật
   const diffPreview = (() => {
@@ -841,144 +1233,143 @@ const CanvasArea = ({
       {/* ═══════════════════════════════════════════════
           HÀNG 1: THANH CÔNG CỤ ĐỈNH CANVAS
           ═══════════════════════════════════════════════ */}
-      <div className="canvas__tools">
-        {/* Nút bật/tắt Soi phần tử nổi bật */}
-        <button
-          className={`canvas__seg-btn ${isInspectMode ? 'active accent' : ''}`}
-          onClick={() => {
-            const next = !isInspectMode
-            setIsInspectMode(next)
-            if (!next) {
-              setSelectedEl(null)
-              setHoverEl(null)
-            }
-            showToast(next ? 'Đã BẬT Chế độ Soi phần tử (Visual Inspector)' : 'Đã TẮT Chế độ Soi phần tử')
-          }}
-          title="Bật/Tắt chế độ Soi phần tử (Phím tắt: I)"
-          style={{
-            height: 28,
-            padding: '0 12px',
-            gap: 7,
-            borderRadius: 6,
-            fontWeight: 650,
-            background: isInspectMode ? 'var(--accent, #6d5df5)' : 'var(--panel-2)',
-            color: isInspectMode ? '#ffffff' : 'var(--text)',
-            border: '1px solid var(--line)',
-            display: 'inline-flex',
-            alignItems: 'center',
-          }}
+      {isToolbarCollapsed ? (
+        <div
+          className="canvas__tools-collapsed"
+          onClick={() => setIsToolbarCollapsed(false)}
+          title="Mở rộng thanh công cụ Canvas"
         >
-          <Code2 size={13} />
-          <span>Soi phần tử {isInspectMode ? '(BẬT)' : ''}</span>
-        </button>
-
-        <div className="canvas__divider-v" />
-
-        {/* Nhóm công cụ vẽ & tương tác */}
-        <div className="canvas__seg">
-          {TOOLS.map((t) => (
-            <button
-              key={t.key}
-              className={`canvas__seg-btn icon-only ${tool === t.key ? 'active' : ''}`}
-              onClick={() => setTool(t.key)}
-              title={`${t.label} (${t.shortcut})`}
-            >
-              <t.icon size={13} />
-            </button>
-          ))}
+          <ChevronDown size={12} />
+          <span>Mở rộng thanh công cụ</span>
         </div>
+      ) : (
+        <div className="canvas__tools">
+          {/* Nhóm 1: Soi phần tử & Con trỏ */}
+          <div className="canvas__seg">
+            <button
+              className={`canvas__seg-btn ${isInspectMode ? 'active accent' : ''}`}
+              onClick={() => {
+                const next = !isInspectMode
+                setIsInspectMode(next)
+                if (!next) {
+                  setSelectedEl(null)
+                  setHoverEl(null)
+                }
+                showToast(next ? 'Đã BẬT Chế độ Soi phần tử (I)' : 'Đã TẮT Chế độ Soi phần tử')
+              }}
+              title="Bật/Tắt chế độ Soi phần tử (Phím tắt: I)"
+              style={{
+                height: 28,
+                padding: '0 10px',
+                gap: 6,
+                borderRadius: 6,
+                fontWeight: 650,
+                background: isInspectMode ? 'var(--accent, #6d5df5)' : 'var(--panel-2)',
+                color: isInspectMode ? '#ffffff' : 'var(--text)',
+                border: '1px solid var(--line)',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              <Code2 size={13} />
+              <span>{isInspectMode ? 'Soi phần tử (BẬT)' : 'Soi phần tử'}</span>
+            </button>
 
-        <div className="canvas__divider-v" />
+            {TOOLS.map((t) => (
+              <button
+                key={t.key}
+                className={`canvas__seg-btn icon-only ${tool === t.key ? 'active' : ''}`}
+                onClick={() => setTool(t.key)}
+                title={`${t.label} (${t.shortcut})`}
+              >
+                <t.icon size={13} />
+              </button>
+            ))}
+          </div>
 
-        <div className="canvas__seg">
-          <button
-            className="canvas__tool-btn"
-            title="Chụp ảnh khung nhìn (P)"
-            onClick={() => showToast('Tính năng chụp ảnh khung nhìn sẽ lưu PNG vào thư mục dự án')}
-          >
-            <Camera size={13} />
-          </button>
-          <button
-            className="canvas__tool-btn"
-            title="Tải lại trang web"
-            onClick={() => setIframeKey((k) => k + 1)}
-          >
-            <RefreshCw size={13} />
-          </button>
-          {url && onOpenExternal && (
+          <div className="canvas__tools-spacer" />
+
+          {/* Nhóm 2: Thiết bị / Viewport */}
+          <div className="canvas__seg">
+            {VIEWPORTS.map((v) => (
+              <button
+                key={v.key}
+                className={`canvas__seg-btn ${viewport === v.key ? 'active' : ''}`}
+                onClick={() => setViewport(v.key)}
+                title={`${v.label} · ${v.w} × ${v.h}`}
+              >
+                <v.icon size={12} />
+                <span>{v.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="canvas__tools-spacer" />
+
+          {/* Nhóm 3: Tiện ích Tokens & Tải lại */}
+          <div className="canvas__seg">
             <button
               className="canvas__tool-btn"
-              title="Mở trên trình duyệt ngoài"
-              onClick={() => onOpenExternal(url)}
+              style={{ width: 'auto', padding: '0 8px', gap: 4, display: 'inline-flex' }}
+              title="Hệ thống thiết kế (Design Tokens & Theme Manager)"
+              onClick={() => setIsTokensDialogOpen(true)}
             >
-              <ExternalLink size={13} />
+              <Palette size={13} style={{ color: 'var(--accent, #6d5df5)' }} />
+              <span style={{ fontSize: 11, fontWeight: 600 }}>Tokens</span>
             </button>
-          )}
-        </div>
+            <button
+              className="canvas__tool-btn"
+              title="Tải lại giao diện (Ctrl+R)"
+              onClick={() => setIframeKey((k) => k + 1)}
+            >
+              <RefreshCw size={13} />
+            </button>
+            {url && onOpenExternal && (
+              <button
+                className="canvas__tool-btn"
+                title="Mở trên trình duyệt ngoài"
+                onClick={() => onOpenExternal(url)}
+              >
+                <ExternalLink size={13} />
+              </button>
+            )}
+          </div>
 
-        <div className="canvas__tools-spacer" />
+          {/* Nhóm 4: Zoom */}
+          <div className="canvas__seg">
+            <button
+              className="canvas__tool-btn"
+              title="Thu nhỏ (Ctrl -)"
+              onClick={() => setZoom((z) => Math.max(10, z - 10))}
+            >
+              <ZoomOut size={13} />
+            </button>
+            <span className="canvas__zoom-badge" onClick={zoomToFit} title="Nhấp để vừa khung (F)">
+              {zoom}%
+            </span>
+            <button
+              className="canvas__tool-btn"
+              title="Phóng to (Ctrl +)"
+              onClick={() => setZoom((z) => Math.min(200, z + 10))}
+            >
+              <ZoomIn size={13} />
+            </button>
+            <button className="canvas__tool-btn" title="Vừa khung nhìn (F)" onClick={zoomToFit}>
+              <Maximize2 size={13} />
+            </button>
+          </div>
 
-        {/* Nhóm điều khiển Zoom */}
-        <div className="canvas__seg">
+          {/* Nút thu gọn thanh công cụ lên đỉnh */}
           <button
             className="canvas__tool-btn"
-            title="Thu nhỏ (Ctrl -)"
-            onClick={() => setZoom((z) => Math.max(10, z - 10))}
+            title="Thu gọn thanh công cụ để mở rộng không gian Canvas"
+            onClick={() => setIsToolbarCollapsed(true)}
+            style={{ marginLeft: 2 }}
           >
-            <ZoomOut size={13} />
-          </button>
-          <span className="canvas__zoom-badge" onClick={zoomToFit} title="Nhấp để vừa khung (F)">
-            {zoom}%
-          </span>
-          <button
-            className="canvas__tool-btn"
-            title="Phóng to (Ctrl +)"
-            onClick={() => setZoom((z) => Math.min(200, z + 10))}
-          >
-            <ZoomIn size={13} />
-          </button>
-          <button className="canvas__tool-btn" title="Vừa khung nhìn (F)" onClick={zoomToFit}>
-            <Maximize2 size={13} />
+            <ChevronUp size={13} />
           </button>
         </div>
-      </div>
-
-      {/* ═══════════════════════════════════════════════
-          HÀNG 2: CHẾ ĐỘ XEM & KÍCH THƯỚC THIẾT BỊ
-          ═══════════════════════════════════════════════ */}
-      <div className="canvas__modes">
-        <div className="canvas__seg">
-          {MODES.map((m) => (
-            <button
-              key={m.key}
-              className={`canvas__seg-btn ${mode === m.key ? 'active' : ''}`}
-              style={{ opacity: m.reqMock ? 0.65 : 1 }}
-              onClick={() => handleSelectMode(m.key)}
-              title={m.reqMock ? `${m.label} (Cần ảnh mẫu thiết kế)` : m.label}
-            >
-              <m.icon size={13} />
-              <span>{m.label}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="canvas__modes-spacer" />
-
-        <div className="canvas__seg">
-          {VIEWPORTS.map((v) => (
-            <button
-              key={v.key}
-              className={`canvas__seg-btn ${viewport === v.key ? 'active' : ''}`}
-              onClick={() => setViewport(v.key)}
-              title={`${v.label} · ${v.w} × ${v.h}`}
-            >
-              <v.icon size={13} />
-              <span>{v.label}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
+      )}
       {/* ═══════════════════════════════════════════════
           THÂN CANVAS: BÊN TRÁI LÀ STAGE, BÊN PHẢI LÀ INSPECTOR SIDE PANEL
           ═══════════════════════════════════════════════ */}
@@ -1044,7 +1435,7 @@ const CanvasArea = ({
                 )}
 
                 {/* Khung viền hover phần tử khi soi */}
-                {isInspectMode && hoverEl && !selectedEl && (
+                {isInspectMode && hoverEl && (!selectedEl || hoverEl.uid !== selectedEl.uid) && (
                   <div
                     className="canvas__inspect-hover"
                     style={{
@@ -1054,7 +1445,14 @@ const CanvasArea = ({
                       height: hoverEl.rect.height,
                     }}
                   >
-                    <span className="canvas__inspect-hover-tag">
+                    <span
+                      className="canvas__inspect-hover-tag"
+                      style={
+                        hoverEl.rect.top < 24
+                          ? { top: 2, left: 2, borderRadius: 3, boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }
+                          : undefined
+                      }
+                    >
                       {hoverEl.tagName}
                       {hoverEl.className ? `.${hoverEl.className.split(/\s+/)[0]}` : ''} · {Math.round(hoverEl.rect.width)} × {Math.round(hoverEl.rect.height)}
                     </span>
@@ -1074,13 +1472,21 @@ const CanvasArea = ({
                   >
                     <div
                       className="canvas__inspect-move-bar"
+                      style={selectedEl.rect.top < 26 ? { top: 26, left: 2 } : undefined}
                       onMouseDown={handleStartElementMove}
                       title="Bấm giữ và kéo để di chuyển vị trí phần tử trên trang"
                     >
                       <span>✥ Di chuyển</span>
                     </div>
 
-                    <span className="canvas__inspect-selected-tag">
+                    <span
+                      className="canvas__inspect-selected-tag"
+                      style={
+                        selectedEl.rect.top < 24
+                          ? { top: 2, left: 2, borderRadius: 3, boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }
+                          : undefined
+                      }
+                    >
                       {selectedEl.tagName}
                       {selectedEl.id ? `#${selectedEl.id}` : ''}
                     </span>
@@ -1144,7 +1550,7 @@ const CanvasArea = ({
                       Chưa có bản xem trước trực tiếp
                     </h3>
                     <p style={{ fontSize: 12.5, color: 'var(--text-3)', maxWidth: 380, marginBottom: 18 }}>
-                      Khởi động máy chủ phát triển của <b>{projectName}</b> để xem giao diện web hoạt động thực tế ngay trên khung này.
+                      Khởi động máy chủ phát triển của <b>{projectName}</b> để xem giao diện ứng dụng hoạt động thực tế ngay trên khung này.
                     </p>
                     {onRun && (
                       <button
@@ -1287,6 +1693,24 @@ const CanvasArea = ({
                           {selectedEl.domPath || selectedEl.tagName}
                         </div>
 
+                        {/* Đường dẫn tệp mã nguồn */}
+                        <div style={{ fontSize: 11, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: 5, lineHeight: 1.4, wordBreak: 'break-all' }}>
+                          <span style={{ color: '#64748b' }}>Source:</span>
+                          {isLocatingSource ? (
+                            <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Đang dò tệp mã nguồn...</span>
+                          ) : sourceLoc ? (
+                            <span
+                              title={`${sourceLoc.fullPath} (Bấm để xem diff & mã nguồn)`}
+                              style={{ fontFamily: 'monospace', color: '#38bdf8', cursor: 'pointer', textDecoration: 'underline' }}
+                              onClick={() => setInspectorTab('code')}
+                            >
+                              {sourceLoc.filePath}:{sourceLoc.lineNumber}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#64748b', fontStyle: 'italic' }}>Chưa xác định</span>
+                          )}
+                        </div>
+
                         {/* Class badges */}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
                           <span style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>
@@ -1342,7 +1766,47 @@ const CanvasArea = ({
                               type="text"
                               className="canvas__inspector-field-input"
                               value={selectedEl.textSnippet}
-                              onChange={(e) => handleApplyLiveChange(undefined, e.target.value)}
+                              onFocus={() => {
+                                initialTextRef.current = selectedEl.textSnippet
+                              }}
+                              onChange={(e) => handleApplyLiveChange(undefined, e.target.value, { skipHistory: true })}
+                              onBlur={() => {
+                                if (selectedEl.textSnippet !== initialTextRef.current) {
+                                  editorBuffer.pushAction({
+                                    type: 'TEXT',
+                                    description: `Sửa chữ: "${selectedEl.textSnippet.slice(0, 20)}..."`,
+                                    target: {
+                                      tagName: selectedEl.tagName,
+                                      id: selectedEl.id,
+                                      className: selectedEl.className,
+                                      domPath: selectedEl.domPath,
+                                      uid: selectedEl.uid,
+                                      selector: selectedEl.selector,
+                                      textSnippet: selectedEl.textSnippet,
+                                    },
+                                    sourceLoc: sourceLoc
+                                      ? {
+                                          filePath: sourceLoc.filePath,
+                                          fullPath: sourceLoc.fullPath,
+                                          lineNumber: sourceLoc.lineNumber,
+                                        }
+                                      : undefined,
+                                    before: {
+                                      styles: { ...selectedEl.computedStyles },
+                                      text: initialTextRef.current,
+                                      rect: { ...selectedEl.rect },
+                                    },
+                                    after: {
+                                      styles: { ...selectedEl.computedStyles },
+                                      text: selectedEl.textSnippet,
+                                      rect: { ...selectedEl.rect },
+                                    },
+                                  })
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') (e.target as HTMLElement).blur()
+                              }}
                               placeholder="Nhập nội dung chữ để đổi trực tiếp..."
                             />
                           </div>
@@ -1462,174 +1926,841 @@ const CanvasArea = ({
                                 <span className="canvas__slider-val">{selectedEl.computedStyles.gap || '0px'}</span>
                               </div>
                             </div>
+
+                            {/* Flex Wrap */}
+                            <div>
+                              <span className="canvas__inspector-field-lbl">Xuống dòng (Flex Wrap)</span>
+                              <div className="canvas__btn-group">
+                                {[
+                                  { label: 'Không (nowrap)', val: 'nowrap' },
+                                  { label: 'Tự xuống dòng (wrap)', val: 'wrap' },
+                                ].map((item) => (
+                                  <button
+                                    key={item.val}
+                                    className={`canvas__btn-group-item ${selectedEl.computedStyles.flexWrap === item.val ? 'active' : ''}`}
+                                    onClick={() => handleApplyLiveChange({ flexWrap: item.val })}
+                                  >
+                                    {item.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
                           </div>
                         )}
                       </div>
 
-                      {/* 3. KHOẢNG CÁCH TRỰC QUAN WEBFLOW BOX MODEL */}
+                      {/* 3. KHOẢNG CÁCH TRỰC QUAN WEBFLOW & DEVTOOLS BOX MODEL */}
                       <div className="canvas__inspector-card">
                         <div className="canvas__inspector-card-hd">
                           <Box size={13} style={{ color: '#f59e0b' }} />
                           <span>Khoảng cách Box Model (Margin & Padding)</span>
                         </div>
 
-                        {/* Mô hình lồng hộp Webflow */}
+                        {/* Sơ đồ lồng hộp tương tác trực tiếp 8 cạnh */}
                         <div className="canvas__box-model">
                           <div className="canvas__box-model-margin">
-                            <span className="canvas__box-model-label">Margin ({selectedEl.computedStyles.margin})</span>
+                            <span className="canvas__box-model-label" style={{ color: '#f59e0b' }}>Margin</span>
+                            {/* Margin Top */}
+                            <input
+                              type="text"
+                              className="canvas__box-model-input canvas__box-model-pos-top"
+                              title="Lề trên (Margin Top)"
+                              value={selectedEl.computedStyles.marginTop || '0px'}
+                              onChange={(e) => {
+                                const raw = e.target.value.replace(/px/g, '').trim()
+                                const val = raw === 'auto' ? 'auto' : `${parseInt(raw) || 0}px`
+                                handleApplyLiveChange({ marginTop: val }, undefined, { description: `Margin Top: ${val}`, actionType: 'STYLE' })
+                              }}
+                            />
+                            {/* Margin Bottom */}
+                            <input
+                              type="text"
+                              className="canvas__box-model-input canvas__box-model-pos-bottom"
+                              title="Lề dưới (Margin Bottom)"
+                              value={selectedEl.computedStyles.marginBottom || '0px'}
+                              onChange={(e) => {
+                                const raw = e.target.value.replace(/px/g, '').trim()
+                                const val = raw === 'auto' ? 'auto' : `${parseInt(raw) || 0}px`
+                                handleApplyLiveChange({ marginBottom: val }, undefined, { description: `Margin Bottom: ${val}`, actionType: 'STYLE' })
+                              }}
+                            />
+                            {/* Margin Left */}
+                            <input
+                              type="text"
+                              className="canvas__box-model-input canvas__box-model-pos-left"
+                              title="Lề trái (Margin Left)"
+                              value={selectedEl.computedStyles.marginLeft || '0px'}
+                              onChange={(e) => {
+                                const raw = e.target.value.replace(/px/g, '').trim()
+                                const val = raw === 'auto' ? 'auto' : `${parseInt(raw) || 0}px`
+                                handleApplyLiveChange({ marginLeft: val }, undefined, { description: `Margin Left: ${val}`, actionType: 'STYLE' })
+                              }}
+                            />
+                            {/* Margin Right */}
+                            <input
+                              type="text"
+                              className="canvas__box-model-input canvas__box-model-pos-right"
+                              title="Lề phải (Margin Right)"
+                              value={selectedEl.computedStyles.marginRight || '0px'}
+                              onChange={(e) => {
+                                const raw = e.target.value.replace(/px/g, '').trim()
+                                const val = raw === 'auto' ? 'auto' : `${parseInt(raw) || 0}px`
+                                handleApplyLiveChange({ marginRight: val }, undefined, { description: `Margin Right: ${val}`, actionType: 'STYLE' })
+                              }}
+                            />
+
+                            {/* Khối lồng Padding trong */}
                             <div className="canvas__box-model-padding">
-                              <span className="canvas__box-model-label" style={{ color: '#10b981' }}>
-                                Padding ({selectedEl.computedStyles.padding})
-                              </span>
-                              <div className="canvas__box-model-center">
+                              <span className="canvas__box-model-label" style={{ color: '#10b981' }}>Padding</span>
+                              {/* Padding Top */}
+                              <input
+                                type="text"
+                                className="canvas__box-model-input canvas__box-model-pos-top"
+                                title="Đệm trên (Padding Top)"
+                                value={selectedEl.computedStyles.paddingTop || '0px'}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/px/g, '').trim()
+                                  const val = `${parseInt(raw) || 0}px`
+                                  handleApplyLiveChange({ paddingTop: val }, undefined, { description: `Padding Top: ${val}`, actionType: 'STYLE' })
+                                }}
+                              />
+                              {/* Padding Bottom */}
+                              <input
+                                type="text"
+                                className="canvas__box-model-input canvas__box-model-pos-bottom"
+                                title="Đệm dưới (Padding Bottom)"
+                                value={selectedEl.computedStyles.paddingBottom || '0px'}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/px/g, '').trim()
+                                  const val = `${parseInt(raw) || 0}px`
+                                  handleApplyLiveChange({ paddingBottom: val }, undefined, { description: `Padding Bottom: ${val}`, actionType: 'STYLE' })
+                                }}
+                              />
+                              {/* Padding Left */}
+                              <input
+                                type="text"
+                                className="canvas__box-model-input canvas__box-model-pos-left"
+                                title="Đệm trái (Padding Left)"
+                                value={selectedEl.computedStyles.paddingLeft || '0px'}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/px/g, '').trim()
+                                  const val = `${parseInt(raw) || 0}px`
+                                  handleApplyLiveChange({ paddingLeft: val }, undefined, { description: `Padding Left: ${val}`, actionType: 'STYLE' })
+                                }}
+                              />
+                              {/* Padding Right */}
+                              <input
+                                type="text"
+                                className="canvas__box-model-input canvas__box-model-pos-right"
+                                title="Đệm phải (Padding Right)"
+                                value={selectedEl.computedStyles.paddingRight || '0px'}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/px/g, '').trim()
+                                  const val = `${parseInt(raw) || 0}px`
+                                  handleApplyLiveChange({ paddingRight: val }, undefined, { description: `Padding Right: ${val}`, actionType: 'STYLE' })
+                                }}
+                              />
+
+                              {/* Kích thước nội dung chính */}
+                              <div className="canvas__box-model-center" title="Kích thước thực tế">
                                 {selectedEl.computedStyles.width} × {selectedEl.computedStyles.height}
                               </div>
                             </div>
                           </div>
                         </div>
 
-                        {/* Bộ điều khiển 4 cạnh Margin & Padding */}
-                        <div className="canvas__inspector-grid">
-                          <div className="canvas__inspector-prop-card">
-                            <span className="canvas__inspector-prop-lbl">Padding (Trong)</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {/* Bộ điều khiển chi tiết Lề ngoài (Margin) */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span className="canvas__inspector-field-lbl" style={{ color: '#f59e0b', fontWeight: 600 }}>
+                              Lề Ngoài (Margin: {selectedEl.computedStyles.margin})
+                            </span>
+                            <div style={{ display: 'flex', gap: 4 }}>
                               <button
-                                className="canvas__tool-btn"
-                                style={{ width: 20, height: 20 }}
-                                onClick={() => {
-                                  const cur = parseInt(selectedEl.computedStyles.paddingTop) || 0
-                                  handleApplyLiveChange({ padding: `${Math.max(0, cur - 4)}px` })
-                                }}
+                                className="canvas__btn-group-item"
+                                style={{ background: '#1c202d', borderRadius: 4, padding: '2px 6px', fontSize: 10 }}
+                                title="Căn giữa nội dung ngang"
+                                onClick={() => handleApplyLiveChange({ marginLeft: 'auto', marginRight: 'auto' }, undefined, { description: 'Margin: Auto Giữa', actionType: 'STYLE' })}
                               >
-                                -
+                                Auto
                               </button>
-                              <span className="canvas__inspector-prop-val">{selectedEl.computedStyles.padding}</span>
                               <button
-                                className="canvas__tool-btn"
-                                style={{ width: 20, height: 20 }}
-                                onClick={() => {
-                                  const cur = parseInt(selectedEl.computedStyles.paddingTop) || 0
-                                  handleApplyLiveChange({ padding: `${cur + 4}px` })
-                                }}
+                                className="canvas__btn-group-item"
+                                style={{ background: '#1c202d', borderRadius: 4, padding: '2px 6px', fontSize: 10 }}
+                                onClick={() => handleApplyLiveChange({ marginTop: '0px', marginRight: '0px', marginBottom: '0px', marginLeft: '0px' }, undefined, { description: 'Xóa Margin', actionType: 'STYLE' })}
                               >
-                                +
+                                0px
+                              </button>
+                              <button
+                                className="canvas__btn-group-item"
+                                style={{ background: '#1c202d', borderRadius: 4, padding: '2px 6px', fontSize: 10 }}
+                                onClick={() => handleApplyLiveChange({ marginTop: '16px', marginRight: '16px', marginBottom: '16px', marginLeft: '16px' }, undefined, { description: 'Margin: 16px', actionType: 'STYLE' })}
+                              >
+                                16px
                               </button>
                             </div>
                           </div>
 
-                          <div className="canvas__inspector-prop-card">
-                            <span className="canvas__inspector-prop-lbl">Margin (Ngoài)</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <div className="canvas__box-model-4col">
+                            {/* Margin Top */}
+                            <div className="canvas__inspector-prop-card" style={{ padding: '4px 6px' }}>
+                              <span className="canvas__inspector-prop-lbl">Trên (T)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.marginTop) || 0
+                                    const next = Math.max(0, cur - 2)
+                                    handleApplyLiveChange({ marginTop: `${next}px` }, undefined, { description: `Margin Top: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="canvas__inspector-field-input"
+                                  style={{ padding: '0 2px', height: 20, textAlign: 'center', fontFamily: 'monospace', fontSize: 10 }}
+                                  value={parseInt(selectedEl.computedStyles.marginTop) || 0}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0
+                                    handleApplyLiveChange({ marginTop: `${val}px` }, undefined, { description: `Margin Top: ${val}px`, actionType: 'STYLE' })
+                                  }}
+                                />
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.marginTop) || 0
+                                    const next = cur + 2
+                                    handleApplyLiveChange({ marginTop: `${next}px` }, undefined, { description: `Margin Top: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Margin Right */}
+                            <div className="canvas__inspector-prop-card" style={{ padding: '4px 6px' }}>
+                              <span className="canvas__inspector-prop-lbl">Phải (R)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.marginRight) || 0
+                                    const next = Math.max(0, cur - 2)
+                                    handleApplyLiveChange({ marginRight: `${next}px` }, undefined, { description: `Margin Right: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="canvas__inspector-field-input"
+                                  style={{ padding: '0 2px', height: 20, textAlign: 'center', fontFamily: 'monospace', fontSize: 10 }}
+                                  value={parseInt(selectedEl.computedStyles.marginRight) || 0}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0
+                                    handleApplyLiveChange({ marginRight: `${val}px` }, undefined, { description: `Margin Right: ${val}px`, actionType: 'STYLE' })
+                                  }}
+                                />
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.marginRight) || 0
+                                    const next = cur + 2
+                                    handleApplyLiveChange({ marginRight: `${next}px` }, undefined, { description: `Margin Right: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Margin Bottom */}
+                            <div className="canvas__inspector-prop-card" style={{ padding: '4px 6px' }}>
+                              <span className="canvas__inspector-prop-lbl">Dưới (B)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.marginBottom) || 0
+                                    const next = Math.max(0, cur - 2)
+                                    handleApplyLiveChange({ marginBottom: `${next}px` }, undefined, { description: `Margin Bottom: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="canvas__inspector-field-input"
+                                  style={{ padding: '0 2px', height: 20, textAlign: 'center', fontFamily: 'monospace', fontSize: 10 }}
+                                  value={parseInt(selectedEl.computedStyles.marginBottom) || 0}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0
+                                    handleApplyLiveChange({ marginBottom: `${val}px` }, undefined, { description: `Margin Bottom: ${val}px`, actionType: 'STYLE' })
+                                  }}
+                                />
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.marginBottom) || 0
+                                    const next = cur + 2
+                                    handleApplyLiveChange({ marginBottom: `${next}px` }, undefined, { description: `Margin Bottom: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Margin Left */}
+                            <div className="canvas__inspector-prop-card" style={{ padding: '4px 6px' }}>
+                              <span className="canvas__inspector-prop-lbl">Trái (L)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.marginLeft) || 0
+                                    const next = Math.max(0, cur - 2)
+                                    handleApplyLiveChange({ marginLeft: `${next}px` }, undefined, { description: `Margin Left: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="canvas__inspector-field-input"
+                                  style={{ padding: '0 2px', height: 20, textAlign: 'center', fontFamily: 'monospace', fontSize: 10 }}
+                                  value={parseInt(selectedEl.computedStyles.marginLeft) || 0}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0
+                                    handleApplyLiveChange({ marginLeft: `${val}px` }, undefined, { description: `Margin Left: ${val}px`, actionType: 'STYLE' })
+                                  }}
+                                />
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.marginLeft) || 0
+                                    const next = cur + 2
+                                    handleApplyLiveChange({ marginLeft: `${next}px` }, undefined, { description: `Margin Left: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Bộ điều khiển chi tiết Đệm trong (Padding) */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span className="canvas__inspector-field-lbl" style={{ color: '#10b981', fontWeight: 600 }}>
+                              Đệm Trong (Padding: {selectedEl.computedStyles.padding})
+                            </span>
+                            <div style={{ display: 'flex', gap: 4 }}>
                               <button
-                                className="canvas__tool-btn"
-                                style={{ width: 20, height: 20 }}
-                                onClick={() => {
-                                  const cur = parseInt(selectedEl.computedStyles.marginTop) || 0
-                                  handleApplyLiveChange({ margin: `${Math.max(0, cur - 4)}px` })
-                                }}
+                                className="canvas__btn-group-item"
+                                style={{ background: '#1c202d', borderRadius: 4, padding: '2px 6px', fontSize: 10 }}
+                                title="Đệm tiêu chuẩn cho nút bấm"
+                                onClick={() => handleApplyLiveChange({ paddingTop: '8px', paddingBottom: '8px', paddingLeft: '16px', paddingRight: '16px' }, undefined, { description: 'Padding: Nút (8x16)', actionType: 'STYLE' })}
                               >
-                                -
+                                Nút
                               </button>
-                              <span className="canvas__inspector-prop-val">{selectedEl.computedStyles.margin}</span>
                               <button
-                                className="canvas__tool-btn"
-                                style={{ width: 20, height: 20 }}
-                                onClick={() => {
-                                  const cur = parseInt(selectedEl.computedStyles.marginTop) || 0
-                                  handleApplyLiveChange({ margin: `${cur + 4}px` })
-                                }}
+                                className="canvas__btn-group-item"
+                                style={{ background: '#1c202d', borderRadius: 4, padding: '2px 6px', fontSize: 10 }}
+                                title="Đệm tiêu chuẩn cho Thẻ Card"
+                                onClick={() => handleApplyLiveChange({ paddingTop: '16px', paddingBottom: '16px', paddingLeft: '24px', paddingRight: '24px' }, undefined, { description: 'Padding: Card (16x24)', actionType: 'STYLE' })}
                               >
-                                +
+                                Card
                               </button>
+                              <button
+                                className="canvas__btn-group-item"
+                                style={{ background: '#1c202d', borderRadius: 4, padding: '2px 6px', fontSize: 10 }}
+                                onClick={() => handleApplyLiveChange({ paddingTop: '0px', paddingBottom: '0px', paddingLeft: '0px', paddingRight: '0px' }, undefined, { description: 'Xóa Padding', actionType: 'STYLE' })}
+                              >
+                                0px
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="canvas__box-model-4col">
+                            {/* Padding Top */}
+                            <div className="canvas__inspector-prop-card" style={{ padding: '4px 6px' }}>
+                              <span className="canvas__inspector-prop-lbl">Trên (T)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.paddingTop) || 0
+                                    const next = Math.max(0, cur - 2)
+                                    handleApplyLiveChange({ paddingTop: `${next}px` }, undefined, { description: `Padding Top: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="canvas__inspector-field-input"
+                                  style={{ padding: '0 2px', height: 20, textAlign: 'center', fontFamily: 'monospace', fontSize: 10 }}
+                                  value={parseInt(selectedEl.computedStyles.paddingTop) || 0}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0
+                                    handleApplyLiveChange({ paddingTop: `${val}px` }, undefined, { description: `Padding Top: ${val}px`, actionType: 'STYLE' })
+                                  }}
+                                />
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.paddingTop) || 0
+                                    const next = cur + 2
+                                    handleApplyLiveChange({ paddingTop: `${next}px` }, undefined, { description: `Padding Top: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Padding Right */}
+                            <div className="canvas__inspector-prop-card" style={{ padding: '4px 6px' }}>
+                              <span className="canvas__inspector-prop-lbl">Phải (R)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.paddingRight) || 0
+                                    const next = Math.max(0, cur - 2)
+                                    handleApplyLiveChange({ paddingRight: `${next}px` }, undefined, { description: `Padding Right: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="canvas__inspector-field-input"
+                                  style={{ padding: '0 2px', height: 20, textAlign: 'center', fontFamily: 'monospace', fontSize: 10 }}
+                                  value={parseInt(selectedEl.computedStyles.paddingRight) || 0}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0
+                                    handleApplyLiveChange({ paddingRight: `${val}px` }, undefined, { description: `Padding Right: ${val}px`, actionType: 'STYLE' })
+                                  }}
+                                />
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.paddingRight) || 0
+                                    const next = cur + 2
+                                    handleApplyLiveChange({ paddingRight: `${next}px` }, undefined, { description: `Padding Right: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Padding Bottom */}
+                            <div className="canvas__inspector-prop-card" style={{ padding: '4px 6px' }}>
+                              <span className="canvas__inspector-prop-lbl">Dưới (B)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.paddingBottom) || 0
+                                    const next = Math.max(0, cur - 2)
+                                    handleApplyLiveChange({ paddingBottom: `${next}px` }, undefined, { description: `Padding Bottom: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="canvas__inspector-field-input"
+                                  style={{ padding: '0 2px', height: 20, textAlign: 'center', fontFamily: 'monospace', fontSize: 10 }}
+                                  value={parseInt(selectedEl.computedStyles.paddingBottom) || 0}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0
+                                    handleApplyLiveChange({ paddingBottom: `${val}px` }, undefined, { description: `Padding Bottom: ${val}px`, actionType: 'STYLE' })
+                                  }}
+                                />
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.paddingBottom) || 0
+                                    const next = cur + 2
+                                    handleApplyLiveChange({ paddingBottom: `${next}px` }, undefined, { description: `Padding Bottom: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Padding Left */}
+                            <div className="canvas__inspector-prop-card" style={{ padding: '4px 6px' }}>
+                              <span className="canvas__inspector-prop-lbl">Trái (L)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.paddingLeft) || 0
+                                    const next = Math.max(0, cur - 2)
+                                    handleApplyLiveChange({ paddingLeft: `${next}px` }, undefined, { description: `Padding Left: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="canvas__inspector-field-input"
+                                  style={{ padding: '0 2px', height: 20, textAlign: 'center', fontFamily: 'monospace', fontSize: 10 }}
+                                  value={parseInt(selectedEl.computedStyles.paddingLeft) || 0}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0
+                                    handleApplyLiveChange({ paddingLeft: `${val}px` }, undefined, { description: `Padding Left: ${val}px`, actionType: 'STYLE' })
+                                  }}
+                                />
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 18, height: 18, fontSize: 11 }}
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.paddingLeft) || 0
+                                    const next = cur + 2
+                                    handleApplyLiveChange({ paddingLeft: `${next}px` }, undefined, { description: `Padding Left: ${next}px`, actionType: 'STYLE' })
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
 
-                      {/* 4. KÍCH THƯỚC & TỌA ĐỘ (DIMENSIONS) */}
+                      {/* 4. VỊ TRÍ & KÍCH THƯỚC (WINFORMS LOCATION & SIZE) */}
                       <div className="canvas__inspector-card">
                         <div className="canvas__inspector-card-hd">
                           <Compass size={13} style={{ color: '#06b6d4' }} />
-                          <span>Kích thước & Vị trí tọa độ</span>
+                          <span>Vị trí & Kích thước (Location & Size)</span>
                         </div>
-                        <div className="canvas__inspector-grid">
-                          <div className="canvas__inspector-prop-card">
-                            <span className="canvas__inspector-prop-lbl">Chiều rộng (Width)</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <button
-                                className="canvas__tool-btn"
-                                style={{ width: 20, height: 20 }}
-                                onClick={() => {
-                                  const cur = parseInt(selectedEl.computedStyles.width) || 50
-                                  handleApplyLiveChange({ width: `${Math.max(10, cur - 10)}px` })
-                                }}
-                              >
-                                -
-                              </button>
-                              <span className="canvas__inspector-prop-val">{selectedEl.computedStyles.width}</span>
-                              <button
-                                className="canvas__tool-btn"
-                                style={{ width: 20, height: 20 }}
-                                onClick={() => {
-                                  const cur = parseInt(selectedEl.computedStyles.width) || 50
-                                  handleApplyLiveChange({ width: `${cur + 10}px` })
-                                }}
-                              >
-                                +
-                              </button>
+
+                        {/* Nhóm 1: Vị trí tọa độ (Location: X, Y) */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <span className="canvas__inspector-field-lbl" style={{ color: '#38bdf8', fontWeight: 600 }}>
+                            Vị trí tọa độ (Location: X, Y)
+                          </span>
+                          <div className="canvas__inspector-grid">
+                            {/* Tọa độ X (Left) */}
+                            <div className="canvas__inspector-prop-card">
+                              <span className="canvas__inspector-prop-lbl">Tọa độ X (Left)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 22, height: 22 }}
+                                  title="Giảm X (-5px)"
+                                  onClick={() => {
+                                    const curX = parseInt(selectedEl.computedStyles.left || '0') || 0
+                                    const nextX = curX - 5
+                                    const curPos = selectedEl.computedStyles.position
+                                    const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+                                    handleApplyLiveChange(
+                                      {
+                                        position: targetPos,
+                                        left: `${nextX}px`,
+                                      },
+                                      undefined,
+                                      { description: `Dịch X: ${nextX}px`, actionType: 'MOVE' }
+                                    )
+                                  }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="canvas__inspector-field-input"
+                                  style={{ padding: '2px 6px', height: 24, textAlign: 'center', fontFamily: 'monospace' }}
+                                  value={parseInt(selectedEl.computedStyles.left || '0') || 0}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0
+                                    const curPos = selectedEl.computedStyles.position
+                                    const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+                                    handleApplyLiveChange(
+                                      {
+                                        position: targetPos,
+                                        left: `${val}px`,
+                                      },
+                                      undefined,
+                                      { description: `Tọa độ X: ${val}px`, actionType: 'MOVE' }
+                                    )
+                                  }}
+                                />
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 22, height: 22 }}
+                                  title="Tăng X (+5px)"
+                                  onClick={() => {
+                                    const curX = parseInt(selectedEl.computedStyles.left || '0') || 0
+                                    const nextX = curX + 5
+                                    const curPos = selectedEl.computedStyles.position
+                                    const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+                                    handleApplyLiveChange(
+                                      {
+                                        position: targetPos,
+                                        left: `${nextX}px`,
+                                      },
+                                      undefined,
+                                      { description: `Dịch X: ${nextX}px`, actionType: 'MOVE' }
+                                    )
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Tọa độ Y (Top) */}
+                            <div className="canvas__inspector-prop-card">
+                              <span className="canvas__inspector-prop-lbl">Tọa độ Y (Top)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 22, height: 22 }}
+                                  title="Giảm Y (-5px)"
+                                  onClick={() => {
+                                    const curY = parseInt(selectedEl.computedStyles.top || '0') || 0
+                                    const nextY = curY - 5
+                                    const curPos = selectedEl.computedStyles.position
+                                    const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+                                    handleApplyLiveChange(
+                                      {
+                                        position: targetPos,
+                                        top: `${nextY}px`,
+                                      },
+                                      undefined,
+                                      { description: `Dịch Y: ${nextY}px`, actionType: 'MOVE' }
+                                    )
+                                  }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="canvas__inspector-field-input"
+                                  style={{ padding: '2px 6px', height: 24, textAlign: 'center', fontFamily: 'monospace' }}
+                                  value={parseInt(selectedEl.computedStyles.top || '0') || 0}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0
+                                    const curPos = selectedEl.computedStyles.position
+                                    const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+                                    handleApplyLiveChange(
+                                      {
+                                        position: targetPos,
+                                        top: `${val}px`,
+                                      },
+                                      undefined,
+                                      { description: `Tọa độ Y: ${val}px`, actionType: 'MOVE' }
+                                    )
+                                  }}
+                                />
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 22, height: 22 }}
+                                  title="Tăng Y (+5px)"
+                                  onClick={() => {
+                                    const curY = parseInt(selectedEl.computedStyles.top || '0') || 0
+                                    const nextY = curY + 5
+                                    const curPos = selectedEl.computedStyles.position
+                                    const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+                                    handleApplyLiveChange(
+                                      {
+                                        position: targetPos,
+                                        top: `${nextY}px`,
+                                      },
+                                      undefined,
+                                      { description: `Dịch Y: ${nextY}px`, actionType: 'MOVE' }
+                                    )
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
                             </div>
                           </div>
 
-                          <div className="canvas__inspector-prop-card">
-                            <span className="canvas__inspector-prop-lbl">Chiều cao (Height)</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <button
-                                className="canvas__tool-btn"
-                                style={{ width: 20, height: 20 }}
-                                onClick={() => {
-                                  const cur = parseInt(selectedEl.computedStyles.height) || 30
-                                  handleApplyLiveChange({ height: `${Math.max(10, cur - 10)}px` })
-                                }}
-                              >
-                                -
-                              </button>
-                              <span className="canvas__inspector-prop-val">{selectedEl.computedStyles.height}</span>
-                              <button
-                                className="canvas__tool-btn"
-                                style={{ width: 20, height: 20 }}
-                                onClick={() => {
-                                  const cur = parseInt(selectedEl.computedStyles.height) || 30
-                                  handleApplyLiveChange({ height: `${cur + 10}px` })
-                                }}
-                              >
-                                +
-                              </button>
-                            </div>
+                          {/* Preset vị trí */}
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              className="canvas__btn-group-item"
+                              style={{ background: '#1c202d', borderRadius: 4, padding: '3px 8px', fontSize: 10.5 }}
+                              onClick={() => {
+                                const curPos = selectedEl.computedStyles.position
+                                const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+                                handleApplyLiveChange({ position: targetPos, left: '0px' }, undefined, { description: 'Đặt X = 0', actionType: 'MOVE' })
+                              }}
+                            >
+                              X: 0
+                            </button>
+                            <button
+                              className="canvas__btn-group-item"
+                              style={{ background: '#1c202d', borderRadius: 4, padding: '3px 8px', fontSize: 10.5 }}
+                              onClick={() => {
+                                const curPos = selectedEl.computedStyles.position
+                                const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+                                handleApplyLiveChange({ position: targetPos, top: '0px' }, undefined, { description: 'Đặt Y = 0', actionType: 'MOVE' })
+                              }}
+                            >
+                              Y: 0
+                            </button>
+                            <button
+                              className="canvas__btn-group-item"
+                              style={{ background: '#1c202d', borderRadius: 4, padding: '3px 8px', fontSize: 10.5 }}
+                              onClick={() => {
+                                const curPos = selectedEl.computedStyles.position
+                                const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+                                handleApplyLiveChange({ position: targetPos, left: '0px', top: '0px' }, undefined, { description: 'Về gốc (0, 0)', actionType: 'MOVE' })
+                              }}
+                            >
+                              Về gốc (0, 0)
+                            </button>
                           </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button
-                            className="canvas__btn-group-item"
-                            style={{ background: '#1c202d', borderRadius: 4, padding: '4px 8px' }}
-                            onClick={() => handleApplyLiveChange({ width: 'auto' })}
-                          >
-                            Width: Auto
-                          </button>
-                          <button
-                            className="canvas__btn-group-item"
-                            style={{ background: '#1c202d', borderRadius: 4, padding: '4px 8px' }}
-                            onClick={() => handleApplyLiveChange({ width: '100%' })}
-                          >
-                            Width: 100%
-                          </button>
-                          <button
-                            className="canvas__btn-group-item"
-                            style={{ background: '#1c202d', borderRadius: 4, padding: '4px 8px' }}
-                            onClick={() => handleApplyLiveChange({ height: 'auto' })}
-                          >
-                            Height: Auto
-                          </button>
+                        {/* Nhóm 2: Kích thước (Size: Width, Height) */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                          <span className="canvas__inspector-field-lbl" style={{ color: '#06b6d4', fontWeight: 600 }}>
+                            Kích thước (Size: Width, Height)
+                          </span>
+                          <div className="canvas__inspector-grid">
+                            {/* Chiều rộng (Width) */}
+                            <div className="canvas__inspector-prop-card">
+                              <span className="canvas__inspector-prop-lbl">Chiều rộng (W)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 22, height: 22 }}
+                                  title="Thu hẹp (-10px)"
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.width) || Math.round(selectedEl.rect.width) || 50
+                                    const nextW = Math.max(10, cur - 10)
+                                    handleApplyLiveChange({ width: `${nextW}px` }, undefined, { description: `Rộng: ${nextW}px`, actionType: 'RESIZE' })
+                                  }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="canvas__inspector-field-input"
+                                  style={{ padding: '2px 6px', height: 24, textAlign: 'center', fontFamily: 'monospace' }}
+                                  value={parseInt(selectedEl.computedStyles.width) || Math.round(selectedEl.rect.width) || 0}
+                                  onChange={(e) => {
+                                    const val = Math.max(10, parseInt(e.target.value) || 10)
+                                    handleApplyLiveChange({ width: `${val}px` }, undefined, { description: `Rộng: ${val}px`, actionType: 'RESIZE' })
+                                  }}
+                                />
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 22, height: 22 }}
+                                  title="Mở rộng (+10px)"
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.width) || Math.round(selectedEl.rect.width) || 50
+                                    const nextW = cur + 10
+                                    handleApplyLiveChange({ width: `${nextW}px` }, undefined, { description: `Rộng: ${nextW}px`, actionType: 'RESIZE' })
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Chiều cao (Height) */}
+                            <div className="canvas__inspector-prop-card">
+                              <span className="canvas__inspector-prop-lbl">Chiều cao (H)</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 22, height: 22 }}
+                                  title="Giảm cao (-10px)"
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.height) || Math.round(selectedEl.rect.height) || 30
+                                    const nextH = Math.max(10, cur - 10)
+                                    handleApplyLiveChange({ height: `${nextH}px` }, undefined, { description: `Cao: ${nextH}px`, actionType: 'RESIZE' })
+                                  }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  className="canvas__inspector-field-input"
+                                  style={{ padding: '2px 6px', height: 24, textAlign: 'center', fontFamily: 'monospace' }}
+                                  value={parseInt(selectedEl.computedStyles.height) || Math.round(selectedEl.rect.height) || 0}
+                                  onChange={(e) => {
+                                    const val = Math.max(10, parseInt(e.target.value) || 10)
+                                    handleApplyLiveChange({ height: `${val}px` }, undefined, { description: `Cao: ${val}px`, actionType: 'RESIZE' })
+                                  }}
+                                />
+                                <button
+                                  className="canvas__tool-btn"
+                                  style={{ width: 22, height: 22 }}
+                                  title="Tăng cao (+10px)"
+                                  onClick={() => {
+                                    const cur = parseInt(selectedEl.computedStyles.height) || Math.round(selectedEl.rect.height) || 30
+                                    const nextH = cur + 10
+                                    handleApplyLiveChange({ height: `${nextH}px` }, undefined, { description: `Cao: ${nextH}px`, actionType: 'RESIZE' })
+                                  }}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Preset kích thước */}
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              className="canvas__btn-group-item"
+                              style={{ background: '#1c202d', borderRadius: 4, padding: '3px 8px', fontSize: 10.5 }}
+                              onClick={() => handleApplyLiveChange({ width: 'auto' }, undefined, { description: 'Rộng: Auto', actionType: 'RESIZE' })}
+                            >
+                              Auto W
+                            </button>
+                            <button
+                              className="canvas__btn-group-item"
+                              style={{ background: '#1c202d', borderRadius: 4, padding: '3px 8px', fontSize: 10.5 }}
+                              onClick={() => handleApplyLiveChange({ width: '100%' }, undefined, { description: 'Rộng: 100%', actionType: 'RESIZE' })}
+                            >
+                              100% W
+                            </button>
+                            <button
+                              className="canvas__btn-group-item"
+                              style={{ background: '#1c202d', borderRadius: 4, padding: '3px 8px', fontSize: 10.5 }}
+                              onClick={() => handleApplyLiveChange({ height: 'auto' }, undefined, { description: 'Cao: Auto', actionType: 'RESIZE' })}
+                            >
+                              Auto H
+                            </button>
+                            <button
+                              className="canvas__btn-group-item"
+                              style={{ background: '#1c202d', borderRadius: 4, padding: '3px 8px', fontSize: 10.5 }}
+                              onClick={() => handleApplyLiveChange({ width: '100%', height: '100%' }, undefined, { description: 'Fill 100%', actionType: 'RESIZE' })}
+                            >
+                              Fill
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -1781,6 +2912,30 @@ const CanvasArea = ({
                               />
                             ))}
                           </div>
+                          {projectTokens?.colors && projectTokens.colors.length > 0 && (
+                            <div style={{ marginTop: 6 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                                <span style={{ fontSize: 10, color: '#94a3b8' }}>Màu Theme (Design Tokens):</span>
+                                <button
+                                  style={{ background: 'none', border: 'none', color: '#38bdf8', fontSize: 10, cursor: 'pointer' }}
+                                  onClick={() => setIsTokensDialogOpen(true)}
+                                >
+                                  Quản lý Tokens
+                                </button>
+                              </div>
+                              <div className="canvas__swatch-row">
+                                {projectTokens.colors.slice(0, 10).map((c) => (
+                                  <button
+                                    key={c.id}
+                                    className="canvas__swatch-btn"
+                                    style={{ background: c.value }}
+                                    title={`${c.name} (${c.value})`}
+                                    onClick={() => handleApplyLiveChange({ color: c.value })}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1821,6 +2976,30 @@ const CanvasArea = ({
                               />
                             ))}
                           </div>
+                          {projectTokens?.colors && projectTokens.colors.length > 0 && (
+                            <div style={{ marginTop: 6 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+                                <span style={{ fontSize: 10, color: '#94a3b8' }}>Màu Theme (Design Tokens):</span>
+                                <button
+                                  style={{ background: 'none', border: 'none', color: '#38bdf8', fontSize: 10, cursor: 'pointer' }}
+                                  onClick={() => setIsTokensDialogOpen(true)}
+                                >
+                                  Quản lý Tokens
+                                </button>
+                              </div>
+                              <div className="canvas__swatch-row">
+                                {projectTokens.colors.slice(0, 10).map((c) => (
+                                  <button
+                                    key={c.id}
+                                    className="canvas__swatch-btn"
+                                    style={{ background: c.value }}
+                                    title={`${c.name} (${c.value})`}
+                                    onClick={() => handleApplyLiveChange({ backgroundColor: c.value, backgroundImage: 'none' })}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* Preset Gradients */}
@@ -1980,6 +3159,30 @@ const CanvasArea = ({
                           ))}
                         </div>
                       </div>
+
+                      {/* 9. CON TRỎ CHUỘT & TƯƠNG TÁC (CURSOR) */}
+                      <div className="canvas__inspector-card">
+                        <div className="canvas__inspector-card-hd">
+                          <MousePointer2 size={13} style={{ color: '#06b6d4' }} />
+                          <span>Con trỏ chuột & Tương tác (Cursor)</span>
+                        </div>
+                        <div className="canvas__btn-group">
+                          {[
+                            { label: 'Mặc định', val: 'default' },
+                            { label: 'Bàn tay (pointer)', val: 'pointer' },
+                            { label: 'Chữ (text)', val: 'text' },
+                            { label: 'Cấm (not-allowed)', val: 'not-allowed' },
+                          ].map((c) => (
+                            <button
+                              key={c.val}
+                              className={`canvas__btn-group-item ${(selectedEl.computedStyles as any).cursor === c.val ? 'active' : ''}`}
+                              onClick={() => handleApplyLiveChange({ cursor: c.val }, undefined, { description: `Con trỏ: ${c.val}`, actionType: 'STYLE' })}
+                            >
+                              {c.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </>
                   ) : (
                     /* TAB 2: ĐỒNG BỘ MÃ NGUỒN THẬT (TWO-WAY CODE SYNC) */
@@ -2064,7 +3267,7 @@ const CanvasArea = ({
                           <span>Cách hoạt động của Code Sync Engine</span>
                         </div>
                         <p style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.6, margin: 0 }}>
-                          Khi bạn bấm nút <b>Lưu thay đổi vào mã nguồn thật</b>, PixelMind sẽ ghi trực tiếp vào tệp mã nguồn (.cshtml, .tsx, .jsx, .html) trên máy tính. Vite Dev Server hoặc .NET Core sẽ lập tức nhận diện tệp thay đổi và tải lại trang web vĩnh viễn!
+                          Khi bạn bấm nút <b>Lưu thay đổi vào mã nguồn thật</b>, PixelMind sẽ ghi trực tiếp vào tệp mã nguồn (.cshtml, .tsx, .jsx, .html, .vue, .svelte, .py, .php...) trên máy tính. Máy chủ phát triển sẽ lập tức nhận diện tệp thay đổi và cập nhật giao diện vĩnh viễn!
                         </p>
                       </div>
                     </div>
@@ -2073,6 +3276,21 @@ const CanvasArea = ({
 
                 {/* Footer Side Panel cố định ở đáy */}
                 <div className="canvas__inspector-ft">
+                  {/* Trạng thái RAM Designer Buffer (WinForms Model) */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontSize: 11 }}>
+                    {isDirtyBuffer ? (
+                      <span style={{ color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} />
+                        <span>Có thay đổi trong RAM (<b>Ctrl+S</b> hoặc <b>▶ Run</b> để lưu)</span>
+                      </span>
+                    ) : (
+                      <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
+                        <span>Mã nguồn đã đồng bộ sạch</span>
+                      </span>
+                    )}
+                  </div>
+
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button
                       className="btn secondary"
@@ -2087,55 +3305,39 @@ const CanvasArea = ({
                         borderRadius: 6,
                       }}
                       onClick={handleResetOriginal}
-                      title="Khôi phục thuộc tính và kích thước ban đầu"
+                      title="Khôi phục thuộc tính và kích thước ban đầu (có thể hoàn tác Ctrl+Z)"
                     >
                       <RotateCcw size={13} /> Khôi phục gốc
                     </button>
 
-                    {sourceLoc && (
-                      <button
-                        className="btn primary"
-                        style={{
-                          flex: 1.2,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 6,
-                          height: 32,
-                          fontSize: 11.5,
-                          fontWeight: 700,
-                          borderRadius: 6,
-                          background: '#10b981',
-                          color: '#fff',
-                        }}
-                        disabled={isSyncingCode}
-                        onClick={handleSyncCodeToFile}
-                        title="Ghi trực tiếp thay đổi vào tệp mã nguồn trên ổ đĩa"
-                      >
-                        <Check size={13} /> Lưu vào code
-                      </button>
-                    )}
+                    <button
+                      className="btn primary"
+                      style={{
+                        flex: 1.2,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        height: 32,
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        borderRadius: 6,
+                        background: isDirtyBuffer ? '#10b981' : '#334155',
+                        color: '#fff',
+                        opacity: isDirtyBuffer ? 1 : 0.7,
+                      }}
+                      disabled={isSyncingCode}
+                      onClick={async () => {
+                        setIsSyncingCode(true)
+                        await editorBuffer.saveAllDirtyFiles(showToast)
+                        setIsSyncingCode(false)
+                      }}
+                      title="Lưu tất cả thay đổi trong RAM vào tệp mã nguồn thật trên ổ đĩa (Ctrl+S)"
+                    >
+                      <Check size={13} /> {isDirtyBuffer ? 'Lưu mã nguồn (Ctrl+S)' : 'Đã lưu (Ctrl+S)'}
+                    </button>
                   </div>
 
-                  <button
-                    className="btn primary"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 7,
-                      height: 34,
-                      fontSize: 12,
-                      fontWeight: 650,
-                      borderRadius: 6,
-                      background: 'linear-gradient(135deg, #6d5df5, #8b5cf6)',
-                      color: '#fff',
-                      boxShadow: '0 4px 14px rgba(109, 93, 245, 0.35)',
-                    }}
-                    onClick={() => showToast('Phân hệ 5 (AI Component Modifier) đang được phát triển, sẽ ra mắt ở bước tiếp theo!')}
-                  >
-                    <Sparkles size={14} /> Nhờ AI sửa phần tử này
-                  </button>
                 </div>
               </>
             ) : (
@@ -2145,7 +3347,7 @@ const CanvasArea = ({
                 </div>
                 <h4>Chế độ Soi phần tử đang bật</h4>
                 <p>
-                  Rê chuột vào trang web bên trái và <b>nhấp vào bất kỳ thành phần nào</b> (nút bấm, tiêu đề, menu, thẻ) để mở bảng thông số và sửa trực tiếp.
+                  Rê chuột vào giao diện xem trước bên trái và <b>nhấp vào bất kỳ thành phần nào</b> (nút bấm, tiêu đề, menu, thẻ) để mở bảng thông số và sửa trực tiếp.
                 </p>
 
                 <div className="canvas__inspector-shortcuts">
@@ -2171,6 +3373,16 @@ const CanvasArea = ({
           </aside>
         )}
       </div>
+
+      {isTokensDialogOpen && (
+        <DesignTokensDialog
+          projectPath={projectPath}
+          projectName={projectName}
+          onClose={() => setIsTokensDialogOpen(false)}
+          showToast={showToast}
+          onTokensUpdated={(t) => setProjectTokens(t)}
+        />
+      )}
     </div>
   )
 }
