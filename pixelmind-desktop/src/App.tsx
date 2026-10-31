@@ -964,9 +964,6 @@ const App = () => {
               onShowInFolder={(path) => void api.fs.showInFolder(path)}
               onOpenFileExternal={(path) => void api.fs.openPath(path)}
               previewUrl={previewUrl}
-              onPreviewUrlChange={setPreviewUrl}
-              targetRoute={targetRoute}
-              onRouteChange={setTargetRoute}
               onOpenDiagnosis={() => setDiagnosisOpen(true)}
               onInstall={() => void handleInstall()}
               onCreateIndexHtml={() => void handleCreateIndexHtml()}

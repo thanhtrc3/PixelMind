@@ -11,7 +11,6 @@ import {
   Zap,
 } from 'lucide-react'
 import type { ParsedError } from '../lib/errorParser'
-import type { ProjectPage } from '@shared/types'
 
 interface PreviewPaneProps {
   url: string | null
@@ -22,10 +21,7 @@ interface PreviewPaneProps {
   onRun: () => void
   onStop: () => void
   onOpenExternal: (url: string) => void
-  pages?: ProjectPage[]
   onInstall?: () => void
-  onUrlChange?: (url: string) => void
-  onSelectRoute?: (route: string) => void
 }
 
 const PreviewPane = ({
@@ -37,27 +33,19 @@ const PreviewPane = ({
   onRun,
   onStop,
   onOpenExternal,
-  pages,
   onInstall,
-  onUrlChange,
-  onSelectRoute,
 }: PreviewPaneProps) => {
   const [draft, setDraft] = useState(url ?? '')
   const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
-    if (url) {
-      setDraft(url)
-      setReloadKey((k) => k + 1)
-    }
+    if (url) setDraft(url)
   }, [url])
 
   const go = () => {
     const next = draft.trim()
     if (!next) return
-    const formatted = next.startsWith('http') ? next : `http://${next}`
-    setDraft(formatted)
-    onUrlChange?.(formatted)
+    setDraft(next.startsWith('http') ? next : `http://${next}`)
     setReloadKey((k) => k + 1)
   }
 
@@ -65,47 +53,6 @@ const PreviewPane = ({
     <div className="pm-preview">
       <div className="pm-preview__bar">
         <Globe2 size={13} className="pm-muted" />
-        {pages && pages.length > 0 && (
-          <select
-            className="pm-select sm"
-            style={{ width: 'auto', maxWidth: 170, height: 26, fontSize: 11, padding: '0 6px', marginRight: 4 }}
-            value={(() => {
-              try {
-                const curPath = new URL(draft.startsWith('http') ? draft : `http://${draft}`).pathname.toLowerCase()
-                const found = pages.find((p) => p.route.toLowerCase() === curPath)
-                return found ? found.route : ''
-              } catch {
-                return ''
-              }
-            })()}
-            onChange={(e) => {
-              const route = e.target.value
-              if (!route) return
-              onSelectRoute?.(route)
-              if (draft || url) {
-                try {
-                  const targetBase = (draft || url || '').startsWith('http') ? (draft || url || '') : `http://${draft || url}`
-                  const u = new URL(targetBase)
-                  u.pathname = route.startsWith('/') ? route : `/${route}`
-                  const full = u.toString()
-                  setDraft(full)
-                  onUrlChange?.(full)
-                  setReloadKey((k) => k + 1)
-                } catch {
-                  /* fallback */
-                }
-              }
-            }}
-            title="Chuyển nhanh tới trang"
-          >
-            <option value="" disabled>-- Chuyển trang --</option>
-            {pages.map((p) => (
-              <option key={p.id} value={p.route}>
-                {p.title} ({p.route})
-              </option>
-            ))}
-          </select>
-        )}
         <input
           className="pm-preview__url"
           value={draft}
@@ -140,7 +87,7 @@ const PreviewPane = ({
 
       <div className="pm-preview__frame">
         {url ? (
-          <iframe key={`${reloadKey}-${draft || url}`} src={draft || url} title="Xem trước dự án" allow="clipboard-read; clipboard-write" />
+          <iframe key={reloadKey} src={draft || url} title="Xem trước dự án" allow="clipboard-read; clipboard-write" />
         ) : error ? (
           /* Giao diện báo lỗi trực quan ngay giữa khung xem trước */
           <div style={{ height: '100%', display: 'grid', placeItems: 'center', padding: 20 }}>

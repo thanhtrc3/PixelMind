@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import {
   Camera,
   ChevronDown,
@@ -37,8 +37,8 @@ interface TopBarProps {
 
 const AI_PROFILES = [
   { id: 'antigravity', label: 'Antigravity IDE', status: 'ok' },
-  { id: 'ollama', label: 'Ollama ┬╖ qwen2.5-coder', status: 'ok' },
-  { id: 'gpt4o', label: 'GPT-4o ┬╖ Cloud API', status: 'warn' },
+  { id: 'ollama', label: 'Ollama · qwen2.5-coder', status: 'ok' },
+  { id: 'gpt4o', label: 'GPT-4o · Cloud API', status: 'warn' },
   { id: 'claude', label: 'Claude 3.5 Sonnet', status: 'ok' },
 ]
 
@@ -64,7 +64,7 @@ const TopBar = ({
 
   return (
     <header className="pm-topbar">
-      {/* ΓöÇΓöÇ Th╞░╞íng hiß╗çu PixelMind ΓöÇΓöÇ */}
+      {/* ── Thương hiệu PixelMind ── */}
       <div className="pm-brand">
         <div className="pm-brand__mark">
           <FolderSearch size={14} strokeWidth={2.4} />
@@ -74,46 +74,46 @@ const TopBar = ({
         </div>
       </div>
 
-      {/* ΓöÇΓöÇ Th╞░ mß╗Ñc / Dß╗▒ ├ín ─æang mß╗ƒ ΓöÇΓöÇ */}
+      {/* ── Thư mục / Dự án đang mở ── */}
       {project ? (
-        <button className="pm-crumb" onClick={onProjects} title="Quay lß║íi m├án h├¼nh dß╗▒ ├ín">
+        <button className="pm-crumb" onClick={onProjects} title="Quay lại màn hình dự án">
           <FolderOpen size={13} />
           <b>{project.name}</b>
           <span>{shortPath(project.path, home)}</span>
         </button>
       ) : (
-        <button className="pm-crumb" onClick={onOpenFolder} title="Mß╗ƒ mß╗Öt th╞░ mß╗Ñc dß╗▒ ├ín (Ctrl+O)">
+        <button className="pm-crumb" onClick={onOpenFolder} title="Mở một thư mục dự án (Ctrl+O)">
           <FolderOpen size={13} />
-          <b>Mß╗ƒ th╞░ mß╗Ñc dß╗▒ ├ín</b>
+          <b>Mở thư mục dự án</b>
         </button>
       )}
 
-      {/* ΓöÇΓöÇ Cß╗ñM N├ÜT B├èN TR├üI THEO ß║óNH 2 ΓöÇΓöÇ */}
+      {/* ── CỤM NÚT BÊN TRÁI THEO ẢNH 2 ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 6 }}>
         {/* Undo / Redo */}
-        <button className="pm-ibtn" title="Ho├án t├íc (Ctrl+Z)">
+        <button className="pm-ibtn" title="Hoàn tác (Ctrl+Z)">
           <Undo2 size={14} />
         </button>
-        <button className="pm-ibtn" title="L├ám lß║íi (Ctrl+Y)">
+        <button className="pm-ibtn" title="Làm lại (Ctrl+Y)">
           <Redo2 size={14} />
         </button>
 
-        {/* N├║t trß║íng th├íi m├íy chß╗º [ΓÅ╣ ─Éang chß║íy] hoß║╖c [Γû╢ Run] (ß║ónh 2) */}
+        {/* Nút trạng thái máy chủ [⏹ Đang chạy] hoặc [▶ Run] (Ảnh 2) */}
         {running ? (
           <button
             className="pm-topbar__run-status running"
             onClick={onStop}
-            title="Dß╗½ng tiß║┐n tr├¼nh m├íy chß╗º (Shift+F5)"
+            title="Dừng tiến trình máy chủ (Shift+F5)"
           >
             <Square size={11} fill="currentColor" />
-            <span>─Éang chß║íy</span>
+            <span>Đang chạy</span>
           </button>
         ) : (
           <button
             className="pm-topbar__run-status idle"
             onClick={onRun}
             disabled={!project}
-            title="Khß╗ƒi ─æß╗Öng m├íy chß╗º ph├ít triß╗ân (F5)"
+            title="Khởi động máy chủ phát triển (F5)"
           >
             <Play size={11} fill="currentColor" />
             <span>Run</span>
@@ -121,23 +121,23 @@ const TopBar = ({
         )}
 
         {/* Git Compare */}
-        <button className="pm-ibtn" title="So s├ính nh├ính Git / Thay ─æß╗òi">
+        <button className="pm-ibtn" title="So sánh nhánh Git / Thay đổi">
           <GitCompare size={14} />
         </button>
 
         {/* Window / Display mode */}
-        <button className="pm-ibtn" title="Chß║┐ ─æß╗Ö hiß╗ân thß╗ï cß╗¡a sß╗ò xem tr╞░ß╗¢c" onClick={onOpenPreview}>
+        <button className="pm-ibtn" title="Chế độ hiển thị cửa sổ xem trước" onClick={onOpenPreview}>
           <Monitor size={14} />
         </button>
 
         {/* Camera snapshot */}
-        <button className="pm-ibtn" title="Chß╗Ñp ß║únh nhanh m├án h├¼nh l├ám viß╗çc">
+        <button className="pm-ibtn" title="Chụp ảnh nhanh màn hình làm việc">
           <Camera size={14} />
         </button>
 
-        {/* Bß║úng lß╗çnh nß╗òi bß║¡t (ß║ónh 2) */}
-        <button className="pm-topbar__palette" onClick={onPalette} title="Mß╗ƒ bß║úng lß╗çnh (Ctrl+K)">
-          <span className="pm-topbar__palette-text">Bß║úng lß╗çnh, phß║ºn tß╗¡, h├ánh ─æß╗ÖngΓÇª</span>
+        {/* Bảng lệnh nổi bật (Ảnh 2) */}
+        <button className="pm-topbar__palette" onClick={onPalette} title="Mở bảng lệnh (Ctrl+K)">
+          <span className="pm-topbar__palette-text">Bảng lệnh, phần tử, hành động…</span>
           <span className="pm-topbar__palette-keys">
             <kbd>Ctrl</kbd>
             <kbd>K</kbd>
@@ -147,30 +147,30 @@ const TopBar = ({
 
       <div className="pm-topbar__spacer" />
 
-      {/* ΓöÇΓöÇ Cß╗ñM N├ÜT B├èN PHß║óI THEO ß║óNH 2 ΓöÇΓöÇ */}
+      {/* ── CỤM NÚT BÊN PHẢI THEO ẢNH 2 ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        {/* N├║t Share */}
-        <button className="pm-topbar__share" title="Chia sß║╗ dß╗▒ ├ín / Xuß║Ñt giao diß╗çn">
+        {/* Nút Share */}
+        <button className="pm-topbar__share" title="Chia sẻ dự án / Xuất giao diện">
           <Share2 size={12} />
           <span>Share</span>
         </button>
 
-        {/* N├║t Help */}
-        <button className="pm-ibtn" onClick={onGuide} title="H╞░ß╗¢ng dß║½n sß╗¡ dß╗Ñng (F1)">
+        {/* Nút Help */}
+        <button className="pm-ibtn" onClick={onGuide} title="Hướng dẫn sử dụng (F1)">
           <HelpCircle size={14} />
         </button>
 
-        {/* N├║t Tß║úi lß║íi */}
+        {/* Nút Tải lại */}
         <button
           className="pm-ibtn"
           onClick={onRefresh}
           disabled={!project}
-          title="Tß║úi lß║íi c├óy tß╗çp (Ctrl+R)"
+          title="Tải lại cây tệp (Ctrl+R)"
         >
           <RefreshCw size={13} />
         </button>
 
-        {/* Dropdown Hß╗ô s╞í AI [≡ƒƒó Antigravity IDE Γû╛] (ß║ónh 2) */}
+        {/* Dropdown Hồ sơ AI [🟢 Antigravity IDE ▾] (Ảnh 2) */}
         <div className="pm-topbar__pop">
           <button
             className="pm-topbar__ai-pill"
@@ -178,7 +178,7 @@ const TopBar = ({
               setAiMenuOpen((v) => !v)
               setUserMenuOpen(false)
             }}
-            title="─Éß╗òi hß╗ô s╞í kß║┐t nß╗æi AI"
+            title="Đổi hồ sơ kết nối AI"
           >
             <span className={`pm-topbar__ai-dot ${aiProfile.status === 'warn' ? 'warn' : ''}`} />
             <span>{aiProfile.label}</span>
@@ -189,7 +189,7 @@ const TopBar = ({
             <>
               <div className="pm-topbar__scrim" onClick={() => setAiMenuOpen(false)} />
               <div className="pm-topbar__dropdown">
-                <div className="pm-topbar__dropdown-title">Hß╗ô s╞í kß║┐t nß╗æi AI</div>
+                <div className="pm-topbar__dropdown-title">Hồ sơ kết nối AI</div>
                 {AI_PROFILES.map((p) => (
                   <button
                     key={p.id}
@@ -201,7 +201,7 @@ const TopBar = ({
                   >
                     <span className={`pm-topbar__ai-dot ${p.status === 'warn' ? 'warn' : ''}`} />
                     <span style={{ flex: 1 }}>{p.label}</span>
-                    {aiProfile.id === p.id && <span style={{ color: 'var(--accent)' }}>Γ£ô</span>}
+                    {aiProfile.id === p.id && <span style={{ color: 'var(--accent)' }}>✓</span>}
                   </button>
                 ))}
               </div>
@@ -209,12 +209,12 @@ const TopBar = ({
           )}
         </div>
 
-        {/* N├║t C├ái ─æß║╖t */}
-        <button className="pm-ibtn" onClick={onSettings} title="C├ái ─æß║╖t (Ctrl+,)">
+        {/* Nút Cài đặt */}
+        <button className="pm-ibtn" onClick={onSettings} title="Cài đặt (Ctrl+,)">
           <SettingsIcon size={14} />
         </button>
 
-        {/* Avatar Hß╗ô s╞í ng╞░ß╗¥i d├╣ng [TH] Nguyß╗àn Thanh Hiß╗ün Γû╛ (ß║ónh 2) */}
+        {/* Avatar Hồ sơ người dùng [TH] Nguyễn Thanh Hiền ▾ (Ảnh 2) */}
         <div className="pm-topbar__pop">
           <button
             className="pm-topbar__user"
@@ -222,12 +222,12 @@ const TopBar = ({
               setUserMenuOpen((v) => !v)
               setAiMenuOpen(false)
             }}
-            title="Th├┤ng tin t├ái khoß║ún"
+            title="Thông tin tài khoản"
           >
             <div className="pm-topbar__user-avatar">TH</div>
             <div className="pm-topbar__user-info">
-              <span className="pm-topbar__user-name">Nguyß╗àn Thanh Hiß╗ün</span>
-              <span className="pm-topbar__user-sub">Admin ┬╖ giß║Ñy ph├⌐p c├▓n hß║ín</span>
+              <span className="pm-topbar__user-name">Nguyễn Thanh Hiền</span>
+              <span className="pm-topbar__user-sub">Admin · giấy phép còn hạn</span>
             </div>
             <ChevronDown size={12} style={{ opacity: 0.6, marginLeft: 2 }} />
           </button>
@@ -236,7 +236,7 @@ const TopBar = ({
             <>
               <div className="pm-topbar__scrim" onClick={() => setUserMenuOpen(false)} />
               <div className="pm-topbar__dropdown" style={{ minWidth: 240 }}>
-                <div className="pm-topbar__dropdown-title">T├ái khoß║ún PixelMind</div>
+                <div className="pm-topbar__dropdown-title">Tài khoản PixelMind</div>
                 <div
                   style={{
                     padding: '8px 10px',
@@ -245,7 +245,7 @@ const TopBar = ({
                     lineHeight: 1.4,
                   }}
                 >
-                  <b>Nguyß╗àn Thanh Hiß╗ün</b>
+                  <b>Nguyễn Thanh Hiền</b>
                   <div style={{ fontSize: 10.5, color: 'var(--text-3)' }}>hien.nguyen@pixelmind.ai</div>
                   <div
                     style={{
@@ -258,7 +258,7 @@ const TopBar = ({
                       color: '#34d399',
                     }}
                   >
-                    Giß║Ñy ph├⌐p Pro ┬╖ C├▓n hß║ín 12 ng├áy
+                    Giấy phép Pro · Còn hạn 12 ngày
                   </div>
                 </div>
                 <div className="pm-topbar__dropdown-divider" />
@@ -270,7 +270,7 @@ const TopBar = ({
                   }}
                 >
                   <User size={13} />
-                  <span>Quß║ún l├╜ hß╗ô s╞í c├í nh├ón</span>
+                  <span>Quản lý hồ sơ cá nhân</span>
                 </button>
                 <button
                   className="pm-topbar__dropdown-item"
@@ -280,7 +280,7 @@ const TopBar = ({
                   }}
                 >
                   <Shield size={13} />
-                  <span>Quyß╗ün hß║ín & Bß║úo mß║¡t</span>
+                  <span>Quyền hạn & Bảo mật</span>
                 </button>
               </div>
             </>

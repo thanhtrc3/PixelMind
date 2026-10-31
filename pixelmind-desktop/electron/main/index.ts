@@ -20,6 +20,11 @@ import {
 } from './projects'
 import { RunnerManager } from './runner'
 
+// Tắt Same-Origin Policy & Site Isolation cho iframe trong Electron
+app.commandLine.appendSwitch('disable-web-security')
+app.commandLine.appendSwitch('disable-site-isolation-trials')
+app.commandLine.appendSwitch('disable-features', 'IsolateOrigins,site-per-process')
+
 const isDev = !app.isPackaged
 
 let mainWindow: BrowserWindow | null = null
@@ -125,6 +130,21 @@ function createWindow() {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = { ...details.responseHeaders }
+    delete responseHeaders['x-frame-options']
+    delete responseHeaders['X-Frame-Options']
+    delete responseHeaders['content-security-policy']
+    delete responseHeaders['Content-Security-Policy']
+    callback({ cancel: false, responseHeaders })
+  })
+
+  mainWindow.webContents.on('did-frame-finish-load', (_event, isMainFrame) => {
+    if (!isMainFrame) {
+      injectInspectorIntoAllFrames(inspectModeActive)
+    }
+  })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     // Không đẩy ra trình duyệt ngoài nếu là url nội bộ hoặc dev server localhost
@@ -578,6 +598,450 @@ ipcMain.handle('shell:external', async (_e, url: string) => {
   if (/^https?:/i.test(url)) await shell.openExternal(url)
   return true
 })
+
+/* ───────────────────────── IPC: Inspector & Live DOM Bridge ───────────────────────── */
+
+let inspectModeActive = false
+
+function getInspectorScript(isActive: boolean) {
+  return `
+  (function() {
+    window.__PM_INSPECT_ACTIVE = ${isActive ? 'true' : 'false'};
+    if (document.documentElement) {
+      document.documentElement.style.cursor = window.__PM_INSPECT_ACTIVE ? 'crosshair' : '';
+    }
+    if (window.__PM_INSPECT_INITIALIZED) return;
+    window.__PM_INSPECT_INITIALIZED = true;
+
+    var lastSelected = null;
+
+    function getBreadcrumb(el) {
+      var curr = el;
+      var parts = [];
+      while (curr && curr !== document.body && curr !== document.documentElement && parts.length < 5) {
+        var seg = curr.tagName.toLowerCase();
+        if (curr.id) {
+          seg += '#' + curr.id;
+        } else if (curr.className && typeof curr.className === 'string') {
+          var first = curr.className.trim().split(/\\s+/)[0];
+          if (first) seg += '.' + first;
+        }
+        parts.unshift(seg);
+        curr = curr.parentElement;
+      }
+      return parts.join(' > ');
+    }
+
+    function extractElementInfo(el) {
+      var rect = el.getBoundingClientRect();
+      var style = window.getComputedStyle(el);
+      var isLeaf = el.children.length === 0;
+      var rawText = isLeaf ? (el.innerText || el.textContent || '').trim() : '';
+      var snippet = rawText.length > 60 ? rawText.slice(0, 60) + '…' : rawText;
+
+      return {
+        tagName: el.tagName.toLowerCase(),
+        id: el.id || '',
+        className: typeof el.className === 'string' ? el.className.trim() : '',
+        isLeaf: isLeaf,
+        childrenCount: el.children.length,
+        rect: {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+        },
+        computedStyles: {
+          display: style.display || 'block',
+          flexDirection: style.flexDirection || 'row',
+          alignItems: style.alignItems || 'stretch',
+          justifyContent: style.justifyContent || 'flex-start',
+          gap: style.gap || '0px',
+          flexWrap: style.flexWrap || 'nowrap',
+          color: style.color || '',
+          backgroundColor: style.backgroundColor || '',
+          backgroundImage: style.backgroundImage || '',
+          fontSize: style.fontSize || '',
+          fontWeight: style.fontWeight || '',
+          fontFamily: (style.fontFamily || '').split(',')[0].replace(/['"]/g, ''),
+          lineHeight: style.lineHeight || 'normal',
+          letterSpacing: style.letterSpacing || 'normal',
+          textAlign: style.textAlign || 'left',
+          textDecoration: style.textDecorationLine || style.textDecoration || 'none',
+          textTransform: style.textTransform || 'none',
+          padding: (style.paddingTop || '0px') + ' ' + (style.paddingRight || '0px') + ' ' + (style.paddingBottom || '0px') + ' ' + (style.paddingLeft || '0px'),
+          paddingTop: style.paddingTop || '0px',
+          paddingRight: style.paddingRight || '0px',
+          paddingBottom: style.paddingBottom || '0px',
+          paddingLeft: style.paddingLeft || '0px',
+          margin: (style.marginTop || '0px') + ' ' + (style.marginRight || '0px') + ' ' + (style.marginBottom || '0px') + ' ' + (style.marginLeft || '0px'),
+          marginTop: style.marginTop || '0px',
+          marginRight: style.marginRight || '0px',
+          marginBottom: style.marginBottom || '0px',
+          marginLeft: style.marginLeft || '0px',
+          borderRadius: style.borderRadius || '0px',
+          borderWidth: style.borderWidth || '0px',
+          borderStyle: style.borderStyle || 'none',
+          borderColor: style.borderColor || '',
+          boxShadow: style.boxShadow || 'none',
+          opacity: style.opacity || '1',
+          top: style.top !== 'auto' ? style.top : '0px',
+          left: style.left !== 'auto' ? style.left : '0px',
+          width: Math.round(rect.width) + 'px',
+          height: Math.round(rect.height) + 'px',
+        },
+        domPath: getBreadcrumb(el),
+        textSnippet: snippet,
+      };
+    }
+
+    window.addEventListener('mouseover', function(e) {
+      if (!window.__PM_INSPECT_ACTIVE) return;
+      var target = e.target;
+      if (!target || target === document.body || target === document.documentElement) return;
+      var rect = target.getBoundingClientRect();
+      window.parent.postMessage({
+        type: 'PM_HOVER_ELEMENT',
+        payload: {
+          tagName: target.tagName.toLowerCase(),
+          className: typeof target.className === 'string' ? target.className : '',
+          rect: {
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+          }
+        }
+      }, '*');
+    }, true);
+
+    window.addEventListener('mouseout', function(e) {
+      if (!window.__PM_INSPECT_ACTIVE) return;
+      window.parent.postMessage({
+        type: 'PM_HOVER_ELEMENT',
+        payload: null
+      }, '*');
+    }, true);
+
+    window.addEventListener('click', function(e) {
+      if (!window.__PM_INSPECT_ACTIVE) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
+      var target = e.target;
+      if (!target || target === document.body || target === document.documentElement) return;
+      lastSelected = target;
+      if (!target.__PM_ORIGINAL) {
+        target.__PM_ORIGINAL = {
+          cssText: target.style.cssText,
+          innerHTML: target.innerHTML,
+        };
+      }
+
+      var info = extractElementInfo(target);
+      window.parent.postMessage({
+        type: 'PM_SELECT_ELEMENT',
+        payload: info
+      }, '*');
+    }, true);
+
+    window.addEventListener('message', function(e) {
+      if (!e.data) return;
+      if (e.data.type === 'PM_SET_INSPECT_MODE') {
+        window.__PM_INSPECT_ACTIVE = !!e.data.enabled;
+        if (document.documentElement) {
+          document.documentElement.style.cursor = window.__PM_INSPECT_ACTIVE ? 'crosshair' : '';
+        }
+      } else if (e.data.type === 'PM_RESET_ORIGINAL' && lastSelected) {
+        if (lastSelected.__PM_ORIGINAL) {
+          lastSelected.style.cssText = lastSelected.__PM_ORIGINAL.cssText;
+          if (typeof lastSelected.__PM_ORIGINAL.innerHTML === 'string') {
+            lastSelected.innerHTML = lastSelected.__PM_ORIGINAL.innerHTML;
+          }
+        } else {
+          lastSelected.removeAttribute('style');
+        }
+        var updated = extractElementInfo(lastSelected);
+        window.parent.postMessage({
+          type: 'PM_SELECT_ELEMENT',
+          payload: updated,
+          isReset: true
+        }, '*');
+      } else if (e.data.type === 'PM_APPLY_STYLE') {
+        var payload = e.data.payload || {};
+        var styles = payload.styles;
+        var textContent = payload.textContent;
+        var targetEl = lastSelected;
+        if (styles && targetEl) {
+          // Nếu phần tử đang là inline, tự động đổi sang inline-block để nhận width, height
+          if (styles.width || styles.height) {
+            var curDisplay = window.getComputedStyle(targetEl).display;
+            if (curDisplay === 'inline') {
+              targetEl.style.display = 'inline-block';
+            }
+          }
+          // Nếu đang di chuyển tọa độ left/top, đảm bảo có position relative
+          if (styles.left !== undefined || styles.top !== undefined) {
+            var curPos = window.getComputedStyle(targetEl).position;
+            if (curPos === 'static') {
+              targetEl.style.position = 'relative';
+            }
+          }
+          for (var k in styles) {
+            targetEl.style[k] = styles[k];
+          }
+        }
+        if (typeof textContent === 'string' && targetEl) {
+          // Chỉ gán textContent nếu phần tử KHÔNG có phần tử con (leaf element)
+          if (targetEl.children.length === 0) {
+            targetEl.textContent = textContent;
+          }
+        }
+        if (targetEl) {
+          var updated = extractElementInfo(targetEl);
+          window.parent.postMessage({
+            type: 'PM_SELECT_ELEMENT',
+            payload: updated
+          }, '*');
+        }
+      }
+    });
+  })();
+  `;
+}
+
+function getAllWebFrames(frame: Electron.WebFrameMain): Electron.WebFrameMain[] {
+  const result: Electron.WebFrameMain[] = [frame]
+  for (const child of frame.frames) {
+    result.push(...getAllWebFrames(child))
+  }
+  return result
+}
+
+function injectInspectorIntoAllFrames(enabled: boolean) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const script = getInspectorScript(enabled)
+  try {
+    const all = getAllWebFrames(mainWindow.webContents.mainFrame)
+    for (const frame of all) {
+      if (frame !== mainWindow.webContents.mainFrame) {
+        frame.executeJavaScript(script).catch(() => {})
+      }
+    }
+  } catch {
+    // Frame có thể đang bận hoặc hủy
+  }
+}
+
+ipcMain.handle('inspect:set-mode', (_e, enabled: boolean) => {
+  inspectModeActive = enabled
+  injectInspectorIntoAllFrames(enabled)
+  return true
+})
+
+ipcMain.handle('inspect:reset-original', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  const script = `
+    window.postMessage({
+      type: 'PM_RESET_ORIGINAL'
+    }, '*');
+  `;
+  try {
+    const all = getAllWebFrames(mainWindow.webContents.mainFrame)
+    for (const frame of all) {
+      if (frame !== mainWindow.webContents.mainFrame) {
+        frame.executeJavaScript(script).catch(() => {})
+      }
+    }
+  } catch {}
+  return true
+})
+
+ipcMain.handle(
+  'inspect:apply-style',
+  (_e, payload: { styles?: Record<string, string>; textContent?: string }) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false
+    const script = `
+      window.postMessage({
+        type: 'PM_APPLY_STYLE',
+        payload: ${JSON.stringify(payload)}
+      }, '*');
+    `;
+    try {
+      const all = getAllWebFrames(mainWindow.webContents.mainFrame)
+      for (const frame of all) {
+        if (frame !== mainWindow.webContents.mainFrame) {
+          frame.executeJavaScript(script).catch(() => {})
+        }
+      }
+    } catch {}
+    return true
+  },
+)
+
+
+/* ───────────────────────── IPC: Code Sync Engine (Ghi ngược vào mã nguồn thật) ───────────────────────── */
+
+async function scanProjectForSource(
+  rootDir: string,
+  textSnippet: string,
+  _tagName: string,
+  className: string
+): Promise<{ filePath: string; fullPath: string; lineNumber: number; lineContent: string } | null> {
+  const exts = ['.cshtml', '.tsx', '.jsx', '.html', '.vue', '.razor', '.php', '.svelte', '.css']
+  const ignoreDirs = ['node_modules', '.git', 'bin', 'obj', 'dist', 'build', '.vs', '.vscode']
+
+  async function walk(dir: string): Promise<{ filePath: string; fullPath: string; lineNumber: number; lineContent: string } | null> {
+    let entries: string[] = []
+    try {
+      entries = await fs.readdir(dir)
+    } catch {
+      return null
+    }
+
+    for (const entry of entries) {
+      if (ignoreDirs.includes(entry)) continue
+      const full = join(dir, entry)
+      try {
+        const stat = await fs.stat(full)
+        if (stat.isDirectory()) {
+          const res = await walk(full)
+          if (res) return res
+        } else if (stat.isFile() && exts.some((ext) => entry.toLowerCase().endsWith(ext))) {
+          const content = await fs.readFile(full, 'utf8')
+
+          // Ưu tiên 1: Khớp chuỗi chữ Text Snippet
+          if (textSnippet && textSnippet.length >= 2 && content.includes(textSnippet)) {
+            const lines = content.split(/\r?\n/)
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].includes(textSnippet)) {
+                return {
+                  filePath: full.replace(rootDir, '').replace(/^[\\/]/, '').replace(/\\/g, '/'),
+                  fullPath: full,
+                  lineNumber: i + 1,
+                  lineContent: lines[i].trim(),
+                }
+              }
+            }
+          }
+
+          // Ưu tiên 2: Khớp class đầu tiên
+          if (className) {
+            const firstClass = className.split(/\s+/)[0]
+            if (firstClass && content.includes(firstClass)) {
+              const lines = content.split(/\r?\n/)
+              for (let i = 0; i < lines.length; i++) {
+                if (lines[i].includes(firstClass)) {
+                  return {
+                    filePath: full.replace(rootDir, '').replace(/^[\\/]/, '').replace(/\\/g, '/'),
+                    fullPath: full,
+                    lineNumber: i + 1,
+                    lineContent: lines[i].trim(),
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // bỏ qua file bận
+      }
+    }
+    return null
+  }
+
+  return walk(rootDir)
+}
+
+ipcMain.handle(
+  'inspect:locate-source',
+  async (_e, { projectPath, textSnippet, tagName, className }) => {
+    if (!projectPath) return null
+    return await scanProjectForSource(projectPath, textSnippet, tagName, className)
+  }
+)
+
+function camelToKebabCase(str: string): string {
+  return str.replace(/([a-z0-9]|(?=[A-Z]))([A-Z])/g, '$1-$2').toLowerCase()
+}
+
+ipcMain.handle(
+  'inspect:sync-code',
+  async (_e, { fullPath, oldText, newText, styles, tagName, lineNumber }: {
+    fullPath: string
+    oldText?: string
+    newText?: string
+    styles?: Record<string, string>
+    tagName?: string
+    lineNumber?: number
+  }) => {
+    try {
+      if (!fullPath) return { success: false, error: 'Không có đường dẫn tệp nguồn' }
+      let content = await fs.readFile(fullPath, 'utf8')
+      const isJsx = fullPath.endsWith('.tsx') || fullPath.endsWith('.jsx')
+      const lines = content.split(/\r?\n/)
+      let targetLineIdx = -1
+
+      if (typeof lineNumber === 'number' && lineNumber > 0 && lineNumber <= lines.length) {
+        targetLineIdx = lineNumber - 1
+      } else if (oldText) {
+        targetLineIdx = lines.findIndex((l) => l.includes(oldText))
+      }
+
+      const styleEntries = styles ? Object.entries(styles).filter(([_, v]) => Boolean(v)) : []
+
+      if (targetLineIdx !== -1) {
+        let line = lines[targetLineIdx]
+        const oldLine = line
+
+        // 1. Cập nhật văn bản
+        if (oldText && newText && oldText !== newText && line.includes(oldText)) {
+          line = line.replace(oldText, newText)
+        }
+
+        // 2. Cập nhật thuộc tính style vào thẻ HTML / JSX
+        if (styleEntries.length > 0) {
+          if (isJsx) {
+            const jsxStyleStr = styleEntries.map(([k, v]) => `${k}: '${v}'`).join(', ')
+            if (/style=\{\{.*?\}\}/.test(line)) {
+              line = line.replace(/style=\{\{.*?\}\}/, `style={{ ${jsxStyleStr} }}`)
+            } else {
+              const tagRegex = new RegExp(`(<${tagName || '[a-zA-Z0-9_-]+'})(\\s|>)`)
+              if (tagRegex.test(line)) {
+                line = line.replace(tagRegex, `$1 style={{ ${jsxStyleStr} }}$2`)
+              }
+            }
+          } else {
+            const htmlStyleStr = styleEntries.map(([k, v]) => `${camelToKebabCase(k)}: ${v};`).join(' ')
+            if (/style=".*?"/.test(line)) {
+              line = line.replace(/style=".*?"/, `style="${htmlStyleStr}"`)
+            } else {
+              const tagRegex = new RegExp(`(<${tagName || '[a-zA-Z0-9_-]+'})(\\s|>)`)
+              if (tagRegex.test(line)) {
+                line = line.replace(tagRegex, `$1 style="${htmlStyleStr}"$2`)
+              }
+            }
+          }
+        }
+
+        lines[targetLineIdx] = line
+        content = lines.join('\n')
+        await fs.writeFile(fullPath, content, 'utf8')
+        return { success: true, oldLine, newLine: line }
+      } else if (oldText && newText && oldText !== newText && content.includes(oldText)) {
+        const oldLine = content
+        content = content.replace(oldText, newText)
+        await fs.writeFile(fullPath, content, 'utf8')
+        return { success: true, oldLine, newLine: content }
+      }
+
+      return { success: false, error: 'Không tìm thấy dòng tương ứng trong tệp' }
+    } catch (err: unknown) {
+      return { success: false, error: String(err) }
+    }
+  }
+)
 
 /* ───────────────────────── Vòng đời ứng dụng ───────────────────────── */
 

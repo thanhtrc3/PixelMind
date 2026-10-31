@@ -98,6 +98,21 @@ export interface ProjectDiagnosis {
   issues: ProjectIssue[]
 }
 
+/** Kết quả dò tệp mã nguồn chứa một phần tử DOM. */
+export interface SourceLocation {
+  filePath: string
+  fullPath: string
+  lineNumber: number
+  lineContent: string
+}
+
+export interface SyncCodeResult {
+  success: boolean
+  error?: string
+  oldLine?: string
+  newLine?: string
+}
+
 export interface ProjectRecord {
   id: string
   name: string

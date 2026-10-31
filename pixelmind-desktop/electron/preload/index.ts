@@ -71,7 +71,7 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('run:start', projectId, script),
     install: (projectId: string): Promise<RunState> => ipcRenderer.invoke('run:install', projectId),
     startCommand: (projectId: string, command: string): Promise<RunState> =>
-      ipcRenderer.invoke('run:command', projectId, command),
+      ipcRenderer.invoke('run:start-command', projectId, command),
     stop: (runId: string): Promise<boolean> => ipcRenderer.invoke('run:stop', runId),
     list: (): Promise<RunState[]> => ipcRenderer.invoke('run:list'),
     ofProject: (projectId: string): Promise<RunState | null> => ipcRenderer.invoke('run:project', projectId),
@@ -100,6 +100,21 @@ const api: PixelMindApi = {
     setMode: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke('inspect:set-mode', enabled),
     applyStyle: (payload: { styles?: Record<string, string>; textContent?: string }): Promise<boolean> =>
       ipcRenderer.invoke('inspect:apply-style', payload),
+    resetOriginal: (): Promise<boolean> => ipcRenderer.invoke('inspect:reset-original'),
+    locateSource: (payload: {
+      projectPath: string
+      textSnippet: string
+      tagName: string
+      className: string
+    }) => ipcRenderer.invoke('inspect:locate-source', payload),
+    syncCode: (payload: {
+      fullPath: string
+      oldText?: string
+      newText?: string
+      styles?: Record<string, string>
+      tagName?: string
+      lineNumber?: number
+    }) => ipcRenderer.invoke('inspect:sync-code', payload),
   },
 }
 

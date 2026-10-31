@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import {
+  ChevronDown,
   ChevronUp,
   FileCode2,
   FolderOpen,
@@ -26,7 +27,7 @@ import type {
 import { parseRunError } from '../lib/errorParser'
 import FileTree from './FileTree'
 import FileViewer from './FileViewer'
-import PreviewPane from './PreviewPane'
+import CanvasArea from './CanvasArea'
 import LogPanel from './LogPanel'
 import RunSidebar from './RunSidebar'
 
@@ -38,7 +39,7 @@ interface WorkspaceViewProps {
   fileLoading: boolean
   selectedPath: string | null
   query: string
-  onQuery: (query: string) => void
+  onQuery: (value: string) => void
   onSelectFile: (node: FileNode) => void
   onRefresh: () => void
   onOpenFolder: () => void
@@ -51,25 +52,23 @@ interface WorkspaceViewProps {
   stats: ProjectStat | null
   branch: string | null
   script: string
-  diagnosis?: ProjectDiagnosis
+  diagnosis?: ProjectDiagnosis | null
   installing?: boolean
-  onScript: (script: string) => void
+  onScript: (value: string) => void
   customCommand?: string
-  onCustomCommand?: (command: string) => void
-  onSaveCustomCommand?: (command: string) => void
+  onCustomCommand?: (value: string) => void
+  onSaveCustomCommand?: (value: string) => void
+  /** URL xem trước do App quản lý (đã nắn chỉnh route) — ưu tiên hơn run.url. */
+  previewUrl?: string | null
   onSettings: () => void
   onReveal: () => void
   onOpenExternal: (url: string) => void
   onShowInFolder: (path: string) => void
   onOpenFileExternal: (path: string) => void
-  onOpenDiagnosis: () => void
+  onOpenDiagnosis?: () => void
   onInstall?: () => void
   onCreateIndexHtml?: () => void
   onAddDevScript?: () => void
-  previewUrl?: string | null
-  onPreviewUrlChange?: (url: string) => void
-  targetRoute?: string
-  onRouteChange?: (route: string) => void
   activeTab: 'file' | 'preview'
   onActiveTab: (tab: 'file' | 'preview') => void
   tabs: string[]
@@ -101,9 +100,10 @@ const WorkspaceView = ({
   diagnosis,
   installing = false,
   onScript,
-  customCommand,
+  customCommand = '',
   onCustomCommand,
   onSaveCustomCommand,
+  previewUrl,
   onSettings,
   onReveal,
   onOpenExternal,
@@ -113,10 +113,6 @@ const WorkspaceView = ({
   onInstall,
   onCreateIndexHtml,
   onAddDevScript,
-  previewUrl,
-  onPreviewUrlChange,
-  targetRoute,
-  onRouteChange,
   activeTab,
   onActiveTab,
   tabs,
@@ -124,9 +120,11 @@ const WorkspaceView = ({
   onSelectTab,
 }: WorkspaceViewProps) => {
   const parsedError = useMemo(() => parseRunError(logs, run), [logs, run])
+  /* App có thể đã nắn chỉnh route ASP.NET Core; ưu tiên URL đó. */
+  const canvasUrl = previewUrl ?? run?.url ?? null
 
-  // Trạng thái thu gọn/mở rộng Nhật ký chạy
-  const [showLogs, setShowLogs] = useState(true)
+  // Trạng thái thu gọn/mở rộng Nhật ký chạy (mặc định ẩn khi mở để Canvas rộng rãi nhất)
+  const [showLogs, setShowLogs] = useState(false)
   // Chế độ tập trung toàn màn hình Canvas (ẩn cả cây tệp và sidebar)
   const [focusCanvas, setFocusCanvas] = useState(false)
 
@@ -140,17 +138,6 @@ const WorkspaceView = ({
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [focusCanvas])
-
-  const effectivePreviewUrl = useMemo(() => {
-    if (previewUrl) return previewUrl
-    if (!run?.url) return null
-    if (targetRoute && targetRoute !== '/') {
-      const base = run.url.replace(/\/+$/, '')
-      const clean = targetRoute.startsWith('/') ? targetRoute : `/${targetRoute}`
-      return `${base}${clean}`
-    }
-    return run.url
-  }, [previewUrl, run?.url, targetRoute])
 
   if (!project) {
     return (
@@ -228,6 +215,7 @@ const WorkspaceView = ({
         {/* ── Nội dung chính ── */}
         <Panel minSize="34%">
           <div className="pm-panel">
+            {/* Thanh Tabs */}
             <div className="pm-tabs">
               <button
                 className={`pm-tab ${activeTab === 'preview' ? 'on' : ''}`}
@@ -263,57 +251,66 @@ const WorkspaceView = ({
                 )
               })}
               <span style={{ flex: 1 }} />
-              {/* Nút bật/tắt Focus Canvas */}
-              <button
-                className={`pm-ibtn ${focusCanvas ? 'primary' : ''}`}
-                onClick={() => setFocusCanvas((v) => !v)}
-                title={focusCanvas ? 'Thoát chế độ tập trung (Esc)' : 'Chế độ tập trung toàn màn hình'}
-                style={{ marginRight: 4, height: 24, width: 24 }}
-              >
-                {focusCanvas ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-              </button>
+
               {/* Nút bật/tắt Nhật ký chạy */}
               <button
-                className="pm-ibtn"
+                className={`pm-ibtn ${showLogs ? 'on' : ''}`}
                 onClick={() => setShowLogs((v) => !v)}
                 title={showLogs ? 'Thu gọn nhật ký chạy' : 'Mở rộng nhật ký chạy'}
-                style={{ marginRight: 6, height: 24, width: 24 }}
+                style={{
+                  height: 24,
+                  fontSize: 11,
+                  gap: 4,
+                  padding: '0 8px',
+                  width: 'auto',
+                  display: 'inline-flex',
+                }}
               >
                 <Terminal size={12} />
+                <span>Nhật ký</span>
+                {showLogs ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
               </button>
+
+              {/* Nút Chế độ tập trung Canvas (Toàn màn hình) */}
+              {activeTab === 'preview' && (
+                <button
+                  className={`pm-ibtn ${focusCanvas ? 'on' : ''}`}
+                  onClick={() => setFocusCanvas((v) => !v)}
+                  title={focusCanvas ? 'Thoát chế độ tập trung (Esc)' : 'Chế độ tập trung toàn màn hình Canvas'}
+                  style={{
+                    height: 24,
+                    fontSize: 11,
+                    gap: 4,
+                    padding: '0 8px',
+                    width: 'auto',
+                    display: 'inline-flex',
+                    marginLeft: 4,
+                  }}
+                >
+                  {focusCanvas ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                  <span>{focusCanvas ? 'Thu nhỏ' : 'Toàn màn hình'}</span>
+                </button>
+              )}
             </div>
 
+            {/* Vùng hiển thị Canvas hoặc FileViewer */}
             {showLogs ? (
               <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
-                <Panel minSize="22%">
+                <Panel minSize="25%">
                   {activeTab === 'preview' ? (
-                    <PreviewPane
-                      url={effectivePreviewUrl}
-                      pages={project.meta.pages}
-                      onUrlChange={onPreviewUrlChange}
-                      onSelectRoute={(route) => {
-                        let clean = route.startsWith('/') ? route : `/${route}`
-                        if (project.packageManager === 'dotnet' || project.framework?.includes('ASP.NET')) {
-                          if (clean.startsWith('/account/')) {
-                            clean = `/Identity/Account/${clean.slice(9)}`
-                          } else if (['/leaderboard', '/lobby', '/profile', '/account', '/privacy', '/room'].includes(clean.toLowerCase())) {
-                            clean = `/Home${clean}`
-                          }
-                        }
-                        onRouteChange?.(clean)
-                        if (run?.url) {
-                          const base = run.url.replace(/\/+$/, '')
-                          onPreviewUrlChange?.(clean === '/' ? base : `${base}${clean}`)
-                        }
-                      }}
+                    <CanvasArea
+                      url={canvasUrl}
                       running={run?.status === 'running' || run?.status === 'starting'}
                       projectName={project.name}
+                      projectPath={project.path}
                       error={parsedError}
                       installing={installing}
                       onRun={onRun}
                       onStop={onStop}
                       onOpenExternal={onOpenExternal}
-                      onInstall={onInstall}    
+                      onInstall={onInstall}
+                      onCreateIndexHtml={onCreateIndexHtml}
+                      onAddDevScript={onAddDevScript}
                     />
                   ) : (
                     <FileViewer
@@ -325,12 +322,13 @@ const WorkspaceView = ({
                   )}
                 </Panel>
                 <Separator className="pm-resize" style={{ height: 1, width: '100%' }} />
-                <Panel defaultSize="26%" minSize="80px" maxSize="60%" collapsible>
+                <Panel defaultSize="28%" minSize="60px" maxSize="60%" collapsible>
                   <LogPanel
                     logs={logs}
                     run={run}
                     installing={installing}
-                    onInstall={onInstall}  onRetry={onRun}
+                    onInstall={onInstall}
+                    onRetry={onRun}
                     onOpenFile={(target) => {
                       const match = tabs.find((t) => t.toLowerCase().endsWith(target.toLowerCase()))
                       if (match) {
@@ -348,33 +346,19 @@ const WorkspaceView = ({
               <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
                   {activeTab === 'preview' ? (
-                    <PreviewPane
-                      url={effectivePreviewUrl}
-                      pages={project.meta.pages}
-                      onUrlChange={onPreviewUrlChange}
-                      onSelectRoute={(route) => {
-                        let clean = route.startsWith('/') ? route : `/${route}`
-                        if (project.packageManager === 'dotnet' || project.framework?.includes('ASP.NET')) {
-                          if (clean.startsWith('/account/')) {
-                            clean = `/Identity/Account/${clean.slice(9)}`
-                          } else if (['/leaderboard', '/lobby', '/profile', '/account', '/privacy', '/room'].includes(clean.toLowerCase())) {
-                            clean = `/Home${clean}`
-                          }
-                        }
-                        onRouteChange?.(clean)
-                        if (run?.url) {
-                          const base = run.url.replace(/\/+$/, '')
-                          onPreviewUrlChange?.(clean === '/' ? base : `${base}${clean}`)
-                        }
-                      }}
+                    <CanvasArea
+                      url={canvasUrl}
                       running={run?.status === 'running' || run?.status === 'starting'}
                       projectName={project.name}
+                      projectPath={project.path}
                       error={parsedError}
                       installing={installing}
                       onRun={onRun}
                       onStop={onStop}
                       onOpenExternal={onOpenExternal}
-                      onInstall={onInstall}    
+                      onInstall={onInstall}
+                      onCreateIndexHtml={onCreateIndexHtml}
+                      onAddDevScript={onAddDevScript}
                     />
                   ) : (
                     <FileViewer
@@ -394,7 +378,7 @@ const WorkspaceView = ({
                   <span
                     style={{
                       fontSize: 10.5,
-                      color: 'var(--accent-text, #a78bfa)',
+                      color: 'var(--accent-text)',
                       display: 'flex',
                       alignItems: 'center',
                       gap: 3,
@@ -442,6 +426,7 @@ const WorkspaceView = ({
             </Panel>
           </>
         )}
+
       </Group>
     </div>
   )
