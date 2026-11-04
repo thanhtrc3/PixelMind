@@ -191,3 +191,15 @@ HIỆN TẠI (Chuẩn Modern Desktop App như VS Code / Figma / Cursor):
    - Đã gỡ bỏ toàn bộ các nhãn tag pill xám (`body`, `header`, `nav.navbar`, `div.container-fluid`, `col-md-4`...) nằm bên phải từng dòng.
    - Trả lại toàn bộ không gian chiều ngang để hiển thị đầy đủ tên phần tử và icon mà không bị che khuất hay ngắt chữ, giao diện danh sách cây trở nên tinh gọn và chuyên nghiệp chuẩn Figma / VS Code.
 
+6. **Sửa lỗi vỡ dòng chữ ('Cấu trúc DOM:') và tinh gọn thanh điều hướng**:
+   - Gỡ bỏ hoàn toàn thanh trung gian bị chật chội và vỡ dòng chữ thành 3 hàng (`Cấu \n trúc \n DOM:`).
+   - Tích hợp các nút thao tác `[▲]` `[▼]` `[◀]` `[▶]` `[↺]` trực tiếp vào thanh tiêu đề header `[Phân cấp]` (chỉ xuất hiện tinh gọn khi người dùng đang chọn phần tử, chuẩn theo phong cách VS Code & Figma).
+   - Giao diện trở nên liền mạch, không còn tình trạng đội chiều cao hay vỡ bố cục.
+
+7. **Tự động tắt hoàn toàn Dev Server và giải phóng cổng mạng khi thoát dự án / đóng ứng dụng**:
+   - **Tự động dọn dẹp khi chuyển màn hình**: Khi người dùng chuyển từ dự án về màn hình danh sách dự án (`'projects'`), mở dự án khác, hoặc xóa dự án, hệ thống sẽ tự động gọi lệnh dừng dev server của dự án hiện tại.
+   - **Giải phóng cổng mạng bằng lệnh cấp độ hệ điều hành (`killPort`)**: Quét `netstat` tìm mọi PID đang chiếm cổng (ví dụ cổng 5162, 5173,...) và thực thi cưỡng chế tắt tiến trình bằng `taskkill /pid <PID> /T /F` trên Windows hoặc `kill -9` trên Unix, chấm dứt hoàn toàn tình trạng tiến trình mồ côi (orphan process/zombie) của `dotnet watch run` hay `vite`/`npm` chiếm giữ cổng.
+   - **Bảo vệ toàn diện vòng đời ứng dụng**: Đăng ký các hook đóng cửa sổ và thoát ứng dụng (`mainWindow.on('close')`, `app.on('before-quit')`, `window.beforeunload`, `process.on('exit')`, `SIGINT`, `SIGTERM`) để đảm bảo không một tiến trình nào bị bỏ quên.
+   - **Khởi động dự án an toàn**: Hàm `launch` tự động kiểm tra và tiêu diệt các phiên chạy cũ của cùng một dự án trước khi sinh ra tiến trình mới, triệt tiêu hoàn toàn lỗi `EADDRINUSE` hoặc `ERR_CONNECTION_REFUSED`.
+
+

@@ -1,4 +1,4 @@
-import { exec } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { createServer } from 'node:http'
@@ -35,6 +35,39 @@ const MIME: Record<string, string> = {
   webm: 'video/webm',
   txt: 'text/plain; charset=utf-8',
   map: 'application/json; charset=utf-8',
+}
+
+/** Quét netstat và cưỡng chế tắt bất kỳ tiến trình nào đang chiếm cổng mạng (ngăn lỗi EADDRINUSE) */
+export function killPort(port: number): void {
+  if (!port || port <= 0) return
+  try {
+    if (process.platform === 'win32') {
+      const out = execSync(`netstat -ano -p tcp`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      const pids = new Set<string>()
+      for (const line of out.split('\n')) {
+        const parts = line.trim().split(/\s+/)
+        if (parts.length >= 5 && parts[0] === 'TCP') {
+          const addr = parts[1]
+          const state = parts[3]
+          const pid = parts[4]
+          if (state === 'LISTENING' && addr.endsWith(':' + port)) {
+            if (pid && pid !== '0' && pid !== String(process.pid)) {
+              pids.add(pid)
+            }
+          }
+        }
+      }
+      for (const pid of pids) {
+        try {
+          execSync(`taskkill /pid ${pid} /T /F`, { stdio: 'ignore' })
+        } catch {}
+      }
+    } else {
+      try {
+        execSync(`lsof -ti:${port} | xargs kill -9`, { stdio: 'ignore' })
+      } catch {}
+    }
+  } catch {}
 }
 
 interface Entry {
@@ -254,6 +287,9 @@ export class RunnerManager {
     project: { id: string; path: string },
     options: { script: string; command: string; kind: RunState['kind']; note?: string },
   ): RunState {
+    // Dọn dẹp dứt điểm toàn bộ tiến trình cũ đang chạy của dự án này (nếu có)
+    this.stopOfProject(project.id)
+
     const id = randomUUID()
     const entry: Entry = {
       buffer: '',
@@ -419,23 +455,57 @@ export class RunnerManager {
     }
 
     const pid = entry.child?.pid
-    if (!pid) return true
-    if (process.platform === 'win32') {
-      exec(`taskkill /pid ${pid} /T /F`, () => undefined)
-    } else {
-      try {
-        process.kill(-pid, 'SIGTERM')
-      } catch {
-        entry.child?.kill('SIGTERM')
+    if (pid) {
+      if (process.platform === 'win32') {
+        try {
+          execSync(`taskkill /pid ${pid} /T /F`, { stdio: 'ignore' })
+        } catch {
+          try {
+            entry.child?.kill('SIGKILL')
+          } catch {}
+        }
+      } else {
+        try {
+          process.kill(-pid, 'SIGKILL')
+        } catch {
+          entry.child?.kill('SIGKILL')
+        }
       }
     }
-    this.emitLog(runId, '[system] Đã gửi yêu cầu dừng tiến trình.\n', 'system')
+
+    // Giải phóng triệt để cổng mạng đang được dev server lắng nghe (ngăn lỗi chiếm cổng khi mở lại)
+    let portToKill: number | null = null
+    if (entry.state.url) {
+      const match = entry.state.url.match(/:(\d{2,5})/)
+      if (match) {
+        portToKill = parseInt(match[1], 10)
+      }
+    } else if (entry.buffer) {
+      const match = entry.buffer.match(URL_RE)
+      if (match && match[3]) {
+        portToKill = parseInt(match[3], 10)
+      }
+    }
+    if (portToKill) killPort(portToKill)
+
+    this.emitLog(runId, '[system] Đã dừng tiến trình và giải phóng cổng mạng thành công.\n', 'system')
     return true
+  }
+
+  /** Dừng toàn bộ tiến trình đang chạy của một dự án cụ thể */
+  stopOfProject(projectId: string): void {
+    for (const entry of this.entries.values()) {
+      if (entry.state.projectId === projectId && (entry.state.status === 'running' || entry.state.status === 'starting')) {
+        this.stop(entry.state.id)
+      }
+    }
   }
 
   stopAll(): void {
     for (const entry of this.entries.values()) {
-      this.stop(entry.state.id)
+      if (entry.state.status === 'running' || entry.state.status === 'starting') {
+        this.stop(entry.state.id)
+      }
     }
   }
 

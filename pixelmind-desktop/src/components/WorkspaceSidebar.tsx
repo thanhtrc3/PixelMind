@@ -389,10 +389,49 @@ export const WorkspaceSidebar = ({
         {activeTab === 'layers' && (
           <>
             <div className="pm-ws-hd">
-              <span className="pm-ws-hd__title">
-                <Layers size={13} /> Phân cấp phần tử
+              <span className="pm-ws-hd__title" title="Phân cấp phần tử">
+                <Layers size={13} />
               </span>
               <div className="pm-ws-hd__actions">
+                {selectedLayerId && (
+                  <>
+                    <button
+                      className="pm-ibtn"
+                      onClick={() => handleMoveDomNode('up')}
+                      title="Di chuyển lên trước thẻ anh em (▲ Lên)"
+                    >
+                      <ArrowUp size={12} />
+                    </button>
+                    <button
+                      className="pm-ibtn"
+                      onClick={() => handleMoveDomNode('down')}
+                      title="Di chuyển xuống sau thẻ anh em (▼ Xuống)"
+                    >
+                      <ArrowDown size={12} />
+                    </button>
+                    <button
+                      className="pm-ibtn"
+                      onClick={() => handleMoveDomNode('outdent')}
+                      title="Đưa ra ngoài thẻ cha (◀ Ra ngoài)"
+                    >
+                      <ArrowLeft size={12} />
+                    </button>
+                    <button
+                      className="pm-ibtn"
+                      onClick={() => handleMoveDomNode('indent')}
+                      title="Đưa vào trong thẻ trước (▶ Vào trong)"
+                    >
+                      <ArrowRight size={12} />
+                    </button>
+                    <button
+                      className="pm-ibtn"
+                      onClick={handleResetPosition}
+                      title="Đặt lại vị trí tự nhiên (↺)"
+                    >
+                      <RotateCcw size={12} />
+                    </button>
+                  </>
+                )}
                 <button
                   className="pm-ibtn"
                   onClick={() => {
@@ -402,70 +441,6 @@ export const WorkspaceSidebar = ({
                   title="Làm mới phân cấp DOM"
                 >
                   <RefreshCw size={12} className={isLoadingLayers ? 'pm-spin' : ''} />
-                </button>
-              </div>
-            </div>
-
-            {/* Thanh công cụ điều hướng & di chuyển cây DOM (Luôn hiển thị trực quan) */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '5px 12px',
-                background: 'var(--panel-2)',
-                borderBottom: '1px solid var(--line)',
-                fontSize: 11,
-              }}
-            >
-              <span style={{ color: selectedLayerId ? 'var(--accent-text)' : 'var(--text-3)', fontWeight: 600 }}>
-                {selectedLayerId ? 'Cấu trúc DOM:' : 'Chọn thẻ để dời:'}
-              </span>
-              <div style={{ display: 'flex', gap: 3 }}>
-                <button
-                  className="pm-ibtn"
-                  disabled={!selectedLayerId}
-                  style={!selectedLayerId ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
-                  onClick={() => handleMoveDomNode('up')}
-                  title="Di chuyển lên trước thẻ anh em (▲ Lên)"
-                >
-                  <ArrowUp size={12} />
-                </button>
-                <button
-                  className="pm-ibtn"
-                  disabled={!selectedLayerId}
-                  style={!selectedLayerId ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
-                  onClick={() => handleMoveDomNode('down')}
-                  title="Di chuyển xuống sau thẻ anh em (▼ Xuống)"
-                >
-                  <ArrowDown size={12} />
-                </button>
-                <button
-                  className="pm-ibtn"
-                  disabled={!selectedLayerId}
-                  style={!selectedLayerId ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
-                  onClick={() => handleMoveDomNode('outdent')}
-                  title="Đưa ra ngoài thẻ cha (◀ Ra ngoài cha - đưa ra khỏi col-md-4)"
-                >
-                  <ArrowLeft size={12} />
-                </button>
-                <button
-                  className="pm-ibtn"
-                  disabled={!selectedLayerId}
-                  style={!selectedLayerId ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
-                  onClick={() => handleMoveDomNode('indent')}
-                  title="Đưa vào làm con thẻ đứng trước (▶ Vào trong)"
-                >
-                  <ArrowRight size={12} />
-                </button>
-                <button
-                  className="pm-ibtn"
-                  disabled={!selectedLayerId}
-                  style={!selectedLayerId ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
-                  onClick={handleResetPosition}
-                  title="Đặt lại vị trí tự nhiên (Xóa relative top/left)"
-                >
-                  <RotateCcw size={12} />
                 </button>
               </div>
             </div>

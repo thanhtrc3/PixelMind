@@ -280,6 +280,10 @@ function createWindow() {
     }
   })
 
+  mainWindow.on('close', () => {
+    runner.stopAll()
+  })
+
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -706,6 +710,14 @@ ipcMain.handle('run:stop', async (_e, runId: string) => {
 })
 ipcMain.handle('run:list', () => runner.list())
 ipcMain.handle('run:project', (_e, projectId: string) => runner.stateOfProject(projectId))
+ipcMain.handle('run:stop-project', async (_e, projectId: string) => {
+  runner.stopOfProject(projectId)
+  return true
+})
+ipcMain.handle('run:stop-all', async () => {
+  runner.stopAll()
+  return true
+})
 
 ipcMain.handle('shell:external', async (_e, url: string) => {
   if (/^https?:/i.test(url)) await shell.openExternal(url)
@@ -2169,4 +2181,14 @@ if (!gotLock) {
   })
 
   app.on('before-quit', () => runner.stopAll())
+
+  process.on('exit', () => runner.stopAll())
+  process.on('SIGINT', () => {
+    runner.stopAll()
+    process.exit(0)
+  })
+  process.on('SIGTERM', () => {
+    runner.stopAll()
+    process.exit(0)
+  })
 }

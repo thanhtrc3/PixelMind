@@ -171,6 +171,17 @@ const App = () => {
 
   const openProject = async (target: ProjectRecord, notify = true) => {
     try {
+      // Dừng dứt điểm tiến trình của dự án cũ (nếu có) trước khi mở dự án mới để không bị chiếm cổng
+      if (run && (run.status === 'running' || run.status === 'starting') && run.projectId !== target.id) {
+        try {
+          await api.run.stop(run.id)
+        } catch {}
+      } else if (projectId && projectId !== target.id && api.run?.stopOfProject) {
+        try {
+          await api.run.stopOfProject(projectId)
+        } catch {}
+      }
+
       const opened = (await api.projects.open(target.id)) ?? target
       setStoreData((prev) => ({
         ...prev,
@@ -250,6 +261,12 @@ const App = () => {
 
   const removeProject = async (target: ProjectRecord) => {
     try {
+      if (run && run.projectId === target.id) {
+        await stopRun()
+      } else if (api.run?.stopOfProject) {
+        await api.run.stopOfProject(target.id)
+      }
+
       const list = await api.projects.remove(target.id)
       setStoreData((prev) => ({
         ...prev,
@@ -551,16 +568,41 @@ const App = () => {
   }
 
   const stopRun = async () => {
-    if (!run) return
+    if (!run && !projectId) return
     try {
-      await api.run.stop(run.id)
-      setRun({ ...run, status: 'stopped' })
-      showToast('ok', 'Đã dừng tiến trình.')
+      if (run) {
+        await api.run.stop(run.id)
+        setRun({ ...run, status: 'stopped' })
+      } else if (projectId && api.run?.stopOfProject) {
+        await api.run.stopOfProject(projectId)
+      }
+      showToast('ok', 'Đã dừng tiến trình và giải phóng cổng.')
       void refreshStoreProjects()
     } catch (error) {
       showToast('err', `Không dừng được tiến trình: ${errorMessage(error)}`)
     }
   }
+
+  /** Thoát khỏi dự án hiện tại về danh sách dự án (tự động tắt dev server để tránh chiếm cổng) */
+  const handleExitToProjects = async () => {
+    if (run && (run.status === 'running' || run.status === 'starting')) {
+      await stopRun()
+    } else if (projectId && api.run?.stopOfProject) {
+      await api.run.stopOfProject(projectId)
+    }
+    setView('projects')
+  }
+
+  // Tự động giải phóng cổng & dừng dev server khi đóng cửa sổ app
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (api.run?.stopAll) {
+        void api.run.stopAll()
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
 
   /* ── Hiệu ứng khởi động ───────────────────────────────── */
 
@@ -668,6 +710,7 @@ const App = () => {
     openFolder,
     startRun,
     stopRun,
+    handleExitToProjects,
     refreshProject,
     setView,
     setDialog,
@@ -680,6 +723,7 @@ const App = () => {
     openFolder,
     startRun,
     stopRun,
+    handleExitToProjects,
     refreshProject,
     setView,
     setDialog,
@@ -715,7 +759,7 @@ const App = () => {
         setDialog('settings')
       } else if (mod && key === 'o') {
         event.preventDefault()
-        if (event.shiftKey) setView('projects')
+        if (event.shiftKey) void actionsRef.current.handleExitToProjects()
         else void actionsRef.current.openFolder()
       } else if (mod && key === 'r') {
         event.preventDefault()
@@ -759,7 +803,7 @@ const App = () => {
           setDialog('palette')
           break
         case 'view-projects':
-          setView('projects')
+          void actionsRef.current.handleExitToProjects()
           break
         case 'view-workspace':
           setView('workspace')
@@ -851,7 +895,7 @@ const App = () => {
         id: 'projects',
         label: 'Đi tới danh sách dự án',
         icon: FolderKanban,
-        run: () => setView('projects'),
+        run: () => void handleExitToProjects(),
       },
       {
         id: 'detail',
@@ -1060,7 +1104,7 @@ const App = () => {
       <TitleBar
         project={view === 'projects' ? null : project}
         onOpenFolder={() => void openFolder()}
-        onViewProjects={() => setView('projects')}
+        onViewProjects={() => void handleExitToProjects()}
         onViewWorkspace={() => {
           if (project) setView('workspace')
         }}
@@ -1078,7 +1122,13 @@ const App = () => {
         run={run}
         home={appInfo?.home}
         view={view}
-        onViewChange={(v) => setView(v)}
+        onViewChange={(v) => {
+          if (v === 'projects') {
+            void handleExitToProjects()
+          } else {
+            setView(v)
+          }
+        }}
         onOpenFolder={() => void openFolder()}
         onRun={() => void startRun()}
         onStop={() => void stopRun()}
@@ -1207,6 +1257,9 @@ const App = () => {
           onUpdate={(patch) => void updateSettings(patch)}
           onReset={() => {
             void (async () => {
+              if (api.run?.stopAll) {
+                await api.run.stopAll()
+              }
               const data = await api.store.reset()
               setStoreData(data)
               setProjectId(null)

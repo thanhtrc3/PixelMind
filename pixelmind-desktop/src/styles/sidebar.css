@@ -113,6 +113,11 @@
   margin-left: auto;
 }
 
+.pm-ws-hd__actions .pm-ibtn {
+  width: 22px;
+  height: 22px;
+}
+
 .pm-ws-bd {
   flex: 1;
   min-height: 0;

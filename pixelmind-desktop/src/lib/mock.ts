@@ -488,6 +488,16 @@ export function createBrowserMock(): PixelMindApi {
         emitState({ status: 'stopped' })
         return true
       },
+      async stopOfProject() {
+        clear()
+        emitState({ status: 'stopped' })
+        return true
+      },
+      async stopAll() {
+        clear()
+        emitState({ status: 'stopped' })
+        return true
+      },
       async list() {
         return currentRun ? [currentRun] : []
       },

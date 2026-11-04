@@ -55,6 +55,8 @@ export interface PixelMindApi {
     install(projectId: string): Promise<RunState>
     startCommand(projectId: string, command: string): Promise<RunState>
     stop(runId: string): Promise<boolean>
+    stopOfProject?(projectId: string): Promise<boolean>
+    stopAll?(): Promise<boolean>
     list(): Promise<RunState[]>
     ofProject(projectId: string): Promise<RunState | null>
     onLog(cb: (log: RunLog) => void): () => void

@@ -74,6 +74,8 @@ const api: PixelMindApi = {
     startCommand: (projectId: string, command: string): Promise<RunState> =>
       ipcRenderer.invoke('run:start-command', projectId, command),
     stop: (runId: string): Promise<boolean> => ipcRenderer.invoke('run:stop', runId),
+    stopOfProject: (projectId: string): Promise<boolean> => ipcRenderer.invoke('run:stop-project', projectId),
+    stopAll: (): Promise<boolean> => ipcRenderer.invoke('run:stop-all'),
     list: (): Promise<RunState[]> => ipcRenderer.invoke('run:list'),
     ofProject: (projectId: string): Promise<RunState | null> => ipcRenderer.invoke('run:project', projectId),
     onLog: (cb: (log: RunLog) => void) => {
