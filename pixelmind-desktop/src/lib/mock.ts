@@ -536,6 +536,17 @@ export function createBrowserMock(): PixelMindApi {
       onMenuAction() {
         return () => undefined
       },
+      async popupMenu() {
+        return false
+      },
+    },
+    window: {
+      async minimize() {},
+      async maximize() {},
+      async close() {},
+      async isMaximized() {
+        return false
+      },
     },
   }
 }

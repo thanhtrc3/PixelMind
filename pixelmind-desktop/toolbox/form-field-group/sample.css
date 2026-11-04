@@ -1,0 +1,23 @@
+/* Nhóm ô nhập kèm nhãn và dòng gợi ý */
+.pt-form-field { display: flex; flex-direction: column; gap: 16px; max-width: 420px; font-family: var(--font-ui); }
+.pt-form-field__row { display: flex; flex-direction: column; gap: 6px; }
+.pt-form-field__label { font-size: 13px; font-weight: 600; color: #24242c; }
+.pt-form-field__row input {
+  height: 46px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1.5px solid #e6e6ea;
+  background: #ffffff;
+  font: inherit;
+  font-size: 14px;
+  color: #24242c;
+  outline: 0;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.pt-form-field__row input::placeholder { color: #aeaeb8; }
+.pt-form-field__row input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px hsla(262, 82%, 60%, 0.14);
+}
+.pt-form-field__row input:user-invalid { border-color: var(--color-error); }
+.pt-form-field__hint { font-size: 12px; color: #86868f; }

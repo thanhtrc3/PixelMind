@@ -1,0 +1,7 @@
+Lưới ba card tính năng nằm ngang dưới vùng hero.
+- Kích thước: mỗi card rộng chia đều 3 cột, cách nhau 18px, padding trong 20px
+- Bo góc: 12px; ô icon bo 10px, kích thước 34×34, cách chữ 14px
+- Thứ tự trong card: icon → tiêu đề → mô tả
+- Card giữa được làm nổi: viền màu nhấn tím, nền #f8f8fa
+- Khi hover: card nhấc lên 2px, viền đổi sang màu nhấn
+- Tiêu đề 15px màu #24242c, mô tả 13px màu #6a6a74, giãn dòng 1.55

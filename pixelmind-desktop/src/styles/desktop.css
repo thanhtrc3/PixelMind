@@ -43,17 +43,18 @@
 
 /* ── Khung ứng dụng ──────────────────────────────────────── */
 .pm-app {
-  display: grid;
-  grid-template-rows: var(--topbar-h) 1fr var(--statusbar-h);
-  height: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
 }
 
 .pm-body {
-  display: flex;
+  flex: 1;
   min-height: 0;
+  display: flex;
   overflow: hidden;
 }
 
@@ -71,8 +72,10 @@
 .pm-topbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 10px 0 12px;
+  gap: 8px;
+  padding: 0 10px 0 10px;
+  height: 42px;
+  flex: none;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   position: relative;

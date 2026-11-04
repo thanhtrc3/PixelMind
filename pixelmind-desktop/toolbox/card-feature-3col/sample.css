@@ -1,0 +1,30 @@
+/* Lưới ba card tính năng, card giữa được làm nổi */
+.pt-card-feature {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  font-family: var(--font-ui);
+}
+.pt-card-feature__item {
+  padding: 20px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1.5px solid #ebebef;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+.pt-card-feature__item:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 12px 28px rgba(43, 39, 64, 0.08);
+}
+.pt-card-feature__item.is-highlight { border-color: var(--accent); background: #f8f8fa; }
+.pt-card-feature__ico {
+  display: block;
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  background: var(--accent-muted);
+  border: 1px solid hsla(262, 82%, 60%, 0.28);
+  margin-bottom: 14px;
+}
+.pt-card-feature__item h3 { margin: 0 0 6px; font-size: 15px; color: #24242c; }
+.pt-card-feature__item p { margin: 0; font-size: 13px; line-height: 1.55; color: #6a6a74; }

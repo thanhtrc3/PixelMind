@@ -1,0 +1,7 @@
+Dải đường dẫn đặt ngay dưới thanh điều hướng.
+- Kích thước: chữ 12.5px, các mục cách nhau 10px
+- Bo góc: không áp dụng (chỉ chữ và dấu chấm phân cách)
+- Không dùng icon, dấu phân cách là chấm tròn 5px màu #d4d4da
+- Mục đang xem: chữ đậm 600 màu #24242c, không có gạch chân
+- Mục khác màu #86868f, khi hover đổi sang màu nhấn tím
+- Khi bấm vào: đổi màu chữ ngay, không có hiệu ứng nền

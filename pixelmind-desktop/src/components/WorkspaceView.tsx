@@ -2,13 +2,17 @@ import { useEffect, useMemo, useState } from 'react'
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import {
   FileCode2,
+  FileText,
   FolderOpen,
+  FolderTree,
   Globe2,
-  Loader2,
+  History,
+  Image as ImageIcon,
+  Layers,
   Maximize2,
   Minimize2,
-  RefreshCw,
-  Search,
+  Package,
+  Palette,
   X,
 } from 'lucide-react'
 import type {
@@ -23,7 +27,7 @@ import type {
 } from '@shared/types'
 import { parseRunError } from '../lib/errorParser'
 import { editorBuffer } from '../lib/editorBuffer'
-import FileTree from './FileTree'
+import WorkspaceSidebar, { type SidebarTab } from './WorkspaceSidebar'
 import FileViewer from './FileViewer'
 import CanvasArea from './CanvasArea'
 import LogPanel from './LogPanel'
@@ -72,6 +76,14 @@ interface WorkspaceViewProps {
   tabs: string[]
   onCloseTab: (path: string) => void
   onSelectTab: (path: string) => void
+  isSidebarOpen?: boolean
+  onToggleSidebar?: () => void
+  sidebarTab?: SidebarTab
+  onSidebarTabChange?: (tab: SidebarTab) => void
+  onOpenPage?: (route: string) => void
+  onAddPage?: () => void
+  onOpenTokens?: () => void
+  onShowToast?: (kind: 'ok' | 'err' | 'info', text: string) => void
 }
 
 const WorkspaceView = ({
@@ -116,6 +128,14 @@ const WorkspaceView = ({
   tabs,
   onCloseTab,
   onSelectTab,
+  isSidebarOpen = true,
+  onToggleSidebar,
+  sidebarTab = 'files',
+  onSidebarTabChange,
+  onOpenPage,
+  onAddPage,
+  onOpenTokens,
+  onShowToast,
 }: WorkspaceViewProps) => {
   const parsedError = useMemo(() => parseRunError(logs, run), [logs, run])
   /* App có thể đã nắn chỉnh route ASP.NET Core; ưu tiên URL đó. */
@@ -134,11 +154,34 @@ const WorkspaceView = ({
     })
   }, [])
 
-  // Phím tắt bàn phím toàn cục: Ctrl+S (Lưu), Ctrl+Z (Hoàn tác), Ctrl+Y (Làm lại)
+  // Phím tắt bàn phím toàn cục: Ctrl+S (Lưu), Ctrl+Z (Hoàn tác), Ctrl+Y (Làm lại), Ctrl+B (Toggle Sidebar)
   useEffect(() => {
     const handleGlobalShortcuts = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+
+      // Ctrl + B: Bật / Tắt Sidebar
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        onToggleSidebar?.()
+        return
+      }
+
+      // Ctrl + Shift + E: Tab Files
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault()
+        onSidebarTabChange?.('files')
+        if (!isSidebarOpen) onToggleSidebar?.()
+        return
+      }
+
+      // Ctrl + Shift + L: Tab Layers
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault()
+        onSidebarTabChange?.('layers')
+        if (!isSidebarOpen) onToggleSidebar?.()
+        return
+      }
 
       // Ctrl + S: Lưu tất cả thay đổi RAM buffer vào tệp vật lý
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
@@ -171,7 +214,7 @@ const WorkspaceView = ({
 
     window.addEventListener('keydown', handleGlobalShortcuts)
     return () => window.removeEventListener('keydown', handleGlobalShortcuts)
-  }, [])
+  }, [isSidebarOpen, onToggleSidebar, onSidebarTabChange])
 
   // Lắng nghe phím Escape để thoát chế độ Focus Canvas
   useEffect(() => {
@@ -206,55 +249,118 @@ const WorkspaceView = ({
   return (
     <div className="pm-workspace">
       <Group orientation="horizontal" style={{ flex: 1 }}>
-        {/* ── Cây tệp (Ẩn khi ở chế độ Focus Canvas) ── */}
+        {/* ── Cột Sidebar 7-trong-1 (Ẩn khi ở chế độ Focus Canvas) ── */}
         {!focusCanvas && (
-          <>
-            <Panel defaultSize="270px" minSize="190px" maxSize="440px" collapsible>
-              <div className="pm-panel" style={{ borderRight: '1px solid var(--line)' }}>
-                <div className="pm-panel__hd">
-                  <b>Tệp</b>
-                  <span className="pm-muted" style={{ fontSize: 10.5 }}>
-                    {project.name}
-                  </span>
-                  <span style={{ flex: 1 }} />
-                  <button className="pm-ibtn" onClick={onRefresh} title="Tải lại cây tệp (Ctrl+R)">
-                    <RefreshCw size={12} />
-                  </button>
-                  <button className="pm-ibtn" onClick={onOpenFolder} title="Mở thư mục khác">
-                    <FolderOpen size={12} />
-                  </button>
-                </div>
-                <div className="pm-tree__filter">
-                  <div className="pm-searchbox" style={{ width: '100%' }}>
-                    <Search size={12} />
-                    <input
-                      value={query}
-                      placeholder="Lọc theo tên tệp…"
-                      style={{ width: '100%' }}
-                      onChange={(e) => onQuery(e.target.value)}
-                      onKeyDown={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                </div>
-                <div className="pm-panel__bd">
-                  {treeLoading ? (
-                    <div className="pm-row pm-muted" style={{ padding: 12, gap: 7, fontSize: 11.5 }}>
-                      <Loader2 size={12} className="spin" /> Đang đọc thư mục…
-                    </div>
-                  ) : (
-                    <FileTree
-                      nodes={tree}
-                      rootPath={project.path}
-                      selectedPath={selectedPath}
-                      query={query}
-                      onSelect={onSelectFile}
-                    />
-                  )}
-                </div>
-              </div>
-            </Panel>
-            <Separator className="pm-resize" />
-          </>
+          isSidebarOpen ? (
+            <>
+              <Panel defaultSize="320px" minSize="260px" maxSize="520px" collapsible>
+                <WorkspaceSidebar
+                  project={project}
+                  tree={tree}
+                  treeLoading={treeLoading}
+                  selectedPath={selectedPath}
+                  query={query}
+                  onQuery={onQuery}
+                  onSelectFile={onSelectFile}
+                  onRefresh={onRefresh}
+                  onOpenFolder={onOpenFolder}
+                  activeTab={sidebarTab}
+                  onActiveTabChange={(tab) => {
+                    if (sidebarTab === tab) {
+                      onToggleSidebar?.()
+                    } else {
+                      onSidebarTabChange?.(tab)
+                    }
+                  }}
+                  onCloseSidebar={() => onToggleSidebar?.()}
+                  onOpenPage={onOpenPage ?? (() => {})}
+                  onAddPage={onAddPage ?? (() => {})}
+                  onOpenTokens={onOpenTokens ?? (() => {})}
+                  branch={branch}
+                  onShowToast={onShowToast ?? (() => {})}
+                />
+              </Panel>
+              <Separator className="pm-resize" />
+            </>
+          ) : (
+            /* Khi Sidebar thu gọn: Hiển thị Activity Bar 44px nhỏ gọn để 1-click mở lại bất kỳ tab nào */
+            <div
+              className="pm-ws-activity-bar"
+              style={{ borderRight: '1px solid var(--line)' }}
+              title="Nhấp vào biểu tượng bất kỳ để mở rộng thanh bên (Ctrl+B)"
+            >
+              <button
+                className={`pm-ws-tab-btn ${sidebarTab === 'files' ? 'active' : ''}`}
+                onClick={() => {
+                  onSidebarTabChange?.('files')
+                  onToggleSidebar?.()
+                }}
+                title="Mở Tệp mã nguồn (Ctrl+Shift+E)"
+              >
+                <FolderTree size={16} />
+              </button>
+              <button
+                className={`pm-ws-tab-btn ${sidebarTab === 'layers' ? 'active' : ''}`}
+                onClick={() => {
+                  onSidebarTabChange?.('layers')
+                  onToggleSidebar?.()
+                }}
+                title="Mở Cây phân cấp (Layers · Ctrl+Shift+L)"
+              >
+                <Layers size={16} />
+              </button>
+              <button
+                className={`pm-ws-tab-btn ${sidebarTab === 'pages' ? 'active' : ''}`}
+                onClick={() => {
+                  onSidebarTabChange?.('pages')
+                  onToggleSidebar?.()
+                }}
+                title="Mở Danh sách trang (Pages)"
+              >
+                <FileText size={16} />
+              </button>
+              <button
+                className={`pm-ws-tab-btn ${sidebarTab === 'assets' ? 'active' : ''}`}
+                onClick={() => {
+                  onSidebarTabChange?.('assets')
+                  onToggleSidebar?.()
+                }}
+                title="Mở Tài nguyên & Ảnh mẫu (Assets)"
+              >
+                <ImageIcon size={16} />
+              </button>
+              <button
+                className={`pm-ws-tab-btn ${sidebarTab === 'versions' ? 'active' : ''}`}
+                onClick={() => {
+                  onSidebarTabChange?.('versions')
+                  onToggleSidebar?.()
+                }}
+                title="Mở Lịch sử phiên bản (Versions)"
+              >
+                <History size={16} />
+              </button>
+              <button
+                className={`pm-ws-tab-btn ${sidebarTab === 'design' ? 'active' : ''}`}
+                onClick={() => {
+                  onSidebarTabChange?.('design')
+                  onToggleSidebar?.()
+                }}
+                title="Mở Hệ thống thiết kế (Design Tokens)"
+              >
+                <Palette size={16} />
+              </button>
+              <button
+                className={`pm-ws-tab-btn ${sidebarTab === 'part' ? 'active' : ''}`}
+                onClick={() => {
+                  onSidebarTabChange?.('part')
+                  onToggleSidebar?.()
+                }}
+                title="Mở Thư viện linh kiện mẫu (Part Library)"
+              >
+                <Package size={16} />
+              </button>
+            </div>
+          )
         )}
 
         {/* ── Nội dung chính ── */}
@@ -319,7 +425,7 @@ const WorkspaceView = ({
               )}
             </div>
 
-            {/* Vùng hiển thị Canvas hoặc FileViewer kết hợp Nhật ký chạy phía dưới (kéo thả linh hoạt như 2 bên trái phải) */}
+            {/* Vùng hiển thị Canvas hoặc FileViewer kết hợp Nhật ký chạy phía dưới */}
             <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
               <Panel minSize="20%">
                 <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -349,10 +455,10 @@ const WorkspaceView = ({
                 </div>
               </Panel>
 
-              {/* Dải phân cách kéo co giãn dọc mượt mà như 2 bên trái phải */}
+              {/* Dải phân cách kéo co giãn dọc */}
               <Separator className="pm-resize-horizontal" />
 
-              {/* Panel Nhật ký chạy ở dưới cùng, có thể kéo lên kéo xuống thoải mái */}
+              {/* Panel Nhật ký chạy ở dưới cùng */}
               <Panel
                 panelRef={logPanelRef}
                 defaultSize="24%"
@@ -435,7 +541,6 @@ const WorkspaceView = ({
             </Panel>
           </>
         )}
-
       </Group>
     </div>
   )

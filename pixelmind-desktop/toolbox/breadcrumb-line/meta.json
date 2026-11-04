@@ -1,0 +1,27 @@
+{
+  "id": "breadcrumb-line",
+  "name": "Dải breadcrumb",
+  "groups": [
+    "navigation",
+    "layout",
+    "text"
+  ],
+  "tags": [
+    "breadcrumb",
+    "đường dẫn",
+    "điều hướng",
+    "dải"
+  ],
+  "version": "0.9.1",
+  "designMd": "DESIGN.md · 2026-10-01",
+  "author": "Trần Quốc Bảo",
+  "origin": "Figma · PixelMind Kit / navigation",
+  "license": "MIT · nội bộ dự án",
+  "status": "hidden",
+  "locked": false,
+  "demo": false,
+  "uses": 1,
+  "rejects": 4,
+  "updated": "2026-09-28",
+  "note": "Bị ẩn: 4 lần bị BMT từ chối, chờ làm lại dấu phân cách."
+}

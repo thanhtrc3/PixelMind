@@ -1,0 +1,29 @@
+{
+  "id": "table-pricing",
+  "name": "Bảng giá ba gói",
+  "groups": [
+    "card",
+    "table",
+    "layout",
+    "marketing"
+  ],
+  "tags": [
+    "bảng giá",
+    "pricing",
+    "gói",
+    "bảng",
+    "so sánh"
+  ],
+  "version": "1.1.0",
+  "designMd": "DESIGN.md · 2026-10-01",
+  "author": "Trần Quốc Bảo",
+  "origin": "Figma · PixelMind Kit / card",
+  "license": "MIT · nội bộ dự án",
+  "status": "pending",
+  "locked": false,
+  "demo": false,
+  "uses": 3,
+  "rejects": 1,
+  "updated": "2026-10-15",
+  "note": "Đang chờ reviewer duyệt phần bảng so sánh."
+}

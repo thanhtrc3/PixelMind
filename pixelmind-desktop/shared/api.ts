@@ -63,6 +63,7 @@ export interface PixelMindApi {
   system: {
     openExternal(url: string): Promise<boolean>
     onMenuAction(cb: (action: string) => void): () => void
+    popupMenu?(menuIndex: number, x: number, y: number): Promise<boolean>
   }
   inspect: {
     setMode(enabled: boolean): Promise<boolean>
@@ -93,5 +94,11 @@ export interface PixelMindApi {
       tokens: DesignTokens
       syncTarget?: 'css' | 'tailwind' | 'both'
     }): Promise<{ success: boolean; filePath?: string; tailwindPath?: string; error?: string }>
+  }
+  window?: {
+    minimize: () => Promise<void>
+    maximize: () => Promise<void>
+    close: () => Promise<void>
+    isMaximized: () => Promise<boolean>
   }
 }

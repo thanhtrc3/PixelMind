@@ -1,4 +1,4 @@
-﻿import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
   AppInfo,
@@ -95,6 +95,8 @@ const api: PixelMindApi = {
       ipcRenderer.on('menu:action', listener)
       return () => ipcRenderer.removeListener('menu:action', listener)
     },
+    popupMenu: (menuIndex: number, x: number, y: number): Promise<boolean> =>
+      ipcRenderer.invoke('menu:popup', { menuIndex, x, y }),
   },
 
   inspect: {
@@ -124,6 +126,12 @@ const api: PixelMindApi = {
     get: (projectPath: string) => ipcRenderer.invoke('tokens:get', projectPath),
     save: (payload: { projectPath: string; tokens: DesignTokens; syncTarget?: 'css' | 'tailwind' | 'both' }) =>
       ipcRenderer.invoke('tokens:save', payload),
+  },
+  window: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    maximize: () => ipcRenderer.invoke('window:maximize'),
+    close: () => ipcRenderer.invoke('window:close'),
+    isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
   },
 }
 

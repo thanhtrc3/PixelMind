@@ -1,0 +1,28 @@
+{
+  "id": "picker-date",
+  "name": "Ô chọn ngày",
+  "groups": [
+    "form",
+    "layout",
+    "feedback"
+  ],
+  "tags": [
+    "ngày",
+    "date",
+    "lịch",
+    "chọn ngày",
+    "picker"
+  ],
+  "version": "1.0.0",
+  "designMd": "DESIGN.md · 2026-10-01",
+  "author": "Trần Quốc Bảo",
+  "origin": "Figma · PixelMind Kit / form",
+  "license": "MIT · nội bộ dự án",
+  "status": "approved",
+  "locked": true,
+  "demo": false,
+  "uses": 2,
+  "rejects": 3,
+  "updated": "2026-10-02",
+  "note": "Khoá: chưa chốt được quy tắc ngày nghỉ, không cho kéo ra ngoài kho."
+}

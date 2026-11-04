@@ -61,6 +61,16 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+Shift+O',
           click: () => sendMenuAction('view-projects'),
         },
+        {
+          label: 'Màn hình làm việc',
+          accelerator: 'CmdOrCtrl+Shift+W',
+          click: () => sendMenuAction('view-workspace'),
+        },
+        {
+          label: 'Lưu thay đổi mã nguồn',
+          accelerator: 'CmdOrCtrl+S',
+          click: () => sendMenuAction('save'),
+        },
         { type: 'separator' },
         {
           label: 'Cài đặt…',
@@ -72,16 +82,94 @@ function buildMenu() {
       ],
     },
     {
+      label: 'Chỉnh sửa',
+      submenu: [
+        {
+          label: 'Hoàn tác (Undo)',
+          accelerator: 'CmdOrCtrl+Z',
+          click: () => sendMenuAction('undo'),
+        },
+        {
+          label: 'Làm lại (Redo)',
+          accelerator: 'CmdOrCtrl+Y',
+          click: () => sendMenuAction('redo'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Bảng lệnh…',
+          accelerator: 'CmdOrCtrl+K',
+          click: () => sendMenuAction('palette'),
+        },
+      ],
+    },
+    {
       label: 'Chạy',
       submenu: [
         { label: 'Chạy dự án', accelerator: 'F5', click: () => sendMenuAction('run') },
-        { label: 'Dừng', accelerator: 'Shift+F5', click: () => sendMenuAction('stop') },
+        { label: 'Dừng máy chủ', accelerator: 'Shift+F5', click: () => sendMenuAction('stop') },
+        { type: 'separator' },
+        {
+          label: 'Cài đặt / Khôi phục thư viện',
+          click: () => sendMenuAction('install-deps'),
+        },
+        {
+          label: 'Báo cáo kiểm tra dự án',
+          click: () => sendMenuAction('diagnose'),
+        },
+        { type: 'separator' },
         { label: 'Tải lại cây tệp', accelerator: 'CmdOrCtrl+R', click: () => sendMenuAction('refresh') },
       ],
     },
     {
       label: 'Xem',
       submenu: [
+        {
+          label: 'Ẩn / Hiện thanh bên (Sidebar)',
+          accelerator: 'CmdOrCtrl+B',
+          click: () => sendMenuAction('toggle-sidebar'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Cây tệp (Files)',
+          accelerator: 'CmdOrCtrl+Shift+E',
+          click: () => sendMenuAction('tab-files'),
+        },
+        {
+          label: 'Cây phân cấp (Layers)',
+          accelerator: 'CmdOrCtrl+Shift+L',
+          click: () => sendMenuAction('tab-layers'),
+        },
+        {
+          label: 'Danh sách trang (Pages)',
+          click: () => sendMenuAction('tab-pages'),
+        },
+        {
+          label: 'Tài nguyên (Assets)',
+          click: () => sendMenuAction('tab-assets'),
+        },
+        {
+          label: 'Lịch sử phiên bản (Versions)',
+          click: () => sendMenuAction('tab-versions'),
+        },
+        {
+          label: 'Hệ thống thiết kế (Design Tokens)',
+          click: () => sendMenuAction('tab-design'),
+        },
+        {
+          label: 'Thư viện linh kiện (Parts)',
+          click: () => sendMenuAction('tab-parts'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Ẩn / Hiện Nhật ký chạy',
+          accelerator: 'CmdOrCtrl+J',
+          click: () => sendMenuAction('toggle-logs'),
+        },
+        {
+          label: 'Chế độ tập trung Canvas',
+          click: () => sendMenuAction('focus-canvas'),
+        },
+        { type: 'separator' },
         { role: 'reload', label: 'Tải lại cửa sổ' },
         { role: 'toggleDevTools', label: 'Công cụ nhà phát triển' },
         { type: 'separator' },
@@ -90,6 +178,24 @@ function buildMenu() {
         { role: 'zoomOut', label: 'Thu nhỏ' },
         { type: 'separator' },
         { role: 'togglefullscreen', label: 'Toàn màn hình' },
+      ],
+    },
+    {
+      label: 'Công cụ',
+      submenu: [
+        {
+          label: 'Soi phần tử trực quan (Inspect)',
+          accelerator: 'I',
+          click: () => sendMenuAction('toggle-inspect'),
+        },
+        {
+          label: 'Hệ thống thiết kế (Design Tokens)',
+          click: () => sendMenuAction('tokens'),
+        },
+        {
+          label: 'Mở trang trong trình duyệt ngoài',
+          click: () => sendMenuAction('open-browser'),
+        },
       ],
     },
     {
@@ -121,9 +227,9 @@ function createWindow() {
     minWidth: Math.min(1080, width),
     minHeight: Math.min(680, height),
     show: false,
-    backgroundColor: '#0b0c0f',
+    frame: false,
     title: 'PixelMind',
-    autoHideMenuBar: false,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -603,6 +709,41 @@ ipcMain.handle('run:project', (_e, projectId: string) => runner.stateOfProject(p
 ipcMain.handle('shell:external', async (_e, url: string) => {
   if (/^https?:/i.test(url)) await shell.openExternal(url)
   return true
+})
+
+ipcMain.handle('menu:popup', async (_e, payload: { menuIndex: number; x: number; y: number }) => {
+  const appMenu = Menu.getApplicationMenu()
+  if (!appMenu) return false
+  const menuItem = appMenu.items[payload.menuIndex]
+  if (menuItem && menuItem.submenu) {
+    menuItem.submenu.popup({
+      window: mainWindow ?? undefined,
+      x: Math.round(payload.x),
+      y: Math.round(payload.y),
+    })
+    return true
+  }
+  return false
+})
+
+ipcMain.handle('window:minimize', () => {
+  mainWindow?.minimize()
+})
+
+ipcMain.handle('window:maximize', () => {
+  if (mainWindow?.isMaximized()) {
+    mainWindow.unmaximize()
+  } else {
+    mainWindow?.maximize()
+  }
+})
+
+ipcMain.handle('window:close', () => {
+  mainWindow?.close()
+})
+
+ipcMain.handle('window:is-maximized', () => {
+  return mainWindow?.isMaximized() ?? false
 })
 
 /* ───────────────────────── IPC: Inspector & Live DOM Bridge ───────────────────────── */

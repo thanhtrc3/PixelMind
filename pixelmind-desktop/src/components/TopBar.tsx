@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react'
 import {
+  ClipboardList,
+  FolderKanban,
   FolderOpen,
-  FolderSearch,
   HelpCircle,
+  LayoutDashboard,
+  Palette,
+  PanelLeft,
   Play,
   Redo2,
   RefreshCw,
@@ -12,39 +16,41 @@ import {
   Undo2,
 } from 'lucide-react'
 import type { ProjectRecord, RunState } from '@shared/types'
-import { shortPath } from '../lib/format'
 import { editorBuffer } from '../lib/editorBuffer'
 
 interface TopBarProps {
   project: ProjectRecord | null
   run: RunState | null
   home?: string
+  view: 'projects' | 'detail' | 'workspace'
+  onViewChange: (view: 'projects' | 'detail' | 'workspace') => void
   onOpenFolder: () => void
   onRun: () => void
   onStop: () => void
-  onProjects: () => void
   onSettings: () => void
   onGuide: () => void
   onPalette: () => void
   onRefresh: () => void
-  onOpenPreview?: () => void
+  onTokens?: () => void
+  isSidebarOpen?: boolean
+  onToggleSidebar?: () => void
 }
-
-
 
 const TopBar = ({
   project,
   run,
-  home,
+  view,
+  onViewChange,
   onOpenFolder,
   onRun,
   onStop,
-  onProjects,
   onSettings,
   onGuide,
   onPalette,
   onRefresh,
-  onOpenPreview: _onOpenPreview,
+  onTokens,
+  isSidebarOpen,
+  onToggleSidebar,
 }: TopBarProps) => {
   const [canUndo, setCanUndo] = useState(editorBuffer.canUndo())
   const [canRedo, setCanRedo] = useState(editorBuffer.canRedo())
@@ -75,36 +81,71 @@ const TopBar = ({
 
   const running = run?.status === 'running' || run?.status === 'starting'
 
-
   return (
     <header className="pm-topbar">
-      {/* ── Thương hiệu PixelMind ── */}
-      <div className="pm-brand">
-        <div className="pm-brand__mark">
-          <FolderSearch size={14} strokeWidth={2.4} />
-        </div>
-        <div className="pm-brand__name">
-          Pixel<span>Mind</span>
-        </div>
-      </div>
-
-      {/* ── Thư mục / Dự án đang mở ── */}
-      {project ? (
-        <button className="pm-crumb" onClick={onProjects} title="Quay lại màn hình dự án">
-          <FolderOpen size={13} />
-          <b>{project.name}</b>
-          <span>{shortPath(project.path, home)}</span>
-        </button>
-      ) : (
-        <button className="pm-crumb" onClick={onOpenFolder} title="Mở một thư mục dự án (Ctrl+O)">
-          <FolderOpen size={13} />
-          <b>Mở thư mục dự án</b>
+      {/* ── Nút Ẩn / Hiện Thanh bên (Ctrl+B) khi ở màn hình Làm việc ── */}
+      {view === 'workspace' && onToggleSidebar && (
+        <button
+          className={`pm-ibtn ${isSidebarOpen ? 'on' : ''}`}
+          onClick={onToggleSidebar}
+          title={isSidebarOpen ? 'Thu gọn thanh bên (Ctrl+B)' : 'Mở thanh bên (Ctrl+B)'}
+          style={{ marginRight: 2 }}
+        >
+          <PanelLeft size={14} />
         </button>
       )}
 
-      {/* ── CỤM NÚT BÊN TRÁI THEO ẢNH 2 ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 6 }}>
-        {/* Undo / Redo */}
+      {/* ── Dự án đang mở (Thu gọn dạng Chip tinh tế, không chèn full path) ── */}
+      {project ? (
+        <button
+          className="pm-project-pill"
+          onClick={() => onViewChange('projects')}
+          title={`Dự án: ${project.name}\nĐường dẫn: ${project.path}\nBấm để chuyển về danh sách dự án`}
+        >
+          <FolderOpen size={13} className="pm-project-pill__icon" />
+          <b className="pm-project-pill__name">{project.name}</b>
+        </button>
+      ) : (
+        <button className="pm-project-pill" onClick={onOpenFolder} title="Mở thư mục dự án (Ctrl+O)">
+          <FolderOpen size={13} className="pm-project-pill__icon" />
+          <span>Mở dự án…</span>
+        </button>
+      )}
+
+      {/* ── Bộ chuyển View (Dự án / Chi tiết / Làm việc) tích hợp lên TopBar ── */}
+      <div className="pm-view-switcher">
+        <button
+          className={`pm-view-btn ${view === 'projects' ? 'active' : ''}`}
+          onClick={() => onViewChange('projects')}
+          title="Danh sách dự án (Ctrl+Shift+O)"
+        >
+          <FolderKanban size={13} />
+          <span>Dự án</span>
+        </button>
+        {project && (
+          <>
+            <button
+              className={`pm-view-btn ${view === 'detail' ? 'active' : ''}`}
+              onClick={() => onViewChange('detail')}
+              title="Màn hình thông tin dự án"
+            >
+              <ClipboardList size={13} />
+              <span>Chi tiết</span>
+            </button>
+            <button
+              className={`pm-view-btn ${view === 'workspace' ? 'active' : ''}`}
+              onClick={() => onViewChange('workspace')}
+              title="Màn hình làm việc (Ctrl+Shift+W)"
+            >
+              <LayoutDashboard size={13} />
+              <span>Làm việc</span>
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* ── Thao tác Undo / Redo / Lưu đệm RAM ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 4 }}>
         <button
           className={`pm-ibtn ${canUndo ? '' : 'disabled'}`}
           onClick={() => editorBuffer.undo()}
@@ -153,7 +194,7 @@ const TopBar = ({
           </button>
         )}
 
-        {/* Nút trạng thái máy chủ [⏹ Đang chạy] hoặc [▶ Run] (Ảnh 2) */}
+        {/* Nút trạng thái máy chủ [⏹ Đang chạy] hoặc [▶ Run] */}
         {running ? (
           <button
             className="pm-topbar__run-status running"
@@ -187,8 +228,19 @@ const TopBar = ({
 
       <div className="pm-topbar__spacer" />
 
-      {/* ── CỤM NÚT BÊN PHẢI THEO ẢNH 2 ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+      {/* ── Cụm nút bên phải ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+        {/* Nút Design Tokens */}
+        {project && onTokens && (
+          <button
+            className="pm-ibtn"
+            onClick={onTokens}
+            title="Hệ thống thiết kế (Design Tokens)"
+          >
+            <Palette size={14} />
+          </button>
+        )}
+
         {/* Nút Tải lại cây tệp */}
         <button
           className="pm-ibtn"

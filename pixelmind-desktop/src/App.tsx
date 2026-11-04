@@ -3,10 +3,17 @@ import {
   BookOpen,
   ClipboardList,
   Database,
+  FileText,
   FolderKanban,
   FolderOpen,
+  FolderTree,
+  History,
+  Image as ImageIcon,
+  Layers,
   LayoutDashboard,
+  Package,
   Palette,
+  PanelLeft,
   Play,
   RefreshCw,
   Settings as SettingsIcon,
@@ -33,8 +40,10 @@ import type {
 import { api, isDesktop } from './lib/bridge'
 import { applyThemeVariables } from './lib/theme'
 import { fileName } from './lib/format'
+import { editorBuffer } from './lib/editorBuffer'
+import TitleBar from './components/TitleBar'
 import TopBar from './components/TopBar'
-import NavRail from './components/NavRail'
+import type { SidebarTab } from './components/WorkspaceSidebar'
 import ProjectView from './components/ProjectView'
 import ProjectDetail from './components/ProjectDetail'
 import AddPageDialog from './components/AddPageDialog'
@@ -71,6 +80,8 @@ const App = () => {
   const [view, setView] = useState<View>('projects')
   const [projectId, setProjectId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('files')
 
   const [tree, setTree] = useState<FileNode[]>([])
   const [treeLoading, setTreeLoading] = useState(false)
@@ -661,8 +672,22 @@ const App = () => {
     setView,
     setDialog,
     setDiagnosisOpen,
+    handleInstall,
+    setIsSidebarOpen,
+    setSidebarTab,
   })
-  actionsRef.current = { openFolder, startRun, stopRun, refreshProject, setView, setDialog, setDiagnosisOpen }
+  actionsRef.current = {
+    openFolder,
+    startRun,
+    stopRun,
+    refreshProject,
+    setView,
+    setDialog,
+    setDiagnosisOpen,
+    handleInstall,
+    setIsSidebarOpen,
+    setSidebarTab,
+  }
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -672,6 +697,19 @@ const App = () => {
       if (mod && key === 'k') {
         event.preventDefault()
         setDialog((prev) => (prev === 'palette' ? null : 'palette'))
+      } else if (mod && key === 'b') {
+        event.preventDefault()
+        setIsSidebarOpen((prev) => !prev)
+      } else if (mod && event.shiftKey && key === 'e') {
+        event.preventDefault()
+        setView('workspace')
+        setSidebarTab('files')
+        setIsSidebarOpen(true)
+      } else if (mod && event.shiftKey && key === 'l') {
+        event.preventDefault()
+        setView('workspace')
+        setSidebarTab('layers')
+        setIsSidebarOpen(true)
       } else if (mod && event.key === ',') {
         event.preventDefault()
         setDialog('settings')
@@ -723,6 +761,70 @@ const App = () => {
         case 'view-projects':
           setView('projects')
           break
+        case 'view-workspace':
+          setView('workspace')
+          break
+        case 'toggle-sidebar':
+          setIsSidebarOpen((v) => !v)
+          break
+        case 'tab-files':
+          setView('workspace')
+          setSidebarTab('files')
+          setIsSidebarOpen(true)
+          break
+        case 'tab-layers':
+          setView('workspace')
+          setSidebarTab('layers')
+          setIsSidebarOpen(true)
+          break
+        case 'tab-pages':
+          setView('workspace')
+          setSidebarTab('pages')
+          setIsSidebarOpen(true)
+          break
+        case 'tab-assets':
+          setView('workspace')
+          setSidebarTab('assets')
+          setIsSidebarOpen(true)
+          break
+        case 'tab-versions':
+          setView('workspace')
+          setSidebarTab('versions')
+          setIsSidebarOpen(true)
+          break
+        case 'tab-design':
+          setView('workspace')
+          setSidebarTab('design')
+          setIsSidebarOpen(true)
+          break
+        case 'tab-parts':
+          setView('workspace')
+          setSidebarTab('part')
+          setIsSidebarOpen(true)
+          break
+        case 'save':
+          void editorBuffer.saveAllDirtyFiles().then(() => {
+            showToast('ok', 'Đã lưu tất cả thay đổi vào tệp mã nguồn!')
+          })
+          break
+        case 'undo':
+          if (editorBuffer.canUndo()) editorBuffer.undo()
+          break
+        case 'redo':
+          if (editorBuffer.canRedo()) editorBuffer.redo()
+          break
+        case 'tokens':
+          setDialog('tokens')
+          break
+        case 'install-deps':
+          void actionsRef.current.handleInstall()
+          break
+        case 'diagnose':
+          setDiagnosisOpen(true)
+          break
+        case 'open-browser':
+          if (run?.url) void api.system.openExternal(run.url)
+          break
         default:
           break
       }
@@ -764,6 +866,93 @@ const App = () => {
         icon: LayoutDashboard,
         disabled: !project,
         run: () => setView('workspace'),
+      },
+      {
+        id: 'toggle-sidebar',
+        label: 'Ẩn / Hiện thanh bên (Sidebar)',
+        icon: PanelLeft,
+        keys: 'Ctrl B',
+        disabled: !project,
+        run: () => setIsSidebarOpen((v) => !v),
+      },
+      {
+        id: 'tab-files',
+        label: 'Thanh bên: Cây tệp mã nguồn (Files)',
+        icon: FolderTree,
+        keys: 'Ctrl Shift E',
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('files')
+          setIsSidebarOpen(true)
+        },
+      },
+      {
+        id: 'tab-layers',
+        label: 'Thanh bên: Cây phân cấp các lớp (Layers)',
+        icon: Layers,
+        keys: 'Ctrl Shift L',
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('layers')
+          setIsSidebarOpen(true)
+        },
+      },
+      {
+        id: 'tab-pages',
+        label: 'Thanh bên: Danh sách trang (Pages)',
+        icon: FileText,
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('pages')
+          setIsSidebarOpen(true)
+        },
+      },
+      {
+        id: 'tab-assets',
+        label: 'Thanh bên: Tài nguyên hình ảnh & Ảnh mẫu (Assets)',
+        icon: ImageIcon,
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('assets')
+          setIsSidebarOpen(true)
+        },
+      },
+      {
+        id: 'tab-versions',
+        label: 'Thanh bên: Lịch sử phiên bản & Git (Versions)',
+        icon: History,
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('versions')
+          setIsSidebarOpen(true)
+        },
+      },
+      {
+        id: 'tab-design',
+        label: 'Thanh bên: Hệ thống thiết kế (Design Tokens)',
+        icon: Palette,
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('design')
+          setIsSidebarOpen(true)
+        },
+      },
+      {
+        id: 'tab-parts',
+        label: 'Thanh bên: Thư viện linh kiện mẫu (Part Library)',
+        icon: Package,
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('part')
+          setIsSidebarOpen(true)
+        },
       },
       {
         id: 'diagnose',
@@ -868,37 +1057,41 @@ const App = () => {
 
   return (
     <div className="pm-app">
+      <TitleBar
+        project={view === 'projects' ? null : project}
+        onOpenFolder={() => void openFolder()}
+        onViewProjects={() => setView('projects')}
+        onViewWorkspace={() => {
+          if (project) setView('workspace')
+        }}
+        onSettings={() => setDialog('settings')}
+        onGuide={() => setDialog('guide')}
+        onPalette={() => setDialog('palette')}
+        onRun={() => void startRun()}
+        onStop={() => void stopRun()}
+        onRefresh={() => void refreshProject()}
+        onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
+      />
+
       <TopBar
         project={view === 'projects' ? null : project}
         run={run}
         home={appInfo?.home}
+        view={view}
+        onViewChange={(v) => setView(v)}
         onOpenFolder={() => void openFolder()}
         onRun={() => void startRun()}
         onStop={() => void stopRun()}
-        onProjects={() => setView(view === 'workspace' ? 'detail' : 'projects')}
         onSettings={() => setDialog('settings')}
         onGuide={() => setDialog('guide')}
         onPalette={() => setDialog('palette')}
         onRefresh={() => void refreshProject()}
-        onOpenPreview={() => {
-          setView('workspace')
-          setActiveTab('preview')
-        }}
+        onTokens={() => setDialog('tokens')}
+        isSidebarOpen={isSidebarOpen}
+        onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
       />
 
       <div className="pm-body">
-        <NavRail
-          view={view}
-          hasProject={Boolean(project)}
-          onProjects={() => setView('projects')}
-          onDetail={() => setView('detail')}
-          onWorkspace={() => setView('workspace')}
-          onOpenFolder={() => void openFolder()}
-          onSettings={() => setDialog('settings')}
-          onGuide={() => setDialog('guide')}
-          onTokens={() => setDialog('tokens')}
-        />
-
         <main className="pm-main">
           {view === 'projects' ? (
             <ProjectView
@@ -982,6 +1175,14 @@ const App = () => {
               tabs={openPaths}
               onCloseTab={closeTab}
               onSelectTab={selectTab}
+              isSidebarOpen={isSidebarOpen}
+              onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
+              sidebarTab={sidebarTab}
+              onSidebarTabChange={setSidebarTab}
+              onOpenPage={handleOpenPage}
+              onAddPage={() => setAddPageOpen(true)}
+              onOpenTokens={() => setDialog('tokens')}
+              onShowToast={showToast}
             />
           )}
         </main>

@@ -91,9 +91,8 @@ const FileTree = ({ nodes, rootPath, selectedPath, query, onSelect }: FileTreePr
               title={rel}
             >
               <Icon size={13} className="ico" />
-              <span className="nm">{file.name}</span>
-              <span className="pm-muted pm-truncate" style={{ fontSize: 10, marginLeft: 'auto', paddingLeft: 8 }}>
-                {rel}
+              <span className="nm" style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {file.name}
               </span>
             </button>
           )

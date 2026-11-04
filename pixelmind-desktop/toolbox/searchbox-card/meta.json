@@ -1,0 +1,30 @@
+{
+  "id": "searchbox-card",
+  "name": "Ô tìm kiếm dạng card viền",
+  "groups": [
+    "search",
+    "form",
+    "navigation",
+    "hero"
+  ],
+  "tags": [
+    "search",
+    "searchbox",
+    "ô tìm kiếm",
+    "viền",
+    "card",
+    "bo tròn",
+    "tìm kiếm"
+  ],
+  "version": "2.1.0",
+  "designMd": "DESIGN.md · 2026-10-01",
+  "author": "Nguyễn Thanh Hiền",
+  "origin": "Figma · PixelMind Kit / search",
+  "license": "MIT · nội bộ dự án",
+  "status": "approved",
+  "locked": false,
+  "demo": true,
+  "uses": 18,
+  "rejects": 0,
+  "updated": "2026-10-12"
+}

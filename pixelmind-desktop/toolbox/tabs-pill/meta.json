@@ -1,0 +1,27 @@
+{
+  "id": "tabs-pill",
+  "name": "Tab dạng viên",
+  "groups": [
+    "navigation",
+    "layout",
+    "form"
+  ],
+  "tags": [
+    "tab",
+    "viên",
+    "pill",
+    "điều hướng",
+    "chuyển mục"
+  ],
+  "version": "1.6.0",
+  "designMd": "DESIGN.md · 2026-10-01",
+  "author": "Nguyễn Thanh Hiền",
+  "origin": "Figma · PixelMind Kit / navigation",
+  "license": "MIT · nội bộ dự án",
+  "status": "approved",
+  "locked": false,
+  "demo": true,
+  "uses": 9,
+  "rejects": 0,
+  "updated": "2026-10-09"
+}
