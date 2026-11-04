@@ -108,6 +108,17 @@ Sau khi rà soát mục tiêu sản phẩm PixelMind (Công cụ thiết kế & 
     1. [`runner.ts`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/electron/main/runner.ts): Sửa `waitForPort` không còn trả về `true` giả khi timeout, hỗ trợ kết nối qua cả IPv4 (`127.0.0.1`), `localhost` và IPv6 (`::1`), bổ sung cờ `isCheckingUrl` chống quét trùng lặp khi nhiều dòng log đến cùng lúc, và tạo độ trễ ổn định 400ms sau khi kết nối TCP thành công.
     2. [`CanvasArea.tsx`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/src/components/CanvasArea.tsx): Tích hợp cơ chế tự động thăm dò độ sẵn sàng (Health Check & Auto-Retry Polling mỗi 450ms qua `fetch` không cache). Khi máy chủ chưa tiếp nhận HTTP, Canvas hiển thị màn hình chờ "Đang kết nối tới máy chủ..." sang trọng với icon xoay tròn, huy hiệu URL và bộ đếm lần thử. Ngay khi máy chủ phản hồi, Canvas tự động hiển thị trang web trực tiếp ngay lập tức mà không cần người dùng phải nhấp thủ công vào "Trang Chủ".
     3. [`App.tsx`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/src/App.tsx): Đồng bộ chuẩn hóa định dạng route và base URL xem trước (`http://localhost:5162/`).
+- [x] **4.11. Loại bỏ dữ liệu ảo và kết nối Cây phân cấp phần tử thật (Live DOM Layers)**:
+  - **Loại bỏ triệt để**: Xóa bỏ hoàn toàn mảng `DEFAULT_LAYERS` dữ liệu giả lập (`Khu vực Hero Section`, `div.logo`...) trong [`WorkspaceSidebar.tsx`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/src/components/WorkspaceSidebar.tsx).
+  - **Trích xuất DOM thật từ iframe**:
+    1. [`index.ts`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/electron/main/index.ts): Bổ sung hàm `sendDomTree()` và `scanLayers()` chạy bên trong iframe để trích xuất cây phần tử HTML thực tế theo cấu trúc phân cấp, tự động gán UID (`data-pm-uid`), trích xuất selector CSS và tạo nhãn trực quan (theo nội dung text, id, aria-label hoặc ngữ nghĩa thẻ).
+    2. **Tương tác 2 chiều mượt mà**:
+       - Nhấp vào phần tử trong Sidebar: Tự động cuộn đến phần tử trên Canvas, hiển thị khung chọn kích thước và mở bảng thuộc tính CSS trong Visual Inspector.
+       - Rê chuột vào phần tử trong Sidebar: Hiển thị khung viền xanh hover chính xác vị trí phần tử trên Canvas.
+       - Tự động gán Icon thông minh theo loại thẻ (thẻ văn bản, nút bấm, ô nhập, hình ảnh, bảng, danh sách, thanh điều hướng).
+    3. **Giao diện trạng thái rỗng (Empty State) & Làm mới**:
+       - Khi chưa chạy dev server: Hiển thị thông báo hướng dẫn rõ ràng kèm nút `[▶ Chạy dự án]` thay vì hiển thị dữ liệu giả.
+       - Khi đang chạy: Tự động nạp cây DOM ngay khi trang tải xong; hỗ trợ nút `[Làm mới phân cấp]` để quét lại bất kỳ lúc nào.
 
 ---
 

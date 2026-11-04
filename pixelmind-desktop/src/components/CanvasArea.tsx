@@ -518,14 +518,15 @@ const CanvasArea = ({
           currentRouteRef.current = pathname
         }
       } else if (e.data.type === 'PM_HOVER_ELEMENT') {
-        if (isInspectMode) {
-          setHoverEl(e.data.payload)
-        }
+        setHoverEl(e.data.payload)
       } else if (e.data.type === 'PM_SELECT_ELEMENT') {
-        if (isInspectMode && e.data.payload) {
+        if (e.data.payload) {
           const payload = e.data.payload as RealElementInfo
           setSelectedEl(payload)
           setHoverEl(null)
+          if (!isInspectMode) {
+            setIsInspectMode(true)
+          }
           if (payload.currentPath) {
             currentRouteRef.current = payload.currentPath
           }
@@ -1658,6 +1659,13 @@ const CanvasArea = ({
                       display: 'block',
                       background: '#ffffff',
                       pointerEvents: isPanActive || isPanning ? 'none' : 'auto',
+                    }}
+                    onLoad={() => {
+                      setTimeout(() => {
+                        if (iframeRef.current?.contentWindow) {
+                          iframeRef.current.contentWindow.postMessage({ type: 'PM_GET_DOM_TREE' }, '*')
+                        }
+                      }, 250)
                     }}
                   />
                 ) : running && !url ? (

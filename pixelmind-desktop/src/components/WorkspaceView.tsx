@@ -278,6 +278,8 @@ const WorkspaceView = ({
                   onOpenTokens={onOpenTokens ?? (() => {})}
                   branch={branch}
                   onShowToast={onShowToast ?? (() => {})}
+                  isRunning={run?.status === 'running' || run?.status === 'starting'}
+                  onRun={onRun}
                 />
               </Panel>
               <Separator className="pm-resize" />

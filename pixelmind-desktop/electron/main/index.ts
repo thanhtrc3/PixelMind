@@ -1061,8 +1061,180 @@ function getInspectorScript(isActive: boolean) {
           type: 'PM_SELECT_ELEMENT',
           payload: updated
         }, '*');
+      } else if (e.data.type === 'PM_GET_DOM_TREE') {
+        sendDomTree();
+      } else if (e.data.type === 'PM_SELECT_BY_UID') {
+        var selUid = e.data.uid;
+        var selEl = selUid ? document.querySelector('[data-pm-uid="' + selUid + '"]') : null;
+        if (!selEl && e.data.selector) {
+          try { selEl = document.querySelector(e.data.selector); } catch(err) {}
+        }
+        if (selEl) {
+          lastSelected = selEl;
+          try { selEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch(err) {}
+          var info = extractElementInfo(selEl);
+          window.parent.postMessage({
+            type: 'PM_SELECT_ELEMENT',
+            payload: info
+          }, '*');
+        }
+      } else if (e.data.type === 'PM_HOVER_BY_UID') {
+        var hUid = e.data.uid;
+        if (!hUid) {
+          window.parent.postMessage({ type: 'PM_HOVER_ELEMENT', payload: null }, '*');
+        } else {
+          var hEl = document.querySelector('[data-pm-uid="' + hUid + '"]');
+          if (hEl) {
+            var hr = hEl.getBoundingClientRect();
+            window.parent.postMessage({
+              type: 'PM_HOVER_ELEMENT',
+              payload: {
+                uid: hUid,
+                tagName: hEl.tagName.toLowerCase(),
+                className: typeof hEl.className === 'string' ? hEl.className : '',
+                rect: {
+                  top: hr.top,
+                  left: hr.left,
+                  width: hr.width,
+                  height: hr.height,
+                }
+              }
+            }, '*');
+          }
+        }
       }
     });
+
+    function getReadableLabel(el) {
+      if (!el) return '';
+      var tag = el.tagName ? el.tagName.toLowerCase() : '';
+      if (tag === 'body') return 'Khung trang · ' + (document.title || 'Body');
+
+      var text = '';
+      for (var i = 0; i < el.childNodes.length; i++) {
+        if (el.childNodes[i].nodeType === 3) {
+          var t = (el.childNodes[i].textContent || '').trim();
+          if (t) { text = t; break; }
+        }
+      }
+      if (!text && el.children.length === 0) {
+        text = (el.innerText || el.textContent || '').trim();
+      }
+      if (text) {
+        if (text.length > 35) text = text.slice(0, 35) + '…';
+        return text;
+      }
+
+      if (el.id) return '#' + el.id;
+      if (el.getAttribute('aria-label')) return el.getAttribute('aria-label');
+      if (el.getAttribute('title')) return el.getAttribute('title');
+      if (el.getAttribute('placeholder')) return 'Ô nhập: ' + el.getAttribute('placeholder');
+      if (el.getAttribute('alt')) return 'Ảnh: ' + el.getAttribute('alt');
+
+      if (tag === 'header') return 'Thanh điều hướng Header';
+      if (tag === 'nav') return 'Menu điều hướng (nav)';
+      if (tag === 'main') return 'Vùng nội dung chính (main)';
+      if (tag === 'footer') return 'Chân trang Footer';
+      if (tag === 'section') return 'Khối phân vùng (section)';
+      if (tag === 'article') return 'Khối bài viết (article)';
+      if (tag === 'aside') return 'Thanh bên (aside)';
+      if (tag === 'form') return 'Biểu mẫu nhập liệu (form)';
+      if (tag === 'table') return 'Bảng dữ liệu (table)';
+      if (tag === 'thead') return 'Đầu bảng (thead)';
+      if (tag === 'tbody') return 'Thân bảng (tbody)';
+      if (tag === 'tr') return 'Hàng bảng (tr)';
+      if (tag === 'th') return 'Tiêu đề cột (th)';
+      if (tag === 'td') return 'Ô dữ liệu (td)';
+      if (tag === 'ul' || tag === 'ol') return 'Danh sách (list)';
+      if (tag === 'li') return 'Mục danh sách (item)';
+      if (tag === 'button') return 'Nút bấm (button)';
+      if (tag === 'input') return 'Ô nhập (' + (el.type || 'text') + ')';
+      if (tag === 'img') return 'Hình ảnh (img)';
+      if (/^h[1-6]$/.test(tag)) return 'Tiêu đề ' + tag.toUpperCase();
+      if (tag === 'p') return 'Đoạn văn bản';
+      if (tag === 'a') return 'Đường dẫn liên kết';
+
+      if (el.className && typeof el.className === 'string') {
+        var firstCls = el.className.trim().split(/\\s+/)[0];
+        if (firstCls) return '.' + firstCls;
+      }
+      return tag;
+    }
+
+    function scanLayers(root, depth, maxDepth, result) {
+      if (!root || depth > maxDepth) return;
+      var skipTags = ['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'IFRAME', 'BR', 'HR', 'SVG', 'PATH', 'SOURCE'];
+      for (var i = 0; i < root.children.length; i++) {
+        var child = root.children[i];
+        if (skipTags.indexOf(child.tagName) !== -1) continue;
+
+        var rect = child.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0 && child.children.length === 0) continue;
+
+        if (!child.getAttribute('data-pm-uid')) {
+          child.setAttribute('data-pm-uid', 'pm_' + Math.random().toString(36).slice(2, 9));
+        }
+        var uid = child.getAttribute('data-pm-uid');
+        var tag = child.tagName.toLowerCase();
+        var firstClass = (typeof child.className === 'string' && child.className.trim())
+          ? child.className.trim().split(/\\s+/)[0]
+          : '';
+        var tagLabel = tag + (child.id ? '#' + child.id : (firstClass ? '.' + firstClass : ''));
+
+        result.push({
+          id: uid,
+          uid: uid,
+          label: getReadableLabel(child),
+          tag: tagLabel,
+          tagName: tag,
+          depth: depth,
+          selector: getUniqueSelector(child),
+          childrenCount: child.children.length,
+          rect: {
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+          }
+        });
+
+        if (child.children.length > 0 && depth < 6) {
+          scanLayers(child, depth + 1, maxDepth, result);
+        }
+      }
+    }
+
+    function sendDomTree() {
+      if (!document.body) return;
+      var layers = [];
+      if (!document.body.getAttribute('data-pm-uid')) {
+        document.body.setAttribute('data-pm-uid', 'pm_body');
+      }
+      var bodyRect = document.body.getBoundingClientRect();
+      layers.push({
+        id: 'pm_body',
+        uid: 'pm_body',
+        label: 'Khung trang · ' + (document.title || 'Body'),
+        tag: 'body',
+        tagName: 'body',
+        depth: 0,
+        selector: 'body',
+        childrenCount: document.body.children.length,
+        rect: {
+          top: bodyRect.top,
+          left: bodyRect.left,
+          width: bodyRect.width,
+          height: bodyRect.height
+        }
+      });
+      scanLayers(document.body, 1, 6, layers);
+      try {
+        window.parent.postMessage({
+          type: 'PM_DOM_TREE',
+          payload: layers
+        }, '*');
+      } catch (err) {}
+    }
 
     // Chuyển tiếp phím tắt Ctrl+Z (Undo), Ctrl+Y (Redo), Ctrl+S (Save) từ iframe lên PixelMind
     window.addEventListener('keydown', function(e) {
@@ -1102,9 +1274,19 @@ function getInspectorScript(isActive: boolean) {
       } catch(e) {}
     }
     reportUrl();
-    window.addEventListener('popstate', reportUrl);
-    window.addEventListener('hashchange', reportUrl);
-    window.addEventListener('load', reportUrl);
+    setTimeout(sendDomTree, 200);
+    window.addEventListener('popstate', function() {
+      reportUrl();
+      setTimeout(sendDomTree, 150);
+    });
+    window.addEventListener('hashchange', function() {
+      reportUrl();
+      setTimeout(sendDomTree, 150);
+    });
+    window.addEventListener('load', function() {
+      reportUrl();
+      setTimeout(sendDomTree, 150);
+    });
   })();
   `;
 }

@@ -1,7 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import {
   Box,
-  Circle,
   Copy,
   ExternalLink,
   FileCode2,
@@ -13,15 +12,20 @@ import {
   Image as ImageIcon,
   Layers,
   LayoutGrid,
+  Link,
+  List,
   Loader2,
+  MousePointer2,
   Package,
   Palette,
   PanelLeftClose,
+  Play,
   Plus,
   RefreshCw,
   Search,
+  Sliders,
   Sparkles,
-  Square,
+  Table,
   Type,
 } from 'lucide-react'
 import type { FileNode, ProjectRecord } from '@shared/types'
@@ -50,31 +54,38 @@ interface WorkspaceSidebarProps {
   onOpenTokens: () => void
   branch: string | null
   onShowToast: (kind: 'ok' | 'err' | 'info', text: string) => void
+  isRunning?: boolean
+  onRun?: () => void
 }
 
-/* ── Cây phân cấp DOM mẫu trực quan ── */
-interface LayerNode {
+/* ── Cấu trúc nút phân cấp phần tử DOM thật ── */
+export interface LayerNode {
   id: string
+  uid?: string
   label: string
   tag: string
-  icon: typeof Box
+  tagName: string
   depth: number
-  open?: boolean
+  selector?: string
+  childrenCount?: number
+  rect?: { top: number; left: number; width: number; height: number }
 }
 
-const DEFAULT_LAYERS: LayerNode[] = [
-  { id: 'frame', label: 'Khung · Desktop (1440×900)', tag: 'body', icon: LayoutGrid, depth: 0, open: true },
-  { id: 'header', label: 'Thanh điều hướng Header', tag: 'header', icon: Box, depth: 1, open: true },
-  { id: 'logo', label: 'Logo thương hiệu', tag: 'div.logo', icon: Square, depth: 2 },
-  { id: 'nav', label: 'Menu điều hướng', tag: 'nav', icon: Type, depth: 2 },
-  { id: 'cta-btn', label: 'Nút hành động CTA', tag: 'button.btn-primary', icon: Circle, depth: 2 },
-  { id: 'hero', label: 'Khu vực Hero Section', tag: 'section.hero', icon: Box, depth: 1, open: true },
-  { id: 'hero-title', label: 'Tiêu đề chính', tag: 'h1.hero-title', icon: Type, depth: 2 },
-  { id: 'hero-desc', label: 'Phụ đề giới thiệu', tag: 'p.hero-desc', icon: Type, depth: 2 },
-  { id: 'hero-action', label: 'Cụm nút bấm chính', tag: 'div.actions', icon: Box, depth: 2 },
-  { id: 'features', label: 'Khối tính năng Features', tag: 'section.features', icon: Box, depth: 1, open: false },
-  { id: 'footer', label: 'Chân trang Footer', tag: 'footer', icon: Box, depth: 1, open: false },
-]
+function getTagIcon(tagName?: string) {
+  const t = (tagName || '').toLowerCase()
+  if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'label', 'b', 'strong', 'em', 'small'].includes(t)) {
+    return Type
+  }
+  if (['button'].includes(t)) return MousePointer2
+  if (['input', 'select', 'textarea'].includes(t)) return Sliders
+  if (['a'].includes(t)) return Link
+  if (['img', 'svg', 'canvas', 'video'].includes(t)) return ImageIcon
+  if (['table', 'thead', 'tbody', 'tr', 'th', 'td'].includes(t)) return Table
+  if (['ul', 'ol', 'li'].includes(t)) return List
+  if (['header', 'footer', 'nav'].includes(t)) return Layers
+  if (['body', 'main', 'section', 'article', 'aside'].includes(t)) return LayoutGrid
+  return Box
+}
 
 export const WorkspaceSidebar = ({
   project,
@@ -94,11 +105,74 @@ export const WorkspaceSidebar = ({
   onOpenTokens,
   branch,
   onShowToast,
+  isRunning = false,
+  onRun,
 }: WorkspaceSidebarProps) => {
   const [layersSearch, setLayersSearch] = useState('')
   const [partsSearch, setPartsSearch] = useState('')
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
   const [selectedPartGroup, setSelectedPartGroup] = useState<string>('all')
+
+  const [liveLayers, setLiveLayers] = useState<LayerNode[]>([])
+  const [isLoadingLayers, setIsLoadingLayers] = useState(false)
+
+  // ── Lắng nghe cây DOM thật phát ra từ iframe qua postMessage ──
+  useEffect(() => {
+    const handleMessage = (e: MessageEvent) => {
+      if (!e.data || typeof e.data !== 'object') return
+      if (e.data.type === 'PM_DOM_TREE') {
+        const payload = e.data.payload
+        if (Array.isArray(payload)) {
+          setLiveLayers(payload)
+          setIsLoadingLayers(false)
+        }
+      } else if (e.data.type === 'PM_SELECT_ELEMENT') {
+        if (e.data.payload?.uid) {
+          setSelectedLayerId(e.data.payload.uid)
+        }
+      }
+    }
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [])
+
+  const requestDomTree = useCallback(() => {
+    setIsLoadingLayers(true)
+    const iframe = document.querySelector('iframe.canvas__iframe') as HTMLIFrameElement | null
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'PM_GET_DOM_TREE' }, '*')
+    }
+    setTimeout(() => setIsLoadingLayers(false), 800)
+  }, [])
+
+  // Tự động yêu cầu iframe gửi DOM thật khi mở tab Phân cấp
+  useEffect(() => {
+    if (activeTab === 'layers') {
+      requestDomTree()
+    }
+  }, [activeTab, requestDomTree])
+
+  const handleSelectLayer = (layer: LayerNode) => {
+    setSelectedLayerId(layer.id)
+    const iframe = document.querySelector('iframe.canvas__iframe') as HTMLIFrameElement | null
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage(
+        { type: 'PM_SELECT_BY_UID', uid: layer.uid || layer.id, selector: layer.selector },
+        '*'
+      )
+    }
+    onShowToast('info', `Đã chọn phần tử “${layer.label}” (${layer.tag})`)
+  }
+
+  const handleHoverLayer = (layer: LayerNode | null) => {
+    const iframe = document.querySelector('iframe.canvas__iframe') as HTMLIFrameElement | null
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage(
+        { type: 'PM_HOVER_BY_UID', uid: layer ? (layer.uid || layer.id) : null },
+        '*'
+      )
+    }
+  }
 
   /* ── Quét đệ quy cây thư mục để lọc ra các tệp hình ảnh (Assets) ── */
   const assets = useMemo(() => {
@@ -122,10 +196,12 @@ export const WorkspaceSidebar = ({
 
   /* ── Lọc Layers theo từ khoá ── */
   const filteredLayers = useMemo(() => {
-    if (!layersSearch.trim()) return DEFAULT_LAYERS
+    if (!layersSearch.trim()) return liveLayers
     const q = layersSearch.toLowerCase()
-    return DEFAULT_LAYERS.filter((l) => l.label.toLowerCase().includes(q) || l.tag.toLowerCase().includes(q))
-  }, [layersSearch])
+    return liveLayers.filter(
+      (l) => l.label.toLowerCase().includes(q) || l.tag.toLowerCase().includes(q) || l.tagName?.toLowerCase().includes(q)
+    )
+  }, [liveLayers, layersSearch])
 
   /* ── Lọc linh kiện Part theo từ khoá và nhóm ── */
   const filteredParts = useMemo(() => {
@@ -277,10 +353,13 @@ export const WorkspaceSidebar = ({
               <div className="pm-ws-hd__actions">
                 <button
                   className="pm-ibtn"
-                  onClick={() => onShowToast('ok', 'Đã làm mới danh sách phân cấp thẻ DOM.')}
-                  title="Làm mới phân cấp"
+                  onClick={() => {
+                    requestDomTree()
+                    onShowToast('info', 'Đang quét lại cây phân cấp phần tử DOM...')
+                  }}
+                  title="Làm mới phân cấp DOM"
                 >
-                  <RefreshCw size={12} />
+                  <RefreshCw size={12} className={isLoadingLayers ? 'pm-spin' : ''} />
                 </button>
               </div>
             </div>
@@ -290,7 +369,7 @@ export const WorkspaceSidebar = ({
                 <Search size={12} />
                 <input
                   value={layersSearch}
-                  placeholder="Lọc phần tử (header, hero, btn…)…"
+                  placeholder="Lọc phần tử (header, h1, btn, div…)…"
                   style={{ width: '100%' }}
                   onChange={(e) => setLayersSearch(e.target.value)}
                   onKeyDown={(e) => e.stopPropagation()}
@@ -299,29 +378,82 @@ export const WorkspaceSidebar = ({
             </div>
 
             <div className="pm-ws-bd">
-              <div className="pm-layers-list">
-                {filteredLayers.map((layer) => {
-                  const Icon = layer.icon
-                  const isSelected = selectedLayerId === layer.id
-                  return (
-                    <div
-                      key={layer.id}
-                      className={`pm-layer-item ${isSelected ? 'selected' : ''}`}
-                      style={{ paddingLeft: `${8 + layer.depth * 14}px` }}
-                      onClick={() => {
-                        setSelectedLayerId(layer.id)
-                        onShowToast('info', `Đã chọn phần tử “${layer.label}” (${layer.tag})`)
+              {isLoadingLayers && liveLayers.length === 0 ? (
+                <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-3)' }}>
+                  <RefreshCw size={20} className="pm-spin" style={{ margin: '0 auto 10px', display: 'block' }} />
+                  <div style={{ fontSize: 12 }}>Đang quét cây phần tử DOM thật từ trang web...</div>
+                </div>
+              ) : liveLayers.length === 0 ? (
+                <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+                  <Layers size={28} style={{ opacity: 0.35, margin: '0 auto 10px', display: 'block' }} />
+                  <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 4 }}>
+                    Chưa có phần tử DOM trực tiếp
+                  </div>
+                  <p style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 14 }}>
+                    {isRunning
+                      ? 'Trang web đang tải hoặc chưa nạp xong. Bấm nút Quét lại để cập nhật.'
+                      : 'Khởi động máy chủ phát triển (F5) để quét toàn bộ cây phân cấp HTML thật của trang web.'}
+                  </p>
+                  {!isRunning && onRun && (
+                    <button
+                      className="btn primary"
+                      onClick={onRun}
+                      style={{
+                        fontSize: 12,
+                        padding: '6px 14px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        margin: '0 auto',
+                        cursor: 'pointer',
                       }}
                     >
-                      <Icon size={12} style={{ opacity: 0.7, flexShrink: 0 }} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
-                        {layer.label}
-                      </span>
-                      <span className="pm-layer-tag">{layer.tag}</span>
-                    </div>
-                  )
-                })}
-              </div>
+                      <Play size={12} /> Chạy dự án
+                    </button>
+                  )}
+                  {isRunning && (
+                    <button
+                      className="btn secondary"
+                      onClick={requestDomTree}
+                      style={{
+                        fontSize: 12,
+                        padding: '6px 14px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        margin: '0 auto',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <RefreshCw size={12} /> Quét lại phân cấp
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="pm-layers-list">
+                  {filteredLayers.map((layer) => {
+                    const Icon = getTagIcon(layer.tagName)
+                    const isSelected = selectedLayerId === layer.id
+                    return (
+                      <div
+                        key={layer.id}
+                        className={`pm-layer-item ${isSelected ? 'selected' : ''}`}
+                        style={{ paddingLeft: `${8 + layer.depth * 12}px` }}
+                        onClick={() => handleSelectLayer(layer)}
+                        onMouseEnter={() => handleHoverLayer(layer)}
+                        onMouseLeave={() => handleHoverLayer(null)}
+                        title={`${layer.label} (${layer.tag})`}
+                      >
+                        <Icon size={12} style={{ opacity: 0.7, flexShrink: 0 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                          {layer.label}
+                        </span>
+                        <span className="pm-layer-tag">{layer.tag}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </>
         )}
