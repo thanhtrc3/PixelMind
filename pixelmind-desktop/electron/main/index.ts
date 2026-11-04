@@ -228,6 +228,7 @@ function createWindow() {
     minHeight: Math.min(680, height),
     show: false,
     frame: false,
+    icon: join(__dirname, '../../src/assets/icon.png'),
     title: 'PixelMind',
     autoHideMenuBar: true,
     webPreferences: {

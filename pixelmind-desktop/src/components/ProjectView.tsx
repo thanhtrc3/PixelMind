@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import type { ProjectRecord } from '@shared/types'
 import { formatTime, shortPath } from '../lib/format'
+import AtomLogo from './AtomLogo'
 
 interface ProjectViewProps {
   projects: ProjectRecord[]
@@ -107,7 +108,7 @@ const ProjectView = ({
             <article key={project.id} className="pm-pcard" onClick={() => onOpen(project)}>
               <div className="pm-pcard__top">
                 <div className="pm-pcard__icon">
-                  <Folder size={17} />
+                  <AtomLogo size={18} />
                 </div>
                 <div className="pm-grow">
                   <div className="pm-pcard__name">

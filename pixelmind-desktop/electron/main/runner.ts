@@ -42,6 +42,7 @@ interface Entry {
   child?: ChildProcess
   server?: Server
   buffer: string
+  isCheckingUrl?: boolean
 }
 
 type LogHandler = (log: RunLog) => void
@@ -71,12 +72,10 @@ export class RunnerManager {
     this.onState(entry.state)
   }
 
-  private async waitForPort(port: number, timeoutMs = 3000): Promise<boolean> {
-    const start = Date.now()
-    while (Date.now() - start < timeoutMs) {
-      const { promise, resolve } = Promise.withResolvers<boolean>()
+  private async checkHostPort(port: number, host: string): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
       const socket = new Socket()
-      socket.setTimeout(250)
+      socket.setTimeout(350)
       socket.once('connect', () => {
         socket.destroy()
         resolve(true)
@@ -89,15 +88,29 @@ export class RunnerManager {
         socket.destroy()
         resolve(false)
       })
-      socket.connect(port, '127.0.0.1')
+      socket.connect(port, host)
+    })
+  }
 
-      const ok = await promise
-      if (ok) return true
+  private async waitForPort(port: number, timeoutMs = 15000): Promise<boolean> {
+    const start = Date.now()
+    const hosts = ['127.0.0.1', 'localhost', '::1']
+    while (Date.now() - start < timeoutMs) {
+      for (const host of hosts) {
+        const ok = await this.checkHostPort(port, host)
+        if (ok) {
+          // Socket đã mở, chờ thêm một chút (400ms) để Kestrel / Dev Server sẵn sàng tiếp nhận HTTP
+          const { promise: delayPromise, resolve: delayResolve } = Promise.withResolvers<void>()
+          setTimeout(delayResolve, 400)
+          await delayPromise
+          return true
+        }
+      }
       const { promise: delayPromise, resolve: delayResolve } = Promise.withResolvers<void>()
-      setTimeout(delayResolve, 120)
+      setTimeout(delayResolve, 250)
       await delayPromise
     }
-    return true
+    return false
   }
 
   private async scanUrl(entry: Entry, text: string) {
@@ -108,12 +121,23 @@ export class RunnerManager {
     const port = Number(match[3])
     if (!port) return
     const url = `http://localhost:${port}`
-    if (entry.state.url !== url) {
-      const ready = await this.waitForPort(port)
-      if (ready && entry.state.url !== url) {
+
+    // Ngăn chặn việc chạy kiểm tra trùng lặp khi nhiều dòng stdout cùng ghi URL
+    if (entry.state.url === url || entry.isCheckingUrl) return
+
+    entry.isCheckingUrl = true
+    try {
+      const ready = await this.waitForPort(port, 15000)
+      if (entry.state.url !== url && (entry.state.status === 'running' || entry.state.status === 'starting')) {
         this.update(entry, { url })
-        this.emitLog(entry.state.id, `\n[system] Đã phát hiện địa chỉ xem trước: ${url}\n`, 'system')
+        if (ready) {
+          this.emitLog(entry.state.id, `\n[system] Máy chủ phát triển đã sẵn sàng: ${url}\n`, 'system')
+        } else {
+          this.emitLog(entry.state.id, `\n[system] Đã phát hiện địa chỉ xem trước: ${url}\n`, 'system')
+        }
       }
+    } finally {
+      entry.isCheckingUrl = false
     }
   }
 

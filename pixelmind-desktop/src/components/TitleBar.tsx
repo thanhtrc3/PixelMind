@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { FolderSearch, Minus, Square, X } from 'lucide-react'
+import { Minus, Square, X } from 'lucide-react'
 import { api, isDesktop } from '../lib/bridge'
 import type { ProjectRecord } from '@shared/types'
+import AtomLogo from './AtomLogo'
 
 const RestoreIcon = () => (
   <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -143,11 +144,9 @@ const TitleBar = ({
 
   return (
     <div className="pm-titlebar" onDoubleClick={handleDoubleClick}>
-      {/* ── 1. Tên App & Logo thương hiệu PixelMind ── */}
+      {/* ── 1. Tên App & Logo thương hiệu PixelMind (Icon Nguyên tử chuẩn theo Ảnh 1) ── */}
       <div className="pm-titlebar__brand">
-        <div className="pm-titlebar__brand-icon">
-          <FolderSearch size={12} strokeWidth={2.4} />
-        </div>
+        <AtomLogo size={18} className="pm-titlebar__brand-icon" />
         <div className="pm-titlebar__brand-name">
           Pixel<span>Mind</span>
         </div>

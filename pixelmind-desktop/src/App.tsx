@@ -497,7 +497,7 @@ const App = () => {
 
     if (run?.url) {
       const base = run.url.replace(/\/+$/, '')
-      const fullUrl = cleanRoute === '/' ? base : `${base}${cleanRoute}`
+      const fullUrl = cleanRoute === '/' ? `${base}/` : `${base}${cleanRoute}`
       setPreviewUrl(fullUrl)
     } else {
       setPreviewUrl(null)
@@ -646,7 +646,7 @@ const App = () => {
         lastUrlRef.current = state.url
         const base = state.url.replace(/\/+$/, '')
         const currentRoute = targetRouteRef.current
-        const fullUrl = currentRoute && currentRoute !== '/' ? `${base}${currentRoute}` : state.url
+        const fullUrl = currentRoute && currentRoute !== '/' ? `${base}${currentRoute}` : `${base}/`
         setPreviewUrl(fullUrl)
         const current = settingsRef.current
         if (current.previewMode === 'browser') {

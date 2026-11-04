@@ -263,6 +263,56 @@ const CanvasArea = ({
   const [isTokensDialogOpen, setIsTokensDialogOpen] = useState(false)
   const [projectTokens, setProjectTokens] = useState<DesignTokens | null>(null)
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false)
+
+  // ─── TỰ ĐỘNG THỬ LẠI KẾT NỐI MÁY CHỦ (HEALTH CHECK & AUTO-RETRY) ───
+  const [isServerReady, setIsServerReady] = useState(false)
+  const [connectRetryCount, setConnectRetryCount] = useState(0)
+  const [connectTimeout, setConnectTimeout] = useState(false)
+
+  useEffect(() => {
+    if (!running || !url) {
+      setIsServerReady(false)
+      setConnectRetryCount(0)
+      setConnectTimeout(false)
+      return
+    }
+
+    let isMounted = true
+    let attempts = 0
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const checkServer = async () => {
+      try {
+        // Gửi GET probe tới địa chỉ xem trước; dùng cache 'no-store' và 'no-cors'
+        await fetch(url, { method: 'GET', cache: 'no-store', mode: 'no-cors' })
+        if (isMounted) {
+          setIsServerReady(true)
+          setConnectTimeout(false)
+        }
+      } catch {
+        if (!isMounted) return
+        attempts++
+        setConnectRetryCount(attempts)
+        if (attempts >= 30) {
+          // Sau khoảng 15 giây thử liên tục mà máy chủ vẫn từ chối
+          setConnectTimeout(true)
+        }
+        // Thử lại sau mỗi 450ms
+        timer = setTimeout(checkServer, 450)
+      }
+    }
+
+    setIsServerReady(false)
+    setConnectRetryCount(0)
+    setConnectTimeout(false)
+    void checkServer()
+
+    return () => {
+      isMounted = false
+      if (timer) clearTimeout(timer)
+    }
+  }, [url, running, iframeKey])
+
   // Tải Design Tokens của dự án để dùng làm mẫu chọn màu & tỷ lệ
   useEffect(() => {
     let isMounted = true
@@ -1514,7 +1564,87 @@ const CanvasArea = ({
                       onRetry={onRun}
                     />
                   </div>
-                ) : running && url ? (
+                ) : running && url && !isServerReady ? (
+                  <div className="canvas__frame-fallback" style={{ gap: 14 }}>
+                    <div
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 14,
+                        background: 'var(--panel-2)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        color: 'var(--accent)',
+                        position: 'relative',
+                      }}
+                    >
+                      <RefreshCw size={24} className="pm-spin" />
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <h3 style={{ fontSize: 16, fontWeight: 650, marginBottom: 6 }}>
+                        Đang kết nối tới máy chủ...
+                      </h3>
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '4px 12px',
+                          borderRadius: 6,
+                          background: 'var(--panel-2)',
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                          color: 'var(--accent-text)',
+                          marginBottom: 10,
+                        }}
+                      >
+                        <span className="pm-dot live" />
+                        {url}
+                      </div>
+                      <p style={{ fontSize: 12.5, color: 'var(--text-3)', maxWidth: 420, margin: '0 auto 16px' }}>
+                        {connectTimeout
+                          ? 'Máy chủ phản hồi chậm hoặc đang gặp sự cố khi khởi động. Bạn có thể bấm thử lại hoặc mở bằng trình duyệt ngoài.'
+                          : `Đang chờ máy chủ ${projectName} biên dịch và phản hồi kết nối HTTP...${
+                              connectRetryCount > 0 ? ` (Lần thử ${connectRetryCount})` : ''
+                            }`}
+                      </p>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                        <button
+                          className="btn secondary"
+                          onClick={() => setIframeKey((k) => k + 1)}
+                          style={{
+                            fontSize: 12,
+                            padding: '6px 14px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <RefreshCw size={12} />
+                          Thử lại ngay
+                        </button>
+                        {onOpenExternal && (
+                          <button
+                            className="btn secondary"
+                            onClick={() => onOpenExternal(url)}
+                            style={{
+                              fontSize: 12,
+                              padding: '6px 14px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <ExternalLink size={12} />
+                            Mở trình duyệt ngoài
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : running && url && isServerReady ? (
                   <iframe
                     ref={iframeRef}
                     key={iframeKey}
@@ -1530,6 +1660,30 @@ const CanvasArea = ({
                       pointerEvents: isPanActive || isPanning ? 'none' : 'auto',
                     }}
                   />
+                ) : running && !url ? (
+                  <div className="canvas__frame-fallback" style={{ gap: 14 }}>
+                    <div
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 14,
+                        background: 'var(--panel-2)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        color: 'var(--accent)',
+                      }}
+                    >
+                      <RefreshCw size={24} className="pm-spin" />
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <h3 style={{ fontSize: 16, fontWeight: 650, marginBottom: 6 }}>
+                        Đang khởi động máy chủ...
+                      </h3>
+                      <p style={{ fontSize: 12.5, color: 'var(--text-3)', maxWidth: 380, margin: '0 auto' }}>
+                        Đang biên dịch và kích hoạt dịch vụ phát triển cho <b>{projectName}</b>. Địa chỉ xem trước sẽ tự động mở khi sẵn sàng.
+                      </p>
+                    </div>
+                  </div>
                 ) : (
                   <div className="canvas__frame-fallback">
                     <div

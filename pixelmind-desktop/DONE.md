@@ -91,6 +91,23 @@ Sau khi rà soát mục tiêu sản phẩm PixelMind (Công cụ thiết kế & 
   - Sử dụng cửa sổ `frame: false` trong Electron, loại bỏ hoàn toàn overlay màu cứng của hệ điều hành.
   - Đồng bộ kích thước (`height: 24px`, `width: 28px`), bo góc (`border-radius: 4px`), màu nền trong suốt (`transparent`) và hiệu ứng hover (`var(--panel-2)`) tương thích 100% với phong cách các nút menu bên trái.
   - Tự động hoán đổi icon Phóng to (`Square`) và Khôi phục (`RestoreIcon`) dựa trên trạng thái cửa sổ thực tế.
+- [x] **4.9. Cập nhật Icon dự án & Thương hiệu chuẩn xác 100% theo đúng Ảnh cũ (Icon Nguyên tử Atom)**:
+  - Khắc phục lỗi file `icon.png` mặc định của template bị nền xanh sáng + viền trắng + nét đen (ảnh người dùng vừa gửi).
+  - Tạo lại file [`src/assets/icon.png`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/src/assets/icon.png) và component vector [`AtomLogo.tsx`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/src/components/AtomLogo.tsx) chuẩn 100% theo đúng **Ảnh cũ**:
+    - Nền hình tròn màu tối `#2b2d39` sang trọng (không có viền trắng).
+    - 3 vòng quỹ đạo elip và các hạt electron cùng hạt nhân trung tâm màu xanh cyan phát sáng (`#8fe5f5`).
+  - Áp dụng đồng bộ tại:
+    1. Thanh tiêu đề trên cùng [`TitleBar.tsx`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/src/components/TitleBar.tsx) cạnh chữ **PixelMind**.
+    2. Nút Chip dự án đang mở trên [`TopBar.tsx`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/src/components/TopBar.tsx).
+    3. Thẻ dự án trong màn hình danh sách dự án [`ProjectView.tsx`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/src/components/ProjectView.tsx).
+    4. Cửa sổ Electron và thanh Taskbar hệ thống [`index.ts`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/electron/main/index.ts).
+    5. Favicon trình duyệt Web [`index.html`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/index.html).
+- [x] **4.10. Tự động kết nối & tải trang trên Canvas khi máy chủ sẵn sàng (Khắc phục lỗi `ERR_CONNECTION_REFUSED`)**:
+  - **Nguyên nhân gốc rễ**: Khi bấm Chạy dự án ASP.NET Core (.NET 8), máy chủ Kestrel mất khoảng 2-4 giây để biên dịch và khởi tạo pipeline HTTP. Runner nhận diện cổng từ stdout và phát URL sớm hơn thời điểm máy chủ tiếp nhận request; Chromium tải iframe ngay lập tức nên bị từ chối kết nối (`ERR_CONNECTION_REFUSED`) và rơi vào trang lỗi tĩnh (màn hình trắng). Khi người dùng nhấp vào "Trang Chủ (`/`)", lúc đó server đã sẵn sàng nên trang mới hiện lên.
+  - **Xử lý triệt để**:
+    1. [`runner.ts`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/electron/main/runner.ts): Sửa `waitForPort` không còn trả về `true` giả khi timeout, hỗ trợ kết nối qua cả IPv4 (`127.0.0.1`), `localhost` và IPv6 (`::1`), bổ sung cờ `isCheckingUrl` chống quét trùng lặp khi nhiều dòng log đến cùng lúc, và tạo độ trễ ổn định 400ms sau khi kết nối TCP thành công.
+    2. [`CanvasArea.tsx`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/src/components/CanvasArea.tsx): Tích hợp cơ chế tự động thăm dò độ sẵn sàng (Health Check & Auto-Retry Polling mỗi 450ms qua `fetch` không cache). Khi máy chủ chưa tiếp nhận HTTP, Canvas hiển thị màn hình chờ "Đang kết nối tới máy chủ..." sang trọng với icon xoay tròn, huy hiệu URL và bộ đếm lần thử. Ngay khi máy chủ phản hồi, Canvas tự động hiển thị trang web trực tiếp ngay lập tức mà không cần người dùng phải nhấp thủ công vào "Trang Chủ".
+    3. [`App.tsx`](file:///d:/Code/PixelMind/PixelMind/pixelmind-desktop/src/App.tsx): Đồng bộ chuẩn hóa định dạng route và base URL xem trước (`http://localhost:5162/`).
 
 ---
 

@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import {
   ClipboardList,
   FolderKanban,
-  FolderOpen,
   HelpCircle,
   LayoutDashboard,
   Palette,
@@ -17,6 +16,7 @@ import {
 } from 'lucide-react'
 import type { ProjectRecord, RunState } from '@shared/types'
 import { editorBuffer } from '../lib/editorBuffer'
+import AtomLogo from './AtomLogo'
 
 interface TopBarProps {
   project: ProjectRecord | null
@@ -102,12 +102,12 @@ const TopBar = ({
           onClick={() => onViewChange('projects')}
           title={`Dự án: ${project.name}\nĐường dẫn: ${project.path}\nBấm để chuyển về danh sách dự án`}
         >
-          <FolderOpen size={13} className="pm-project-pill__icon" />
+          <AtomLogo size={13} className="pm-project-pill__icon" />
           <b className="pm-project-pill__name">{project.name}</b>
         </button>
       ) : (
         <button className="pm-project-pill" onClick={onOpenFolder} title="Mở thư mục dự án (Ctrl+O)">
-          <FolderOpen size={13} className="pm-project-pill__icon" />
+          <AtomLogo size={13} className="pm-project-pill__icon" style={{ opacity: 0.7 }} />
           <span>Mở dự án…</span>
         </button>
       )}
