@@ -1,0 +1,53 @@
+/* Ô tìm kiếm kèm dãy chip gợi ý từ khoá phổ biến */
+.pt-searchbox-suggest { font-family: var(--font-ui); max-width: 520px; }
+.pt-searchbox-suggest__box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+  padding: 0 14px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1.5px solid #e6e6ea;
+}
+.pt-searchbox-suggest__box:focus-within { border-color: var(--accent); }
+.pt-searchbox-suggest__icon {
+  width: 13px; height: 13px;
+  border: 1.8px solid #86868f;
+  border-radius: 50%;
+  position: relative;
+  flex-shrink: 0;
+}
+.pt-searchbox-suggest__icon::after {
+  content: "";
+  position: absolute;
+  right: -4.5px; bottom: -3px;
+  width: 7px; height: 1.8px;
+  background: #86868f;
+  transform: rotate(45deg);
+}
+.pt-searchbox-suggest__box input {
+  flex: 1; min-width: 0;
+  border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 14px; color: #24242c;
+}
+.pt-searchbox-suggest__chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.pt-searchbox-suggest__chip {
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid #e6e6ea;
+  background: #ffffff;
+  color: #575763;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.pt-searchbox-suggest__chip:hover { border-color: var(--accent); color: var(--accent); }
+.pt-searchbox-suggest__chip.is-active {
+  background: var(--accent-muted);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}

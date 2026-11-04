@@ -7,6 +7,7 @@ import './styles/proto.css'
 import './styles/desktop.css'
 import './styles/canvas.css'
 import './styles/topbar.css'
+import './styles/sidebar.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

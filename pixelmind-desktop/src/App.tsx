@@ -3,10 +3,17 @@ import {
   BookOpen,
   ClipboardList,
   Database,
+  FileText,
   FolderKanban,
   FolderOpen,
+  FolderTree,
+  History,
+  Image as ImageIcon,
+  Layers,
   LayoutDashboard,
+  Package,
   Palette,
+  PanelLeft,
   Play,
   RefreshCw,
   Settings as SettingsIcon,
@@ -33,11 +40,14 @@ import type {
 import { api, isDesktop } from './lib/bridge'
 import { applyThemeVariables } from './lib/theme'
 import { fileName } from './lib/format'
+import { editorBuffer } from './lib/editorBuffer'
+import TitleBar from './components/TitleBar'
 import TopBar from './components/TopBar'
-import NavRail from './components/NavRail'
+import type { SidebarTab } from './components/WorkspaceSidebar'
 import ProjectView from './components/ProjectView'
 import ProjectDetail from './components/ProjectDetail'
 import AddPageDialog from './components/AddPageDialog'
+import PageParamDialog from './components/PageParamDialog'
 import WorkspaceView from './components/WorkspaceView'
 import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
@@ -71,6 +81,10 @@ const App = () => {
   const [view, setView] = useState<View>('projects')
   const [projectId, setProjectId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(true)
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('files')
 
   const [tree, setTree] = useState<FileNode[]>([])
   const [treeLoading, setTreeLoading] = useState(false)
@@ -97,6 +111,8 @@ const App = () => {
   const [diagnosisOpen, setDiagnosisOpen] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [addPageOpen, setAddPageOpen] = useState(false)
+  const [pageToEdit, setPageToEdit] = useState<ProjectPage | null>(null)
+  const [paramChooserPage, setParamChooserPage] = useState<ProjectPage | null>(null)
   const [pendingDelete, setPendingDelete] = useState<ProjectRecord | null>(null)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
@@ -119,12 +135,51 @@ const App = () => {
   settingsRef.current = settings
   const lastUrlRef = useRef<string | null>(null)
 
-  /* ── Áp dụng chủ đề / màu nhấn / cỡ chữ ───────────────── */
+  /* ── Áp dụng chủ đề / màu nhấn / cỡ chữ / thu phóng ───────────────── */
 
   useEffect(() => {
-    document.documentElement.dataset.theme = settings.theme
-    applyThemeVariables(settings.accent, settings.fontSize)
-  }, [settings.theme, settings.accent, settings.fontSize])
+    const isDark =
+      settings.theme === 'system'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        : settings.theme === 'dark'
+    document.documentElement.dataset.theme = isDark ? 'dark' : 'light'
+
+    applyThemeVariables(
+      settings.accent,
+      settings.fontSize,
+      settings.editorFontFamily,
+      settings.editorFontSize,
+      settings.reducedMotion,
+      settings.canvasGrid,
+    )
+  }, [
+    settings.theme,
+    settings.accent,
+    settings.fontSize,
+    settings.editorFontFamily,
+    settings.editorFontSize,
+    settings.reducedMotion,
+    settings.canvasGrid,
+  ])
+
+  useEffect(() => {
+    if (settings.theme !== 'system') return
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = (e: MediaQueryListEvent) => {
+      document.documentElement.dataset.theme = e.matches ? 'dark' : 'light'
+    }
+    media.addEventListener('change', handler)
+    return () => media.removeEventListener('change', handler)
+  }, [settings.theme])
+
+  useEffect(() => {
+    const factor = (settings.windowZoom ?? 100) / 100
+    try {
+      api.window?.setZoomFactor?.(factor)
+    } catch {
+      document.documentElement.style.zoom = String(factor)
+    }
+  }, [settings.windowZoom])
 
   const updateSettings = async (patch: Partial<Settings>) => {
     setStoreData((prev) => ({ ...prev, settings: { ...prev.settings, ...patch } }))
@@ -134,6 +189,27 @@ const App = () => {
       if (patch.showHidden !== undefined && project) await loadTree(project, patch.showHidden)
     } catch (error) {
       showToast('err', `Không lưu được cài đặt: ${errorMessage(error)}`)
+    }
+  }
+
+  const resetSettingsOnly = async () => {
+    try {
+      const res = api.store.resetSettings
+        ? await api.store.resetSettings()
+        : await api.store.updateSettings(DEFAULT_SETTINGS)
+      setStoreData((prev) => ({ ...prev, settings: res }))
+      showToast('ok', 'Đã khôi phục toàn bộ cài đặt về mặc định (danh sách dự án vẫn được giữ nguyên).')
+    } catch (err) {
+      showToast('err', `Lỗi khôi phục cài đặt: ${errorMessage(err)}`)
+    }
+  }
+
+  const handleClearCache = async () => {
+    try {
+      await api.system.clearCache?.()
+      showToast('ok', 'Đã xóa sạch bộ nhớ đệm và dữ liệu tạm của bản xem trước.')
+    } catch (err) {
+      showToast('err', `Không thể xóa bộ nhớ đệm: ${errorMessage(err)}`)
     }
   }
 
@@ -160,6 +236,17 @@ const App = () => {
 
   const openProject = async (target: ProjectRecord, notify = true) => {
     try {
+      // Dừng dứt điểm tiến trình của dự án cũ (nếu có) trước khi mở dự án mới để không bị chiếm cổng
+      if (run && (run.status === 'running' || run.status === 'starting') && run.projectId !== target.id) {
+        try {
+          await api.run.stop(run.id)
+        } catch {}
+      } else if (projectId && projectId !== target.id && api.run?.stopOfProject) {
+        try {
+          await api.run.stopOfProject(projectId)
+        } catch {}
+      }
+
       const opened = (await api.projects.open(target.id)) ?? target
       setStoreData((prev) => ({
         ...prev,
@@ -239,6 +326,12 @@ const App = () => {
 
   const removeProject = async (target: ProjectRecord) => {
     try {
+      if (run && run.projectId === target.id) {
+        await stopRun()
+      } else if (api.run?.stopOfProject) {
+        await api.run.stopOfProject(target.id)
+      }
+
       const list = await api.projects.remove(target.id)
       setStoreData((prev) => ({
         ...prev,
@@ -311,6 +404,50 @@ const App = () => {
     } catch (error) {
       showToast('err', `Không xoá được trang: ${errorMessage(error)}`)
     }
+  }
+
+  const updatePage = async (page: ProjectPage) => {
+    if (!project) return
+    try {
+      const updated = await api.projects.updatePage(project.id, page)
+      mergeProject(updated)
+      await refreshStoreProjects()
+      setAddPageOpen(false)
+      setPageToEdit(null)
+      showToast('ok', `Đã cập nhật trang ${page.route}.`)
+    } catch (error) {
+      showToast('err', `Không cập nhật được trang: ${errorMessage(error)}`)
+    }
+  }
+
+  const handleDeletePage = (page: ProjectPage) => {
+    if (!project) return
+    const ok = window.confirm(`Bạn có chắc muốn xoá trang "${page.title}" (${page.route}) khỏi danh sách dự án?`)
+    if (ok) {
+      void removePage(page.id)
+    }
+  }
+
+  const handleEditPage = (page: ProjectPage) => {
+    setPageToEdit(page)
+    setAddPageOpen(true)
+  }
+
+  const handleUrlChange = (newUrl: string, pathname: string) => {
+    if (pathname && pathname !== targetRouteRef.current) {
+      setTargetRoute(pathname)
+      targetRouteRef.current = pathname
+    }
+    if (newUrl && newUrl !== previewUrl) {
+      setPreviewUrl(newUrl)
+    }
+  }
+
+  const handleUpdatePageParams = async (pageId: string, params: string[]) => {
+    if (!project) return
+    const target = project.meta.pages.find((p) => p.id === pageId)
+    if (!target) return
+    await updatePage({ ...target, sampleParams: params })
   }
 
   const refreshStoreProjects = async () => {
@@ -486,7 +623,7 @@ const App = () => {
 
     if (run?.url) {
       const base = run.url.replace(/\/+$/, '')
-      const fullUrl = cleanRoute === '/' ? base : `${base}${cleanRoute}`
+      const fullUrl = cleanRoute === '/' ? `${base}/` : `${base}${cleanRoute}`
       setPreviewUrl(fullUrl)
     } else {
       setPreviewUrl(null)
@@ -529,7 +666,9 @@ const App = () => {
         ? await api.run.startCommand(project.id, custom)
         : await api.run.start(project.id, effectiveScript)
       setRun(state)
-      setLogs([])
+      if (settingsRef.current.clearConsoleOnRun ?? true) {
+        setLogs([])
+      }
       lastUrlRef.current = null
       setActiveTab('preview')
       showToast('ok', `Đang chạy ${useCustom ? `“${custom}”` : `“${effectiveScript}”`} cho ${project.name}`)
@@ -540,16 +679,41 @@ const App = () => {
   }
 
   const stopRun = async () => {
-    if (!run) return
+    if (!run && !projectId) return
     try {
-      await api.run.stop(run.id)
-      setRun({ ...run, status: 'stopped' })
-      showToast('ok', 'Đã dừng tiến trình.')
+      if (run) {
+        await api.run.stop(run.id)
+        setRun({ ...run, status: 'stopped' })
+      } else if (projectId && api.run?.stopOfProject) {
+        await api.run.stopOfProject(projectId)
+      }
+      showToast('ok', 'Đã dừng tiến trình và giải phóng cổng.')
       void refreshStoreProjects()
     } catch (error) {
       showToast('err', `Không dừng được tiến trình: ${errorMessage(error)}`)
     }
   }
+
+  /** Thoát khỏi dự án hiện tại về danh sách dự án (tự động tắt dev server để tránh chiếm cổng) */
+  const handleExitToProjects = async () => {
+    if (run && (run.status === 'running' || run.status === 'starting')) {
+      await stopRun()
+    } else if (projectId && api.run?.stopOfProject) {
+      await api.run.stopOfProject(projectId)
+    }
+    setView('projects')
+  }
+
+  // Tự động giải phóng cổng & dừng dev server khi đóng cửa sổ app
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (api.run?.stopAll) {
+        void api.run.stopAll()
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
 
   /* ── Hiệu ứng khởi động ───────────────────────────────── */
 
@@ -604,7 +768,8 @@ const App = () => {
 
   useEffect(() => {
     const offLog = api.run.onLog((log) => {
-      setLogs((prev) => [...prev.slice(-4000), log])
+      const maxLines = settingsRef.current.maxLogLines || 1000
+      setLogs((prev) => [...prev.slice(-(maxLines - 1)), log])
     })
     const offState = api.run.onState((state) => {
       setRun(state)
@@ -635,12 +800,13 @@ const App = () => {
         lastUrlRef.current = state.url
         const base = state.url.replace(/\/+$/, '')
         const currentRoute = targetRouteRef.current
-        const fullUrl = currentRoute && currentRoute !== '/' ? `${base}${currentRoute}` : state.url
+        const fullUrl = currentRoute && currentRoute !== '/' ? `${base}${currentRoute}` : `${base}/`
         setPreviewUrl(fullUrl)
         const current = settingsRef.current
         if (current.previewMode === 'browser') {
           void api.system.openExternal(fullUrl)
         } else if (current.autoPreview) {
+          setView('workspace')
           setActiveTab('preview')
         }
       }
@@ -657,12 +823,28 @@ const App = () => {
     openFolder,
     startRun,
     stopRun,
+    handleExitToProjects,
     refreshProject,
     setView,
     setDialog,
     setDiagnosisOpen,
+    handleInstall,
+    setIsSidebarOpen,
+    setSidebarTab,
   })
-  actionsRef.current = { openFolder, startRun, stopRun, refreshProject, setView, setDialog, setDiagnosisOpen }
+  actionsRef.current = {
+    openFolder,
+    startRun,
+    stopRun,
+    handleExitToProjects,
+    refreshProject,
+    setView,
+    setDialog,
+    setDiagnosisOpen,
+    handleInstall,
+    setIsSidebarOpen,
+    setSidebarTab,
+  }
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -672,12 +854,25 @@ const App = () => {
       if (mod && key === 'k') {
         event.preventDefault()
         setDialog((prev) => (prev === 'palette' ? null : 'palette'))
+      } else if (mod && key === 'b') {
+        event.preventDefault()
+        setIsSidebarOpen((prev) => !prev)
+      } else if (mod && event.shiftKey && key === 'e') {
+        event.preventDefault()
+        setView('workspace')
+        setSidebarTab('files')
+        setIsSidebarOpen(true)
+      } else if (mod && event.shiftKey && key === 'l') {
+        event.preventDefault()
+        setView('workspace')
+        setSidebarTab('layers')
+        setIsSidebarOpen(true)
       } else if (mod && event.key === ',') {
         event.preventDefault()
         setDialog('settings')
       } else if (mod && key === 'o') {
         event.preventDefault()
-        if (event.shiftKey) setView('projects')
+        if (event.shiftKey) void actionsRef.current.handleExitToProjects()
         else void actionsRef.current.openFolder()
       } else if (mod && key === 'r') {
         event.preventDefault()
@@ -721,7 +916,71 @@ const App = () => {
           setDialog('palette')
           break
         case 'view-projects':
-          setView('projects')
+          void actionsRef.current.handleExitToProjects()
+          break
+        case 'view-workspace':
+          setView('workspace')
+          break
+        case 'toggle-sidebar':
+          setIsSidebarOpen((v) => !v)
+          break
+        case 'tab-files':
+          setView('workspace')
+          setSidebarTab('files')
+          setIsSidebarOpen(true)
+          break
+        case 'tab-layers':
+          setView('workspace')
+          setSidebarTab('layers')
+          setIsSidebarOpen(true)
+          break
+        case 'tab-pages':
+          setView('workspace')
+          setSidebarTab('pages')
+          setIsSidebarOpen(true)
+          break
+        case 'tab-assets':
+          setView('workspace')
+          setSidebarTab('assets')
+          setIsSidebarOpen(true)
+          break
+        case 'tab-versions':
+          setView('workspace')
+          setSidebarTab('versions')
+          setIsSidebarOpen(true)
+          break
+        case 'tab-design':
+          setView('workspace')
+          setSidebarTab('design')
+          setIsSidebarOpen(true)
+          break
+        case 'tab-parts':
+          setView('workspace')
+          setSidebarTab('part')
+          setIsSidebarOpen(true)
+          break
+        case 'save':
+          void editorBuffer.saveAllDirtyFiles().then(() => {
+            showToast('ok', 'Đã lưu tất cả thay đổi vào tệp mã nguồn!')
+          })
+          break
+        case 'undo':
+          if (editorBuffer.canUndo()) editorBuffer.undo()
+          break
+        case 'redo':
+          if (editorBuffer.canRedo()) editorBuffer.redo()
+          break
+        case 'tokens':
+          setDialog('tokens')
+          break
+        case 'install-deps':
+          void actionsRef.current.handleInstall()
+          break
+        case 'diagnose':
+          setDiagnosisOpen(true)
+          break
+        case 'open-browser':
+          if (run?.url) void api.system.openExternal(run.url)
           break
         default:
           break
@@ -749,7 +1008,7 @@ const App = () => {
         id: 'projects',
         label: 'Đi tới danh sách dự án',
         icon: FolderKanban,
-        run: () => setView('projects'),
+        run: () => void handleExitToProjects(),
       },
       {
         id: 'detail',
@@ -764,6 +1023,93 @@ const App = () => {
         icon: LayoutDashboard,
         disabled: !project,
         run: () => setView('workspace'),
+      },
+      {
+        id: 'toggle-sidebar',
+        label: 'Ẩn / Hiện thanh bên (Sidebar)',
+        icon: PanelLeft,
+        keys: 'Ctrl B',
+        disabled: !project,
+        run: () => setIsSidebarOpen((v) => !v),
+      },
+      {
+        id: 'tab-files',
+        label: 'Thanh bên: Cây tệp mã nguồn (Files)',
+        icon: FolderTree,
+        keys: 'Ctrl Shift E',
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('files')
+          setIsSidebarOpen(true)
+        },
+      },
+      {
+        id: 'tab-layers',
+        label: 'Thanh bên: Cây phân cấp các lớp (Layers)',
+        icon: Layers,
+        keys: 'Ctrl Shift L',
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('layers')
+          setIsSidebarOpen(true)
+        },
+      },
+      {
+        id: 'tab-pages',
+        label: 'Thanh bên: Danh sách trang (Pages)',
+        icon: FileText,
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('pages')
+          setIsSidebarOpen(true)
+        },
+      },
+      {
+        id: 'tab-assets',
+        label: 'Thanh bên: Tài nguyên hình ảnh & Ảnh mẫu (Assets)',
+        icon: ImageIcon,
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('assets')
+          setIsSidebarOpen(true)
+        },
+      },
+      {
+        id: 'tab-versions',
+        label: 'Thanh bên: Lịch sử phiên bản & Git (Versions)',
+        icon: History,
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('versions')
+          setIsSidebarOpen(true)
+        },
+      },
+      {
+        id: 'tab-design',
+        label: 'Thanh bên: Hệ thống thiết kế (Design Tokens)',
+        icon: Palette,
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('design')
+          setIsSidebarOpen(true)
+        },
+      },
+      {
+        id: 'tab-parts',
+        label: 'Thanh bên: Thư viện linh kiện mẫu (Part Library)',
+        icon: Package,
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setSidebarTab('part')
+          setIsSidebarOpen(true)
+        },
       },
       {
         id: 'diagnose',
@@ -868,37 +1214,51 @@ const App = () => {
 
   return (
     <div className="pm-app">
+      <TitleBar
+        project={view === 'projects' ? null : project}
+        onOpenFolder={() => void openFolder()}
+        onViewProjects={() => void handleExitToProjects()}
+        onViewWorkspace={() => {
+          if (project) setView('workspace')
+        }}
+        onSettings={() => setDialog('settings')}
+        onGuide={() => setDialog('guide')}
+        onPalette={() => setDialog('palette')}
+        onRun={() => void startRun()}
+        onStop={() => void stopRun()}
+        onRefresh={() => void refreshProject()}
+        onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
+      />
+
       <TopBar
         project={view === 'projects' ? null : project}
         run={run}
         home={appInfo?.home}
+        view={view}
+        onViewChange={(v) => {
+          if (v === 'projects') {
+            void handleExitToProjects()
+          } else {
+            setView(v)
+          }
+        }}
         onOpenFolder={() => void openFolder()}
         onRun={() => void startRun()}
         onStop={() => void stopRun()}
-        onProjects={() => setView(view === 'workspace' ? 'detail' : 'projects')}
         onSettings={() => setDialog('settings')}
         onGuide={() => setDialog('guide')}
         onPalette={() => setDialog('palette')}
         onRefresh={() => void refreshProject()}
-        onOpenPreview={() => {
-          setView('workspace')
-          setActiveTab('preview')
-        }}
+        onTokens={() => setDialog('tokens')}
+        isSidebarOpen={isSidebarOpen}
+        onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
+        isBottomPanelOpen={isBottomPanelOpen}
+        onToggleBottomPanel={() => setIsBottomPanelOpen((v) => !v)}
+        isRightPanelOpen={isRightPanelOpen}
+        onToggleRightPanel={() => setIsRightPanelOpen((v) => !v)}
       />
 
       <div className="pm-body">
-        <NavRail
-          view={view}
-          hasProject={Boolean(project)}
-          onProjects={() => setView('projects')}
-          onDetail={() => setView('detail')}
-          onWorkspace={() => setView('workspace')}
-          onOpenFolder={() => void openFolder()}
-          onSettings={() => setDialog('settings')}
-          onGuide={() => setDialog('guide')}
-          onTokens={() => setDialog('tokens')}
-        />
-
         <main className="pm-main">
           {view === 'projects' ? (
             <ProjectView
@@ -926,7 +1286,10 @@ const App = () => {
               onWorkspace={() => setView('workspace')}
               onOpenPage={handleOpenPage}
               onRefresh={() => void refreshProject()}
-              onAddPage={() => setAddPageOpen(true)}
+              onAddPage={() => {
+                setPageToEdit(null)
+                setAddPageOpen(true)
+              }}
               onRemovePage={(pageId) => void removePage(pageId)}
               onReveal={() => void api.fs.openPath(project.path)}
               onOpenLog={() => {
@@ -982,6 +1345,26 @@ const App = () => {
               tabs={openPaths}
               onCloseTab={closeTab}
               onSelectTab={selectTab}
+              isSidebarOpen={isSidebarOpen}
+              onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
+              isBottomPanelOpen={isBottomPanelOpen}
+              onToggleBottomPanel={() => setIsBottomPanelOpen((v) => !v)}
+              isRightPanelOpen={isRightPanelOpen}
+              onToggleRightPanel={() => setIsRightPanelOpen((v) => !v)}
+              sidebarTab={sidebarTab}
+              onSidebarTabChange={setSidebarTab}
+              onOpenPage={handleOpenPage}
+              onAddPage={() => {
+                setPageToEdit(null)
+                setAddPageOpen(true)
+              }}
+              onEditPage={handleEditPage}
+              onDeletePage={handleDeletePage}
+              onOpenParamChooser={(p) => setParamChooserPage(p)}
+              currentRoute={targetRoute}
+              onUrlChange={handleUrlChange}
+              onOpenTokens={() => setDialog('tokens')}
+              onShowToast={showToast}
             />
           )}
         </main>
@@ -1004,8 +1387,12 @@ const App = () => {
           projectCount={storeData.projects.length}
           isDesktop={isDesktop}
           onUpdate={(patch) => void updateSettings(patch)}
-          onReset={() => {
+          onResetSettings={resetSettingsOnly}
+          onResetAllData={() => {
             void (async () => {
+              if (api.run?.stopAll) {
+                await api.run.stopAll()
+              }
               const data = await api.store.reset()
               setStoreData(data)
               setProjectId(null)
@@ -1015,9 +1402,10 @@ const App = () => {
               setOpenPaths([])
               setRun(null)
               setLogs([])
-              showToast('ok', 'Đã khôi phục cài đặt mặc định.')
+              showToast('ok', 'Đã xóa toàn bộ dữ liệu và đưa PixelMind về trạng thái mới cài đặt.')
             })()
           }}
+          onClearCache={handleClearCache}
           onOpenDataFolder={() => void api.store.path().then((path) => api.fs.openPath(path))}
           onClose={() => setDialog(null)}
         />
@@ -1051,8 +1439,26 @@ const App = () => {
       {addPageOpen && project && (
         <AddPageDialog
           projectName={project.name}
+          pageToEdit={pageToEdit}
+          existingPages={project.meta.pages}
           onAdd={(page) => void addPage(page)}
-          onClose={() => setAddPageOpen(false)}
+          onUpdate={(page) => void updatePage(page)}
+          onClose={() => {
+            setAddPageOpen(false)
+            setPageToEdit(null)
+          }}
+        />
+      )}
+
+      {paramChooserPage && (
+        <PageParamDialog
+          page={paramChooserPage}
+          onSelectRoute={(fullRoute) => {
+            handleOpenPage(fullRoute)
+            setParamChooserPage(null)
+          }}
+          onClose={() => setParamChooserPage(null)}
+          onUpdateParams={(pageId, params) => void handleUpdatePageParams(pageId, params)}
         />
       )}
 

@@ -1,0 +1,29 @@
+{
+  "id": "button-cta-primary",
+  "name": "Nút CTA chính",
+  "groups": [
+    "button",
+    "form",
+    "hero",
+    "feedback"
+  ],
+  "tags": [
+    "button",
+    "cta",
+    "nút",
+    "kêu gọi",
+    "hero",
+    "bấm"
+  ],
+  "version": "3.0.1",
+  "designMd": "DESIGN.md · 2026-10-01",
+  "author": "Nguyễn Thanh Hiền",
+  "origin": "Figma · PixelMind Kit / button",
+  "license": "MIT · nội bộ dự án",
+  "status": "approved",
+  "locked": false,
+  "demo": true,
+  "uses": 42,
+  "rejects": 0,
+  "updated": "2026-10-14"
+}

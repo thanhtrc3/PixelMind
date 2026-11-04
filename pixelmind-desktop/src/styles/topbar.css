@@ -7,10 +7,11 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 29px;
+  height: calc(29px * var(--font-scale, 1));
+  min-height: 26px;
   padding: 0 10px;
   border-radius: var(--r-sm, 7px);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale, 1));
   font-weight: 600;
   cursor: pointer;
   border: 1px solid var(--line);
@@ -51,7 +52,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 29px;
+  height: calc(29px * var(--font-scale, 1));
+  min-height: 26px;
   padding: 0 8px 0 10px;
   width: 220px;
   max-width: 260px;
@@ -61,7 +63,7 @@
   border: 1px solid var(--line);
   background: var(--bg-inset);
   color: var(--text-3);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--font-scale, 1));
   cursor: pointer;
   transition: all var(--duration-fast, 120ms) ease;
 }
@@ -277,4 +279,271 @@
   background: var(--line);
   margin: 4px 0;
 }
+
+/* ── Dự án đang mở (Thu gọn dạng Pill tinh tế, bỏ đường dẫn dài) ── */
+.pm-project-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 29px;
+  padding: 0 10px;
+  border-radius: var(--r-sm, 7px);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 180px;
+  transition: all var(--duration-fast, 120ms) ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pm-project-pill:hover {
+  background: var(--panel-3);
+  border-color: var(--line-2);
+}
+
+.pm-project-pill__icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.pm-project-pill__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Bộ chuyển View (Dự án / Chi tiết / Làm việc) trên TopBar ── */
+.pm-view-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-inset, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm, 7px);
+  height: 29px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.pm-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 23px;
+  padding: 0 9px;
+  border-radius: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 120ms ease;
+  white-space: nowrap;
+}
+
+.pm-view-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.pm-view-btn.active {
+  background: var(--panel-2);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* ═══════════════════════════════════════════════════
+   PixelMind — TitleBar ngang hàng với Menu Bar
+   ═══════════════════════════════════════════════════ */
+.pm-titlebar {
+  display: flex;
+  align-items: center;
+  height: 35px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+  -webkit-app-region: drag;
+  padding: 0 0 0 10px;
+  position: relative;
+  z-index: 1000;
+  box-sizing: border-box;
+  flex: none;
+}
+
+.pm-titlebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  -webkit-app-region: no-drag;
+  padding-right: 8px;
+  cursor: default;
+}
+
+.pm-titlebar__brand-icon {
+  width: 17px;
+  height: 17px;
+  object-fit: contain;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+  flex: none;
+}
+
+.pm-titlebar__brand-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin-right: 4px;
+}
+.pm-titlebar__brand-name span {
+  color: var(--accent);
+}
+
+.pm-titlebar__menubar {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  -webkit-app-region: no-drag;
+}
+
+.pm-titlebar__menu-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 100ms ease;
+}
+
+.pm-titlebar__menu-btn:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.pm-titlebar__menu-btn.active {
+  background: var(--panel-3);
+  color: var(--text);
+}
+
+.pm-titlebar__center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.pm-titlebar__drag {
+  flex: 1;
+  height: 100%;
+}
+
+.pm-titlebar__window-controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  -webkit-app-region: no-drag;
+  margin-left: auto;
+  padding-right: 6px;
+}
+
+.pm-win-btn {
+  width: 28px;
+  height: 24px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all 120ms ease;
+  user-select: none;
+}
+
+.pm-win-btn:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.pm-win-btn:active {
+  transform: scale(0.94);
+}
+
+.pm-win-btn.close:hover {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+}
+
+.pm-win-btn.close:active {
+  background: #dc2626 !important;
+  color: #ffffff !important;
+}
+
+/* ── Cụm 3 nút Điều khiển Bố cục (Layout Controls: Trái, Dưới, Phải - Chuẩn VS Code) ── */
+.pm-topbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.pm-layout-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 3px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.pm-layout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all 120ms ease;
+  padding: 0;
+}
+
+.pm-layout-btn:hover {
+  background: var(--panel-3);
+  color: var(--text-1);
+}
+
+.pm-layout-btn.active {
+  color: var(--text);
+  background: var(--panel-4, rgba(255, 255, 255, 0.1));
+}
+
+.pm-layout-btn:active {
+  transform: scale(0.95);
+}
+
 

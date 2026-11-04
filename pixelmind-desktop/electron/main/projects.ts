@@ -124,15 +124,23 @@ function detectFramework(pkg: RawPkg | null): string {
   const has = (name: string) => Object.prototype.hasOwnProperty.call(deps, name)
   if (has('next')) return 'Next.js'
   if (has('nuxt')) return 'Nuxt'
+  if (has('@remix-run/react')) return 'Remix'
   if (has('@angular/core')) return 'Angular'
+  if (has('@sveltejs/kit')) return 'SvelteKit'
   if (has('svelte')) return 'Svelte'
-  if (has('vue')) return 'Vue'
+  if (has('vue')) return has('vite') ? 'Vue + Vite' : 'Vue'
   if (has('astro')) return 'Astro'
   if (has('solid-js')) return 'Solid'
+  if (has('@builder.io/qwik')) return 'Qwik'
   if (has('electron')) return 'Electron'
   if (has('react-native')) return 'React Native'
   if (has('react')) return has('vite') ? 'React + Vite' : 'React'
   if (has('vite')) return 'Vite'
+  if (has('@nestjs/core')) return 'NestJS'
+  if (has('express')) return 'Express (Node.js)'
+  if (has('fastify')) return 'Fastify'
+  if (has('hono')) return 'Hono'
+  if (has('gatsby')) return 'Gatsby'
   return 'Node.js'
 }
 
@@ -764,6 +772,79 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
     }
   }
 
+  // Vue / Nuxt pages (pages/**/*.vue, src/pages/**/*.vue)
+  const vueFiles = [
+    ...(await listFiles(join(dir, 'pages'), ['.vue'], 3)),
+    ...(await listFiles(join(dir, 'src', 'pages'), ['.vue'], 3)),
+  ].filter((f) => !/(^|\/)_/.test(f))
+  for (const rel of vueFiles) {
+    const name = rel.replace(/\.vue$/i, '')
+    const clean = name.replace(/index$/i, '')
+    const route = clean ? (clean.startsWith('/') ? clean : `/${clean}`) : '/'
+    push(route.replace(/\/+/g, '/'), titleFromName(name.split('/').pop() || name))
+  }
+
+  // SvelteKit (+page.svelte)
+  const svelteFiles = [
+    ...(await listFiles(join(dir, 'src', 'routes'), ['.svelte'], 4)),
+    ...(await listFiles(join(dir, 'routes'), ['.svelte'], 4)),
+  ].filter((f) => f.endsWith('+page.svelte'))
+  for (const rel of svelteFiles) {
+    const folder = rel.replace(/\/?\+page\.svelte$/, '')
+    const route = folder ? (folder.startsWith('/') ? folder : `/${folder}`) : '/'
+    push(route.replace(/\/+/g, '/'), titleFromName(folder.split('/').pop() || 'Trang chủ'))
+  }
+
+  // Astro (src/pages/**/*.astro, pages/**/*.astro)
+  const astroFiles = [
+    ...(await listFiles(join(dir, 'src', 'pages'), ['.astro'], 3)),
+    ...(await listFiles(join(dir, 'pages'), ['.astro'], 3)),
+  ].filter((f) => !/(^|\/)_/.test(f))
+  for (const rel of astroFiles) {
+    const name = rel.replace(/\.astro$/i, '')
+    const clean = name.replace(/index$/i, '')
+    const route = clean ? (clean.startsWith('/') ? clean : `/${clean}`) : '/'
+    push(route.replace(/\/+/g, '/'), titleFromName(name.split('/').pop() || name))
+  }
+
+  // Laravel Blade (resources/views/**/*.blade.php)
+  const bladeFiles = await listFiles(join(dir, 'resources', 'views'), ['.blade.php'], 4)
+  for (const rel of bladeFiles) {
+    const name = rel.replace(/\.blade\.php$/i, '')
+    if (name.startsWith('_') || name.startsWith('layouts/') || name.startsWith('components/')) continue
+    const route = name.toLowerCase() === 'welcome' || name.toLowerCase() === 'index' ? '/' : `/${name}`
+    push(route, titleFromName(name.split('/').pop() || name))
+  }
+
+  // Django / Flask templates (templates/**/*.html)
+  const templateFiles = await listFiles(join(dir, 'templates'), ['.html', '.htm'], 3)
+  for (const rel of templateFiles) {
+    const name = rel.replace(/\.(html|htm)$/i, '')
+    if (name.startsWith('_') || name.startsWith('base')) continue
+    const route = name.toLowerCase() === 'index' || name.toLowerCase() === 'home' ? '/' : `/${name}`
+    push(route, titleFromName(name.split('/').pop() || name))
+  }
+
+  // Root & public static HTML files (*.html, *.htm)
+  const staticHtml = [
+    ...(await listFiles(dir, ['.html', '.htm'], 1)),
+    ...(await listFiles(join(dir, 'public'), ['.html', '.htm'], 2)),
+  ]
+  for (const rel of staticHtml) {
+    const filename = rel.split('/').pop() ?? rel
+    const name = filename.replace(/\.(html|htm)$/i, '')
+    const route = name.toLowerCase() === 'index' ? '/' : `/${filename}`
+    let title = ''
+    try {
+      const c = await fs.readFile(join(dir, rel), 'utf8')
+      const match = c.match(/<title>([^<]+)<\/title>/i)
+      if (match) title = match[1].trim()
+    } catch {
+      /* bỏ qua */
+    }
+    push(route, title || titleFromName(name))
+  }
+
   /* wwwroot/*.html */
   const wwwrootHtml = await listFiles(join(dir, 'wwwroot'), ['.html', '.htm'], 3)
   for (const rel of wwwrootHtml) {
@@ -1271,6 +1352,63 @@ async function detectOtherProject(dir: string): Promise<{
         { name: 'test', command: 'go test ./...', kind: 'test' },
       ],
       hasIndexHtml: false,
+    }
+  }
+
+  // 6. Java (Spring Boot / Maven)
+  if (await exists('pom.xml')) {
+    const mvnCmd = process.platform === 'win32' ? 'mvnw.cmd' : './mvnw'
+    const hasMvnw = await exists(process.platform === 'win32' ? 'mvnw.cmd' : 'mvnw')
+    const cmd = hasMvnw ? `${mvnCmd} spring-boot:run` : 'mvn spring-boot:run'
+    return {
+      framework: 'Spring Boot (Java / Maven)',
+      packageManager: 'mvn',
+      scripts: [
+        { name: 'run', command: cmd, kind: 'dev' },
+        { name: 'build', command: hasMvnw ? `${mvnCmd} clean package` : 'mvn clean package', kind: 'build' },
+        { name: 'test', command: hasMvnw ? `${mvnCmd} test` : 'mvn test', kind: 'test' },
+      ],
+      hasIndexHtml: false,
+    }
+  }
+
+  // 7. Java / Kotlin (Gradle)
+  if ((await exists('build.gradle')) || (await exists('build.gradle.kts'))) {
+    const gradlewCmd = process.platform === 'win32' ? 'gradlew.bat' : './gradlew'
+    const hasGradlew = await exists(process.platform === 'win32' ? 'gradlew.bat' : 'gradlew')
+    const cmd = hasGradlew ? `${gradlewCmd} bootRun` : 'gradle bootRun'
+    return {
+      framework: 'Java (Gradle)',
+      packageManager: 'gradle',
+      scripts: [
+        { name: 'run', command: cmd, kind: 'dev' },
+        { name: 'build', command: hasGradlew ? `${gradlewCmd} build` : 'gradle build', kind: 'build' },
+      ],
+      hasIndexHtml: false,
+    }
+  }
+
+  // 8. Ruby on Rails
+  if (await exists('Gemfile')) {
+    return {
+      framework: 'Ruby on Rails',
+      packageManager: 'bundle',
+      scripts: [
+        { name: 'run', command: 'bundle exec rails server', kind: 'dev' },
+      ],
+      hasIndexHtml: false,
+    }
+  }
+
+  // 9. Web tĩnh thuần (HTML/CSS/JS)
+  if (await exists('index.html')) {
+    return {
+      framework: 'HTML5 / Web Tĩnh',
+      packageManager: 'none',
+      scripts: [
+        { name: 'live-server', command: 'npx serve .', kind: 'dev' },
+      ],
+      hasIndexHtml: true,
     }
   }
 

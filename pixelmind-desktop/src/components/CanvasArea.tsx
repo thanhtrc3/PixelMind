@@ -1,6 +1,8 @@
 import { api } from '../lib/bridge'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import {
+  AlertCircle,
+  AlertTriangle,
   AlignLeft,
   AlignCenter,
   AlignRight,
@@ -10,6 +12,7 @@ import {
   ArrowLeft,
   ArrowUp,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Code2,
@@ -17,11 +20,13 @@ import {
   ExternalLink,
   Globe,
   Hand,
+  Info,
   Layers,
   Maximize2,
   Monitor,
   MonitorUp,
   MousePointer2,
+  Move,
   Play,
   RefreshCw,
   RotateCcw,
@@ -46,6 +51,7 @@ import VisualErrorCard from './VisualErrorCard'
 import DesignTokensDialog from './DesignTokensDialog'
 import type { DesignTokens } from '@shared/types'
 import { editorBuffer, type ActionType, type ElementSnapshot } from '../lib/editorBuffer'
+import { PencilFillIcon } from './PanelIcons'
 
 export type CanvasMode = 'reference' | 'live' | 'compare' | 'overlay' | 'diff'
 export type ViewportKey = 'mobile' | 'tablet' | 'desktop' | 'wide'
@@ -126,6 +132,19 @@ export interface RealElementInfo {
   currentPath?: string
   currentUrl?: string
   pageTitle?: string
+  parent?: {
+    uid: string
+    tagName: string
+    id: string
+    className: string
+    tag: string
+    rect: {
+      top: number
+      left: number
+      width: number
+      height: number
+    }
+  } | null
   rect: {
     top: number
     left: number
@@ -190,6 +209,7 @@ interface CanvasAreaProps {
   onInstall?: () => void
   onCreateIndexHtml?: () => void
   onAddDevScript?: () => void
+  onUrlChange?: (url: string, pathname: string) => void
 }
 
 const COLOR_SWATCHES = [
@@ -231,7 +251,16 @@ const CanvasArea = ({
   onInstall,
   onCreateIndexHtml: _onCreateIndexHtml,
   onAddDevScript: _onAddDevScript,
+  onUrlChange,
 }: CanvasAreaProps) => {
+
+  const [currentLiveUrl, setCurrentLiveUrl] = useState<string | null>(url ?? null)
+
+  useEffect(() => {
+    if (url) {
+      setCurrentLiveUrl(url)
+    }
+  }, [url])
 
   const [viewport, setViewport] = useState<ViewportKey>('desktop')
   const [tool, setTool] = useState<ToolKey>('select')
@@ -257,12 +286,68 @@ const CanvasArea = ({
   const [inspectorTab, setInspectorTab] = useState<'design' | 'code'>('design')
   const [modifiedStyles, setModifiedStyles] = useState<Record<string, string>>({})
   const [isMovingEl, setIsMovingEl] = useState(false)
+  const [dropTargetHover, setDropTargetHover] = useState<{
+    uid: string
+    tagName: string
+    tag: string
+    rect: { top: number; left: number; width: number; height: number }
+  } | null>(null)
   const [isDirtyBuffer, setIsDirtyBuffer] = useState(editorBuffer.isDirty())
   const initialTextRef = useRef<string>('')
   const currentRouteRef = useRef<string>('/')
   const [isTokensDialogOpen, setIsTokensDialogOpen] = useState(false)
   const [projectTokens, setProjectTokens] = useState<DesignTokens | null>(null)
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false)
+
+  // ─── TỰ ĐỘNG THỬ LẠI KẾT NỐI MÁY CHỦ (HEALTH CHECK & AUTO-RETRY) ───
+  const [isServerReady, setIsServerReady] = useState(false)
+  const [connectRetryCount, setConnectRetryCount] = useState(0)
+  const [connectTimeout, setConnectTimeout] = useState(false)
+
+  useEffect(() => {
+    if (!running || !url) {
+      setIsServerReady(false)
+      setConnectRetryCount(0)
+      setConnectTimeout(false)
+      return
+    }
+
+    let isMounted = true
+    let attempts = 0
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const checkServer = async () => {
+      try {
+        // Gửi GET probe tới địa chỉ xem trước; dùng cache 'no-store' và 'no-cors'
+        await fetch(url, { method: 'GET', cache: 'no-store', mode: 'no-cors' })
+        if (isMounted) {
+          setIsServerReady(true)
+          setConnectTimeout(false)
+        }
+      } catch {
+        if (!isMounted) return
+        attempts++
+        setConnectRetryCount(attempts)
+        if (attempts >= 30) {
+          // Sau khoảng 15 giây thử liên tục mà máy chủ vẫn từ chối
+          setConnectTimeout(true)
+        }
+        // Thử lại sau mỗi 450ms
+        timer = setTimeout(checkServer, 450)
+      }
+    }
+
+    setIsServerReady(false)
+    setConnectRetryCount(0)
+    setConnectTimeout(false)
+    void checkServer()
+
+    return () => {
+      isMounted = false
+      if (timer) clearTimeout(timer)
+    }
+  }, [url, running, iframeKey])
+
   // Tải Design Tokens của dự án để dùng làm mẫu chọn màu & tỷ lệ
   useEffect(() => {
     let isMounted = true
@@ -272,7 +357,7 @@ const CanvasArea = ({
         .then((t) => {
           if (isMounted) setProjectTokens(t)
         })
-        .catch(() => {})
+        .catch(() => { })
     }
     return () => {
       isMounted = false
@@ -313,17 +398,29 @@ const CanvasArea = ({
     styles: Record<string, string>
   } | null>(null)
 
-  // Toast thông báo nhỏ
-  const [toastMsg, setToastMsg] = useState<string | null>(null)
+  // Toast thông báo nổi HUD cao cấp (Figma / Webflow style)
+  interface CanvasToast {
+    text: string
+    kind?: 'ok' | 'info' | 'warn' | 'err'
+    shortcut?: string
+  }
+  const [toast, setToast] = useState<CanvasToast | null>(null)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const showToast = useCallback((msg: string) => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    setToastMsg(msg)
-    toastTimerRef.current = setTimeout(() => {
-      setToastMsg(null)
-    }, 2800)
-  }, [])
+  const showToast = useCallback(
+    (msg: string | CanvasToast, kind: 'ok' | 'info' | 'warn' | 'err' = 'ok', shortcut?: string) => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+      if (typeof msg === 'string') {
+        setToast({ text: msg, kind, shortcut })
+      } else {
+        setToast(msg)
+      }
+      toastTimerRef.current = setTimeout(() => {
+        setToast(null)
+      }, 2400)
+    },
+    [],
+  )
 
   const currentVp = VIEWPORTS.find((v) => v.key === viewport) ?? VIEWPORTS[2]
 
@@ -390,14 +487,18 @@ const CanvasArea = ({
           setSelectedEl(null)
           setHoverEl(null)
         }
-        showToast(next ? 'Đã BẬT Chế độ Soi phần tử (Visual Inspector)' : 'Đã TẮT Chế độ Soi phần tử')
+        showToast(
+          next ? 'Đã bật chế độ Soi phần tử' : 'Đã tắt chế độ Soi phần tử',
+          next ? 'ok' : 'info',
+          next ? 'Phím I' : undefined,
+        )
       } else if (e.key === 'Escape') {
         if (selectedEl) {
           setSelectedEl(null)
         } else if (isInspectMode) {
           setIsInspectMode(false)
           setHoverEl(null)
-          showToast('Đã TẮT Chế độ Soi phần tử')
+          showToast('Đã tắt chế độ Soi phần tử', 'info')
         }
       }
     }
@@ -463,19 +564,36 @@ const CanvasArea = ({
       if (!e.data || typeof e.data !== 'object') return
 
       if (e.data.type === 'PM_LOCATION_CHANGE') {
-        const { pathname } = e.data.payload || {}
+        const { pathname, href } = e.data.payload || {}
         if (pathname) {
           currentRouteRef.current = pathname
         }
-      } else if (e.data.type === 'PM_HOVER_ELEMENT') {
-        if (isInspectMode) {
-          setHoverEl(e.data.payload)
+        if (href) {
+          setCurrentLiveUrl(href)
+          onUrlChange?.(href, pathname || '/')
+        } else if (pathname && url) {
+          try {
+            const parsed = new URL(url)
+            parsed.pathname = pathname
+            const newHref = parsed.href
+            setCurrentLiveUrl(newHref)
+            onUrlChange?.(newHref, pathname)
+          } catch { }
         }
+      } else if (e.data.type === 'PM_DROP_TARGET_HOVER') {
+        setDropTargetHover(e.data.payload || null)
+      } else if (e.data.type === 'PM_REPARENT_NOTIFY') {
+        showToast(e.data.message || 'Đã cập nhật phân cấp phần tử!')
+      } else if (e.data.type === 'PM_HOVER_ELEMENT') {
+        setHoverEl(e.data.payload)
       } else if (e.data.type === 'PM_SELECT_ELEMENT') {
-        if (isInspectMode && e.data.payload) {
+        if (e.data.payload) {
           const payload = e.data.payload as RealElementInfo
           setSelectedEl(payload)
           setHoverEl(null)
+          if (!isInspectMode) {
+            setIsInspectMode(true)
+          }
           if (payload.currentPath) {
             currentRouteRef.current = payload.currentPath
           }
@@ -504,7 +622,7 @@ const CanvasArea = ({
 
   // Đồng bộ trạng thái inspect mode xuống Electron main process và iframe
   useEffect(() => {
-    api.inspect.setMode(isInspectMode).catch(() => {})
+    api.inspect.setMode(isInspectMode).catch(() => { })
 
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
@@ -672,7 +790,7 @@ const CanvasArea = ({
         )
       }
 
-      api.inspect.applyStyle({ styles, textContent }).catch(() => {})
+      api.inspect.applyStyle({ styles, textContent }).catch(() => { })
 
       const beforeSnapshot: ElementSnapshot = {
         styles: { ...selectedEl.computedStyles },
@@ -710,10 +828,10 @@ const CanvasArea = ({
           },
           sourceLoc: sourceLoc
             ? {
-                filePath: sourceLoc.filePath,
-                fullPath: sourceLoc.fullPath,
-                lineNumber: sourceLoc.lineNumber,
-              }
+              filePath: sourceLoc.filePath,
+              fullPath: sourceLoc.fullPath,
+              lineNumber: sourceLoc.lineNumber,
+            }
             : undefined,
           before: beforeSnapshot,
           after: {
@@ -832,10 +950,10 @@ const CanvasArea = ({
           },
           sourceLoc: sourceLoc
             ? {
-                filePath: sourceLoc.filePath,
-                fullPath: sourceLoc.fullPath,
-                lineNumber: sourceLoc.lineNumber,
-              }
+              filePath: sourceLoc.filePath,
+              fullPath: sourceLoc.fullPath,
+              lineNumber: sourceLoc.lineNumber,
+            }
             : undefined,
           before: {
             styles: initial.beforeStyles,
@@ -911,12 +1029,48 @@ const CanvasArea = ({
         undefined,
         { skipHistory: true }
       )
+
+      // Gửi tọa độ tới iframe để dò tìm vùng chứa đích (Drop Target Zone)
+      const iframe = iframeRef.current
+      if (iframe?.contentWindow) {
+        const iframeRect = iframe.getBoundingClientRect()
+        const x = (e.clientX - iframeRect.left) / scale
+        const y = (e.clientY - iframeRect.top) / scale
+        iframe.contentWindow.postMessage(
+          {
+            type: 'PM_DRAG_OVER',
+            dragUid: selectedEl?.uid,
+            x,
+            y,
+          },
+          '*'
+        )
+      }
     }
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
       setIsMovingEl(false)
+      setDropTargetHover(null)
       const initial = moveStartRef.current
       if (!selectedEl) return
+
+      // Thả chuột: Thực hiện di chuyển cấu trúc DOM (Reparenting vào container mới)
+      const iframe = iframeRef.current
+      if (iframe?.contentWindow) {
+        const iframeRect = iframe.getBoundingClientRect()
+        const scale = zoom / 100
+        const x = (e.clientX - iframeRect.left) / scale
+        const y = (e.clientY - iframeRect.top) / scale
+        iframe.contentWindow.postMessage(
+          {
+            type: 'PM_DROP_REPARENT',
+            uid: selectedEl.uid,
+            x,
+            y,
+          },
+          '*'
+        )
+      }
 
       const curLeft = parseInt(selectedEl.computedStyles.left || '0') || 0
       const curTop = parseInt(selectedEl.computedStyles.top || '0') || 0
@@ -926,7 +1080,7 @@ const CanvasArea = ({
       if (curLeft !== initial.initialLeft || curTop !== initial.initialTop) {
         editorBuffer.pushAction({
           type: 'MOVE',
-          description: `Di chuyển <${selectedEl.tagName.toLowerCase()}> (X: ${curLeft}, Y: ${curTop})`,
+          description: `Di chuyển <${selectedEl.tagName.toLowerCase()}>`,
           target: {
             tagName: selectedEl.tagName,
             id: selectedEl.id,
@@ -938,10 +1092,10 @@ const CanvasArea = ({
           },
           sourceLoc: sourceLoc
             ? {
-                filePath: sourceLoc.filePath,
-                fullPath: sourceLoc.fullPath,
-                lineNumber: sourceLoc.lineNumber,
-              }
+              filePath: sourceLoc.filePath,
+              fullPath: sourceLoc.fullPath,
+              lineNumber: sourceLoc.lineNumber,
+            }
             : undefined,
           before: {
             styles: initial.beforeStyles,
@@ -974,6 +1128,14 @@ const CanvasArea = ({
       window.removeEventListener('mouseup', handleMouseUp)
     }
   }, [isMovingEl, zoom, handleApplyLiveChange, selectedEl, sourceLoc])
+
+  // ─── ĐẶT LẠI VỊ TRÍ PHẦN TỬ VỀ TỰ NHIÊN (RESET RELATIVE/TOP/LEFT) ───
+  const handleResetElementPosition = () => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage({ type: 'PM_RESET_POSITION', uid: selectedEl?.uid }, '*')
+    }
+    showToast('Đã đặt lại phần tử về vị trí tự nhiên trong khung cha!')
+  }
 
   // ─── TỰ ĐỘNG DÒ TÌM TỆP MÃ NGUỒN CHỨA PHẦN TỬ (CODE LOCATOR) ───
   useEffect(() => {
@@ -1091,7 +1253,7 @@ const CanvasArea = ({
       )
     }
 
-    api.inspect.resetOriginal().catch(() => {})
+    api.inspect.resetOriginal().catch(() => { })
 
     if (originalStyles) {
       const beforeSnapshot = {
@@ -1126,10 +1288,10 @@ const CanvasArea = ({
         },
         sourceLoc: sourceLoc
           ? {
-              filePath: sourceLoc.filePath,
-              fullPath: sourceLoc.fullPath,
-              lineNumber: sourceLoc.lineNumber,
-            }
+            filePath: sourceLoc.filePath,
+            fullPath: sourceLoc.fullPath,
+            lineNumber: sourceLoc.lineNumber,
+          }
           : undefined,
         before: beforeSnapshot,
         after: {
@@ -1210,11 +1372,22 @@ const CanvasArea = ({
 
   return (
     <div className="canvas">
-      {/* Toast thông báo góc trên */}
-      {toastMsg && (
-        <div className="canvas__toast">
-          <Sparkles size={13} style={{ color: 'var(--accent, #6d5df5)' }} />
-          <span>{toastMsg}</span>
+      {/* Toast thông báo nổi HUD cao cấp (Figma / Webflow Style) */}
+      {toast && (
+        <div className={`canvas__toast canvas__toast--${toast.kind || 'ok'}`}>
+          <div className="canvas__toast-icon">
+            {toast.kind === 'err' ? (
+              <AlertCircle size={13} />
+            ) : toast.kind === 'warn' ? (
+              <AlertTriangle size={13} />
+            ) : toast.kind === 'info' ? (
+              <Info size={13} />
+            ) : (
+              <CheckCircle2 size={13} />
+            )}
+          </div>
+          <span className="canvas__toast-text">{toast.text}</span>
+          {toast.shortcut && <kbd className="canvas__toast-kbd">{toast.shortcut}</kbd>}
         </div>
       )}
 
@@ -1255,7 +1428,11 @@ const CanvasArea = ({
                   setSelectedEl(null)
                   setHoverEl(null)
                 }
-                showToast(next ? 'Đã BẬT Chế độ Soi phần tử (I)' : 'Đã TẮT Chế độ Soi phần tử')
+                showToast(
+                  next ? 'Đã bật chế độ Soi phần tử' : 'Đã tắt chế độ Soi phần tử',
+                  next ? 'ok' : 'info',
+                  next ? 'Phím I' : undefined,
+                )
               }}
               title="Bật/Tắt chế độ Soi phần tử (Phím tắt: I)"
               style={{
@@ -1271,8 +1448,7 @@ const CanvasArea = ({
                 alignItems: 'center',
               }}
             >
-              <Code2 size={13} />
-              <span>{isInspectMode ? 'Soi phần tử (BẬT)' : 'Soi phần tử'}</span>
+              <PencilFillIcon size={12} />
             </button>
 
             {TOOLS.map((t) => (
@@ -1407,8 +1583,8 @@ const CanvasArea = ({
                   <span className="dot yellow" />
                   <span className="dot green" />
                 </div>
-                <span className="canvas__frame-url">
-                  {url ? url.replace(/^https?:\/\//, '') : 'localhost:Chưa khởi động'}
+                <span className="canvas__frame-url" title={currentLiveUrl || url || ''}>
+                  {(currentLiveUrl || url) ? (currentLiveUrl || url)!.replace(/^https?:\/\//, '') : 'localhost:Chưa khởi động'}
                 </span>
                 <span className="canvas__frame-size">
                   {currentVp.w} × {currentVp.h}
@@ -1459,51 +1635,130 @@ const CanvasArea = ({
                   </div>
                 )}
 
-                {/* Khung viền phần tử ĐÃ CHỌN (Selection Box) */}
-                {isInspectMode && selectedEl && (
+                {/* Khung viền chỉ báo Khung cha (Chỉ hiển thị khi đang kéo chuột di chuyển để định hướng) */}
+                {isInspectMode && isMovingEl && selectedEl && selectedEl.parent && (
                   <div
-                    className="canvas__inspect-selected"
                     style={{
-                      top: selectedEl.rect.top,
-                      left: selectedEl.rect.left,
-                      width: selectedEl.rect.width,
-                      height: selectedEl.rect.height,
+                      position: 'absolute',
+                      top: selectedEl.parent.rect.top,
+                      left: selectedEl.parent.rect.left,
+                      width: selectedEl.parent.rect.width,
+                      height: selectedEl.parent.rect.height,
+                      border: '1.5px dashed rgba(99, 102, 241, 0.45)',
+                      borderRadius: 6,
+                      pointerEvents: 'none',
+                      zIndex: 35,
                     }}
                   >
-                    <div
-                      className="canvas__inspect-move-bar"
-                      style={selectedEl.rect.top < 26 ? { top: 26, left: 2 } : undefined}
-                      onMouseDown={handleStartElementMove}
-                      title="Bấm giữ và kéo để di chuyển vị trí phần tử trên trang"
-                    >
-                      <span>✥ Di chuyển</span>
-                    </div>
-
                     <span
-                      className="canvas__inspect-selected-tag"
-                      style={
-                        selectedEl.rect.top < 24
-                          ? { top: 2, left: 2, borderRadius: 3, boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }
-                          : undefined
-                      }
+                      style={{
+                        position: 'absolute',
+                        bottom: '100%',
+                        left: 0,
+                        marginBottom: 2,
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                        background: 'rgba(99, 102, 241, 0.85)',
+                        color: '#ffffff',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: '0.02em',
+                      }}
                     >
-                      {selectedEl.tagName}
-                      {selectedEl.id ? `#${selectedEl.id}` : ''}
+                      Khung cha: {selectedEl.parent.tag}
                     </span>
-                    <span className="canvas__inspect-selected-size">
-                      {Math.round(selectedEl.rect.width)} × {Math.round(selectedEl.rect.height)}
-                    </span>
-
-                    {RESIZE_HANDLES.map((h) => (
-                      <span
-                        key={h.key}
-                        className={`canvas__inspect-handle ${h.key}`}
-                        onMouseDown={(e) => handleStartElementResize(e, h.key)}
-                        title={`Kéo để thay đổi kích thước (${h.label})`}
-                      />
-                    ))}
                   </div>
                 )}
+
+                {/* Khung viền chỉ báo Đích Thả Mới (Drop Target Zone Indicator) */}
+                {isInspectMode && isMovingEl && dropTargetHover && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: dropTargetHover.rect.top,
+                      left: dropTargetHover.rect.left,
+                      width: dropTargetHover.rect.width,
+                      height: dropTargetHover.rect.height,
+                      border: '2px solid #22c55e',
+                      backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                      borderRadius: 6,
+                      pointerEvents: 'none',
+                      zIndex: 38,
+                      boxShadow: '0 0 0 3px rgba(34, 197, 94, 0.25)',
+                      transition: 'all 60ms ease-out',
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: -22,
+                        left: 0,
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        background: '#16a34a',
+                        color: '#ffffff',
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                      }}
+                    >
+                      <span>📥 Thả vào:</span>
+                      <code>{dropTargetHover.tag}</code>
+                    </span>
+                  </div>
+                )}
+
+                {/* Khung viền phần tử ĐÃ CHỌN (Selection Box) */}
+                {isInspectMode && selectedEl && (() => {
+                  return (
+                    <div
+                      className="canvas__inspect-selected"
+                      style={{
+                        top: selectedEl.rect.top,
+                        left: selectedEl.rect.left,
+                        width: selectedEl.rect.width,
+                        height: selectedEl.rect.height,
+                      }}
+                    >
+                      {/* Nút kéo di chuyển vị trí phần tử (Icon-only, gọn gàng và tinh tế) */}
+                      <div
+                        className="canvas__inspect-move-bar"
+                        style={selectedEl.rect.top < 26 ? { top: 2, right: 2 } : undefined}
+                        onMouseDown={handleStartElementMove}
+                        title="Bấm giữ và kéo để di chuyển vị trí phần tử"
+                      >
+                        <Move size={12} strokeWidth={2.4} />
+                      </div>
+
+                      <span
+                        className="canvas__inspect-selected-tag"
+                        style={
+                          selectedEl.rect.top < 24
+                            ? { top: 2, left: 2, borderRadius: 3, boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }
+                            : undefined
+                        }
+                      >
+                        {selectedEl.tagName}
+                        {selectedEl.id ? `#${selectedEl.id}` : ''}
+                      </span>
+                      <span className="canvas__inspect-selected-size">
+                        {Math.round(selectedEl.rect.width)} × {Math.round(selectedEl.rect.height)}
+                      </span>
+
+                      {RESIZE_HANDLES.map((h) => (
+                        <span
+                          key={h.key}
+                          className={`canvas__inspect-handle ${h.key}`}
+                          onMouseDown={(e) => handleStartElementResize(e, h.key)}
+                          title={`Kéo để thay đổi kích thước (${h.label})`}
+                        />
+                      ))}
+                    </div>
+                  )
+                })()}
 
                 {error ? (
                   <div style={{ height: '100%', overflowY: 'auto' }}>
@@ -1514,7 +1769,86 @@ const CanvasArea = ({
                       onRetry={onRun}
                     />
                   </div>
-                ) : running && url ? (
+                ) : running && url && !isServerReady ? (
+                  <div className="canvas__frame-fallback" style={{ gap: 14 }}>
+                    <div
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 14,
+                        background: 'var(--panel-2)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        color: 'var(--accent)',
+                        position: 'relative',
+                      }}
+                    >
+                      <RefreshCw size={24} className="pm-spin" />
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <h3 style={{ fontSize: 16, fontWeight: 650, marginBottom: 6 }}>
+                        Đang kết nối tới máy chủ...
+                      </h3>
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '4px 12px',
+                          borderRadius: 6,
+                          background: 'var(--panel-2)',
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                          color: 'var(--accent-text)',
+                          marginBottom: 10,
+                        }}
+                      >
+                        <span className="pm-dot live" />
+                        {url}
+                      </div>
+                      <p style={{ fontSize: 12.5, color: 'var(--text-3)', maxWidth: 420, margin: '0 auto 16px' }}>
+                        {connectTimeout
+                          ? 'Máy chủ phản hồi chậm hoặc đang gặp sự cố khi khởi động. Bạn có thể bấm thử lại hoặc mở bằng trình duyệt ngoài.'
+                          : `Đang chờ máy chủ ${projectName} biên dịch và phản hồi kết nối HTTP...${connectRetryCount > 0 ? ` (Lần thử ${connectRetryCount})` : ''
+                          }`}
+                      </p>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                        <button
+                          className="btn secondary"
+                          onClick={() => setIframeKey((k) => k + 1)}
+                          style={{
+                            fontSize: 12,
+                            padding: '6px 14px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <RefreshCw size={12} />
+                          Thử lại ngay
+                        </button>
+                        {onOpenExternal && (
+                          <button
+                            className="btn secondary"
+                            onClick={() => onOpenExternal(url)}
+                            style={{
+                              fontSize: 12,
+                              padding: '6px 14px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <ExternalLink size={12} />
+                            Mở trình duyệt ngoài
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : running && url && isServerReady ? (
                   <iframe
                     ref={iframeRef}
                     key={iframeKey}
@@ -1529,7 +1863,49 @@ const CanvasArea = ({
                       background: '#ffffff',
                       pointerEvents: isPanActive || isPanning ? 'none' : 'auto',
                     }}
+                    onLoad={() => {
+                      try {
+                        const win = iframeRef.current?.contentWindow
+                        if (win && win.location) {
+                          const href = win.location.href
+                          const pathname = win.location.pathname || '/'
+                          if (href && href !== 'about:blank') {
+                            setCurrentLiveUrl(href)
+                            onUrlChange?.(href, pathname)
+                          }
+                        }
+                      } catch { }
+                      setTimeout(() => {
+                        if (iframeRef.current?.contentWindow) {
+                          iframeRef.current.contentWindow.postMessage({ type: 'PM_GET_DOM_TREE' }, '*')
+                        }
+                      }, 250)
+                    }}
                   />
+                ) : running && !url ? (
+                  <div className="canvas__frame-fallback" style={{ gap: 14 }}>
+                    <div
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 14,
+                        background: 'var(--panel-2)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        color: 'var(--accent)',
+                      }}
+                    >
+                      <RefreshCw size={24} className="pm-spin" />
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <h3 style={{ fontSize: 16, fontWeight: 650, marginBottom: 6 }}>
+                        Đang khởi động máy chủ...
+                      </h3>
+                      <p style={{ fontSize: 12.5, color: 'var(--text-3)', maxWidth: 380, margin: '0 auto' }}>
+                        Đang biên dịch và kích hoạt dịch vụ phát triển cho <b>{projectName}</b>. Địa chỉ xem trước sẽ tự động mở khi sẵn sàng.
+                      </p>
+                    </div>
+                  </div>
                 ) : (
                   <div className="canvas__frame-fallback">
                     <div
@@ -1642,7 +2018,7 @@ const CanvasArea = ({
                   setIsInspectMode(false)
                   setSelectedEl(null)
                   setHoverEl(null)
-                  showToast('Đã TẮT Chế độ Soi phần tử')
+                  showToast('Đã tắt chế độ Soi phần tử', 'info')
                 }}
               >
                 <X size={14} />
@@ -1786,10 +2162,10 @@ const CanvasArea = ({
                                     },
                                     sourceLoc: sourceLoc
                                       ? {
-                                          filePath: sourceLoc.filePath,
-                                          fullPath: sourceLoc.fullPath,
-                                          lineNumber: sourceLoc.lineNumber,
-                                        }
+                                        filePath: sourceLoc.filePath,
+                                        fullPath: sourceLoc.fullPath,
+                                        lineNumber: sourceLoc.lineNumber,
+                                      }
                                       : undefined,
                                     before: {
                                       styles: { ...selectedEl.computedStyles },
@@ -2458,6 +2834,18 @@ const CanvasArea = ({
                         <div className="canvas__inspector-card-hd">
                           <Compass size={13} style={{ color: '#06b6d4' }} />
                           <span>Vị trí & Kích thước (Location & Size)</span>
+                          {((parseInt(selectedEl.computedStyles.left || '0') !== 0) || (parseInt(selectedEl.computedStyles.top || '0') !== 0)) && (
+                            <button
+                              type="button"
+                              onClick={handleResetElementPosition}
+                              className="canvas__tool-btn"
+                              style={{ marginLeft: 'auto', fontSize: 10.5, height: 20, padding: '0 6px', color: '#f59e0b', gap: 3 }}
+                              title="Xóa tọa độ kéo lệch, đưa phần tử về đúng vị trí tự nhiên trong khung cha"
+                            >
+                              <RotateCcw size={10} />
+                              <span>Reset vị trí</span>
+                            </button>
+                          )}
                         </div>
 
                         {/* Nhóm 1: Vị trí tọa độ (Location: X, Y) */}

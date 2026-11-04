@@ -1,0 +1,8 @@
+Cặp nút kêu gọi hành động ở vùng hero, nút chính bên trái.
+- Kích thước: cao 52px, padding 0 26px, chữ 15px đậm 600, hai nút cách nhau 14px
+- Bo góc: 14px, giống bo góc card trong DESIGN.md
+- Nút chính: nền màu nhấn tím, chữ trắng, bóng đổ tím mờ 0 10px 24px
+- Nút phụ: nền trong suốt, viền 1.5px #dcdce2, chữ #48484f
+- Khi bấm: nút chính dịch xuống 1px và bóng ngắn lại, nền sang tím đậm
+- Khi hover: nút phụ đổi viền và chữ sang màu nhấn
+- Không đặt icon nếu chữ đã rõ nghĩa

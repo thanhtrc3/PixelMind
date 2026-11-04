@@ -10,7 +10,7 @@ import {
   generateTailwindTokensConfig,
   parseVariablesCss,
 } from '../../shared/designTokens'
-import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetStore, storeFilePath } from './store'
+import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetSettings, resetStore, storeFilePath } from './store'
 import {
   addDevScriptToPkg,
   createIndexHtmlFile,
@@ -61,6 +61,16 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+Shift+O',
           click: () => sendMenuAction('view-projects'),
         },
+        {
+          label: 'Màn hình làm việc',
+          accelerator: 'CmdOrCtrl+Shift+W',
+          click: () => sendMenuAction('view-workspace'),
+        },
+        {
+          label: 'Lưu thay đổi mã nguồn',
+          accelerator: 'CmdOrCtrl+S',
+          click: () => sendMenuAction('save'),
+        },
         { type: 'separator' },
         {
           label: 'Cài đặt…',
@@ -72,16 +82,94 @@ function buildMenu() {
       ],
     },
     {
+      label: 'Chỉnh sửa',
+      submenu: [
+        {
+          label: 'Hoàn tác (Undo)',
+          accelerator: 'CmdOrCtrl+Z',
+          click: () => sendMenuAction('undo'),
+        },
+        {
+          label: 'Làm lại (Redo)',
+          accelerator: 'CmdOrCtrl+Y',
+          click: () => sendMenuAction('redo'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Bảng lệnh…',
+          accelerator: 'CmdOrCtrl+K',
+          click: () => sendMenuAction('palette'),
+        },
+      ],
+    },
+    {
       label: 'Chạy',
       submenu: [
         { label: 'Chạy dự án', accelerator: 'F5', click: () => sendMenuAction('run') },
-        { label: 'Dừng', accelerator: 'Shift+F5', click: () => sendMenuAction('stop') },
+        { label: 'Dừng máy chủ', accelerator: 'Shift+F5', click: () => sendMenuAction('stop') },
+        { type: 'separator' },
+        {
+          label: 'Cài đặt / Khôi phục thư viện',
+          click: () => sendMenuAction('install-deps'),
+        },
+        {
+          label: 'Báo cáo kiểm tra dự án',
+          click: () => sendMenuAction('diagnose'),
+        },
+        { type: 'separator' },
         { label: 'Tải lại cây tệp', accelerator: 'CmdOrCtrl+R', click: () => sendMenuAction('refresh') },
       ],
     },
     {
       label: 'Xem',
       submenu: [
+        {
+          label: 'Ẩn / Hiện thanh bên (Sidebar)',
+          accelerator: 'CmdOrCtrl+B',
+          click: () => sendMenuAction('toggle-sidebar'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Cây tệp (Files)',
+          accelerator: 'CmdOrCtrl+Shift+E',
+          click: () => sendMenuAction('tab-files'),
+        },
+        {
+          label: 'Cây phân cấp (Layers)',
+          accelerator: 'CmdOrCtrl+Shift+L',
+          click: () => sendMenuAction('tab-layers'),
+        },
+        {
+          label: 'Danh sách trang (Pages)',
+          click: () => sendMenuAction('tab-pages'),
+        },
+        {
+          label: 'Tài nguyên (Assets)',
+          click: () => sendMenuAction('tab-assets'),
+        },
+        {
+          label: 'Lịch sử phiên bản (Versions)',
+          click: () => sendMenuAction('tab-versions'),
+        },
+        {
+          label: 'Hệ thống thiết kế (Design Tokens)',
+          click: () => sendMenuAction('tab-design'),
+        },
+        {
+          label: 'Thư viện linh kiện (Parts)',
+          click: () => sendMenuAction('tab-parts'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Ẩn / Hiện Nhật ký chạy',
+          accelerator: 'CmdOrCtrl+J',
+          click: () => sendMenuAction('toggle-logs'),
+        },
+        {
+          label: 'Chế độ tập trung Canvas',
+          click: () => sendMenuAction('focus-canvas'),
+        },
+        { type: 'separator' },
         { role: 'reload', label: 'Tải lại cửa sổ' },
         { role: 'toggleDevTools', label: 'Công cụ nhà phát triển' },
         { type: 'separator' },
@@ -90,6 +178,24 @@ function buildMenu() {
         { role: 'zoomOut', label: 'Thu nhỏ' },
         { type: 'separator' },
         { role: 'togglefullscreen', label: 'Toàn màn hình' },
+      ],
+    },
+    {
+      label: 'Công cụ',
+      submenu: [
+        {
+          label: 'Soi phần tử trực quan (Inspect)',
+          accelerator: 'I',
+          click: () => sendMenuAction('toggle-inspect'),
+        },
+        {
+          label: 'Hệ thống thiết kế (Design Tokens)',
+          click: () => sendMenuAction('tokens'),
+        },
+        {
+          label: 'Mở trang trong trình duyệt ngoài',
+          click: () => sendMenuAction('open-browser'),
+        },
       ],
     },
     {
@@ -121,9 +227,10 @@ function createWindow() {
     minWidth: Math.min(1080, width),
     minHeight: Math.min(680, height),
     show: false,
-    backgroundColor: '#0b0c0f',
+    frame: false,
+    icon: join(__dirname, '../../src/assets/icon.png'),
     title: 'PixelMind',
-    autoHideMenuBar: false,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -173,6 +280,10 @@ function createWindow() {
     }
   })
 
+  mainWindow.on('close', () => {
+    runner.stopAll()
+  })
+
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -205,6 +316,18 @@ ipcMain.handle('store:patch', async (_e, patch: Partial<StoreData>): Promise<Sto
 ipcMain.handle('store:update-settings', async (_e, patch: Partial<Settings>): Promise<Settings> =>
   updateSettings(patch),
 )
+
+ipcMain.handle('store:reset-settings', async (): Promise<Settings> => resetSettings())
+
+ipcMain.handle('system:clear-cache', async (): Promise<boolean> => {
+  try {
+    await session.defaultSession.clearCache()
+    await session.defaultSession.clearStorageData()
+    return true
+  } catch {
+    return false
+  }
+})
 
 ipcMain.handle('store:reset', async (): Promise<StoreData> => {
   runner.stopAll()
@@ -371,6 +494,25 @@ ipcMain.handle('project:add-page', async (_e, id: string, page: Omit<ProjectPage
     await appendActivity(id, {
       actor: 'bạn',
       action: `Thêm trang ${page.route} — ${page.title}`,
+      kind: 'người',
+      status: 'ok',
+    })
+  }
+  return updated
+})
+
+ipcMain.handle('project:update-page', async (_e, id: string, page: ProjectPage) => {
+  const updated = await patchProject(id, (project) => ({
+    ...project,
+    meta: {
+      ...project.meta,
+      pages: project.meta.pages.map((p) => (p.id === page.id ? page : p)),
+    },
+  }))
+  if (updated) {
+    await appendActivity(id, {
+      actor: 'bạn',
+      action: `Cập nhật trang ${page.route} — ${page.title}`,
       kind: 'người',
       status: 'ok',
     })
@@ -599,10 +741,53 @@ ipcMain.handle('run:stop', async (_e, runId: string) => {
 })
 ipcMain.handle('run:list', () => runner.list())
 ipcMain.handle('run:project', (_e, projectId: string) => runner.stateOfProject(projectId))
+ipcMain.handle('run:stop-project', async (_e, projectId: string) => {
+  runner.stopOfProject(projectId)
+  return true
+})
+ipcMain.handle('run:stop-all', async () => {
+  runner.stopAll()
+  return true
+})
 
 ipcMain.handle('shell:external', async (_e, url: string) => {
   if (/^https?:/i.test(url)) await shell.openExternal(url)
   return true
+})
+
+ipcMain.handle('menu:popup', async (_e, payload: { menuIndex: number; x: number; y: number }) => {
+  const appMenu = Menu.getApplicationMenu()
+  if (!appMenu) return false
+  const menuItem = appMenu.items[payload.menuIndex]
+  if (menuItem && menuItem.submenu) {
+    menuItem.submenu.popup({
+      window: mainWindow ?? undefined,
+      x: Math.round(payload.x),
+      y: Math.round(payload.y),
+    })
+    return true
+  }
+  return false
+})
+
+ipcMain.handle('window:minimize', () => {
+  mainWindow?.minimize()
+})
+
+ipcMain.handle('window:maximize', () => {
+  if (mainWindow?.isMaximized()) {
+    mainWindow.unmaximize()
+  } else {
+    mainWindow?.maximize()
+  }
+})
+
+ipcMain.handle('window:close', () => {
+  mainWindow?.close()
+})
+
+ipcMain.handle('window:is-maximized', () => {
+  return mainWindow?.isMaximized() ?? false
 })
 
 /* ───────────────────────── IPC: Inspector & Live DOM Bridge ───────────────────────── */
@@ -618,6 +803,41 @@ function getInspectorScript(isActive: boolean) {
     }
     if (window.__PM_INSPECT_CLEANUP) {
       try { window.__PM_INSPECT_CLEANUP(); } catch(e) {}
+    }
+
+    // Tự động giữ kích thước & tạo khung viền trực quan cho các cột hoặc container rỗng khi bị kéo con ra ngoài
+    var styleId = '__pm_empty_drop_zones';
+    var existingStyle = document.getElementById(styleId);
+    if (!existingStyle && document.head) {
+      existingStyle = document.createElement('style');
+      existingStyle.id = styleId;
+      existingStyle.textContent = '' +
+        '[class*="col-"]:empty, .row > div:empty, div[class*="col"]:empty, section:empty, div[class*="grid"]:empty {' +
+        '  min-height: 84px !important;' +
+        '  outline: 2px dashed rgba(99, 102, 241, 0.6) !important;' +
+        '  outline-offset: -2px !important;' +
+        '  background: rgba(99, 102, 241, 0.08) !important;' +
+        '  border-radius: 6px !important;' +
+        '  display: flex !important;' +
+        '  align-items: center !important;' +
+        '  justify-content: center !important;' +
+        '  position: relative !important;' +
+        '  box-sizing: border-box !important;' +
+        '  cursor: pointer !important;' +
+        '}' +
+        '[class*="col-"]:empty::after, .row > div:empty::after, div[class*="col"]:empty::after {' +
+        '  content: "📥 Thả phần tử vào đây (" attr(class) ")";' +
+        '  font-size: 11px !important;' +
+        '  font-weight: 600 !important;' +
+        '  color: #6366f1 !important;' +
+        '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;' +
+        '  pointer-events: none !important;' +
+        '  padding: 4px 10px !important;' +
+        '  background: rgba(255, 255, 255, 0.9) !important;' +
+        '  border-radius: 4px !important;' +
+        '  box-shadow: 0 1px 4px rgba(0,0,0,0.12) !important;' +
+        '}';
+      document.head.appendChild(existingStyle);
     }
 
     var lastSelected = null;
@@ -729,6 +949,29 @@ function getInspectorScript(isActive: boolean) {
         },
         domPath: getBreadcrumb(el),
         textSnippet: snippet,
+        parent: (function() {
+          var p = el.parentElement;
+          if (!p || p === document.documentElement || p === document.body) return null;
+          var pr = p.getBoundingClientRect();
+          if (!p.getAttribute('data-pm-uid')) {
+            p.setAttribute('data-pm-uid', 'pm_' + Math.random().toString(36).slice(2, 9));
+          }
+          var pCls = typeof p.className === 'string' && p.className.trim() ? p.className.trim().split(/\\s+/)[0] : '';
+          var pTag = p.tagName.toLowerCase() + (p.id ? '#' + p.id : (pCls ? '.' + pCls : ''));
+          return {
+            uid: p.getAttribute('data-pm-uid'),
+            tagName: p.tagName.toLowerCase(),
+            id: p.id || '',
+            className: typeof p.className === 'string' ? p.className : '',
+            tag: pTag,
+            rect: {
+              top: pr.top,
+              left: pr.left,
+              width: pr.width,
+              height: pr.height,
+            }
+          };
+        })(),
       };
     }
 
@@ -919,8 +1162,355 @@ function getInspectorScript(isActive: boolean) {
           type: 'PM_SELECT_ELEMENT',
           payload: updated
         }, '*');
+      } else if (e.data.type === 'PM_GET_DOM_TREE') {
+        sendDomTree();
+      } else if (e.data.type === 'PM_SELECT_BY_UID') {
+        var selUid = e.data.uid;
+        var selEl = selUid ? document.querySelector('[data-pm-uid="' + selUid + '"]') : null;
+        if (!selEl && e.data.selector) {
+          try { selEl = document.querySelector(e.data.selector); } catch(err) {}
+        }
+        if (selEl) {
+          lastSelected = selEl;
+          try { selEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch(err) {}
+          var info = extractElementInfo(selEl);
+          window.parent.postMessage({
+            type: 'PM_SELECT_ELEMENT',
+            payload: info
+          }, '*');
+        }
+      } else if (e.data.type === 'PM_HOVER_BY_UID') {
+        var hUid = e.data.uid;
+        if (!hUid) {
+          window.parent.postMessage({ type: 'PM_HOVER_ELEMENT', payload: null }, '*');
+        } else {
+          var hEl = document.querySelector('[data-pm-uid="' + hUid + '"]');
+          if (hEl) {
+            var hr = hEl.getBoundingClientRect();
+            window.parent.postMessage({
+              type: 'PM_HOVER_ELEMENT',
+              payload: {
+                uid: hUid,
+                tagName: hEl.tagName.toLowerCase(),
+                className: typeof hEl.className === 'string' ? hEl.className : '',
+                rect: {
+                  top: hr.top,
+                  left: hr.left,
+                  width: hr.width,
+                  height: hr.height,
+                }
+              }
+            }, '*');
+          }
+        }
+      } else if (e.data.type === 'PM_RESET_POSITION') {
+        var targetToReset = lastSelected;
+        if (!targetToReset && e.data.uid) {
+          targetToReset = document.querySelector('[data-pm-uid="' + e.data.uid + '"]');
+        }
+        if (targetToReset) {
+          targetToReset.style.removeProperty('top');
+          targetToReset.style.removeProperty('left');
+          targetToReset.style.removeProperty('right');
+          targetToReset.style.removeProperty('bottom');
+          var curPos = targetToReset.style.position;
+          if (curPos === 'relative') {
+            targetToReset.style.removeProperty('position');
+          }
+          sendDomTree();
+          var resInfo = extractElementInfo(targetToReset);
+          window.parent.postMessage({
+            type: 'PM_SELECT_ELEMENT',
+            payload: resInfo
+          }, '*');
+        }
+      } else if (e.data.type === 'PM_MOVE_DOM_NODE') {
+        var targetToMove = lastSelected;
+        if (!targetToMove && e.data.uid) {
+          targetToMove = document.querySelector('[data-pm-uid="' + e.data.uid + '"]');
+        }
+        if (targetToMove && targetToMove.parentElement) {
+          var pNode = targetToMove.parentElement;
+          var act = e.data.action;
+          if (act === 'up' && targetToMove.previousElementSibling) {
+            pNode.insertBefore(targetToMove, targetToMove.previousElementSibling);
+          } else if (act === 'down' && targetToMove.nextElementSibling) {
+            pNode.insertBefore(targetToMove, targetToMove.nextElementSibling.nextElementSibling);
+          } else if (act === 'outdent' && pNode.parentElement && pNode !== document.body) {
+            // Đưa phần tử ra ngoài thẻ cha, làm anh em kế tiếp của thẻ cha
+            pNode.parentElement.insertBefore(targetToMove, pNode.nextSibling);
+            targetToMove.style.removeProperty('top');
+            targetToMove.style.removeProperty('left');
+            if (targetToMove.style.position === 'relative') targetToMove.style.removeProperty('position');
+          } else if (act === 'indent' && targetToMove.previousElementSibling) {
+            // Đưa phần tử vào làm con của thẻ anh em liền trước
+            targetToMove.previousElementSibling.appendChild(targetToMove);
+            targetToMove.style.removeProperty('top');
+            targetToMove.style.removeProperty('left');
+            if (targetToMove.style.position === 'relative') targetToMove.style.removeProperty('position');
+          } else if (act === 'into' && e.data.targetUid) {
+            // Đưa phần tử trực tiếp vào làm con của thẻ mục tiêu (Target Container)
+            var destTarget = document.querySelector('[data-pm-uid="' + e.data.targetUid + '"]');
+            if (destTarget && destTarget !== targetToMove && !targetToMove.contains(destTarget)) {
+              destTarget.appendChild(targetToMove);
+              targetToMove.style.removeProperty('top');
+              targetToMove.style.removeProperty('left');
+              if (targetToMove.style.position === 'relative') targetToMove.style.removeProperty('position');
+            }
+          }
+          sendDomTree();
+          var movedInfo = extractElementInfo(targetToMove);
+          window.parent.postMessage({
+            type: 'PM_SELECT_ELEMENT',
+            payload: movedInfo
+          }, '*');
+        }
+      } else if (e.data.type === 'PM_DRAG_OVER') {
+        var dragUid = e.data.dragUid;
+        var dragEl = dragUid ? document.querySelector('[data-pm-uid="' + dragUid + '"]') : null;
+        if (!dragEl) return;
+
+        var prevVis = dragEl.style.visibility;
+        dragEl.style.visibility = 'hidden';
+        var hovered = document.elementFromPoint(e.data.x, e.data.y);
+        dragEl.style.visibility = prevVis;
+
+        if (hovered && hovered !== dragEl && !dragEl.contains(hovered)) {
+          var targetContainer = hovered;
+          if (['SPAN', 'SMALL', 'B', 'I', 'STRONG', 'EM'].indexOf(targetContainer.tagName) !== -1 && targetContainer.parentElement) {
+            targetContainer = targetContainer.parentElement;
+          }
+          var cr = targetContainer.getBoundingClientRect();
+          var firstCls = (typeof targetContainer.className === 'string' && targetContainer.className.trim())
+            ? targetContainer.className.trim().split(/\s+/)[0]
+            : '';
+          var tagLabel = targetContainer.tagName.toLowerCase() + (targetContainer.id ? '#' + targetContainer.id : (firstCls ? '.' + firstCls : ''));
+          window.parent.postMessage({
+            type: 'PM_DROP_TARGET_HOVER',
+            payload: {
+              uid: targetContainer.getAttribute('data-pm-uid') || '',
+              tagName: targetContainer.tagName.toLowerCase(),
+              tag: tagLabel,
+              rect: {
+                top: cr.top,
+                left: cr.left,
+                width: cr.width,
+                height: cr.height
+              }
+            }
+          }, '*');
+        } else {
+          window.parent.postMessage({ type: 'PM_DROP_TARGET_HOVER', payload: null }, '*');
+        }
+      } else if (e.data.type === 'PM_DROP_REPARENT') {
+        var dragUid = e.data.uid;
+        var dragEl = dragUid ? document.querySelector('[data-pm-uid="' + dragUid + '"]') : null;
+        if (!dragEl) return;
+
+        var oldParent = dragEl.parentElement;
+        var prevVis = dragEl.style.visibility;
+        dragEl.style.visibility = 'hidden';
+        var dropTarget = document.elementFromPoint(e.data.x, e.data.y);
+        dragEl.style.visibility = prevVis;
+
+        var reparented = false;
+        var newParentTag = '';
+
+        if (dropTarget && dropTarget !== dragEl && !dragEl.contains(dropTarget)) {
+          if (dropTarget !== oldParent) {
+            var isLeaf = ['H1','H2','H3','H4','H5','H6','P','BUTTON','A','IMG','INPUT'].indexOf(dropTarget.tagName) !== -1;
+            if (isLeaf && dropTarget.parentElement && dropTarget.parentElement !== dragEl) {
+              var r = dropTarget.getBoundingClientRect();
+              var isAfter = e.data.y > (r.top + r.height / 2);
+              if (isAfter) {
+                dropTarget.parentElement.insertBefore(dragEl, dropTarget.nextSibling);
+              } else {
+                dropTarget.parentElement.insertBefore(dragEl, dropTarget);
+              }
+              reparented = true;
+              newParentTag = dropTarget.parentElement.tagName.toLowerCase();
+            } else {
+              dropTarget.appendChild(dragEl);
+              reparented = true;
+              newParentTag = dropTarget.tagName.toLowerCase();
+            }
+          } else {
+            // Drop trong cùng thẻ cha: kiểm tra đổi thứ tự anh em (reorder)
+            var siblings = Array.prototype.slice.call(oldParent.children);
+            for (var si = 0; si < siblings.length; si++) {
+              var sib = siblings[si];
+              if (sib === dragEl) continue;
+              var sr = sib.getBoundingClientRect();
+              if (e.data.y >= sr.top && e.data.y <= sr.bottom && e.data.x >= sr.left && e.data.x <= sr.right) {
+                if (e.data.y > (sr.top + sr.height / 2)) {
+                  oldParent.insertBefore(dragEl, sib.nextSibling);
+                } else {
+                  oldParent.insertBefore(dragEl, sib);
+                }
+                reparented = true;
+                newParentTag = oldParent.tagName.toLowerCase();
+                break;
+              }
+            }
+          }
+        }
+
+        if (reparented) {
+          dragEl.style.removeProperty('top');
+          dragEl.style.removeProperty('left');
+          dragEl.style.removeProperty('right');
+          dragEl.style.removeProperty('bottom');
+          if (dragEl.style.position === 'relative') {
+            dragEl.style.removeProperty('position');
+          }
+        }
+
+        sendDomTree();
+        var finalInfo = extractElementInfo(dragEl);
+        window.parent.postMessage({
+          type: 'PM_SELECT_ELEMENT',
+          payload: finalInfo
+        }, '*');
+
+        if (reparented) {
+          window.parent.postMessage({
+            type: 'PM_REPARENT_NOTIFY',
+            message: 'Đã chuyển <' + dragEl.tagName.toLowerCase() + '> vào <' + newParentTag + '>, phân cấp phần tử đã cập nhật!'
+          }, '*');
+        }
       }
     });
+
+    function getReadableLabel(el) {
+      if (!el) return '';
+      var tag = el.tagName ? el.tagName.toLowerCase() : '';
+      if (tag === 'body') return 'Khung trang · ' + (document.title || 'Body');
+
+      var text = '';
+      for (var i = 0; i < el.childNodes.length; i++) {
+        if (el.childNodes[i].nodeType === 3) {
+          var t = (el.childNodes[i].textContent || '').trim();
+          if (t) { text = t; break; }
+        }
+      }
+      if (!text && el.children.length === 0) {
+        text = (el.innerText || el.textContent || '').trim();
+      }
+      if (text) {
+        if (text.length > 35) text = text.slice(0, 35) + '…';
+        return text;
+      }
+
+      if (el.id) return '#' + el.id;
+      if (el.getAttribute('aria-label')) return el.getAttribute('aria-label');
+      if (el.getAttribute('title')) return el.getAttribute('title');
+      if (el.getAttribute('placeholder')) return 'Ô nhập: ' + el.getAttribute('placeholder');
+      if (el.getAttribute('alt')) return 'Ảnh: ' + el.getAttribute('alt');
+
+      if (tag === 'header') return 'Thanh điều hướng Header';
+      if (tag === 'nav') return 'Menu điều hướng (nav)';
+      if (tag === 'main') return 'Vùng nội dung chính (main)';
+      if (tag === 'footer') return 'Chân trang Footer';
+      if (tag === 'section') return 'Khối phân vùng (section)';
+      if (tag === 'article') return 'Khối bài viết (article)';
+      if (tag === 'aside') return 'Thanh bên (aside)';
+      if (tag === 'form') return 'Biểu mẫu nhập liệu (form)';
+      if (tag === 'table') return 'Bảng dữ liệu (table)';
+      if (tag === 'thead') return 'Đầu bảng (thead)';
+      if (tag === 'tbody') return 'Thân bảng (tbody)';
+      if (tag === 'tr') return 'Hàng bảng (tr)';
+      if (tag === 'th') return 'Tiêu đề cột (th)';
+      if (tag === 'td') return 'Ô dữ liệu (td)';
+      if (tag === 'ul' || tag === 'ol') return 'Danh sách (list)';
+      if (tag === 'li') return 'Mục danh sách (item)';
+      if (tag === 'button') return 'Nút bấm (button)';
+      if (tag === 'input') return 'Ô nhập (' + (el.type || 'text') + ')';
+      if (tag === 'img') return 'Hình ảnh (img)';
+      if (/^h[1-6]$/.test(tag)) return 'Tiêu đề ' + tag.toUpperCase();
+      if (tag === 'p') return 'Đoạn văn bản';
+      if (tag === 'a') return 'Đường dẫn liên kết';
+
+      if (el.className && typeof el.className === 'string') {
+        var firstCls = el.className.trim().split(/\\s+/)[0];
+        if (firstCls) return '.' + firstCls;
+      }
+      return tag;
+    }
+
+    function scanLayers(root, depth, maxDepth, result) {
+      if (!root || depth > maxDepth) return;
+      var skipTags = ['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'IFRAME', 'BR', 'HR', 'SVG', 'PATH', 'SOURCE'];
+      for (var i = 0; i < root.children.length; i++) {
+        var child = root.children[i];
+        if (skipTags.indexOf(child.tagName) !== -1) continue;
+
+        var rect = child.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0 && child.children.length === 0) continue;
+
+        if (!child.getAttribute('data-pm-uid')) {
+          child.setAttribute('data-pm-uid', 'pm_' + Math.random().toString(36).slice(2, 9));
+        }
+        var uid = child.getAttribute('data-pm-uid');
+        var tag = child.tagName.toLowerCase();
+        var firstClass = (typeof child.className === 'string' && child.className.trim())
+          ? child.className.trim().split(/\\s+/)[0]
+          : '';
+        var tagLabel = tag + (child.id ? '#' + child.id : (firstClass ? '.' + firstClass : ''));
+
+        result.push({
+          id: uid,
+          uid: uid,
+          label: getReadableLabel(child),
+          tag: tagLabel,
+          tagName: tag,
+          depth: depth,
+          selector: getUniqueSelector(child),
+          childrenCount: child.children.length,
+          rect: {
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+          }
+        });
+
+        if (child.children.length > 0 && depth < 6) {
+          scanLayers(child, depth + 1, maxDepth, result);
+        }
+      }
+    }
+
+    function sendDomTree() {
+      if (!document.body) return;
+      var layers = [];
+      if (!document.body.getAttribute('data-pm-uid')) {
+        document.body.setAttribute('data-pm-uid', 'pm_body');
+      }
+      var bodyRect = document.body.getBoundingClientRect();
+      layers.push({
+        id: 'pm_body',
+        uid: 'pm_body',
+        label: 'Khung trang · ' + (document.title || 'Body'),
+        tag: 'body',
+        tagName: 'body',
+        depth: 0,
+        selector: 'body',
+        childrenCount: document.body.children.length,
+        rect: {
+          top: bodyRect.top,
+          left: bodyRect.left,
+          width: bodyRect.width,
+          height: bodyRect.height
+        }
+      });
+      scanLayers(document.body, 1, 6, layers);
+      try {
+        window.parent.postMessage({
+          type: 'PM_DOM_TREE',
+          payload: layers
+        }, '*');
+      } catch (err) {}
+    }
 
     // Chuyển tiếp phím tắt Ctrl+Z (Undo), Ctrl+Y (Redo), Ctrl+S (Save) từ iframe lên PixelMind
     window.addEventListener('keydown', function(e) {
@@ -960,9 +1550,53 @@ function getInspectorScript(isActive: boolean) {
       } catch(e) {}
     }
     reportUrl();
-    window.addEventListener('popstate', reportUrl);
-    window.addEventListener('hashchange', reportUrl);
-    window.addEventListener('load', reportUrl);
+    setTimeout(sendDomTree, 200);
+
+    // Bắt điều hướng popstate, hashchange, load
+    window.addEventListener('popstate', function() {
+      reportUrl();
+      setTimeout(sendDomTree, 150);
+    });
+    window.addEventListener('hashchange', function() {
+      reportUrl();
+      setTimeout(sendDomTree, 150);
+    });
+    window.addEventListener('load', function() {
+      reportUrl();
+      setTimeout(sendDomTree, 150);
+    });
+
+    // Bắt sự kiện click vào các thẻ liên kết <a> trên thanh menu/navbar
+    window.addEventListener('click', function(e) {
+      var a = e.target && e.target.closest ? e.target.closest('a') : null;
+      if (a && a.href && !window.__PM_INSPECT_ACTIVE) {
+        setTimeout(reportUrl, 80);
+        setTimeout(reportUrl, 300);
+        setTimeout(sendDomTree, 350);
+      }
+    }, false);
+
+    // Hook SPA pushState/replaceState
+    try {
+      var origPush = history.pushState;
+      if (origPush) {
+        history.pushState = function() {
+          var res = origPush.apply(this, arguments);
+          reportUrl();
+          setTimeout(sendDomTree, 150);
+          return res;
+        };
+      }
+      var origReplace = history.replaceState;
+      if (origReplace) {
+        history.replaceState = function() {
+          var res = origReplace.apply(this, arguments);
+          reportUrl();
+          setTimeout(sendDomTree, 150);
+          return res;
+        };
+      }
+    } catch(err) {}
   })();
   `;
 }
@@ -1612,4 +2246,14 @@ if (!gotLock) {
   })
 
   app.on('before-quit', () => runner.stopAll())
+
+  process.on('exit', () => runner.stopAll())
+  process.on('SIGINT', () => {
+    runner.stopAll()
+    process.exit(0)
+  })
+  process.on('SIGTERM', () => {
+    runner.stopAll()
+    process.exit(0)
+  })
 }

@@ -1,0 +1,29 @@
+{
+  "id": "searchbox-inline",
+  "name": "Ô tìm kiếm trong thanh điều hướng",
+  "groups": [
+    "search",
+    "navigation",
+    "header",
+    "layout"
+  ],
+  "tags": [
+    "search",
+    "searchbox",
+    "nav",
+    "thanh điều hướng",
+    "inline",
+    "tìm kiếm"
+  ],
+  "version": "1.4.2",
+  "designMd": "DESIGN.md · 2026-10-01",
+  "author": "Nguyễn Thanh Hiền",
+  "origin": "Figma · PixelMind Kit / search",
+  "license": "MIT · nội bộ dự án",
+  "status": "approved",
+  "locked": false,
+  "demo": true,
+  "uses": 11,
+  "rejects": 0,
+  "updated": "2026-10-08"
+}

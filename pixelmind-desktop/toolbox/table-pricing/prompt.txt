@@ -1,0 +1,8 @@
+Ba cột gói dịch vụ đặt cạnh nhau, cột giữa là gói phổ biến.
+- Kích thước: chia đều 3 cột, cách nhau 14px, padding trong 20px 18px
+- Bo góc: 12px cho từng cột; nhãn "Phổ biến" bo viên thuốc, cao 22px
+- Cột giữa nhấc lên 8px, viền màu nhấn, có bóng đổ
+- Thứ tự: nhãn → tên gói → giá → danh sách quyền → nút chọn
+- Giá 24px đậm 700; đơn vị /tháng 12px màu #86868f
+- Nút ở cột giữa: nền màu nhấn, chữ trắng; các cột khác chỉ có viền
+- Khi bấm nút: không đổi kích thước, chỉ đổi màu nền sang tím đậm

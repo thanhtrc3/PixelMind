@@ -1,4 +1,4 @@
-﻿import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
   AppInfo,
@@ -26,6 +26,7 @@ const api: PixelMindApi = {
     patch: (patch: Partial<StoreData>): Promise<StoreData> => ipcRenderer.invoke('store:patch', patch),
     updateSettings: (patch: Partial<Settings>): Promise<Settings> =>
       ipcRenderer.invoke('store:update-settings', patch),
+    resetSettings: (): Promise<Settings> => ipcRenderer.invoke('store:reset-settings'),
     reset: (): Promise<StoreData> => ipcRenderer.invoke('store:reset'),
     path: (): Promise<string> => ipcRenderer.invoke('store:path'),
   },
@@ -40,6 +41,8 @@ const api: PixelMindApi = {
     refresh: (id: string): Promise<ProjectRecord | null> => ipcRenderer.invoke('project:refresh', id),
     addPage: (projectId: string, page: Omit<ProjectPage, 'id'>): Promise<ProjectRecord | null> =>
       ipcRenderer.invoke('project:add-page', projectId, page),
+    updatePage: (projectId: string, page: ProjectPage): Promise<ProjectRecord | null> =>
+      ipcRenderer.invoke('project:update-page', projectId, page),
     removePage: (projectId: string, pageId: string): Promise<ProjectRecord | null> =>
       ipcRenderer.invoke('project:remove-page', projectId, pageId),
     diagnose: (idOrPath: string): Promise<ProjectDiagnosis> =>
@@ -74,6 +77,8 @@ const api: PixelMindApi = {
     startCommand: (projectId: string, command: string): Promise<RunState> =>
       ipcRenderer.invoke('run:start-command', projectId, command),
     stop: (runId: string): Promise<boolean> => ipcRenderer.invoke('run:stop', runId),
+    stopOfProject: (projectId: string): Promise<boolean> => ipcRenderer.invoke('run:stop-project', projectId),
+    stopAll: (): Promise<boolean> => ipcRenderer.invoke('run:stop-all'),
     list: (): Promise<RunState[]> => ipcRenderer.invoke('run:list'),
     ofProject: (projectId: string): Promise<RunState | null> => ipcRenderer.invoke('run:project', projectId),
     onLog: (cb: (log: RunLog) => void) => {
@@ -95,6 +100,9 @@ const api: PixelMindApi = {
       ipcRenderer.on('menu:action', listener)
       return () => ipcRenderer.removeListener('menu:action', listener)
     },
+    popupMenu: (menuIndex: number, x: number, y: number): Promise<boolean> =>
+      ipcRenderer.invoke('menu:popup', { menuIndex, x, y }),
+    clearCache: (): Promise<boolean> => ipcRenderer.invoke('system:clear-cache'),
   },
 
   inspect: {
@@ -124,6 +132,14 @@ const api: PixelMindApi = {
     get: (projectPath: string) => ipcRenderer.invoke('tokens:get', projectPath),
     save: (payload: { projectPath: string; tokens: DesignTokens; syncTarget?: 'css' | 'tailwind' | 'both' }) =>
       ipcRenderer.invoke('tokens:save', payload),
+  },
+  window: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    maximize: () => ipcRenderer.invoke('window:maximize'),
+    close: () => ipcRenderer.invoke('window:close'),
+    isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+    setZoomFactor: (factor: number) => webFrame.setZoomFactor(factor),
+    getZoomFactor: () => webFrame.getZoomFactor(),
   },
 }
 

@@ -1,0 +1,8 @@
+Ô tìm kiếm dạng card có viền, đặt ở đầu trang.
+- Kích thước: rộng tối đa 520px, cao 64px, padding 12px 14px
+- Bo góc: 16px (theo --radius-lg của DESIGN.md), nút bên trong bo 10px
+- Vị trí icon: kính lúp sát trái, cách mép 14px, màu #86868f, không bao giờ nằm trong nút
+- Nút "Tìm": cao 36px, nền màu nhấn tím, chữ trắng, đậm 600
+- Khi focus vào ô nhập: viền đổi sang màu nhấn + vòng sáng 3px tím nhạt
+- Khi bấm nút: nền chuyển sang tím đậm hơn (--accent-hover)
+- Chữ gợi ý khi rỗng: màu #9494a0

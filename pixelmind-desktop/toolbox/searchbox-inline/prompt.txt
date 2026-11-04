@@ -1,0 +1,7 @@
+Ô tìm kiếm con nhộng nằm trong thanh điều hướng, đẩy sát phải.
+- Kích thước: cao 36px, rộng 150px phần chữ, padding 0 12px; thanh nav cao 68px
+- Bo góc: viên thuốc hoàn toàn (999px); nav bo 12px
+- Vị trí icon: kính lúp cách trái 12px, màu #86868f, chỉ vẽ bằng CSS (không dùng ảnh)
+- Khi focus: nền từ #f3f3f6 sang trắng, viền 1px màu nhấn tím
+- Link menu: màu #6a6a74, khi hover đổi sang màu nhấn
+- Không có nút bấm kèm theo, chỉ nhập và Enter
