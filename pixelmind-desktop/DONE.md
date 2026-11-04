@@ -119,6 +119,21 @@ Sau khi rà soát mục tiêu sản phẩm PixelMind (Công cụ thiết kế & 
     3. **Giao diện trạng thái rỗng (Empty State) & Làm mới**:
        - Khi chưa chạy dev server: Hiển thị thông báo hướng dẫn rõ ràng kèm nút `[▶ Chạy dự án]` thay vì hiển thị dữ liệu giả.
        - Khi đang chạy: Tự động nạp cây DOM ngay khi trang tải xong; hỗ trợ nút `[Làm mới phân cấp]` để quét lại bất kỳ lúc nào.
+- [x] **4.12. Bộ công cụ hỗ trợ trực quan khi Di chuyển phần tử & Tái cấu trúc DOM thật**:
+  - **Vấn đề giải quyết**: Khi dùng công cụ `✥ Di chuyển` trên Canvas, phần tử nhận thuộc tính CSS `relative top/left` và bị kéo lệch ra khỏi khung cha (như `.p-3` bị kéo văng ra khỏi `.col-md-4`), gây xung đột giữa vị trí thị giác trên màn hình và phân cấp thật trong cây DOM.
+  - **Bộ công cụ hỗ trợ thông minh đã tích hợp**:
+    1. **Khung viền chỉ báo Khung cha (Parent Boundary Guide)**: Tự động vẽ đường viền nét đứt màu tím nhạt kèm nhãn `Khung cha: div.col-md-4` trên Canvas khi người dùng chọn bất kỳ phần tử con nào, giúp người dùng luôn nhận biết rõ ràng ranh giới của container chứa phần tử.
+    2. **Thanh trợ giúp thông minh khi kéo lệch khung (Out-of-Bounds Helper Bar)**: Khi phần tử bị kéo lệch ra ngoài khung cha hoặc có tọa độ tương đối khác 0, một thanh trợ giúp tự động xuất hiện ngay trên đầu phần tử:
+       - Cảnh báo: `⚠️ Lệch khỏi [khung cha]`
+       - Nút **[↺ Đặt lại vị trí]**: Bấm 1 click là xóa bỏ `top/left`, đưa phần tử lập tức về lại vị trí tự nhiên ban đầu trong khung cha mà không vỡ responsive grid.
+       - Nút **[◀ Đưa ra ngoài cha]**: Thực hiện tái cấu trúc DOM thật, chuyển phần tử ra ngoài thẻ cha để cây phân cấp cập nhật chuẩn xác.
+       - Nút **[↺ Reset]** nhanh gắn ngay trên nhãn `✥ Di chuyển`.
+    3. **Thanh công cụ Cấu trúc DOM trong Sidebar (DOM Reordering Actions)**: Khi nhấp chọn bất kỳ phần tử nào trong tab *Phân cấp phần tử*, xuất hiện dải nút điều khiển:
+       - `[▲ Lên]`: Đổi vị trí với thẻ anh em liền trước.
+       - `[▼ Xuống]`: Đổi vị trí với thẻ anh em liền sau.
+       - `[◀ Ra ngoài cha]`: Đưa phần tử ra ngoài thẻ cha trong cây DOM thật.
+       - `[▶ Vào trong]`: Đưa phần tử vào làm con của thẻ đứng trước.
+       - `[↺ Đặt lại vị trí]`: Khôi phục tọa độ về mặc định.
 
 ---
 
@@ -148,3 +163,31 @@ HIỆN TẠI (Chuẩn Modern Desktop App như VS Code / Figma / Cursor):
 │ [🕒][🎨][📦] [◀]  │  toàn, trả lại 100% không gian) │                  │
 └───────────────────┴─────────────────────────────────┴──────────────────┘
 ```
+
+---
+
+## IV. CẢI TIẾN TRẢI NGHIỆM KÉO THẢ & PHÂN CẤP PHẦN TỬ (INSPECTOR OVERLAY & DOM HIERARCHY)
+
+1. **Loại bỏ thanh cảnh báo nổi gây vướng víu trên Canvas**:
+   - Gỡ bỏ hoàn toàn thanh thông báo đen `[⚠️ Vị trí tương đối | ↺ Đặt lại vị trí | ◀ Đưa ra ngoài cha]` trên Selection Box để giữ khung vẽ luôn thoáng mắt, sạch sẽ.
+   - Nút di chuyển vị trí phần tử (Move Handle) được tinh gọn tuyệt đối thành một icon duy nhất (`<Move size={12} />`), loại bỏ hoàn toàn chữ thừa ("Di chuyển", "Reset") để đạt tính thẩm mỹ tối giản chuẩn Figma / Webflow.
+   - Khung viền chỉ báo Khung cha (Parent Boundary Guide) chỉ hiển thị khi người dùng đang thực sự giữ chuột kéo di chuyển (`isMovingEl`), khi thả chuột ra thì biến mất để không làm rác Canvas.
+
+2. **Chuyển các thao tác quản lý vị trí vào đúng nơi quy chuẩn (Inspector Panel & Layers)**:
+   - Nút `Reset vị trí` (xóa `top/left` đưa phần tử về luồng tự nhiên) được đưa vào card **Vị trí & Kích thước (Location & Size)** trong Inspector Panel bên phải.
+   - Các thao tác thay đổi phân cấp DOM (Lên, Xuống, Ra ngoài cha, Vào trong) được quản lý tập trung và chuẩn xác thông qua thanh công cụ **Cấu trúc DOM** trong tab **Phân cấp phần tử (Layers)** ở Sidebar.
+
+3. **Hiện thực hóa cơ chế Kéo thả chuyển thẻ cha thật (Real Canvas Reparenting & Drop Zones)**:
+   - Khi kéo di chuyển một phần tử (như `div.p-3`) trên Canvas ra ngoài khung cha, hệ thống tự động dò tìm thẻ chứa bên dưới con trỏ chuột và hiển thị vùng đích thả màu xanh lá: `📥 Thả vào: div.col-md-4` hoặc `📥 Thả vào: div.row`.
+   - **Khi thả chuột**: Phần tử được di chuyển vật lý trong cây DOM sang thẻ cha mới (hoặc vị trí anh em mới), đồng thời tự động xóa bỏ `top/left` và `position: relative` để phần tử nhận vị trí luồng tự nhiên (natural flow) của thẻ cha mới.
+   - Cây **Phân cấp phần tử** (Layers tree) tự động cập nhật ngay lập tức: `div.p-3` sẽ hiển thị đúng dưới thẻ cha mới, không còn tình trạng kẹt lại trong `col-md-4` cũ hay để lại khoảng trống đứt nét.
+
+4. **Hỗ trợ kéo thả đưa phần tử trở về khung cha cũ (`.col-md-4`)**:
+   - **Vùng nhận diện khung rỗng (Empty Drop Zone)**: Khi `.p-3` được kéo ra ngoài khiến `.col-md-4` trở nên rỗng, hệ thống tự động duy trì chiều cao tối thiểu 84px cho `.col-md-4`, hiển thị viền đứt tím tinh tế cùng nhãn `📥 Thả phần tử vào đây (col-md-4)`. Người dùng có thể kéo `.p-3` thả thẳng vào khung này trên Canvas bất cứ lúc nào.
+   - **Kéo thả ngay trên cây Phân cấp phần tử (Layers Tree Drag & Drop)**: Cho phép kéo trực tiếp dòng `.p-3` trong danh sách cây DOM bên trái và thả lên dòng `.col-md-4` để đưa vào làm con.
+   - **Phím tắt / Nút bấm 1-click**: Bấm chọn `.p-3` và nhấn nút `[▶ Vào trong]` trên thanh công cụ DOM để đưa ngay trở lại vào `.col-md-4`.
+
+5. **Loại bỏ cột nhãn thẻ tag badge xám (`.pm-layer-tag`) trong cây Phân cấp phần tử**:
+   - Đã gỡ bỏ toàn bộ các nhãn tag pill xám (`body`, `header`, `nav.navbar`, `div.container-fluid`, `col-md-4`...) nằm bên phải từng dòng.
+   - Trả lại toàn bộ không gian chiều ngang để hiển thị đầy đủ tên phần tử và icon mà không bị che khuất hay ngắt chữ, giao diện danh sách cây trở nên tinh gọn và chuyên nghiệp chuẩn Figma / VS Code.
+

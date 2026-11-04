@@ -164,21 +164,6 @@
   font-weight: 600;
 }
 
-.pm-layer-tag {
-  font-size: 10px;
-  font-family: var(--font-mono, monospace);
-  font-weight: 600;
-  color: var(--text-3);
-  background: var(--panel-3);
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-
-.pm-layer-item.selected .pm-layer-tag {
-  color: var(--accent);
-  background: rgba(255, 255, 255, 0.1);
-}
-
 /* ══════════════════════════════════════════════════════════════
    2. PAGES TAB (Danh sách trang)
    ══════════════════════════════════════════════════════════════ */

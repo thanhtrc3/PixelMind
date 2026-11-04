@@ -22,6 +22,7 @@ import {
   Monitor,
   MonitorUp,
   MousePointer2,
+  Move,
   Play,
   RefreshCw,
   RotateCcw,
@@ -126,6 +127,19 @@ export interface RealElementInfo {
   currentPath?: string
   currentUrl?: string
   pageTitle?: string
+  parent?: {
+    uid: string
+    tagName: string
+    id: string
+    className: string
+    tag: string
+    rect: {
+      top: number
+      left: number
+      width: number
+      height: number
+    }
+  } | null
   rect: {
     top: number
     left: number
@@ -257,6 +271,12 @@ const CanvasArea = ({
   const [inspectorTab, setInspectorTab] = useState<'design' | 'code'>('design')
   const [modifiedStyles, setModifiedStyles] = useState<Record<string, string>>({})
   const [isMovingEl, setIsMovingEl] = useState(false)
+  const [dropTargetHover, setDropTargetHover] = useState<{
+    uid: string
+    tagName: string
+    tag: string
+    rect: { top: number; left: number; width: number; height: number }
+  } | null>(null)
   const [isDirtyBuffer, setIsDirtyBuffer] = useState(editorBuffer.isDirty())
   const initialTextRef = useRef<string>('')
   const currentRouteRef = useRef<string>('/')
@@ -517,6 +537,10 @@ const CanvasArea = ({
         if (pathname) {
           currentRouteRef.current = pathname
         }
+      } else if (e.data.type === 'PM_DROP_TARGET_HOVER') {
+        setDropTargetHover(e.data.payload || null)
+      } else if (e.data.type === 'PM_REPARENT_NOTIFY') {
+        showToast(e.data.message || 'Đã cập nhật phân cấp phần tử!')
       } else if (e.data.type === 'PM_HOVER_ELEMENT') {
         setHoverEl(e.data.payload)
       } else if (e.data.type === 'PM_SELECT_ELEMENT') {
@@ -962,12 +986,48 @@ const CanvasArea = ({
         undefined,
         { skipHistory: true }
       )
+
+      // Gửi tọa độ tới iframe để dò tìm vùng chứa đích (Drop Target Zone)
+      const iframe = iframeRef.current
+      if (iframe?.contentWindow) {
+        const iframeRect = iframe.getBoundingClientRect()
+        const x = (e.clientX - iframeRect.left) / scale
+        const y = (e.clientY - iframeRect.top) / scale
+        iframe.contentWindow.postMessage(
+          {
+            type: 'PM_DRAG_OVER',
+            dragUid: selectedEl?.uid,
+            x,
+            y,
+          },
+          '*'
+        )
+      }
     }
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
       setIsMovingEl(false)
+      setDropTargetHover(null)
       const initial = moveStartRef.current
       if (!selectedEl) return
+
+      // Thả chuột: Thực hiện di chuyển cấu trúc DOM (Reparenting vào container mới)
+      const iframe = iframeRef.current
+      if (iframe?.contentWindow) {
+        const iframeRect = iframe.getBoundingClientRect()
+        const scale = zoom / 100
+        const x = (e.clientX - iframeRect.left) / scale
+        const y = (e.clientY - iframeRect.top) / scale
+        iframe.contentWindow.postMessage(
+          {
+            type: 'PM_DROP_REPARENT',
+            uid: selectedEl.uid,
+            x,
+            y,
+          },
+          '*'
+        )
+      }
 
       const curLeft = parseInt(selectedEl.computedStyles.left || '0') || 0
       const curTop = parseInt(selectedEl.computedStyles.top || '0') || 0
@@ -977,7 +1037,7 @@ const CanvasArea = ({
       if (curLeft !== initial.initialLeft || curTop !== initial.initialTop) {
         editorBuffer.pushAction({
           type: 'MOVE',
-          description: `Di chuyển <${selectedEl.tagName.toLowerCase()}> (X: ${curLeft}, Y: ${curTop})`,
+          description: `Di chuyển <${selectedEl.tagName.toLowerCase()}>`,
           target: {
             tagName: selectedEl.tagName,
             id: selectedEl.id,
@@ -1025,6 +1085,14 @@ const CanvasArea = ({
       window.removeEventListener('mouseup', handleMouseUp)
     }
   }, [isMovingEl, zoom, handleApplyLiveChange, selectedEl, sourceLoc])
+
+  // ─── ĐẶT LẠI VỊ TRÍ PHẦN TỬ VỀ TỰ NHIÊN (RESET RELATIVE/TOP/LEFT) ───
+  const handleResetElementPosition = () => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage({ type: 'PM_RESET_POSITION', uid: selectedEl?.uid }, '*')
+    }
+    showToast('Đã đặt lại phần tử về vị trí tự nhiên trong khung cha!')
+  }
 
   // ─── TỰ ĐỘNG DÒ TÌM TỆP MÃ NGUỒN CHỨA PHẦN TỬ (CODE LOCATOR) ───
   useEffect(() => {
@@ -1510,51 +1578,130 @@ const CanvasArea = ({
                   </div>
                 )}
 
-                {/* Khung viền phần tử ĐÃ CHỌN (Selection Box) */}
-                {isInspectMode && selectedEl && (
+                {/* Khung viền chỉ báo Khung cha (Chỉ hiển thị khi đang kéo chuột di chuyển để định hướng) */}
+                {isInspectMode && isMovingEl && selectedEl && selectedEl.parent && (
                   <div
-                    className="canvas__inspect-selected"
                     style={{
-                      top: selectedEl.rect.top,
-                      left: selectedEl.rect.left,
-                      width: selectedEl.rect.width,
-                      height: selectedEl.rect.height,
+                      position: 'absolute',
+                      top: selectedEl.parent.rect.top,
+                      left: selectedEl.parent.rect.left,
+                      width: selectedEl.parent.rect.width,
+                      height: selectedEl.parent.rect.height,
+                      border: '1.5px dashed rgba(99, 102, 241, 0.45)',
+                      borderRadius: 6,
+                      pointerEvents: 'none',
+                      zIndex: 35,
                     }}
                   >
-                    <div
-                      className="canvas__inspect-move-bar"
-                      style={selectedEl.rect.top < 26 ? { top: 26, left: 2 } : undefined}
-                      onMouseDown={handleStartElementMove}
-                      title="Bấm giữ và kéo để di chuyển vị trí phần tử trên trang"
-                    >
-                      <span>✥ Di chuyển</span>
-                    </div>
-
                     <span
-                      className="canvas__inspect-selected-tag"
-                      style={
-                        selectedEl.rect.top < 24
-                          ? { top: 2, left: 2, borderRadius: 3, boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }
-                          : undefined
-                      }
+                      style={{
+                        position: 'absolute',
+                        bottom: '100%',
+                        left: 0,
+                        marginBottom: 2,
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                        background: 'rgba(99, 102, 241, 0.85)',
+                        color: '#ffffff',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: '0.02em',
+                      }}
                     >
-                      {selectedEl.tagName}
-                      {selectedEl.id ? `#${selectedEl.id}` : ''}
+                      Khung cha: {selectedEl.parent.tag}
                     </span>
-                    <span className="canvas__inspect-selected-size">
-                      {Math.round(selectedEl.rect.width)} × {Math.round(selectedEl.rect.height)}
-                    </span>
-
-                    {RESIZE_HANDLES.map((h) => (
-                      <span
-                        key={h.key}
-                        className={`canvas__inspect-handle ${h.key}`}
-                        onMouseDown={(e) => handleStartElementResize(e, h.key)}
-                        title={`Kéo để thay đổi kích thước (${h.label})`}
-                      />
-                    ))}
                   </div>
                 )}
+
+                {/* Khung viền chỉ báo Đích Thả Mới (Drop Target Zone Indicator) */}
+                {isInspectMode && isMovingEl && dropTargetHover && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: dropTargetHover.rect.top,
+                      left: dropTargetHover.rect.left,
+                      width: dropTargetHover.rect.width,
+                      height: dropTargetHover.rect.height,
+                      border: '2px solid #22c55e',
+                      backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                      borderRadius: 6,
+                      pointerEvents: 'none',
+                      zIndex: 38,
+                      boxShadow: '0 0 0 3px rgba(34, 197, 94, 0.25)',
+                      transition: 'all 60ms ease-out',
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: -22,
+                        left: 0,
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        background: '#16a34a',
+                        color: '#ffffff',
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                      }}
+                    >
+                      <span>📥 Thả vào:</span>
+                      <code>{dropTargetHover.tag}</code>
+                    </span>
+                  </div>
+                )}
+
+                {/* Khung viền phần tử ĐÃ CHỌN (Selection Box) */}
+                {isInspectMode && selectedEl && (() => {
+                  return (
+                    <div
+                      className="canvas__inspect-selected"
+                      style={{
+                        top: selectedEl.rect.top,
+                        left: selectedEl.rect.left,
+                        width: selectedEl.rect.width,
+                        height: selectedEl.rect.height,
+                      }}
+                    >
+                      {/* Nút kéo di chuyển vị trí phần tử (Icon-only, gọn gàng và tinh tế) */}
+                      <div
+                        className="canvas__inspect-move-bar"
+                        style={selectedEl.rect.top < 26 ? { top: 2, right: 2 } : undefined}
+                        onMouseDown={handleStartElementMove}
+                        title="Bấm giữ và kéo để di chuyển vị trí phần tử"
+                      >
+                        <Move size={12} strokeWidth={2.4} />
+                      </div>
+
+                      <span
+                        className="canvas__inspect-selected-tag"
+                        style={
+                          selectedEl.rect.top < 24
+                            ? { top: 2, left: 2, borderRadius: 3, boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }
+                            : undefined
+                        }
+                      >
+                        {selectedEl.tagName}
+                        {selectedEl.id ? `#${selectedEl.id}` : ''}
+                      </span>
+                      <span className="canvas__inspect-selected-size">
+                        {Math.round(selectedEl.rect.width)} × {Math.round(selectedEl.rect.height)}
+                      </span>
+
+                      {RESIZE_HANDLES.map((h) => (
+                        <span
+                          key={h.key}
+                          className={`canvas__inspect-handle ${h.key}`}
+                          onMouseDown={(e) => handleStartElementResize(e, h.key)}
+                          title={`Kéo để thay đổi kích thước (${h.label})`}
+                        />
+                      ))}
+                    </div>
+                  )
+                })()}
 
                 {error ? (
                   <div style={{ height: '100%', overflowY: 'auto' }}>
@@ -2620,6 +2767,18 @@ const CanvasArea = ({
                         <div className="canvas__inspector-card-hd">
                           <Compass size={13} style={{ color: '#06b6d4' }} />
                           <span>Vị trí & Kích thước (Location & Size)</span>
+                          {((parseInt(selectedEl.computedStyles.left || '0') !== 0) || (parseInt(selectedEl.computedStyles.top || '0') !== 0)) && (
+                            <button
+                              type="button"
+                              onClick={handleResetElementPosition}
+                              className="canvas__tool-btn"
+                              style={{ marginLeft: 'auto', fontSize: 10.5, height: 20, padding: '0 6px', color: '#f59e0b', gap: 3 }}
+                              title="Xóa tọa độ kéo lệch, đưa phần tử về đúng vị trí tự nhiên trong khung cha"
+                            >
+                              <RotateCcw size={10} />
+                              <span>Reset vị trí</span>
+                            </button>
+                          )}
                         </div>
 
                         {/* Nhóm 1: Vị trí tọa độ (Location: X, Y) */}

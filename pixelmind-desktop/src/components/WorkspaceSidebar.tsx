@@ -1,5 +1,9 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
   Box,
   Copy,
   ExternalLink,
@@ -22,6 +26,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Sliders,
   Sparkles,
@@ -111,6 +116,8 @@ export const WorkspaceSidebar = ({
   const [layersSearch, setLayersSearch] = useState('')
   const [partsSearch, setPartsSearch] = useState('')
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
+  const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null)
+  const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null)
   const [selectedPartGroup, setSelectedPartGroup] = useState<string>('all')
 
   const [liveLayers, setLiveLayers] = useState<LayerNode[]>([])
@@ -171,6 +178,41 @@ export const WorkspaceSidebar = ({
         { type: 'PM_HOVER_BY_UID', uid: layer ? (layer.uid || layer.id) : null },
         '*'
       )
+    }
+  }
+
+  const handleMoveDomNode = (action: 'up' | 'down' | 'outdent' | 'indent') => {
+    if (!selectedLayerId) return
+    const iframe = document.querySelector('iframe.canvas__iframe') as HTMLIFrameElement | null
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'PM_MOVE_DOM_NODE', action, uid: selectedLayerId }, '*')
+    }
+    const labels: Record<string, string> = {
+      up: 'Di chuyển lên',
+      down: 'Di chuyển xuống',
+      outdent: 'Đưa ra ngoài thẻ cha',
+      indent: 'Đưa vào trong thẻ trước',
+    }
+    onShowToast('ok', `Đã thực hiện: ${labels[action]}`)
+  }
+
+  const handleResetPosition = () => {
+    if (!selectedLayerId) return
+    const iframe = document.querySelector('iframe.canvas__iframe') as HTMLIFrameElement | null
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'PM_RESET_POSITION', uid: selectedLayerId }, '*')
+    }
+    onShowToast('ok', 'Đã đặt lại phần tử về vị trí tự nhiên trong khung cha!')
+  }
+
+  const handleMoveIntoLayer = (sourceUid: string, targetUid: string) => {
+    const iframe = document.querySelector('iframe.canvas__iframe') as HTMLIFrameElement | null
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage(
+        { type: 'PM_MOVE_DOM_NODE', action: 'into', uid: sourceUid, targetUid },
+        '*'
+      )
+      onShowToast('ok', 'Đã kéo thả phần tử vào trong khung đích!')
     }
   }
 
@@ -364,6 +406,70 @@ export const WorkspaceSidebar = ({
               </div>
             </div>
 
+            {/* Thanh công cụ điều hướng & di chuyển cây DOM (Luôn hiển thị trực quan) */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '5px 12px',
+                background: 'var(--panel-2)',
+                borderBottom: '1px solid var(--line)',
+                fontSize: 11,
+              }}
+            >
+              <span style={{ color: selectedLayerId ? 'var(--accent-text)' : 'var(--text-3)', fontWeight: 600 }}>
+                {selectedLayerId ? 'Cấu trúc DOM:' : 'Chọn thẻ để dời:'}
+              </span>
+              <div style={{ display: 'flex', gap: 3 }}>
+                <button
+                  className="pm-ibtn"
+                  disabled={!selectedLayerId}
+                  style={!selectedLayerId ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
+                  onClick={() => handleMoveDomNode('up')}
+                  title="Di chuyển lên trước thẻ anh em (▲ Lên)"
+                >
+                  <ArrowUp size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  disabled={!selectedLayerId}
+                  style={!selectedLayerId ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
+                  onClick={() => handleMoveDomNode('down')}
+                  title="Di chuyển xuống sau thẻ anh em (▼ Xuống)"
+                >
+                  <ArrowDown size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  disabled={!selectedLayerId}
+                  style={!selectedLayerId ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
+                  onClick={() => handleMoveDomNode('outdent')}
+                  title="Đưa ra ngoài thẻ cha (◀ Ra ngoài cha - đưa ra khỏi col-md-4)"
+                >
+                  <ArrowLeft size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  disabled={!selectedLayerId}
+                  style={!selectedLayerId ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
+                  onClick={() => handleMoveDomNode('indent')}
+                  title="Đưa vào làm con thẻ đứng trước (▶ Vào trong)"
+                >
+                  <ArrowRight size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  disabled={!selectedLayerId}
+                  style={!selectedLayerId ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
+                  onClick={handleResetPosition}
+                  title="Đặt lại vị trí tự nhiên (Xóa relative top/left)"
+                >
+                  <RotateCcw size={12} />
+                </button>
+              </div>
+            </div>
+
             <div className="pm-ws-filter">
               <div className="pm-searchbox" style={{ width: '100%' }}>
                 <Search size={12} />
@@ -434,21 +540,57 @@ export const WorkspaceSidebar = ({
                   {filteredLayers.map((layer) => {
                     const Icon = getTagIcon(layer.tagName)
                     const isSelected = selectedLayerId === layer.id
+                    const isDragOver = dragOverLayerId === layer.id
+                    const isDragging = draggingLayerId === layer.id
                     return (
                       <div
                         key={layer.id}
+                        draggable={true}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', layer.uid || layer.id)
+                          setDraggingLayerId(layer.id)
+                        }}
+                        onDragEnd={() => {
+                          setDraggingLayerId(null)
+                          setDragOverLayerId(null)
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault()
+                          if (draggingLayerId && draggingLayerId !== layer.id) {
+                            e.dataTransfer.dropEffect = 'move'
+                            if (dragOverLayerId !== layer.id) setDragOverLayerId(layer.id)
+                          }
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverLayerId === layer.id) setDragOverLayerId(null)
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          const sourceUid = e.dataTransfer.getData('text/plain')
+                          setDragOverLayerId(null)
+                          setDraggingLayerId(null)
+                          if (sourceUid && sourceUid !== (layer.uid || layer.id)) {
+                            handleMoveIntoLayer(sourceUid, layer.uid || layer.id)
+                          }
+                        }}
                         className={`pm-layer-item ${isSelected ? 'selected' : ''}`}
-                        style={{ paddingLeft: `${8 + layer.depth * 12}px` }}
+                        style={{
+                          paddingLeft: `${8 + layer.depth * 12}px`,
+                          opacity: isDragging ? 0.35 : 1,
+                          border: isDragOver ? '1.5px dashed #6366f1' : undefined,
+                          background: isDragOver ? 'rgba(99, 102, 241, 0.18)' : undefined,
+                          cursor: 'grab',
+                          transition: 'background 0.1s, border 0.1s',
+                        }}
                         onClick={() => handleSelectLayer(layer)}
                         onMouseEnter={() => handleHoverLayer(layer)}
                         onMouseLeave={() => handleHoverLayer(null)}
-                        title={`${layer.label} (${layer.tag})`}
+                        title={`Bấm để chọn, hoặc kéo thả để đưa vào khung khác (${layer.tag})`}
                       >
                         <Icon size={12} style={{ opacity: 0.7, flexShrink: 0 }} />
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                           {layer.label}
                         </span>
-                        <span className="pm-layer-tag">{layer.tag}</span>
                       </div>
                     )
                   })}

@@ -1078,29 +1078,29 @@
    ADVANCED VISUAL INSPECTOR & WEBFLOW BOX MODEL & CODE SYNC
    ══════════════════════════════════════════════════════════════ */
 
-/* Thanh di chuyển vị trí phần tử (Move handle trên Selection box) */
+/* Nút di chuyển vị trí phần tử (Move handle trên Selection box: chỉ hiển thị icon) */
 .canvas__inspect-move-bar {
   position: absolute;
-  top: -26px;
+  top: -24px;
   right: -2px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   background: var(--accent, #6d5df5);
-  border-radius: 4px 4px 0 0;
+  border-radius: 4px;
   color: #ffffff;
-  font-size: 10px;
-  font-weight: 700;
   cursor: move;
   pointer-events: auto;
   user-select: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  transition: background 0.15s;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: all 0.15s ease;
 }
 
 .canvas__inspect-move-bar:hover {
   background: #5b4be2;
+  transform: scale(1.08);
 }
 
 /* Tab Bar trên đỉnh Side Panel */

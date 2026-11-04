@@ -762,6 +762,41 @@ function getInspectorScript(isActive: boolean) {
       try { window.__PM_INSPECT_CLEANUP(); } catch(e) {}
     }
 
+    // Tự động giữ kích thước & tạo khung viền trực quan cho các cột hoặc container rỗng khi bị kéo con ra ngoài
+    var styleId = '__pm_empty_drop_zones';
+    var existingStyle = document.getElementById(styleId);
+    if (!existingStyle && document.head) {
+      existingStyle = document.createElement('style');
+      existingStyle.id = styleId;
+      existingStyle.textContent = '' +
+        '[class*="col-"]:empty, .row > div:empty, div[class*="col"]:empty, section:empty, div[class*="grid"]:empty {' +
+        '  min-height: 84px !important;' +
+        '  outline: 2px dashed rgba(99, 102, 241, 0.6) !important;' +
+        '  outline-offset: -2px !important;' +
+        '  background: rgba(99, 102, 241, 0.08) !important;' +
+        '  border-radius: 6px !important;' +
+        '  display: flex !important;' +
+        '  align-items: center !important;' +
+        '  justify-content: center !important;' +
+        '  position: relative !important;' +
+        '  box-sizing: border-box !important;' +
+        '  cursor: pointer !important;' +
+        '}' +
+        '[class*="col-"]:empty::after, .row > div:empty::after, div[class*="col"]:empty::after {' +
+        '  content: "📥 Thả phần tử vào đây (" attr(class) ")";' +
+        '  font-size: 11px !important;' +
+        '  font-weight: 600 !important;' +
+        '  color: #6366f1 !important;' +
+        '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;' +
+        '  pointer-events: none !important;' +
+        '  padding: 4px 10px !important;' +
+        '  background: rgba(255, 255, 255, 0.9) !important;' +
+        '  border-radius: 4px !important;' +
+        '  box-shadow: 0 1px 4px rgba(0,0,0,0.12) !important;' +
+        '}';
+      document.head.appendChild(existingStyle);
+    }
+
     var lastSelected = null;
 
     function getUniqueSelector(el) {
@@ -871,6 +906,29 @@ function getInspectorScript(isActive: boolean) {
         },
         domPath: getBreadcrumb(el),
         textSnippet: snippet,
+        parent: (function() {
+          var p = el.parentElement;
+          if (!p || p === document.documentElement || p === document.body) return null;
+          var pr = p.getBoundingClientRect();
+          if (!p.getAttribute('data-pm-uid')) {
+            p.setAttribute('data-pm-uid', 'pm_' + Math.random().toString(36).slice(2, 9));
+          }
+          var pCls = typeof p.className === 'string' && p.className.trim() ? p.className.trim().split(/\\s+/)[0] : '';
+          var pTag = p.tagName.toLowerCase() + (p.id ? '#' + p.id : (pCls ? '.' + pCls : ''));
+          return {
+            uid: p.getAttribute('data-pm-uid'),
+            tagName: p.tagName.toLowerCase(),
+            id: p.id || '',
+            className: typeof p.className === 'string' ? p.className : '',
+            tag: pTag,
+            rect: {
+              top: pr.top,
+              left: pr.left,
+              width: pr.width,
+              height: pr.height,
+            }
+          };
+        })(),
       };
     }
 
@@ -1101,6 +1159,181 @@ function getInspectorScript(isActive: boolean) {
               }
             }, '*');
           }
+        }
+      } else if (e.data.type === 'PM_RESET_POSITION') {
+        var targetToReset = lastSelected;
+        if (!targetToReset && e.data.uid) {
+          targetToReset = document.querySelector('[data-pm-uid="' + e.data.uid + '"]');
+        }
+        if (targetToReset) {
+          targetToReset.style.removeProperty('top');
+          targetToReset.style.removeProperty('left');
+          targetToReset.style.removeProperty('right');
+          targetToReset.style.removeProperty('bottom');
+          var curPos = targetToReset.style.position;
+          if (curPos === 'relative') {
+            targetToReset.style.removeProperty('position');
+          }
+          sendDomTree();
+          var resInfo = extractElementInfo(targetToReset);
+          window.parent.postMessage({
+            type: 'PM_SELECT_ELEMENT',
+            payload: resInfo
+          }, '*');
+        }
+      } else if (e.data.type === 'PM_MOVE_DOM_NODE') {
+        var targetToMove = lastSelected;
+        if (!targetToMove && e.data.uid) {
+          targetToMove = document.querySelector('[data-pm-uid="' + e.data.uid + '"]');
+        }
+        if (targetToMove && targetToMove.parentElement) {
+          var pNode = targetToMove.parentElement;
+          var act = e.data.action;
+          if (act === 'up' && targetToMove.previousElementSibling) {
+            pNode.insertBefore(targetToMove, targetToMove.previousElementSibling);
+          } else if (act === 'down' && targetToMove.nextElementSibling) {
+            pNode.insertBefore(targetToMove, targetToMove.nextElementSibling.nextElementSibling);
+          } else if (act === 'outdent' && pNode.parentElement && pNode !== document.body) {
+            // Đưa phần tử ra ngoài thẻ cha, làm anh em kế tiếp của thẻ cha
+            pNode.parentElement.insertBefore(targetToMove, pNode.nextSibling);
+            targetToMove.style.removeProperty('top');
+            targetToMove.style.removeProperty('left');
+            if (targetToMove.style.position === 'relative') targetToMove.style.removeProperty('position');
+          } else if (act === 'indent' && targetToMove.previousElementSibling) {
+            // Đưa phần tử vào làm con của thẻ anh em liền trước
+            targetToMove.previousElementSibling.appendChild(targetToMove);
+            targetToMove.style.removeProperty('top');
+            targetToMove.style.removeProperty('left');
+            if (targetToMove.style.position === 'relative') targetToMove.style.removeProperty('position');
+          } else if (act === 'into' && e.data.targetUid) {
+            // Đưa phần tử trực tiếp vào làm con của thẻ mục tiêu (Target Container)
+            var destTarget = document.querySelector('[data-pm-uid="' + e.data.targetUid + '"]');
+            if (destTarget && destTarget !== targetToMove && !targetToMove.contains(destTarget)) {
+              destTarget.appendChild(targetToMove);
+              targetToMove.style.removeProperty('top');
+              targetToMove.style.removeProperty('left');
+              if (targetToMove.style.position === 'relative') targetToMove.style.removeProperty('position');
+            }
+          }
+          sendDomTree();
+          var movedInfo = extractElementInfo(targetToMove);
+          window.parent.postMessage({
+            type: 'PM_SELECT_ELEMENT',
+            payload: movedInfo
+          }, '*');
+        }
+      } else if (e.data.type === 'PM_DRAG_OVER') {
+        var dragUid = e.data.dragUid;
+        var dragEl = dragUid ? document.querySelector('[data-pm-uid="' + dragUid + '"]') : null;
+        if (!dragEl) return;
+
+        var prevVis = dragEl.style.visibility;
+        dragEl.style.visibility = 'hidden';
+        var hovered = document.elementFromPoint(e.data.x, e.data.y);
+        dragEl.style.visibility = prevVis;
+
+        if (hovered && hovered !== dragEl && !dragEl.contains(hovered)) {
+          var targetContainer = hovered;
+          if (['SPAN', 'SMALL', 'B', 'I', 'STRONG', 'EM'].indexOf(targetContainer.tagName) !== -1 && targetContainer.parentElement) {
+            targetContainer = targetContainer.parentElement;
+          }
+          var cr = targetContainer.getBoundingClientRect();
+          var firstCls = (typeof targetContainer.className === 'string' && targetContainer.className.trim())
+            ? targetContainer.className.trim().split(/\s+/)[0]
+            : '';
+          var tagLabel = targetContainer.tagName.toLowerCase() + (targetContainer.id ? '#' + targetContainer.id : (firstCls ? '.' + firstCls : ''));
+          window.parent.postMessage({
+            type: 'PM_DROP_TARGET_HOVER',
+            payload: {
+              uid: targetContainer.getAttribute('data-pm-uid') || '',
+              tagName: targetContainer.tagName.toLowerCase(),
+              tag: tagLabel,
+              rect: {
+                top: cr.top,
+                left: cr.left,
+                width: cr.width,
+                height: cr.height
+              }
+            }
+          }, '*');
+        } else {
+          window.parent.postMessage({ type: 'PM_DROP_TARGET_HOVER', payload: null }, '*');
+        }
+      } else if (e.data.type === 'PM_DROP_REPARENT') {
+        var dragUid = e.data.uid;
+        var dragEl = dragUid ? document.querySelector('[data-pm-uid="' + dragUid + '"]') : null;
+        if (!dragEl) return;
+
+        var oldParent = dragEl.parentElement;
+        var prevVis = dragEl.style.visibility;
+        dragEl.style.visibility = 'hidden';
+        var dropTarget = document.elementFromPoint(e.data.x, e.data.y);
+        dragEl.style.visibility = prevVis;
+
+        var reparented = false;
+        var newParentTag = '';
+
+        if (dropTarget && dropTarget !== dragEl && !dragEl.contains(dropTarget)) {
+          if (dropTarget !== oldParent) {
+            var isLeaf = ['H1','H2','H3','H4','H5','H6','P','BUTTON','A','IMG','INPUT'].indexOf(dropTarget.tagName) !== -1;
+            if (isLeaf && dropTarget.parentElement && dropTarget.parentElement !== dragEl) {
+              var r = dropTarget.getBoundingClientRect();
+              var isAfter = e.data.y > (r.top + r.height / 2);
+              if (isAfter) {
+                dropTarget.parentElement.insertBefore(dragEl, dropTarget.nextSibling);
+              } else {
+                dropTarget.parentElement.insertBefore(dragEl, dropTarget);
+              }
+              reparented = true;
+              newParentTag = dropTarget.parentElement.tagName.toLowerCase();
+            } else {
+              dropTarget.appendChild(dragEl);
+              reparented = true;
+              newParentTag = dropTarget.tagName.toLowerCase();
+            }
+          } else {
+            // Drop trong cùng thẻ cha: kiểm tra đổi thứ tự anh em (reorder)
+            var siblings = Array.prototype.slice.call(oldParent.children);
+            for (var si = 0; si < siblings.length; si++) {
+              var sib = siblings[si];
+              if (sib === dragEl) continue;
+              var sr = sib.getBoundingClientRect();
+              if (e.data.y >= sr.top && e.data.y <= sr.bottom && e.data.x >= sr.left && e.data.x <= sr.right) {
+                if (e.data.y > (sr.top + sr.height / 2)) {
+                  oldParent.insertBefore(dragEl, sib.nextSibling);
+                } else {
+                  oldParent.insertBefore(dragEl, sib);
+                }
+                reparented = true;
+                newParentTag = oldParent.tagName.toLowerCase();
+                break;
+              }
+            }
+          }
+        }
+
+        if (reparented) {
+          dragEl.style.removeProperty('top');
+          dragEl.style.removeProperty('left');
+          dragEl.style.removeProperty('right');
+          dragEl.style.removeProperty('bottom');
+          if (dragEl.style.position === 'relative') {
+            dragEl.style.removeProperty('position');
+          }
+        }
+
+        sendDomTree();
+        var finalInfo = extractElementInfo(dragEl);
+        window.parent.postMessage({
+          type: 'PM_SELECT_ELEMENT',
+          payload: finalInfo
+        }, '*');
+
+        if (reparented) {
+          window.parent.postMessage({
+            type: 'PM_REPARENT_NOTIFY',
+            message: 'Đã chuyển <' + dragEl.tagName.toLowerCase() + '> vào <' + newParentTag + '>, phân cấp phần tử đã cập nhật!'
+          }, '*');
         }
       }
     });
