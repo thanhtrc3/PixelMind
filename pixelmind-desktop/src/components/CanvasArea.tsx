@@ -1,6 +1,8 @@
 import { api } from '../lib/bridge'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import {
+  AlertCircle,
+  AlertTriangle,
   AlignLeft,
   AlignCenter,
   AlignRight,
@@ -10,6 +12,7 @@ import {
   ArrowLeft,
   ArrowUp,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Code2,
@@ -17,6 +20,7 @@ import {
   ExternalLink,
   Globe,
   Hand,
+  Info,
   Layers,
   Maximize2,
   Monitor,
@@ -47,6 +51,7 @@ import VisualErrorCard from './VisualErrorCard'
 import DesignTokensDialog from './DesignTokensDialog'
 import type { DesignTokens } from '@shared/types'
 import { editorBuffer, type ActionType, type ElementSnapshot } from '../lib/editorBuffer'
+import { PencilFillIcon } from './PanelIcons'
 
 export type CanvasMode = 'reference' | 'live' | 'compare' | 'overlay' | 'diff'
 export type ViewportKey = 'mobile' | 'tablet' | 'desktop' | 'wide'
@@ -204,6 +209,7 @@ interface CanvasAreaProps {
   onInstall?: () => void
   onCreateIndexHtml?: () => void
   onAddDevScript?: () => void
+  onUrlChange?: (url: string, pathname: string) => void
 }
 
 const COLOR_SWATCHES = [
@@ -245,7 +251,16 @@ const CanvasArea = ({
   onInstall,
   onCreateIndexHtml: _onCreateIndexHtml,
   onAddDevScript: _onAddDevScript,
+  onUrlChange,
 }: CanvasAreaProps) => {
+
+  const [currentLiveUrl, setCurrentLiveUrl] = useState<string | null>(url ?? null)
+
+  useEffect(() => {
+    if (url) {
+      setCurrentLiveUrl(url)
+    }
+  }, [url])
 
   const [viewport, setViewport] = useState<ViewportKey>('desktop')
   const [tool, setTool] = useState<ToolKey>('select')
@@ -342,7 +357,7 @@ const CanvasArea = ({
         .then((t) => {
           if (isMounted) setProjectTokens(t)
         })
-        .catch(() => {})
+        .catch(() => { })
     }
     return () => {
       isMounted = false
@@ -383,17 +398,29 @@ const CanvasArea = ({
     styles: Record<string, string>
   } | null>(null)
 
-  // Toast thông báo nhỏ
-  const [toastMsg, setToastMsg] = useState<string | null>(null)
+  // Toast thông báo nổi HUD cao cấp (Figma / Webflow style)
+  interface CanvasToast {
+    text: string
+    kind?: 'ok' | 'info' | 'warn' | 'err'
+    shortcut?: string
+  }
+  const [toast, setToast] = useState<CanvasToast | null>(null)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const showToast = useCallback((msg: string) => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    setToastMsg(msg)
-    toastTimerRef.current = setTimeout(() => {
-      setToastMsg(null)
-    }, 2800)
-  }, [])
+  const showToast = useCallback(
+    (msg: string | CanvasToast, kind: 'ok' | 'info' | 'warn' | 'err' = 'ok', shortcut?: string) => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+      if (typeof msg === 'string') {
+        setToast({ text: msg, kind, shortcut })
+      } else {
+        setToast(msg)
+      }
+      toastTimerRef.current = setTimeout(() => {
+        setToast(null)
+      }, 2400)
+    },
+    [],
+  )
 
   const currentVp = VIEWPORTS.find((v) => v.key === viewport) ?? VIEWPORTS[2]
 
@@ -460,14 +487,18 @@ const CanvasArea = ({
           setSelectedEl(null)
           setHoverEl(null)
         }
-        showToast(next ? 'Đã BẬT Chế độ Soi phần tử (Visual Inspector)' : 'Đã TẮT Chế độ Soi phần tử')
+        showToast(
+          next ? 'Đã bật chế độ Soi phần tử' : 'Đã tắt chế độ Soi phần tử',
+          next ? 'ok' : 'info',
+          next ? 'Phím I' : undefined,
+        )
       } else if (e.key === 'Escape') {
         if (selectedEl) {
           setSelectedEl(null)
         } else if (isInspectMode) {
           setIsInspectMode(false)
           setHoverEl(null)
-          showToast('Đã TẮT Chế độ Soi phần tử')
+          showToast('Đã tắt chế độ Soi phần tử', 'info')
         }
       }
     }
@@ -533,9 +564,21 @@ const CanvasArea = ({
       if (!e.data || typeof e.data !== 'object') return
 
       if (e.data.type === 'PM_LOCATION_CHANGE') {
-        const { pathname } = e.data.payload || {}
+        const { pathname, href } = e.data.payload || {}
         if (pathname) {
           currentRouteRef.current = pathname
+        }
+        if (href) {
+          setCurrentLiveUrl(href)
+          onUrlChange?.(href, pathname || '/')
+        } else if (pathname && url) {
+          try {
+            const parsed = new URL(url)
+            parsed.pathname = pathname
+            const newHref = parsed.href
+            setCurrentLiveUrl(newHref)
+            onUrlChange?.(newHref, pathname)
+          } catch { }
         }
       } else if (e.data.type === 'PM_DROP_TARGET_HOVER') {
         setDropTargetHover(e.data.payload || null)
@@ -579,7 +622,7 @@ const CanvasArea = ({
 
   // Đồng bộ trạng thái inspect mode xuống Electron main process và iframe
   useEffect(() => {
-    api.inspect.setMode(isInspectMode).catch(() => {})
+    api.inspect.setMode(isInspectMode).catch(() => { })
 
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
@@ -747,7 +790,7 @@ const CanvasArea = ({
         )
       }
 
-      api.inspect.applyStyle({ styles, textContent }).catch(() => {})
+      api.inspect.applyStyle({ styles, textContent }).catch(() => { })
 
       const beforeSnapshot: ElementSnapshot = {
         styles: { ...selectedEl.computedStyles },
@@ -785,10 +828,10 @@ const CanvasArea = ({
           },
           sourceLoc: sourceLoc
             ? {
-                filePath: sourceLoc.filePath,
-                fullPath: sourceLoc.fullPath,
-                lineNumber: sourceLoc.lineNumber,
-              }
+              filePath: sourceLoc.filePath,
+              fullPath: sourceLoc.fullPath,
+              lineNumber: sourceLoc.lineNumber,
+            }
             : undefined,
           before: beforeSnapshot,
           after: {
@@ -907,10 +950,10 @@ const CanvasArea = ({
           },
           sourceLoc: sourceLoc
             ? {
-                filePath: sourceLoc.filePath,
-                fullPath: sourceLoc.fullPath,
-                lineNumber: sourceLoc.lineNumber,
-              }
+              filePath: sourceLoc.filePath,
+              fullPath: sourceLoc.fullPath,
+              lineNumber: sourceLoc.lineNumber,
+            }
             : undefined,
           before: {
             styles: initial.beforeStyles,
@@ -1049,10 +1092,10 @@ const CanvasArea = ({
           },
           sourceLoc: sourceLoc
             ? {
-                filePath: sourceLoc.filePath,
-                fullPath: sourceLoc.fullPath,
-                lineNumber: sourceLoc.lineNumber,
-              }
+              filePath: sourceLoc.filePath,
+              fullPath: sourceLoc.fullPath,
+              lineNumber: sourceLoc.lineNumber,
+            }
             : undefined,
           before: {
             styles: initial.beforeStyles,
@@ -1210,7 +1253,7 @@ const CanvasArea = ({
       )
     }
 
-    api.inspect.resetOriginal().catch(() => {})
+    api.inspect.resetOriginal().catch(() => { })
 
     if (originalStyles) {
       const beforeSnapshot = {
@@ -1245,10 +1288,10 @@ const CanvasArea = ({
         },
         sourceLoc: sourceLoc
           ? {
-              filePath: sourceLoc.filePath,
-              fullPath: sourceLoc.fullPath,
-              lineNumber: sourceLoc.lineNumber,
-            }
+            filePath: sourceLoc.filePath,
+            fullPath: sourceLoc.fullPath,
+            lineNumber: sourceLoc.lineNumber,
+          }
           : undefined,
         before: beforeSnapshot,
         after: {
@@ -1329,11 +1372,22 @@ const CanvasArea = ({
 
   return (
     <div className="canvas">
-      {/* Toast thông báo góc trên */}
-      {toastMsg && (
-        <div className="canvas__toast">
-          <Sparkles size={13} style={{ color: 'var(--accent, #6d5df5)' }} />
-          <span>{toastMsg}</span>
+      {/* Toast thông báo nổi HUD cao cấp (Figma / Webflow Style) */}
+      {toast && (
+        <div className={`canvas__toast canvas__toast--${toast.kind || 'ok'}`}>
+          <div className="canvas__toast-icon">
+            {toast.kind === 'err' ? (
+              <AlertCircle size={13} />
+            ) : toast.kind === 'warn' ? (
+              <AlertTriangle size={13} />
+            ) : toast.kind === 'info' ? (
+              <Info size={13} />
+            ) : (
+              <CheckCircle2 size={13} />
+            )}
+          </div>
+          <span className="canvas__toast-text">{toast.text}</span>
+          {toast.shortcut && <kbd className="canvas__toast-kbd">{toast.shortcut}</kbd>}
         </div>
       )}
 
@@ -1374,7 +1428,11 @@ const CanvasArea = ({
                   setSelectedEl(null)
                   setHoverEl(null)
                 }
-                showToast(next ? 'Đã BẬT Chế độ Soi phần tử (I)' : 'Đã TẮT Chế độ Soi phần tử')
+                showToast(
+                  next ? 'Đã bật chế độ Soi phần tử' : 'Đã tắt chế độ Soi phần tử',
+                  next ? 'ok' : 'info',
+                  next ? 'Phím I' : undefined,
+                )
               }}
               title="Bật/Tắt chế độ Soi phần tử (Phím tắt: I)"
               style={{
@@ -1390,8 +1448,7 @@ const CanvasArea = ({
                 alignItems: 'center',
               }}
             >
-              <Code2 size={13} />
-              <span>{isInspectMode ? 'Soi phần tử (BẬT)' : 'Soi phần tử'}</span>
+              <PencilFillIcon size={12} />
             </button>
 
             {TOOLS.map((t) => (
@@ -1526,8 +1583,8 @@ const CanvasArea = ({
                   <span className="dot yellow" />
                   <span className="dot green" />
                 </div>
-                <span className="canvas__frame-url">
-                  {url ? url.replace(/^https?:\/\//, '') : 'localhost:Chưa khởi động'}
+                <span className="canvas__frame-url" title={currentLiveUrl || url || ''}>
+                  {(currentLiveUrl || url) ? (currentLiveUrl || url)!.replace(/^https?:\/\//, '') : 'localhost:Chưa khởi động'}
                 </span>
                 <span className="canvas__frame-size">
                   {currentVp.w} × {currentVp.h}
@@ -1752,9 +1809,8 @@ const CanvasArea = ({
                       <p style={{ fontSize: 12.5, color: 'var(--text-3)', maxWidth: 420, margin: '0 auto 16px' }}>
                         {connectTimeout
                           ? 'Máy chủ phản hồi chậm hoặc đang gặp sự cố khi khởi động. Bạn có thể bấm thử lại hoặc mở bằng trình duyệt ngoài.'
-                          : `Đang chờ máy chủ ${projectName} biên dịch và phản hồi kết nối HTTP...${
-                              connectRetryCount > 0 ? ` (Lần thử ${connectRetryCount})` : ''
-                            }`}
+                          : `Đang chờ máy chủ ${projectName} biên dịch và phản hồi kết nối HTTP...${connectRetryCount > 0 ? ` (Lần thử ${connectRetryCount})` : ''
+                          }`}
                       </p>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                         <button
@@ -1808,6 +1864,17 @@ const CanvasArea = ({
                       pointerEvents: isPanActive || isPanning ? 'none' : 'auto',
                     }}
                     onLoad={() => {
+                      try {
+                        const win = iframeRef.current?.contentWindow
+                        if (win && win.location) {
+                          const href = win.location.href
+                          const pathname = win.location.pathname || '/'
+                          if (href && href !== 'about:blank') {
+                            setCurrentLiveUrl(href)
+                            onUrlChange?.(href, pathname)
+                          }
+                        }
+                      } catch { }
                       setTimeout(() => {
                         if (iframeRef.current?.contentWindow) {
                           iframeRef.current.contentWindow.postMessage({ type: 'PM_GET_DOM_TREE' }, '*')
@@ -1951,7 +2018,7 @@ const CanvasArea = ({
                   setIsInspectMode(false)
                   setSelectedEl(null)
                   setHoverEl(null)
-                  showToast('Đã TẮT Chế độ Soi phần tử')
+                  showToast('Đã tắt chế độ Soi phần tử', 'info')
                 }}
               >
                 <X size={14} />
@@ -2095,10 +2162,10 @@ const CanvasArea = ({
                                     },
                                     sourceLoc: sourceLoc
                                       ? {
-                                          filePath: sourceLoc.filePath,
-                                          fullPath: sourceLoc.fullPath,
-                                          lineNumber: sourceLoc.lineNumber,
-                                        }
+                                        filePath: sourceLoc.filePath,
+                                        fullPath: sourceLoc.fullPath,
+                                        lineNumber: sourceLoc.lineNumber,
+                                      }
                                       : undefined,
                                     before: {
                                       styles: { ...selectedEl.computedStyles },

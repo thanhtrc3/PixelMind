@@ -1,13 +1,24 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
+  AlertTriangle,
+  Check,
+  Copy,
   Database,
+  Download,
   FolderOpen,
   Info,
+  Keyboard,
+  LayoutGrid,
   Palette,
+  Pipette,
   RotateCcw,
+  Search,
   Settings as SettingsIcon,
   SlidersHorizontal,
+  Sparkles,
   Terminal,
+  Trash2,
+  Upload,
 } from 'lucide-react'
 import type { AppInfo, Settings } from '@shared/types'
 import Modal from './Modal'
@@ -19,22 +30,85 @@ interface SettingsDialogProps {
   projectCount: number
   isDesktop: boolean
   onUpdate: (patch: Partial<Settings>) => void
-  onReset: () => void
+  onResetSettings: () => void
+  onResetAllData?: () => void
+  onClearCache?: () => void
   onOpenDataFolder: () => void
   onClose: () => void
 }
 
-type TabId = 'general' | 'appearance' | 'run' | 'data' | 'about'
+type TabId = 'general' | 'appearance' | 'canvas' | 'run' | 'data' | 'about'
 
 const TABS: Array<{ id: TabId; label: string; icon: typeof SettingsIcon }> = [
   { id: 'general', label: 'Chung', icon: SlidersHorizontal },
   { id: 'appearance', label: 'Giao diện', icon: Palette },
+  { id: 'canvas', label: 'Canvas & Soi', icon: LayoutGrid },
   { id: 'run', label: 'Chạy & xem trước', icon: Terminal },
   { id: 'data', label: 'Dữ liệu', icon: Database },
-  { id: 'about', label: 'Giới thiệu', icon: Info },
+  { id: 'about', label: 'Giới thiệu & Phím tắt', icon: Info },
 ]
 
-const ACCENTS = ['#6d5df5', '#4a8df6', '#31c07a', '#e2b13c', '#f0553f', '#e05aa8']
+const ACCENTS = [
+  { hex: '#6d5df5', label: 'Pixel Violet' },
+  { hex: '#3b82f6', label: 'Ocean Blue' },
+  { hex: '#10b981', label: 'Emerald' },
+  { hex: '#f59e0b', label: 'Amber' },
+  { hex: '#f43f5e', label: 'Rose Coral' },
+  { hex: '#ec4899', label: 'Neon Pink' },
+  { hex: '#06b6d4', label: 'Cyan Sky' },
+  { hex: '#8b5cf6', label: 'Deep Purple' },
+]
+
+const CODE_FONTS = [
+  'JetBrains Mono',
+  'Fira Code',
+  'Cascadia Code',
+  'Consolas',
+  'Monaco',
+  'Courier New',
+]
+
+const SHORTCUT_GROUPS = [
+  {
+    title: 'Bố cục & Khung nhìn',
+    items: [
+      { name: 'Bật/tắt thanh bên trái (Sidebar)', keys: ['Ctrl', 'B'] },
+      { name: 'Bật/tắt bảng nhật ký dưới (Terminal & Log)', keys: ['Ctrl', 'J'] },
+      { name: 'Bật/tắt bảng điều khiển phải (Run & Inspector)', keys: ['Ctrl', 'Alt', 'B'] },
+      { name: 'Chuyển sang màn hình làm việc (Workspace)', keys: ['Ctrl', 'Shift', 'W'] },
+      { name: 'Chuyển sang danh sách dự án', keys: ['Ctrl', 'Shift', 'O'] },
+    ],
+  },
+  {
+    title: 'Máy chủ & Dự án',
+    items: [
+      { name: 'Mở thư mục dự án bất kỳ', keys: ['Ctrl', 'O'] },
+      { name: 'Khởi động máy chủ phát triển (Dev Server)', keys: ['F5'] },
+      { name: 'Dừng máy chủ & giải phóng cổng', keys: ['Shift', 'F5'] },
+      { name: 'Tải lại toàn bộ cây tệp', keys: ['Ctrl', 'R'] },
+    ],
+  },
+  {
+    title: 'Canvas & Thiết kế trực quan',
+    items: [
+      { name: 'Bật / tắt chế độ Soi phần tử trực tiếp', keys: ['Phím I'] },
+      { name: 'Chế độ Kéo rê Canvas (Pan)', keys: ['Phím H', 'hoặc giữ Space'] },
+      { name: 'Phóng to Canvas', keys: ['Ctrl', '+'] },
+      { name: 'Thu nhỏ Canvas', keys: ['Ctrl', '-'] },
+      { name: 'Phóng vừa màn hình (Fit to Screen)', keys: ['Phím F'] },
+      { name: 'Hoàn tác thay đổi đệm RAM (Undo)', keys: ['Ctrl', 'Z'] },
+      { name: 'Làm lại thay đổi (Redo)', keys: ['Ctrl', 'Y'] },
+    ],
+  },
+  {
+    title: 'Hệ thống & Tiện ích',
+    items: [
+      { name: 'Mở Bảng lệnh điều khiển tập trung (Command Palette)', keys: ['Ctrl', 'K'] },
+      { name: 'Mở hộp thoại Cài đặt (Settings)', keys: ['Ctrl', ','] },
+      { name: 'Mở hướng dẫn sử dụng nhanh', keys: ['F1'] },
+    ],
+  },
+]
 
 const SettingsDialog = ({
   settings,
@@ -43,28 +117,88 @@ const SettingsDialog = ({
   projectCount,
   isDesktop,
   onUpdate,
-  onReset,
+  onResetSettings,
+  onResetAllData,
+  onClearCache,
   onOpenDataFolder,
   onClose,
 }: SettingsDialogProps) => {
   const [tab, setTab] = useState<TabId>('general')
+  const [copiedStorePath, setCopiedStorePath] = useState(false)
+  const [showDangerConfirm, setShowDangerConfirm] = useState(false)
+  const [shortcutFilter, setShortcutFilter] = useState('')
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  const toggle = (key: 'openLastProject' | 'confirmDelete' | 'showHidden' | 'autoPreview') =>
+  const toggle = (key: keyof Settings) => {
     onUpdate({ [key]: !settings[key] } as Partial<Settings>)
+  }
+
+  const handleCopyPath = async () => {
+    if (!storePath) return
+    try {
+      await navigator.clipboard.writeText(storePath)
+      setCopiedStorePath(true)
+      setTimeout(() => setCopiedStorePath(false), 2000)
+    } catch {}
+  }
+
+  const handleExportSettings = () => {
+    try {
+      const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `pixelmind-settings-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {}
+  }
+
+  const handleImportSettings = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string) as Partial<Settings>
+        if (typeof parsed === 'object' && parsed !== null) {
+          onUpdate(parsed)
+        }
+      } catch {}
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  const filteredShortcuts = SHORTCUT_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) =>
+      item.name.toLowerCase().includes(shortcutFilter.toLowerCase()) ||
+      item.keys.some((k) => k.toLowerCase().includes(shortcutFilter.toLowerCase())),
+    ),
+  })).filter((group) => group.items.length > 0)
 
   return (
     <Modal
       title="Cài đặt"
-      subtitle="Thay đổi được lưu ngay vào thư mục dữ liệu của ứng dụng."
+      subtitle="Mọi thay đổi có hiệu lực tức thì và được lưu tự động."
       icon={<SettingsIcon size={16} />}
-      width={820}
+      width={840}
       onClose={onClose}
       footer={
         <>
-          <span className="grow">
-            {isDesktop ? `Dữ liệu: ${storePath || 'đang tải…'}` : 'Chế độ trình duyệt — cài đặt lưu tạm trong localStorage.'}
+          <span className="grow" style={{ fontSize: 11, color: 'var(--text-3)' }}>
+            {isDesktop
+              ? `Tệp dữ liệu: ${storePath || 'đang tải…'}`
+              : 'Chế độ trình duyệt — cài đặt lưu tạm trong localStorage.'}
           </span>
-          <button className="btn" onClick={onReset}>
+          <button
+            className="btn"
+            onClick={onResetSettings}
+            title="Khôi phục toàn bộ cài đặt về giá trị mặc định ban đầu mà không làm mất danh sách dự án"
+          >
             <RotateCcw size={12} /> Khôi phục mặc định
           </button>
           <button className="btn primary" onClick={onClose}>
@@ -74,6 +208,7 @@ const SettingsDialog = ({
       }
     >
       <div className="pm-settings">
+        {/* Thanh chuyển Tab bên trái */}
         <div className="pm-settings__tabs">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
@@ -86,15 +221,20 @@ const SettingsDialog = ({
           ))}
         </div>
 
+        {/* Khung nội dung Tab bên phải */}
         <div className="pm-settings__pane">
+          {/* ═══════════════════════════════════════════════
+              TAB 1: CHUNG (GENERAL)
+              ═══════════════════════════════════════════════ */}
           {tab === 'general' && (
             <>
               <h3>Hành vi chung</h3>
-              <p className="pm-desc">Các tuỳ chọn áp dụng cho toàn bộ ứng dụng.</p>
+              <p className="pm-desc">Tuỳ chỉnh khởi động, xác nhận thao tác và cách lưu trữ dữ liệu.</p>
+
               <div className="pm-setting">
                 <div className="pm-setting__txt">
                   <b>Tự mở dự án gần nhất</b>
-                  <span>Khôi phục dự án bạn mở lần trước khi khởi động PixelMind.</span>
+                  <span>Tự động tải lại dự án bạn đang làm việc dở khi khởi động PixelMind.</span>
                 </div>
                 <div className="pm-setting__ctrl">
                   <button
@@ -104,10 +244,11 @@ const SettingsDialog = ({
                   />
                 </div>
               </div>
+
               <div className="pm-setting">
                 <div className="pm-setting__txt">
-                  <b>Hỏi trước khi xoá dự án</b>
-                  <span>Hiện hộp thoại xác nhận khi xoá dự án khỏi danh sách.</span>
+                  <b>Hỏi trước khi xoá dự án khỏi danh sách</b>
+                  <span>Hiển thị hộp thoại cảnh báo an toàn khi bạn bấm nút xoá dự án.</span>
                 </div>
                 <div className="pm-setting__ctrl">
                   <button
@@ -117,10 +258,11 @@ const SettingsDialog = ({
                   />
                 </div>
               </div>
+
               <div className="pm-setting">
                 <div className="pm-setting__txt">
                   <b>Hiện tệp và thư mục ẩn</b>
-                  <span>Bao gồm các mục bắt đầu bằng dấu chấm như .env, .github.</span>
+                  <span>Bao gồm các tệp/thư mục cấu hình bắt đầu bằng dấu chấm như .env, .github, .vscode.</span>
                 </div>
                 <div className="pm-setting__ctrl">
                   <button
@@ -130,10 +272,59 @@ const SettingsDialog = ({
                   />
                 </div>
               </div>
+
               <div className="pm-setting">
                 <div className="pm-setting__txt">
-                  <b>Script chạy mặc định</b>
-                  <span>Tên script dùng khi nhấn F5. Để trống sẽ tự chọn script phát triển đầu tiên.</span>
+                  <b>Tự động lưu thay đổi (Auto-Save)</b>
+                  <span>Tự động đồng bộ các chỉnh sửa từ Canvas hoặc bộ soạn thảo vào đĩa khi bạn rời trang.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <button
+                    className={`pm-switch ${settings.autoSave !== false ? 'on' : ''}`}
+                    onClick={() => toggle('autoSave')}
+                    aria-label="Tự động lưu"
+                  />
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Thu phóng cửa sổ ứng dụng (UI Zoom)</b>
+                  <span>Tăng hoặc giảm tỷ lệ giao diện toàn ứng dụng cho vừa vặn với kích thước màn hình của bạn.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <select
+                    className="pm-select"
+                    value={settings.windowZoom ?? 100}
+                    onChange={(e) => onUpdate({ windowZoom: Number(e.target.value) })}
+                  >
+                    <option value={85}>85% (Thu nhỏ)</option>
+                    <option value={90}>90%</option>
+                    <option value={100}>100% (Chuẩn)</option>
+                    <option value={110}>110%</option>
+                    <option value={120}>120% (Phóng to)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Xác nhận khi thoát lúc máy chủ đang chạy</b>
+                  <span>Cảnh báo nếu bạn đóng ứng dụng trong khi tiến trình máy chủ dev vẫn đang hoạt động.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <button
+                    className={`pm-switch ${settings.confirmQuitRunning !== false ? 'on' : ''}`}
+                    onClick={() => toggle('confirmQuitRunning')}
+                    aria-label="Xác nhận khi thoát"
+                  />
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Script chạy phát triển ưu tiên</b>
+                  <span>Tên script chạy khi bạn nhấn F5 (ví dụ: dev, start, watch). Để trống sẽ tự động dò tìm.</span>
                 </div>
                 <div className="pm-setting__ctrl">
                   <input
@@ -148,14 +339,18 @@ const SettingsDialog = ({
             </>
           )}
 
+          {/* ═══════════════════════════════════════════════
+              TAB 2: GIAO DIỆN (APPEARANCE)
+              ═══════════════════════════════════════════════ */}
           {tab === 'appearance' && (
             <>
-              <h3>Giao diện</h3>
-              <p className="pm-desc">Chọn chủ đề, màu nhấn và cỡ chữ hiển thị.</p>
+              <h3>Giao diện & Cá nhân hóa</h3>
+              <p className="pm-desc">Tuỳ biến chủ đề sáng/tối, màu sắc nhận diện thương hiệu và phông chữ làm việc.</p>
+
               <div className="pm-setting">
                 <div className="pm-setting__txt">
-                  <b>Chủ đề</b>
-                  <span>Chế độ tối phù hợp khi làm việc lâu, chế độ sáng rõ hơn khi trời sáng.</span>
+                  <b>Chủ đề màu nền</b>
+                  <span>Chế độ tối (Dark Mode), sáng (Light Mode) hoặc tự động chuyển theo Windows.</span>
                 </div>
                 <div className="pm-setting__ctrl">
                   <div className="pm-segmented">
@@ -171,34 +366,59 @@ const SettingsDialog = ({
                     >
                       Sáng
                     </button>
+                    <button
+                      className={settings.theme === 'system' ? 'on' : ''}
+                      onClick={() => onUpdate({ theme: 'system' })}
+                    >
+                      Hệ điều hành
+                    </button>
                   </div>
                 </div>
               </div>
+
               <div className="pm-setting">
                 <div className="pm-setting__txt">
-                  <b>Màu nhấn</b>
-                  <span>Áp dụng cho nút chính, mục đang chọn và điểm nhấn điều hướng.</span>
+                  <b>Màu sắc nhấn chủ đạo (Accent Color)</b>
+                  <span>Áp dụng cho các nút bấm chính, đường viền kích hoạt, huy hiệu và chỉ báo trạng thái.</span>
                 </div>
                 <div className="pm-setting__ctrl">
-                  <div className="pm-swatches">
-                    {ACCENTS.map((color) => (
+                  <div className="pm-swatches" style={{ alignItems: 'center' }}>
+                    {ACCENTS.map(({ hex, label }) => (
                       <button
-                        key={color}
-                        className={`pm-swatch ${settings.accent.toLowerCase() === color ? 'on' : ''}`}
-                        style={{ background: color }}
-                        title={color}
-                        onClick={() => onUpdate({ accent: color })}
+                        key={hex}
+                        className={`pm-swatch ${settings.accent.toLowerCase() === hex ? 'on' : ''}`}
+                        style={{ background: hex }}
+                        title={`${label} (${hex})`}
+                        onClick={() => onUpdate({ accent: hex })}
                       />
                     ))}
+                    {/* Color Picker tự do */}
+                    <label
+                      className="pm-swatch-custom"
+                      title="Chọn mã màu tùy biến bất kỳ"
+                      style={{
+                        borderColor: !ACCENTS.some((a) => a.hex === settings.accent.toLowerCase())
+                          ? settings.accent
+                          : undefined,
+                      }}
+                    >
+                      <Pipette size={11} />
+                      <input
+                        type="color"
+                        value={settings.accent}
+                        onChange={(e) => onUpdate({ accent: e.target.value })}
+                      />
+                    </label>
                   </div>
                 </div>
               </div>
+
               <div className="pm-setting">
                 <div className="pm-setting__txt">
-                  <b>Cỡ chữ giao diện</b>
-                  <span>Hiện tại: {settings.fontSize}px. Phù hợp màn hình 13–15 inch.</span>
+                  <b>Cỡ chữ giao diện chung</b>
+                  <span>Kích thước chữ tiêu chuẩn cho toàn bộ thanh công cụ, bảng điều khiển và danh sách.</span>
                 </div>
-                <div className="pm-setting__ctrl">
+                <div className="pm-setting__ctrl" style={{ gap: 8 }}>
                   <input
                     type="range"
                     min={11}
@@ -206,23 +426,155 @@ const SettingsDialog = ({
                     step={1}
                     value={settings.fontSize}
                     onChange={(e) => onUpdate({ fontSize: Number(e.target.value) })}
-                    style={{ accentColor: 'var(--accent)' }}
+                    style={{ accentColor: 'var(--accent)', width: 100 }}
+                  />
+                  <span className="pm-range-val">{settings.fontSize}px</span>
+                  {settings.fontSize !== 13 && (
+                    <button
+                      className="btn"
+                      style={{ height: 22, padding: '0 6px', fontSize: 10 }}
+                      onClick={() => onUpdate({ fontSize: 13 })}
+                      title="Đặt lại cỡ chữ mặc định 13px"
+                    >
+                      Mặc định
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Phông chữ mã nguồn & Terminal</b>
+                  <span>Phông chữ Monospace hiển thị cho trình soạn thảo mã, trình xem file và bảng dòng lệnh.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <select
+                    className="pm-select"
+                    value={settings.editorFontFamily || 'JetBrains Mono'}
+                    onChange={(e) => onUpdate({ editorFontFamily: e.target.value })}
+                  >
+                    {CODE_FONTS.map((font) => (
+                      <option key={font} value={font}>
+                        {font}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Cỡ chữ mã nguồn</b>
+                  <span>Cỡ chữ hiển thị trong tab Tệp mã nguồn và Bảng nhật ký Log.</span>
+                </div>
+                <div className="pm-setting__ctrl" style={{ gap: 8 }}>
+                  <input
+                    type="range"
+                    min={11}
+                    max={18}
+                    step={1}
+                    value={settings.editorFontSize || 13}
+                    onChange={(e) => onUpdate({ editorFontSize: Number(e.target.value) })}
+                    style={{ accentColor: 'var(--accent)', width: 100 }}
+                  />
+                  <span className="pm-range-val">{settings.editorFontSize || 13}px</span>
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Giảm hiệu ứng chuyển động (Reduced Motion)</b>
+                  <span>Tắt các hiệu ứng chuyển cảnh và trượt mượt để tăng tốc độ phản hồi tối đa cho máy tính.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <button
+                    className={`pm-switch ${settings.reducedMotion ? 'on' : ''}`}
+                    onClick={() => toggle('reducedMotion')}
+                    aria-label="Giảm hiệu ứng chuyển động"
                   />
                 </div>
               </div>
             </>
           )}
 
-          {tab === 'run' && (
+          {/* ═══════════════════════════════════════════════
+              TAB 3: CANVAS & SOI PHẦN TỬ (CANVAS & INSPECTOR)
+              ═══════════════════════════════════════════════ */}
+          {tab === 'canvas' && (
             <>
-              <h3>Chạy & xem trước</h3>
-              <p className="pm-desc">
-                PixelMind đọc đầu ra của tiến trình để tìm địa chỉ localhost và hiển thị giao diện dự án.
-              </p>
+              <h3>Trình biên tập Canvas & Soi phần tử</h3>
+              <p className="pm-desc">Tuỳ biến không gian thiết kế vô cực kiểu Figma và các đường chỉ báo định vị.</p>
+
               <div className="pm-setting">
                 <div className="pm-setting__txt">
-                  <b>Tự động mở bản xem trước</b>
-                  <span>Chuyển sang tab “Xem trước” ngay khi phát hiện địa chỉ localhost.</span>
+                  <b>Lưới chấm nền Canvas (Blueprint Grid)</b>
+                  <span>Hiển thị mạng lưới chấm toạ độ 20x20px trên nền sân khấu vô cực để dễ căn gióng bố cục.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <button
+                    className={`pm-switch ${settings.canvasGrid !== false ? 'on' : ''}`}
+                    onClick={() => toggle('canvasGrid')}
+                    aria-label="Lưới chấm nền Canvas"
+                  />
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Thước đo khoảng cách thông minh (Smart Guides)</b>
+                  <span>Tự động đo và hiển thị khoảng cách pixel giữa các thẻ khi bạn kéo thả hoặc di chuyển phần tử.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <button
+                    className={`pm-switch ${settings.smartGuides !== false ? 'on' : ''}`}
+                    onClick={() => toggle('smartGuides')}
+                    aria-label="Thước đo thông minh"
+                  />
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Viền bao định vị khi rê chuột (Hover Outline)</b>
+                  <span>Hiện viền xanh lục đứt nét bao quanh phần tử ngay khi con trỏ chuột lướt qua.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <button
+                    className={`pm-switch ${settings.hoverOutline !== false ? 'on' : ''}`}
+                    onClick={() => toggle('hoverOutline')}
+                    aria-label="Viền bao định vị"
+                  />
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Đồng bộ vị trí sang cây Phân cấp phần tử</b>
+                  <span>Khi nhấp chọn một thẻ trên Canvas, cây Layers bên trái sẽ tự động mở rộng và cuộn tới đúng dòng thẻ đó.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <button
+                    className={`pm-switch ${settings.syncCanvasToTree !== false ? 'on' : ''}`}
+                    onClick={() => toggle('syncCanvasToTree')}
+                    aria-label="Đồng bộ vị trí cây"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ═══════════════════════════════════════════════
+              TAB 4: CHẠY & XEM TRƯỚC (RUN & PREVIEW)
+              ═══════════════════════════════════════════════ */}
+          {tab === 'run' && (
+            <>
+              <h3>Chạy máy chủ & Bản xem trước</h3>
+              <p className="pm-desc">Cấu hình tiến trình dev server và môi trường phản chiếu giao diện.</p>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Tự động mở bản xem trước khi máy chủ sẵn sàng</b>
+                  <span>Tự chuyển ngay sang màn hình Canvas khi tiến trình phát hiện địa chỉ localhost hoạt động.</span>
                 </div>
                 <div className="pm-setting__ctrl">
                   <button
@@ -232,10 +584,11 @@ const SettingsDialog = ({
                   />
                 </div>
               </div>
+
               <div className="pm-setting">
                 <div className="pm-setting__txt">
                   <b>Nơi hiển thị bản xem trước</b>
-                  <span>Nhúng trong ứng dụng hoặc mở bằng trình duyệt mặc định của Windows.</span>
+                  <span>Xem trực tiếp trong Artboard nhúng của PixelMind hoặc mở bằng trình duyệt hệ thống.</span>
                 </div>
                 <div className="pm-setting__ctrl">
                   <div className="pm-segmented">
@@ -243,129 +596,250 @@ const SettingsDialog = ({
                       className={settings.previewMode === 'embedded' ? 'on' : ''}
                       onClick={() => onUpdate({ previewMode: 'embedded' })}
                     >
-                      Nhúng
+                      Nhúng trong app
                     </button>
                     <button
                       className={settings.previewMode === 'browser' ? 'on' : ''}
                       onClick={() => onUpdate({ previewMode: 'browser' })}
                     >
-                      Trình duyệt
+                      Trình duyệt ngoài
                     </button>
                   </div>
                 </div>
               </div>
-              <div className="pm-guide__card">
-                <b>Lưu ý khi chạy</b>
-                <p style={{ margin: '6px 0 0' }}>
-                  Tiến trình được chạy trong thư mục dự án bằng đúng trình quản lý gói mà dự án dùng (npm, pnpm, yarn
-                  hoặc bun). Khi thoát ứng dụng, mọi tiến trình con sẽ được dừng theo.
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Tự động làm sạch log khi chạy lại (F5)</b>
+                  <span>Xóa sạch các dòng nhật ký cũ trước khi khởi động lượt chạy mới để màn hình console luôn ngăn nắp.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <button
+                    className={`pm-switch ${settings.clearConsoleOnRun !== false ? 'on' : ''}`}
+                    onClick={() => toggle('clearConsoleOnRun')}
+                    aria-label="Tự động làm sạch log"
+                  />
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Giới hạn số dòng nhật ký lưu trong RAM</b>
+                  <span>Tránh chiếm dụng bộ nhớ khi tiến trình máy chủ in ra hàng triệu dòng log liên tục.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <select
+                    className="pm-select"
+                    value={settings.maxLogLines || 1000}
+                    onChange={(e) => onUpdate({ maxLogLines: Number(e.target.value) })}
+                  >
+                    <option value={500}>500 dòng</option>
+                    <option value={1000}>1,000 dòng (Khuyên dùng)</option>
+                    <option value={2000}>2,000 dòng</option>
+                    <option value={5000}>5,000 dòng</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pm-guide__card" style={{ marginTop: 14 }}>
+                <b style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Sparkles size={13} color="var(--accent)" /> Cơ chế cô lập & bảo vệ cổng mạng
+                </b>
+                <p style={{ margin: '6px 0 0', lineHeight: 1.6 }}>
+                  PixelMind tự động nhận diện trình quản lý gói phù hợp với dự án (npm, pnpm, yarn, bun, dotnet, composer, python, maven). Khi bạn thoát dự án hoặc đóng ứng dụng, cơ chế tiêu diệt tiến trình cấp hệ điều hành (killPort) sẽ giải phóng hoàn toàn cổng mạng để không bị lỗi xung đột cổng.
                 </p>
               </div>
             </>
           )}
 
+          {/* ═══════════════════════════════════════════════
+              TAB 5: DỮ LIỆU & BỘ NHỚ (DATA & STORAGE)
+              ═══════════════════════════════════════════════ */}
           {tab === 'data' && (
             <>
-              <h3>Dữ liệu ứng dụng</h3>
-              <p className="pm-desc">
-                Danh sách dự án và cài đặt được lưu trong một tệp JSON nhỏ, không gửi đi đâu cả.
-              </p>
+              <h3>Dữ liệu & Bộ nhớ lưu trữ</h3>
+              <p className="pm-desc">Quản lý kho tệp JSON nội bộ, sao lưu cấu hình và dọn dẹp bộ nhớ đệm.</p>
+
               <div className="pm-field" style={{ marginBottom: 12 }}>
-                <label>Tệp lưu trữ</label>
-                <input className="pm-input mono" readOnly value={storePath} />
-              </div>
-              <div className="pm-row" style={{ marginBottom: 14 }}>
-                <button className="btn" onClick={onOpenDataFolder}>
-                  <FolderOpen size={12} /> Mở thư mục dữ liệu
-                </button>
-              </div>
-              <div className="pm-kv">
-                <span className="k">Số dự án</span>
-                <span className="v">{projectCount}</span>
-              </div>
-              <div className="pm-kv">
-                <span className="k">Phiên bản dữ liệu</span>
-                <span className="v">1 (JSON)</span>
-              </div>
-              <div className="pm-setting" style={{ marginTop: 10 }}>
-                <div className="pm-setting__txt">
-                  <b>Khôi phục toàn bộ</b>
-                  <span>Xoá danh sách dự án và đưa mọi cài đặt về mặc định. Không xoá mã nguồn trên đĩa.</span>
-                </div>
-                <div className="pm-setting__ctrl">
-                  <button className="btn danger" onClick={onReset}>
-                    <RotateCcw size={12} /> Khôi phục
+                <label>Vị trí tệp cơ sở dữ liệu</label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input className="pm-input mono" readOnly value={storePath} style={{ flex: 1 }} />
+                  <button
+                    className="btn"
+                    onClick={handleCopyPath}
+                    title="Sao chép đường dẫn vào clipboard"
+                  >
+                    {copiedStorePath ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+                  </button>
+                  <button className="btn" onClick={onOpenDataFolder} title="Mở thư mục trong Windows Explorer">
+                    <FolderOpen size={12} /> Mở thư mục
                   </button>
                 </div>
+              </div>
+
+              <div className="pm-kv">
+                <span className="k">Số lượng dự án trong kho</span>
+                <span className="v">
+                  <span className="pm-settings-badge accent">{projectCount} dự án</span>
+                </span>
+              </div>
+              <div className="pm-kv">
+                <span className="k">Định dạng cơ sở dữ liệu</span>
+                <span className="v">Atomic JSON v1 (An toàn khi sập nguồn)</span>
+              </div>
+
+              <h4 style={{ margin: '16px 0 8px', fontSize: 12 }}>Sao lưu & Phục hồi Cài đặt</h4>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                <button className="btn" onClick={handleExportSettings}>
+                  <Download size={12} /> Xuất cài đặt (JSON)
+                </button>
+                <button className="btn" onClick={() => fileInputRef.current?.click()}>
+                  <Upload size={12} /> Nhập cài đặt (JSON)
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept=".json"
+                  style={{ display: 'none' }}
+                  onChange={handleImportSettings}
+                />
+              </div>
+
+              {onClearCache && (
+                <div className="pm-setting">
+                  <div className="pm-setting__txt">
+                    <b>Dọn dẹp bộ nhớ đệm Preview (Webview Cache)</b>
+                    <span>Xoá bỏ cache, cookie và local storage tạm thời của trang web preview để giải phóng RAM.</span>
+                  </div>
+                  <div className="pm-setting__ctrl">
+                    <button className="btn" onClick={onClearCache}>
+                      <RotateCcw size={12} /> Xóa bộ nhớ đệm
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* VÙNG NGUY HIỂM (DANGER ZONE) */}
+              <div className="pm-danger-zone">
+                <h4>
+                  <AlertTriangle size={14} /> Vùng nguy hiểm: Khôi phục toàn bộ
+                </h4>
+                <p>
+                  Thao tác này sẽ xoá sạch danh sách dự án và đưa mọi cài đặt của PixelMind về trạng thái ban đầu như mới cài đặt. Thao tác này <b>không xoá mã nguồn</b> trên đĩa cứng của bạn.
+                </p>
+                {!showDangerConfirm ? (
+                  <button
+                    className="btn danger"
+                    onClick={() => setShowDangerConfirm(true)}
+                  >
+                    <Trash2 size={12} /> Xoá toàn bộ dữ liệu ứng dụng…
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>
+                      Bạn có chắc chắn muốn xóa toàn bộ?
+                    </span>
+                    <button
+                      className="btn danger"
+                      onClick={() => {
+                        setShowDangerConfirm(false)
+                        onResetAllData?.()
+                      }}
+                    >
+                      Xác nhận xoá
+                    </button>
+                    <button className="btn" onClick={() => setShowDangerConfirm(false)}>
+                      Huỷ bỏ
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}
 
+          {/* ═══════════════════════════════════════════════
+              TAB 6: GIỚI THIỆU & PHÍM TẮT (ABOUT & SHORTCUTS)
+              ═══════════════════════════════════════════════ */}
           {tab === 'about' && (
             <>
               <h3>PixelMind Desktop</h3>
               <p className="pm-desc">
-                Không gian làm việc giúp mở dự án giao diện, xem mã nguồn, chạy máy chủ phát triển và theo dõi bản
-                xem trước trong cùng một cửa sổ.
+                Môi trường thiết kế trực quan và không gian làm việc tích hợp cho lập trình viên web hiện đại.
               </p>
-              <div className="pm-kv">
-                <span className="k">Phiên bản</span>
-                <span className="v">{appInfo?.appVersion ?? '0.1.0'}</span>
-              </div>
-              <div className="pm-kv">
-                <span className="k">Electron</span>
-                <span className="v">{appInfo?.electron ?? '—'}</span>
-              </div>
-              <div className="pm-kv">
-                <span className="k">Chromium</span>
-                <span className="v">{appInfo?.chrome ?? '—'}</span>
-              </div>
-              <div className="pm-kv">
-                <span className="k">Node.js</span>
-                <span className="v">{appInfo?.node ?? '—'}</span>
-              </div>
-              <div className="pm-kv">
-                <span className="k">Hệ điều hành</span>
-                <span className="v">
-                  {appInfo ? `${appInfo.platform} · ${appInfo.arch}` : '—'}
-                </span>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 14 }}>
+                <div className="pm-kv">
+                  <span className="k">Phiên bản ứng dụng</span>
+                  <span className="v">{appInfo?.appVersion ?? '0.1.0'}</span>
+                </div>
+                <div className="pm-kv">
+                  <span className="k">Electron Core</span>
+                  <span className="v">{appInfo?.electron ?? '—'}</span>
+                </div>
+                <div className="pm-kv">
+                  <span className="k">Chromium Engine</span>
+                  <span className="v">{appInfo?.chrome ?? '—'}</span>
+                </div>
+                <div className="pm-kv">
+                  <span className="k">Node.js Runtime</span>
+                  <span className="v">{appInfo?.node ?? '—'}</span>
+                </div>
+                <div className="pm-kv">
+                  <span className="k">Hệ điều hành</span>
+                  <span className="v">{appInfo ? `${appInfo.platform} (${appInfo.arch})` : '—'}</span>
+                </div>
+                <div className="pm-kv">
+                  <span className="k">Bản quyền</span>
+                  <span className="v">PixelMind Team</span>
+                </div>
               </div>
 
-              <h4 style={{ marginTop: 18, fontSize: 12 }}>Phím tắt</h4>
-              <table className="pm-shortcuts">
-                <tbody>
-                  <tr>
-                    <td>Mở thư mục dự án</td>
-                    <td>
-                      <span className="pm-kbd">Ctrl</span> <span className="pm-kbd">O</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td>Chạy dự án</td>
-                    <td>
-                      <span className="pm-kbd">F5</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td>Dừng tiến trình</td>
-                    <td>
-                      <span className="pm-kbd">Shift</span> <span className="pm-kbd">F5</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td>Bảng lệnh</td>
-                    <td>
-                      <span className="pm-kbd">Ctrl</span> <span className="pm-kbd">K</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td>Cài đặt</td>
-                    <td>
-                      <span className="pm-kbd">Ctrl</span> <span className="pm-kbd">,</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              {/* Tra cứu phím tắt */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, marginBottom: 8 }}>
+                <h4 style={{ fontSize: 12, margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Keyboard size={13} /> Bảng tra cứu phím tắt toàn năng
+                </h4>
+              </div>
+
+              <div className="pm-shortcuts-search">
+                <Search size={13} style={{ color: 'var(--text-3)' }} />
+                <input
+                  type="text"
+                  placeholder="Tìm phím tắt (Ctrl, F5, Canvas, Soi...)..."
+                  value={shortcutFilter}
+                  onChange={(e) => setShortcutFilter(e.target.value)}
+                />
+                {shortcutFilter && (
+                  <button
+                    style={{ fontSize: 11, color: 'var(--text-3)', cursor: 'pointer' }}
+                    onClick={() => setShortcutFilter('')}
+                  >
+                    Xoá
+                  </button>
+                )}
+              </div>
+
+              {filteredShortcuts.map((group) => (
+                <div key={group.title} className="pm-shortcuts-group">
+                  <h5>{group.title}</h5>
+                  <table className="pm-shortcuts" style={{ width: '100%' }}>
+                    <tbody>
+                      {group.items.map((item) => (
+                        <tr key={item.name}>
+                          <td style={{ width: '60%' }}>{item.name}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            {item.keys.map((k) => (
+                              <span key={k} className="pm-kbd" style={{ marginLeft: 3 }}>
+                                {k}
+                              </span>
+                            ))}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
             </>
           )}
         </div>

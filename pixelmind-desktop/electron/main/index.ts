@@ -10,7 +10,7 @@ import {
   generateTailwindTokensConfig,
   parseVariablesCss,
 } from '../../shared/designTokens'
-import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetStore, storeFilePath } from './store'
+import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetSettings, resetStore, storeFilePath } from './store'
 import {
   addDevScriptToPkg,
   createIndexHtmlFile,
@@ -317,6 +317,18 @@ ipcMain.handle('store:update-settings', async (_e, patch: Partial<Settings>): Pr
   updateSettings(patch),
 )
 
+ipcMain.handle('store:reset-settings', async (): Promise<Settings> => resetSettings())
+
+ipcMain.handle('system:clear-cache', async (): Promise<boolean> => {
+  try {
+    await session.defaultSession.clearCache()
+    await session.defaultSession.clearStorageData()
+    return true
+  } catch {
+    return false
+  }
+})
+
 ipcMain.handle('store:reset', async (): Promise<StoreData> => {
   runner.stopAll()
   return resetStore()
@@ -482,6 +494,25 @@ ipcMain.handle('project:add-page', async (_e, id: string, page: Omit<ProjectPage
     await appendActivity(id, {
       actor: 'bạn',
       action: `Thêm trang ${page.route} — ${page.title}`,
+      kind: 'người',
+      status: 'ok',
+    })
+  }
+  return updated
+})
+
+ipcMain.handle('project:update-page', async (_e, id: string, page: ProjectPage) => {
+  const updated = await patchProject(id, (project) => ({
+    ...project,
+    meta: {
+      ...project.meta,
+      pages: project.meta.pages.map((p) => (p.id === page.id ? page : p)),
+    },
+  }))
+  if (updated) {
+    await appendActivity(id, {
+      actor: 'bạn',
+      action: `Cập nhật trang ${page.route} — ${page.title}`,
       kind: 'người',
       status: 'ok',
     })
@@ -1520,6 +1551,8 @@ function getInspectorScript(isActive: boolean) {
     }
     reportUrl();
     setTimeout(sendDomTree, 200);
+
+    // Bắt điều hướng popstate, hashchange, load
     window.addEventListener('popstate', function() {
       reportUrl();
       setTimeout(sendDomTree, 150);
@@ -1532,6 +1565,38 @@ function getInspectorScript(isActive: boolean) {
       reportUrl();
       setTimeout(sendDomTree, 150);
     });
+
+    // Bắt sự kiện click vào các thẻ liên kết <a> trên thanh menu/navbar
+    window.addEventListener('click', function(e) {
+      var a = e.target && e.target.closest ? e.target.closest('a') : null;
+      if (a && a.href && !window.__PM_INSPECT_ACTIVE) {
+        setTimeout(reportUrl, 80);
+        setTimeout(reportUrl, 300);
+        setTimeout(sendDomTree, 350);
+      }
+    }, false);
+
+    // Hook SPA pushState/replaceState
+    try {
+      var origPush = history.pushState;
+      if (origPush) {
+        history.pushState = function() {
+          var res = origPush.apply(this, arguments);
+          reportUrl();
+          setTimeout(sendDomTree, 150);
+          return res;
+        };
+      }
+      var origReplace = history.replaceState;
+      if (origReplace) {
+        history.replaceState = function() {
+          var res = origReplace.apply(this, arguments);
+          reportUrl();
+          setTimeout(sendDomTree, 150);
+          return res;
+        };
+      }
+    } catch(err) {}
   })();
   `;
 }

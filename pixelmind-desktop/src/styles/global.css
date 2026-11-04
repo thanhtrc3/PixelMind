@@ -36,6 +36,20 @@ html, body, #root {
 ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); background-clip: content-box; }
 ::-webkit-scrollbar-corner { background: transparent; }
 
+/* ── Accessibility & Performance: Giảm chuyển động ── */
+:root[data-reduced-motion="true"] *,
+:root[data-reduced-motion="true"] *::before,
+:root[data-reduced-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+/* ── Canvas Preferences: Tắt lưới nền ── */
+:root[data-canvas-grid="false"] .canvas__stage {
+  background-image: none !important;
+}
+
 /* ── Selection ─────────────────────────────────── */
 ::selection { background: var(--accent-muted-2); color: var(--text); }
 
@@ -84,10 +98,11 @@ kbd { font-family: var(--font-mono); }
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 29px;
-  padding: 0 10px;
+  height: calc(29px * var(--font-scale, 1));
+  min-height: 26px;
+  padding: 0 calc(10px * var(--font-scale, 1));
   border-radius: var(--r-sm);
-  font-size: var(--font-sm);
+  font-size: calc(12px * var(--font-scale, 1));
   font-weight: 500;
   color: var(--text);
   border: 1px solid var(--line-2);

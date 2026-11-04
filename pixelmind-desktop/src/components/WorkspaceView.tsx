@@ -19,6 +19,7 @@ import type {
   FileContent,
   FileNode,
   ProjectDiagnosis,
+  ProjectPage,
   ProjectRecord,
   ProjectStat,
   RunLog,
@@ -78,10 +79,19 @@ interface WorkspaceViewProps {
   onSelectTab: (path: string) => void
   isSidebarOpen?: boolean
   onToggleSidebar?: () => void
+  isBottomPanelOpen?: boolean
+  onToggleBottomPanel?: () => void
+  isRightPanelOpen?: boolean
+  onToggleRightPanel?: () => void
   sidebarTab?: SidebarTab
   onSidebarTabChange?: (tab: SidebarTab) => void
   onOpenPage?: (route: string) => void
   onAddPage?: () => void
+  onEditPage?: (page: ProjectPage) => void
+  onDeletePage?: (page: ProjectPage) => void
+  onOpenParamChooser?: (page: ProjectPage) => void
+  currentRoute?: string
+  onUrlChange?: (url: string, pathname: string) => void
   onOpenTokens?: () => void
   onShowToast?: (kind: 'ok' | 'err' | 'info', text: string) => void
 }
@@ -130,10 +140,19 @@ const WorkspaceView = ({
   onSelectTab,
   isSidebarOpen = true,
   onToggleSidebar,
+  isBottomPanelOpen = true,
+  onToggleBottomPanel,
+  isRightPanelOpen = true,
+  onToggleRightPanel,
   sidebarTab = 'files',
   onSidebarTabChange,
   onOpenPage,
   onAddPage,
+  onEditPage,
+  onDeletePage,
+  onOpenParamChooser,
+  currentRoute,
+  onUrlChange,
   onOpenTokens,
   onShowToast,
 }: WorkspaceViewProps) => {
@@ -160,10 +179,24 @@ const WorkspaceView = ({
       const target = e.target as HTMLElement
       const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
 
-      // Ctrl + B: Bật / Tắt Sidebar
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+      // Ctrl + B: Bật / Tắt Sidebar Trái
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b' && !e.altKey && !e.shiftKey) {
         e.preventDefault()
         onToggleSidebar?.()
+        return
+      }
+
+      // Ctrl + J: Bật / Tắt Bottom Panel (Nhật ký / Terminal)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'j') {
+        e.preventDefault()
+        onToggleBottomPanel?.()
+        return
+      }
+
+      // Ctrl + Alt + B hoặc Ctrl + Shift + R: Bật / Tắt Right Panel
+      if ((e.ctrlKey || e.metaKey) && ((e.altKey && e.key.toLowerCase() === 'b') || (e.shiftKey && e.key.toLowerCase() === 'r'))) {
+        e.preventDefault()
+        onToggleRightPanel?.()
         return
       }
 
@@ -275,6 +308,10 @@ const WorkspaceView = ({
                   onCloseSidebar={() => onToggleSidebar?.()}
                   onOpenPage={onOpenPage ?? (() => {})}
                   onAddPage={onAddPage ?? (() => {})}
+                  onEditPage={onEditPage}
+                  onDeletePage={onDeletePage}
+                  onOpenParamChooser={onOpenParamChooser}
+                  currentRoute={currentRoute}
                   onOpenTokens={onOpenTokens ?? (() => {})}
                   branch={branch}
                   onShowToast={onShowToast ?? (() => {})}
@@ -445,6 +482,7 @@ const WorkspaceView = ({
                       onInstall={onInstall}
                       onCreateIndexHtml={onCreateIndexHtml}
                       onAddDevScript={onAddDevScript}
+                      onUrlChange={onUrlChange}
                     />
                   ) : (
                     <FileViewer
@@ -458,59 +496,61 @@ const WorkspaceView = ({
               </Panel>
 
               {/* Dải phân cách kéo co giãn dọc */}
-              <Separator className="pm-resize-horizontal" />
+              {isBottomPanelOpen && <Separator className="pm-resize-horizontal" />}
 
               {/* Panel Nhật ký chạy ở dưới cùng */}
-              <Panel
-                panelRef={logPanelRef}
-                defaultSize="24%"
-                minSize="36px"
-                maxSize="75%"
-                onResize={() => {
-                  if (logPanelRef.current) {
-                    try {
-                      const px = logPanelRef.current.getSize().inPixels
-                      setIsLogCollapsed(px <= 45)
-                    } catch {}
-                  }
-                }}
-              >
-                <LogPanel
-                  logs={logs}
-                  run={run}
-                  installing={installing}
-                  onInstall={onInstall}
-                  onRetry={onRun}
-                  onOpenFile={(target) => {
-                    const match = tabs.find((t) => t.toLowerCase().endsWith(target.toLowerCase()))
-                    if (match) {
-                      onSelectTab(match)
-                    } else if (project) {
-                      const full = `${project.path}/${target}`.replace(/\\/g, '/')
-                      onSelectTab(full)
-                    }
-                  }}
-                  onClear={onClearLogs}
-                  isCollapsed={isLogCollapsed}
-                  onToggleCollapse={() => {
+              {isBottomPanelOpen && (
+                <Panel
+                  panelRef={logPanelRef}
+                  defaultSize="24%"
+                  minSize="36px"
+                  maxSize="75%"
+                  onResize={() => {
                     if (logPanelRef.current) {
-                      if (isLogCollapsed) {
-                        logPanelRef.current.resize('24%')
-                        setIsLogCollapsed(false)
-                      } else {
-                        logPanelRef.current.resize('36px')
-                        setIsLogCollapsed(true)
-                      }
+                      try {
+                        const px = logPanelRef.current.getSize().inPixels
+                        setIsLogCollapsed(px <= 45)
+                      } catch {}
                     }
                   }}
-                />
-              </Panel>
+                >
+                  <LogPanel
+                    logs={logs}
+                    run={run}
+                    installing={installing}
+                    onInstall={onInstall}
+                    onRetry={onRun}
+                    onOpenFile={(target) => {
+                      const match = tabs.find((t) => t.toLowerCase().endsWith(target.toLowerCase()))
+                      if (match) {
+                        onSelectTab(match)
+                      } else if (project) {
+                        const full = `${project.path}/${target}`.replace(/\\/g, '/')
+                        onSelectTab(full)
+                      }
+                    }}
+                    onClear={onClearLogs}
+                    isCollapsed={isLogCollapsed}
+                    onToggleCollapse={() => {
+                      if (logPanelRef.current) {
+                        if (isLogCollapsed) {
+                          logPanelRef.current.resize('24%')
+                          setIsLogCollapsed(false)
+                        } else {
+                          logPanelRef.current.resize('36px')
+                          setIsLogCollapsed(true)
+                        }
+                      }
+                    }}
+                  />
+                </Panel>
+              )}
             </Group>
           </div>
         </Panel>
 
-        {/* ── RunSidebar (Ẩn khi ở chế độ Focus Canvas) ── */}
-        {!focusCanvas && (
+        {/* ── RunSidebar (Ẩn khi ở chế độ Focus Canvas hoặc khi đóng Right Panel) ── */}
+        {!focusCanvas && isRightPanelOpen && (
           <>
             <Separator className="pm-resize" />
             <Panel defaultSize="300px" minSize="264px" maxSize="460px" collapsible>

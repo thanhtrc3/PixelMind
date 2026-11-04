@@ -47,6 +47,7 @@ import type { SidebarTab } from './components/WorkspaceSidebar'
 import ProjectView from './components/ProjectView'
 import ProjectDetail from './components/ProjectDetail'
 import AddPageDialog from './components/AddPageDialog'
+import PageParamDialog from './components/PageParamDialog'
 import WorkspaceView from './components/WorkspaceView'
 import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
@@ -81,6 +82,8 @@ const App = () => {
   const [projectId, setProjectId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(true)
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('files')
 
   const [tree, setTree] = useState<FileNode[]>([])
@@ -108,6 +111,8 @@ const App = () => {
   const [diagnosisOpen, setDiagnosisOpen] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [addPageOpen, setAddPageOpen] = useState(false)
+  const [pageToEdit, setPageToEdit] = useState<ProjectPage | null>(null)
+  const [paramChooserPage, setParamChooserPage] = useState<ProjectPage | null>(null)
   const [pendingDelete, setPendingDelete] = useState<ProjectRecord | null>(null)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
@@ -130,12 +135,51 @@ const App = () => {
   settingsRef.current = settings
   const lastUrlRef = useRef<string | null>(null)
 
-  /* ── Áp dụng chủ đề / màu nhấn / cỡ chữ ───────────────── */
+  /* ── Áp dụng chủ đề / màu nhấn / cỡ chữ / thu phóng ───────────────── */
 
   useEffect(() => {
-    document.documentElement.dataset.theme = settings.theme
-    applyThemeVariables(settings.accent, settings.fontSize)
-  }, [settings.theme, settings.accent, settings.fontSize])
+    const isDark =
+      settings.theme === 'system'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        : settings.theme === 'dark'
+    document.documentElement.dataset.theme = isDark ? 'dark' : 'light'
+
+    applyThemeVariables(
+      settings.accent,
+      settings.fontSize,
+      settings.editorFontFamily,
+      settings.editorFontSize,
+      settings.reducedMotion,
+      settings.canvasGrid,
+    )
+  }, [
+    settings.theme,
+    settings.accent,
+    settings.fontSize,
+    settings.editorFontFamily,
+    settings.editorFontSize,
+    settings.reducedMotion,
+    settings.canvasGrid,
+  ])
+
+  useEffect(() => {
+    if (settings.theme !== 'system') return
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = (e: MediaQueryListEvent) => {
+      document.documentElement.dataset.theme = e.matches ? 'dark' : 'light'
+    }
+    media.addEventListener('change', handler)
+    return () => media.removeEventListener('change', handler)
+  }, [settings.theme])
+
+  useEffect(() => {
+    const factor = (settings.windowZoom ?? 100) / 100
+    try {
+      api.window?.setZoomFactor?.(factor)
+    } catch {
+      document.documentElement.style.zoom = String(factor)
+    }
+  }, [settings.windowZoom])
 
   const updateSettings = async (patch: Partial<Settings>) => {
     setStoreData((prev) => ({ ...prev, settings: { ...prev.settings, ...patch } }))
@@ -145,6 +189,27 @@ const App = () => {
       if (patch.showHidden !== undefined && project) await loadTree(project, patch.showHidden)
     } catch (error) {
       showToast('err', `Không lưu được cài đặt: ${errorMessage(error)}`)
+    }
+  }
+
+  const resetSettingsOnly = async () => {
+    try {
+      const res = api.store.resetSettings
+        ? await api.store.resetSettings()
+        : await api.store.updateSettings(DEFAULT_SETTINGS)
+      setStoreData((prev) => ({ ...prev, settings: res }))
+      showToast('ok', 'Đã khôi phục toàn bộ cài đặt về mặc định (danh sách dự án vẫn được giữ nguyên).')
+    } catch (err) {
+      showToast('err', `Lỗi khôi phục cài đặt: ${errorMessage(err)}`)
+    }
+  }
+
+  const handleClearCache = async () => {
+    try {
+      await api.system.clearCache?.()
+      showToast('ok', 'Đã xóa sạch bộ nhớ đệm và dữ liệu tạm của bản xem trước.')
+    } catch (err) {
+      showToast('err', `Không thể xóa bộ nhớ đệm: ${errorMessage(err)}`)
     }
   }
 
@@ -339,6 +404,50 @@ const App = () => {
     } catch (error) {
       showToast('err', `Không xoá được trang: ${errorMessage(error)}`)
     }
+  }
+
+  const updatePage = async (page: ProjectPage) => {
+    if (!project) return
+    try {
+      const updated = await api.projects.updatePage(project.id, page)
+      mergeProject(updated)
+      await refreshStoreProjects()
+      setAddPageOpen(false)
+      setPageToEdit(null)
+      showToast('ok', `Đã cập nhật trang ${page.route}.`)
+    } catch (error) {
+      showToast('err', `Không cập nhật được trang: ${errorMessage(error)}`)
+    }
+  }
+
+  const handleDeletePage = (page: ProjectPage) => {
+    if (!project) return
+    const ok = window.confirm(`Bạn có chắc muốn xoá trang "${page.title}" (${page.route}) khỏi danh sách dự án?`)
+    if (ok) {
+      void removePage(page.id)
+    }
+  }
+
+  const handleEditPage = (page: ProjectPage) => {
+    setPageToEdit(page)
+    setAddPageOpen(true)
+  }
+
+  const handleUrlChange = (newUrl: string, pathname: string) => {
+    if (pathname && pathname !== targetRouteRef.current) {
+      setTargetRoute(pathname)
+      targetRouteRef.current = pathname
+    }
+    if (newUrl && newUrl !== previewUrl) {
+      setPreviewUrl(newUrl)
+    }
+  }
+
+  const handleUpdatePageParams = async (pageId: string, params: string[]) => {
+    if (!project) return
+    const target = project.meta.pages.find((p) => p.id === pageId)
+    if (!target) return
+    await updatePage({ ...target, sampleParams: params })
   }
 
   const refreshStoreProjects = async () => {
@@ -557,7 +666,9 @@ const App = () => {
         ? await api.run.startCommand(project.id, custom)
         : await api.run.start(project.id, effectiveScript)
       setRun(state)
-      setLogs([])
+      if (settingsRef.current.clearConsoleOnRun ?? true) {
+        setLogs([])
+      }
       lastUrlRef.current = null
       setActiveTab('preview')
       showToast('ok', `Đang chạy ${useCustom ? `“${custom}”` : `“${effectiveScript}”`} cho ${project.name}`)
@@ -657,7 +768,8 @@ const App = () => {
 
   useEffect(() => {
     const offLog = api.run.onLog((log) => {
-      setLogs((prev) => [...prev.slice(-4000), log])
+      const maxLines = settingsRef.current.maxLogLines || 1000
+      setLogs((prev) => [...prev.slice(-(maxLines - 1)), log])
     })
     const offState = api.run.onState((state) => {
       setRun(state)
@@ -694,6 +806,7 @@ const App = () => {
         if (current.previewMode === 'browser') {
           void api.system.openExternal(fullUrl)
         } else if (current.autoPreview) {
+          setView('workspace')
           setActiveTab('preview')
         }
       }
@@ -1139,6 +1252,10 @@ const App = () => {
         onTokens={() => setDialog('tokens')}
         isSidebarOpen={isSidebarOpen}
         onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
+        isBottomPanelOpen={isBottomPanelOpen}
+        onToggleBottomPanel={() => setIsBottomPanelOpen((v) => !v)}
+        isRightPanelOpen={isRightPanelOpen}
+        onToggleRightPanel={() => setIsRightPanelOpen((v) => !v)}
       />
 
       <div className="pm-body">
@@ -1169,7 +1286,10 @@ const App = () => {
               onWorkspace={() => setView('workspace')}
               onOpenPage={handleOpenPage}
               onRefresh={() => void refreshProject()}
-              onAddPage={() => setAddPageOpen(true)}
+              onAddPage={() => {
+                setPageToEdit(null)
+                setAddPageOpen(true)
+              }}
               onRemovePage={(pageId) => void removePage(pageId)}
               onReveal={() => void api.fs.openPath(project.path)}
               onOpenLog={() => {
@@ -1227,10 +1347,22 @@ const App = () => {
               onSelectTab={selectTab}
               isSidebarOpen={isSidebarOpen}
               onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
+              isBottomPanelOpen={isBottomPanelOpen}
+              onToggleBottomPanel={() => setIsBottomPanelOpen((v) => !v)}
+              isRightPanelOpen={isRightPanelOpen}
+              onToggleRightPanel={() => setIsRightPanelOpen((v) => !v)}
               sidebarTab={sidebarTab}
               onSidebarTabChange={setSidebarTab}
               onOpenPage={handleOpenPage}
-              onAddPage={() => setAddPageOpen(true)}
+              onAddPage={() => {
+                setPageToEdit(null)
+                setAddPageOpen(true)
+              }}
+              onEditPage={handleEditPage}
+              onDeletePage={handleDeletePage}
+              onOpenParamChooser={(p) => setParamChooserPage(p)}
+              currentRoute={targetRoute}
+              onUrlChange={handleUrlChange}
               onOpenTokens={() => setDialog('tokens')}
               onShowToast={showToast}
             />
@@ -1255,7 +1387,8 @@ const App = () => {
           projectCount={storeData.projects.length}
           isDesktop={isDesktop}
           onUpdate={(patch) => void updateSettings(patch)}
-          onReset={() => {
+          onResetSettings={resetSettingsOnly}
+          onResetAllData={() => {
             void (async () => {
               if (api.run?.stopAll) {
                 await api.run.stopAll()
@@ -1269,9 +1402,10 @@ const App = () => {
               setOpenPaths([])
               setRun(null)
               setLogs([])
-              showToast('ok', 'Đã khôi phục cài đặt mặc định.')
+              showToast('ok', 'Đã xóa toàn bộ dữ liệu và đưa PixelMind về trạng thái mới cài đặt.')
             })()
           }}
+          onClearCache={handleClearCache}
           onOpenDataFolder={() => void api.store.path().then((path) => api.fs.openPath(path))}
           onClose={() => setDialog(null)}
         />
@@ -1305,8 +1439,26 @@ const App = () => {
       {addPageOpen && project && (
         <AddPageDialog
           projectName={project.name}
+          pageToEdit={pageToEdit}
+          existingPages={project.meta.pages}
           onAdd={(page) => void addPage(page)}
-          onClose={() => setAddPageOpen(false)}
+          onUpdate={(page) => void updatePage(page)}
+          onClose={() => {
+            setAddPageOpen(false)
+            setPageToEdit(null)
+          }}
+        />
+      )}
+
+      {paramChooserPage && (
+        <PageParamDialog
+          page={paramChooserPage}
+          onSelectRoute={(fullRoute) => {
+            handleOpenPage(fullRoute)
+            setParamChooserPage(null)
+          }}
+          onClose={() => setParamChooserPage(null)}
+          onUpdateParams={(pageId, params) => void handleUpdatePageParams(pageId, params)}
         />
       )}
 

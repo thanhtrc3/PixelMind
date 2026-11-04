@@ -203,3 +203,60 @@ HIỆN TẠI (Chuẩn Modern Desktop App như VS Code / Figma / Cursor):
    - **Khởi động dự án an toàn**: Hàm `launch` tự động kiểm tra và tiêu diệt các phiên chạy cũ của cùng một dự án trước khi sinh ra tiến trình mới, triệt tiêu hoàn toàn lỗi `EADDRINUSE` hoặc `ERR_CONNECTION_REFUSED`.
 
 
+
+8. **Xóa Trang, Liên Kết Nhanh Từ Navbar Đang Chạy & Đồng Bộ Hai Chiều URL Canvas**:
+   - **Xóa trang linh hoạt**: Thêm nút Thùng rác (Xóa trang) với hộp thoại xác nhận an toàn, hỗ trợ khôi phục hoặc xóa sạch trang khỏi dự án.
+   - **Liên kết nhanh từ Navbar**: Hệ thống tự động soi các thẻ `<a href>` trong Navbar của trang đang chạy và hiển thị danh sách nút bấm 1-click để liên kết thẳng tới các route thực tế.
+   - **Đồng bộ hai chiều URL trên Canvas**: Khắc phục triệt để lỗi người dùng nhấp chuyển trang trong website nhưng thanh URL phía trên không đổi. Giờ đây URL phản hồi tức thì theo từng cú click điều hướng.
+
+9. **Hộp Thoại Tham Số Trang Động (`PageParamDialog`) Cho Các Route `/Product/Delete/:id`**:
+   - Với các trang quản trị hoặc chi tiết cần ID (như `/Product/Delete`, `/Product/Display`, `/Product/Update`), hệ thống không cố mở trang rỗng mà tự động bật popup cho phép chọn ID mẫu (`/Product/Delete/1`, `/2`...) hoặc tự điền ID tùy ý.
+
+10. **Gợi Ý Thông Minh & Xếp Chồng Cây Thư Mục Route Trong Hộp Thoại Thêm/Sửa Trang (`AddPageDialog`)**:
+   - Gợi ý phân cấp theo từng tầng dấu gạch chéo: gõ `/` gợi ý các trang cấp 1, gõ `/Product/` gợi ý các action con cấp 2.
+   - Cung cấp ô tìm kiếm tức thì và danh sách cây xếp chồng gọn gàng, trực quan.
+
+11. **Mở Rộng Tương Thích Toàn Diện Đa Loại Hình Dự Án Thông Dụng (Universal Framework & Project Support)**:
+   - Tự động nhận diện và hỗ trợ trơn tru mọi loại hình dự án web: React + Vite, Next.js, Vue 3, Nuxt, SvelteKit, Angular, Astro, ASP.NET Core MVC (.NET 8/7/6), PHP (Laravel, WordPress, PHP thuần), Python (Django, Flask, FastAPI), Java Spring Boot, Go, Rust, và Web HTML5/CSS/JS tĩnh tích hợp sẵn máy chủ HTTP nội bộ.
+
+12. **Cấu Trúc Cây Phân Cấp Route Chuẩn Theo Dấu Gạch Chéo (1/ là Tầng 1, 2// là Tầng 2, cứ thế mà tính)**:
+   - **Phân tầng tuyệt đối theo dấu gạch chéo**: Tầng 1 (`/`, `/Home`, `/Product`), Tầng 2 (`/Product/Add`, `/Product/Delete`, `/Home/Privacy`), Tầng 3 (`/Product/Delete/1`...).
+   - Hỗ trợ nút gập/mở `[▼]`, huy hiệu số trang con, và tính năng tìm kiếm tự động bung nhánh khớp.
+
+13. **Thiết Kế Lại Toàn Diện Thông Báo HUD Trên Canvas (Floating Pill Toast Chuẩn Figma / Webflow)**:
+   - Chuyển thông báo Toast thành dạng viên thuốc nổi Glassmorphism sang trọng ở giữa cạnh trên Canvas (`position: absolute; top: 50px; left: 50%`), không làm xô lệch thanh công cụ.
+   - Chuẩn hóa ngôn ngữ lịch thiệp, tinh tế: "Đã bật chế độ Soi phần tử" kèm huy hiệu phím tắt `<kbd>Phím I</kbd>`.
+
+14. **Chuyển Đổi Bộ 3 Nút Điều Khiển Bố Cục Panels Sang Bên Phải TopBar Cạnh Cài Đặt (Chuẩn VS Code / Modern IDE)**:
+   - **Xóa bỏ nút lẻ ở bên trái**: Đã loại bỏ hoàn toàn nút bật/tắt đơn lẻ `[| ]` ở góc trái TopBar.
+   - **Tích hợp cụm 3 nút Bố cục (Layout Controls: Trái, Dưới, Phải)**: Đặt tại góc phải TopBar ngay cạnh nút Cài đặt, phân tách bằng đường ngăn mỏng tinh tế (`pm-topbar-divider`).
+   - Thiết kế SVG sắc nét với hiệu ứng đổ màu khi mở panel (Trái: Sidebar `Ctrl+B`, Dưới: Nhật ký máy chủ `Ctrl+J`, Phải: Bảng điều khiển `Ctrl+Alt+B` / `Ctrl+Shift+R`).
+   - Cho phép thu gọn cả 3 panel để mở rộng không gian thiết kế Canvas 100% cực kỳ thoáng đãng.
+
+15. **Nâng Cấp Toàn Diện Hộp Thoại Cài Đặt (Settings Dialog 2.0 Chuẩn Modern IDE / Visual Web Builder)**:
+   - **Khắc phục lỗi nguy hiểm của nút 'Khôi phục mặc định'**:
+     - Trước đây, nút "Khôi phục mặc định" ở chân trang gọi `api.store.reset()`, vô tình xóa sạch toàn bộ danh sách dự án của người dùng.
+     - Đã tách riêng thành `onResetSettings` (chỉ đưa các tùy chọn cài đặt về mặc định, giữ nguyên vẹn 100% dự án) và chuyển tính năng xóa toàn bộ sang "Vùng nguy hiểm" (Danger Zone) trong tab Dữ liệu với cơ chế xác nhận 2 bước.
+   - **Tổ chức 6 Tab chức năng trực quan & chuyên nghiệp**:
+     1. **Chung (General)**: Tự mở dự án gần nhất, Hỏi trước khi xoá dự án, Hiện tệp & thư mục ẩn, Tự động lưu thay đổi (Auto-Save), Thu phóng ứng dụng (UI Zoom: 85% - 120%), Xác nhận khi thoát lúc server đang chạy, Script chạy phát triển ưu tiên.
+     2. **Giao diện (Appearance)**: Chủ đề 3 chế độ (Tối / Sáng / Tự động theo Hệ điều hành), 8 mẫu màu nhấn chủ đạo + Bộ chọn màu Color Picker tự do (`<input type="color">`), Cỡ chữ giao diện slider (kèm nút Đặt lại 13px), Phông chữ mã nguồn Monospace (JetBrains Mono, Fira Code, Cascadia Code...), Cỡ chữ mã nguồn, Chế độ giảm chuyển động (Reduced Motion).
+     3. **Canvas & Soi (Canvas & Inspector)**: Bật/tắt lưới chấm toạ độ nền Canvas (Blueprint Grid Dots), Thước đo khoảng cách thông minh (Smart Guides px), Viền bao định vị khi rê chuột (Hover Outline), Tự động đồng bộ vị trí chọn trên Canvas sang cây Phân cấp phần tử (Layers Tree).
+     4. **Chạy & xem trước (Run & Preview)**: Tự động chuyển xem trước khi server sẵn sàng, Chế độ xem trước (Nhúng app / Trình duyệt ngoài), Tự động xóa log khi chạy lại (F5), Giới hạn số dòng nhật ký RAM (500 - 5000 dòng).
+     5. **Dữ liệu & Bộ nhớ (Data & Storage)**: Đường dẫn cơ sở dữ liệu kèm nút Copy và Mở thư mục Windows Explorer, Sao lưu cài đặt ra file JSON (Export), Nhập cài đặt từ file JSON (Import), Dọn dẹp bộ nhớ đệm Preview (clearCache), Vùng nguy hiểm khôi phục toàn bộ.
+     6. **Giới thiệu & Phím tắt (About & Shortcuts)**: Thông số môi trường hệ thống (Electron, Chromium, Node.js, OS), Ô tìm kiếm phím tắt thời gian thực, Bảng tra cứu phím tắt toàn năng phân loại theo 4 nhóm (Bố cục, Máy chủ, Canvas, Tiện ích).
+
+16. **Khắc Phục Triệt Để Hệ Thống Thu Phóng Cỡ Chữ (Universal Dynamic Font Scaling Engine)**:
+   - **Nguyên nhân lỗi trước đây**:
+     - Trong CSS, các tiêu đề, mô tả, nhãn switch, tab, nút bấm, menu và bảng phím tắt đều bị viết cứng bằng giá trị pixel tĩnh (`font-size: 11px;`, `12px;`, `14px;`...).
+     - Do đó khi người dùng kéo thanh trượt từ 11px lên 16px, chỉ có đúng một huy hiệu nhỏ chứa số `16px` thay đổi, toàn bộ chữ trong hộp thoại và giao diện vẫn giữ nguyên kích thước cũ.
+   - **Cơ chế tỉ lệ động toàn diện (`--font-scale` & Root Rem Scaling)**:
+     - Tính toán tỉ lệ co giãn động `scale = fontSize / 13` (Chuẩn 13px = 1.0, 11px = 0.846x, 16px = 1.231x - chênh lệch tới 45.5% kích thước).
+     - Gắn trực tiếp `root.style.fontSize = (scale * 16px)` để tự động co giãn toàn bộ các đơn vị `rem` trong `variables.css`.
+     - Chuyển đổi toàn bộ các phần tử trong hộp thoại Cài đặt (tiêu đề h2, h3, mô tả, nhãn in đậm, chữ mờ, nút bấm, dropdown select, bảng phím tắt), thanh TopBar (nút run, bảng lệnh, menubar) và Sidebar (cây tệp, phân cấp layers, danh sách trang) sang công thức tỉ lệ động `font-size: calc(XXpx * var(--font-scale, 1))`.
+     - Giờ đây khi kéo thanh trượt từ 11px đến 16px, **toàn bộ giao diện và hộp thoại co giãn to nhỏ tức thì một cách mượt mà và trực quan 100%**.
+
+17. **Cập Nhật Biểu Tượng Nút Soi Phần Tử Thành Cây Bút Chì Đặc (Chuẩn Ảnh 2 / Bootstrap bi-pencil-fill)**:
+   - **Thay đổi icon nút 'Soi phần tử'**:
+     - Thay thế icon thẻ mã `</>` (`Code2`) trước đây bằng biểu tượng cây bút chì tô đặc `PencilFillIcon` nghiêng 45 độ chuẩn xác theo Ảnh 2 (`bi-pencil-fill`).
+     - Tích hợp nét vẽ tinh xảo với ngòi bút chì, thân bút có khía phân đoạn và phần tẩy trên đỉnh.
+     - Đồng bộ màu sắc tự động với trạng thái kích hoạt (màu trắng khi đang bật soi, màu chữ hệ thống khi tắt).

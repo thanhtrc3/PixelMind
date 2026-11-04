@@ -5,7 +5,6 @@ import {
   HelpCircle,
   LayoutDashboard,
   Palette,
-  PanelLeft,
   Play,
   Redo2,
   RefreshCw,
@@ -17,6 +16,7 @@ import {
 import type { ProjectRecord, RunState } from '@shared/types'
 import { editorBuffer } from '../lib/editorBuffer'
 import AtomLogo from './AtomLogo'
+import { PanelLeftIcon, PanelBottomIcon, PanelRightIcon } from './PanelIcons'
 
 interface TopBarProps {
   project: ProjectRecord | null
@@ -34,6 +34,10 @@ interface TopBarProps {
   onTokens?: () => void
   isSidebarOpen?: boolean
   onToggleSidebar?: () => void
+  isBottomPanelOpen?: boolean
+  onToggleBottomPanel?: () => void
+  isRightPanelOpen?: boolean
+  onToggleRightPanel?: () => void
 }
 
 const TopBar = ({
@@ -51,6 +55,10 @@ const TopBar = ({
   onTokens,
   isSidebarOpen,
   onToggleSidebar,
+  isBottomPanelOpen,
+  onToggleBottomPanel,
+  isRightPanelOpen,
+  onToggleRightPanel,
 }: TopBarProps) => {
   const [canUndo, setCanUndo] = useState(editorBuffer.canUndo())
   const [canRedo, setCanRedo] = useState(editorBuffer.canRedo())
@@ -83,18 +91,6 @@ const TopBar = ({
 
   return (
     <header className="pm-topbar">
-      {/* ── Nút Ẩn / Hiện Thanh bên (Ctrl+B) khi ở màn hình Làm việc ── */}
-      {view === 'workspace' && onToggleSidebar && (
-        <button
-          className={`pm-ibtn ${isSidebarOpen ? 'on' : ''}`}
-          onClick={onToggleSidebar}
-          title={isSidebarOpen ? 'Thu gọn thanh bên (Ctrl+B)' : 'Mở thanh bên (Ctrl+B)'}
-          style={{ marginRight: 2 }}
-        >
-          <PanelLeft size={14} />
-        </button>
-      )}
-
       {/* ── Dự án đang mở (Thu gọn dạng Chip tinh tế, không chèn full path) ── */}
       {project ? (
         <button
@@ -260,6 +256,38 @@ const TopBar = ({
         <button className="pm-ibtn" onClick={onSettings} title="Cài đặt (Ctrl+,)">
           <SettingsIcon size={14} />
         </button>
+
+        {/* ── Cụm 3 nút Điều khiển Bố cục (Layout Controls: Trái, Dưới, Phải - Chuẩn VS Code) ── */}
+        {view === 'workspace' && (
+          <>
+            <div className="pm-topbar-divider" />
+            <div className="pm-layout-controls" role="group" aria-label="Điều khiển bố cục khung nhìn">
+              <button
+                className={`pm-layout-btn ${isSidebarOpen ? 'active' : ''}`}
+                onClick={onToggleSidebar}
+                title={isSidebarOpen ? 'Thu gọn thanh bên trái (Ctrl+B)' : 'Mở thanh bên trái (Ctrl+B)'}
+              >
+                <PanelLeftIcon active={isSidebarOpen} size={14} />
+              </button>
+
+              <button
+                className={`pm-layout-btn ${isBottomPanelOpen ? 'active' : ''}`}
+                onClick={onToggleBottomPanel}
+                title={isBottomPanelOpen ? 'Thu gọn bảng nhật ký dưới (Ctrl+J)' : 'Mở bảng nhật ký dưới (Ctrl+J)'}
+              >
+                <PanelBottomIcon active={isBottomPanelOpen} size={14} />
+              </button>
+
+              <button
+                className={`pm-layout-btn ${isRightPanelOpen ? 'active' : ''}`}
+                onClick={onToggleRightPanel}
+                title={isRightPanelOpen ? 'Thu gọn thanh điều khiển phải' : 'Mở thanh điều khiển phải'}
+              >
+                <PanelRightIcon active={isRightPanelOpen} size={14} />
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </header>
   )

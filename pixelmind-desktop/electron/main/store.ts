@@ -100,6 +100,13 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
   return settings
 }
 
+export async function resetSettings(): Promise<Settings> {
+  const current = await readStore()
+  const settings = { ...DEFAULT_SETTINGS }
+  await write({ ...current, settings })
+  return settings
+}
+
 export async function resetStore(): Promise<StoreData> {
   return write(normalize(null))
 }

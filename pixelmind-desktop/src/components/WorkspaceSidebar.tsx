@@ -5,13 +5,16 @@ import {
   ArrowRight,
   ArrowUp,
   Box,
+  ChevronDown,
   Copy,
   ExternalLink,
   FileCode2,
   FileText,
+  Folder,
   FolderOpen,
   FolderTree,
   GitBranch,
+  Hash,
   History,
   Image as ImageIcon,
   Layers,
@@ -23,6 +26,7 @@ import {
   Package,
   Palette,
   PanelLeftClose,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
@@ -31,9 +35,11 @@ import {
   Sliders,
   Sparkles,
   Table,
+  Trash2,
   Type,
+  X,
 } from 'lucide-react'
-import type { FileNode, ProjectRecord } from '@shared/types'
+import type { FileNode, ProjectPage, ProjectRecord } from '@shared/types'
 import { formatBytes } from '../lib/format'
 import { editorBuffer } from '../lib/editorBuffer'
 import { PARTS } from '../data/toolbox'
@@ -56,11 +62,142 @@ interface WorkspaceSidebarProps {
   onCloseSidebar: () => void
   onOpenPage: (route: string) => void
   onAddPage: () => void
+  onEditPage?: (page: ProjectPage) => void
+  onDeletePage?: (page: ProjectPage) => void
+  onOpenParamChooser?: (page: ProjectPage) => void
+  currentRoute?: string
   onOpenTokens: () => void
   branch: string | null
   onShowToast: (kind: 'ok' | 'err' | 'info', text: string) => void
   isRunning?: boolean
   onRun?: () => void
+}
+
+export function isDynamicRoute(page: ProjectPage): boolean {
+  if (page.sampleParams && page.sampleParams.length > 0) return true
+  const r = (page.route || '').toLowerCase()
+  return (
+    r.includes('/delete') ||
+    r.includes('/update') ||
+    r.includes('/edit') ||
+    r.includes('/display') ||
+    r.includes('/details') ||
+    r.includes('/detail') ||
+    r.includes('/view') ||
+    r.includes(':') ||
+    r.includes('{') ||
+    r.includes('[')
+  )
+}
+
+/* ── Cây phân cấp Đường dẫn Route (1/ = Tầng 1, 2// = Tầng 2, ...) ── */
+export interface RouteTreeNode {
+  key: string
+  path: string
+  segment: string
+  depth: number
+  page?: ProjectPage
+  children: RouteTreeNode[]
+}
+
+export function buildRouteTree(pages: ProjectPage[]): RouteTreeNode[] {
+  const nodeMap = new Map<string, RouteTreeNode>()
+  const rootNodes: RouteTreeNode[] = []
+
+  function getOrCreateNode(path: string, depth: number, segment: string): RouteTreeNode {
+    const normalized = path === '/' ? '/' : path.replace(/\/+$/, '')
+    if (nodeMap.has(normalized)) {
+      return nodeMap.get(normalized)!
+    }
+    const node: RouteTreeNode = {
+      key: normalized,
+      path: normalized,
+      segment,
+      depth,
+      children: [],
+    }
+    nodeMap.set(normalized, node)
+    return node
+  }
+
+  for (const page of pages) {
+    const raw = (page.route || '/').trim()
+    const r = raw.startsWith('/') ? raw : `/${raw}`
+
+    if (r === '/') {
+      const node = getOrCreateNode('/', 1, '/')
+      node.page = page
+      continue
+    }
+
+    const segments = r.slice(1).split('/').filter(Boolean)
+    let currentPath = ''
+    let parentNode: RouteTreeNode | null = null
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i]
+      currentPath += `/${seg}`
+      const depth = i + 1
+      const isTarget = i === segments.length - 1
+
+      const node = getOrCreateNode(currentPath, depth, seg)
+      if (isTarget) {
+        node.page = page
+      }
+
+      if (parentNode) {
+        if (!parentNode.children.some((c) => c.key === node.key)) {
+          parentNode.children.push(node)
+        }
+      }
+      parentNode = node
+    }
+  }
+
+  for (const node of nodeMap.values()) {
+    if (node.depth === 1) {
+      rootNodes.push(node)
+    }
+  }
+
+  function sortNodes(nodes: RouteTreeNode[]) {
+    nodes.sort((a, b) => {
+      if (a.path === '/') return -1
+      if (b.path === '/') return 1
+      return a.path.localeCompare(b.path)
+    })
+    for (const n of nodes) {
+      if (n.children.length > 0) {
+        sortNodes(n.children)
+      }
+    }
+  }
+
+  sortNodes(rootNodes)
+  return rootNodes
+}
+
+export function filterRouteTree(nodes: RouteTreeNode[], query: string): RouteTreeNode[] {
+  if (!query) return nodes
+  const q = query.toLowerCase()
+  const result: RouteTreeNode[] = []
+
+  for (const node of nodes) {
+    const titleMatch = node.page?.title?.toLowerCase().includes(q) || node.segment.toLowerCase().includes(q)
+    const routeMatch = node.path.toLowerCase().includes(q)
+    const isSelfMatch = Boolean(titleMatch || routeMatch)
+
+    const filteredChildren = filterRouteTree(node.children, query)
+
+    if (isSelfMatch || filteredChildren.length > 0) {
+      result.push({
+        ...node,
+        children: filteredChildren,
+      })
+    }
+  }
+
+  return result
 }
 
 /* ── Cấu trúc nút phân cấp phần tử DOM thật ── */
@@ -107,6 +244,10 @@ export const WorkspaceSidebar = ({
   onCloseSidebar,
   onOpenPage,
   onAddPage,
+  onEditPage,
+  onDeletePage,
+  onOpenParamChooser,
+  currentRoute,
   onOpenTokens,
   branch,
   onShowToast,
@@ -115,6 +256,12 @@ export const WorkspaceSidebar = ({
 }: WorkspaceSidebarProps) => {
   const [layersSearch, setLayersSearch] = useState('')
   const [partsSearch, setPartsSearch] = useState('')
+  const [pagesSearch, setPagesSearch] = useState('')
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+
+  const togglePageGroup = (groupKey: string) => {
+    setCollapsedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }))
+  }
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
   const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null)
   const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null)
@@ -257,6 +404,160 @@ export const WorkspaceSidebar = ({
       return matchSearch && matchGroup
     })
   }, [partsSearch, selectedPartGroup])
+
+  /* ── Cây phân cấp Route (1/ = Tầng 1, 2// = Tầng 2, ...) ── */
+  const routeTree = useMemo(() => {
+    const allPages = project.meta?.pages || []
+    const tree = buildRouteTree(allPages)
+    if (pagesSearch.trim()) {
+      return filterRouteTree(tree, pagesSearch.trim())
+    }
+    return tree
+  }, [project.meta?.pages, pagesSearch])
+
+  /* ── Hàm render đệ quy từng nút phân cấp Route ── */
+  const renderRouteNode = (node: RouteTreeNode): React.ReactNode => {
+    const hasChildren = node.children.length > 0
+    const isCollapsed = !pagesSearch.trim() && Boolean(collapsedGroups[node.key])
+    const page = node.page
+    const dynamic = page ? isDynamicRoute(page) : false
+    const isActive =
+      page &&
+      (currentRoute === page.route ||
+        (currentRoute && page.route !== '/' && currentRoute.startsWith(page.route)))
+
+    const title = page?.title || (node.path === '/' ? 'Trang chủ' : node.segment)
+    const isVirtualContainer = !page
+
+    return (
+      <div key={node.key} className="pm-page-node">
+        <div
+          className={`pm-page-node__row ${isActive ? 'active' : ''} ${isVirtualContainer ? 'container' : ''}`}
+          onClick={() => {
+            if (isVirtualContainer) {
+              togglePageGroup(node.key)
+            } else if (page) {
+              if (dynamic && onOpenParamChooser) {
+                onOpenParamChooser(page)
+              } else {
+                onOpenPage(page.route)
+              }
+            }
+          }}
+          title={
+            isVirtualContainer
+              ? `Thư mục ${node.path} (${node.children.length} trang con) — Bấm để ${isCollapsed ? 'mở' : 'thu gọn'}`
+              : dynamic
+                ? `Trang động cần ID (${page.route}) — Bấm để chọn mục xem trước`
+                : `Xem trước trang ${page.route}`
+          }
+        >
+          {/* Mũi tên gập/mở nếu có trang con */}
+          {hasChildren ? (
+            <span
+              className={`pm-page-node__toggle ${isCollapsed ? 'collapsed' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                togglePageGroup(node.key)
+              }}
+              title={isCollapsed ? 'Mở rộng trang con' : 'Thu gọn trang con'}
+            >
+              <ChevronDown size={13} />
+            </span>
+          ) : (
+            <span style={{ width: 14, flexShrink: 0 }} />
+          )}
+
+          {/* Icon */}
+          {isVirtualContainer ? (
+            isCollapsed ? (
+              <Folder size={13} className="pm-muted" style={{ flexShrink: 0 }} />
+            ) : (
+              <FolderOpen size={13} className="pm-accent" style={{ flexShrink: 0 }} />
+            )
+          ) : (
+            <FileCode2
+              size={13}
+              className={isActive ? 'pm-accent' : 'pm-muted'}
+              style={{ flexShrink: 0 }}
+            />
+          )}
+
+          {/* Tiêu đề & route */}
+          <div className="pm-page-node__content">
+            <div className="pm-page-node__title">
+              {title}
+              {hasChildren && <span className="pm-page-node__count">{node.children.length}</span>}
+            </div>
+            <div className="pm-page-node__route">{node.path}</div>
+
+            {page?.navLinkSelector && (
+              <div className="pm-page-card__badge" title={`Nút liên kết: ${page.navLinkSelector}`}>
+                <Link size={9} /> {page.navLinkSelector}
+              </div>
+            )}
+            {dynamic && page?.sampleParams && page.sampleParams.length > 0 && (
+              <div
+                className="pm-page-card__badge"
+                style={{ background: 'rgba(234, 179, 8, 0.12)', color: '#eab308' }}
+              >
+                <Hash size={9} /> {page.sampleParams.length} ID mẫu
+              </div>
+            )}
+          </div>
+
+          {/* Nút thao tác: Chọn ID, Sửa, Xoá */}
+          {page && (
+            <div className="pm-page-node__actions">
+              {dynamic && (
+                <button
+                  className="pm-page-card__btn"
+                  title="Chọn ID / Tham số xem trước"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onOpenParamChooser?.(page)
+                  }}
+                >
+                  <Hash size={12} />
+                </button>
+              )}
+              {onEditPage && (
+                <button
+                  className="pm-page-card__btn"
+                  title="Sửa thông tin & liên kết trang này"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEditPage(page)
+                  }}
+                >
+                  <Pencil size={11} />
+                </button>
+              )}
+              {onDeletePage && (
+                <button
+                  className="pm-page-card__btn danger"
+                  title="Xoá trang này khỏi danh sách"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDeletePage(page)
+                  }}
+                >
+                  <Trash2 size={11} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Các trang con đệ quy (Tầng 2, 3...) */}
+        {hasChildren && !isCollapsed && (
+          <div className="pm-page-node__children">
+            {node.children.map((child) => renderRouteNode(child))}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   const copyToClipboard = (text: string, msg: string) => {
     navigator.clipboard.writeText(text)
@@ -589,60 +890,63 @@ export const WorkspaceSidebar = ({
               </div>
             </div>
 
+            <div className="pm-ws-filter">
+              <div className="pm-searchbox" style={{ width: '100%' }}>
+                <Search size={12} />
+                <input
+                  value={pagesSearch}
+                  placeholder="Tìm kiếm trang (ví dụ: product, delete, /)..."
+                  style={{ width: '100%' }}
+                  onChange={(e) => setPagesSearch(e.target.value)}
+                  onKeyDown={(e) => e.stopPropagation()}
+                />
+                {pagesSearch && (
+                  <button
+                    className="pm-searchbox__clear"
+                    onClick={() => setPagesSearch('')}
+                    title="Xoá tìm kiếm"
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="pm-ws-bd">
               <div className="pm-pages-list">
-                {/* Trang mặc định hoặc danh sách trang đã quét */}
-                {project.meta?.pages && project.meta.pages.length > 0 ? (
-                  project.meta.pages.map((p) => (
-                    <div
-                      key={p.id}
-                      className="pm-page-card"
-                      onClick={() => onOpenPage(p.route)}
-                      title={`Xem trước trang ${p.route}`}
-                    >
-                      <FileCode2 size={14} className="pm-muted" />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="pm-page-card__title">{p.title || 'Trang web'}</div>
-                        <div className="pm-page-card__route">{p.route}</div>
-                      </div>
-                    </div>
-                  ))
+                {routeTree.length > 0 ? (
+                  <div className="pm-page-tree">
+                    {routeTree.map((rootNode) => renderRouteNode(rootNode))}
+                  </div>
                 ) : (
-                  <>
-                    <div
-                      className="pm-page-card active"
-                      onClick={() => onOpenPage('/')}
-                      title="Trang chủ /"
-                    >
-                      <FileCode2 size={14} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="pm-page-card__title">Trang chủ (Home)</div>
-                        <div className="pm-page-card__route">/</div>
-                      </div>
-                    </div>
-                    <div
-                      className="pm-page-card"
-                      onClick={() => onOpenPage('/about')}
-                      title="Trang giới thiệu"
-                    >
-                      <FileCode2 size={14} className="pm-muted" />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="pm-page-card__title">Giới thiệu (About)</div>
-                        <div className="pm-page-card__route">/about</div>
-                      </div>
-                    </div>
-                    <div
-                      className="pm-page-card"
-                      onClick={() => onOpenPage('/contact')}
-                      title="Trang liên hệ"
-                    >
-                      <FileCode2 size={14} className="pm-muted" />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="pm-page-card__title">Liên hệ (Contact)</div>
-                        <div className="pm-page-card__route">/contact</div>
-                      </div>
-                    </div>
-                  </>
+                  <div style={{ padding: '24px 12px', textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+                    {pagesSearch ? (
+                      <>
+                        <div>Không tìm thấy trang nào khớp với &quot;{pagesSearch}&quot;</div>
+                        <button
+                          className="btn secondary"
+                          onClick={() => setPagesSearch('')}
+                          style={{ fontSize: 11, padding: '4px 10px', marginTop: 8 }}
+                        >
+                          Xoá bộ lọc
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div
+                          className="pm-page-card active"
+                          onClick={() => onOpenPage('/')}
+                          title="Trang chủ /"
+                        >
+                          <FileCode2 size={14} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div className="pm-page-card__title">Trang chủ (Home)</div>
+                            <div className="pm-page-card__route">/</div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
 

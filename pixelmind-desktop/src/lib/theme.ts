@@ -22,7 +22,14 @@ const mix = (hex: string, target: number, amount: number): string => {
   return `#${[blend(r), blend(g), blend(b)].map((c) => c.toString(16).padStart(2, '0')).join('')}`
 }
 
-export function applyThemeVariables(accent: string, fontSize: number) {
+export function applyThemeVariables(
+  accent: string,
+  fontSize: number,
+  editorFontFamily?: string,
+  editorFontSize?: number,
+  reducedMotion?: boolean,
+  canvasGrid?: boolean,
+) {
   const root = document.documentElement
   const [r, g, b] = hexToRgb(accent)
 
@@ -37,10 +44,29 @@ export function applyThemeVariables(accent: string, fontSize: number) {
   root.style.setProperty('--accent-line', `rgba(${r}, ${g}, ${b}, 0.42)`)
   root.style.setProperty('--border-focus', accent)
 
-  root.style.setProperty('--font-base', `${fontSize}px`)
-  root.style.setProperty('--font-md', `${fontSize + 1}px`)
-  root.style.setProperty('--font-lg', `${fontSize + 3}px`)
-  root.style.setProperty('--font-sm', `${Math.max(10, fontSize - 1)}px`)
-  root.style.setProperty('--font-xs', `${Math.max(9, fontSize - 2)}px`)
-  root.style.setProperty('--font-2xs', `${Math.max(9, fontSize - 3)}px`)
+  const base = fontSize || 13
+  const scale = base / 13
+
+  root.style.fontSize = `${scale * 16}px`
+  root.style.setProperty('--font-scale', String(scale))
+  root.style.setProperty('--font-base', `${base}px`)
+  root.style.setProperty('--font-md', `${base + 1}px`)
+  root.style.setProperty('--font-lg', `${base + 3}px`)
+  root.style.setProperty('--font-xl', `${base + 5}px`)
+  root.style.setProperty('--font-sm', `${Math.max(10, base - 1)}px`)
+  root.style.setProperty('--font-xs', `${Math.max(9, base - 2)}px`)
+  root.style.setProperty('--font-2xs', `${Math.max(8, base - 3)}px`)
+
+  if (editorFontFamily) {
+    root.style.setProperty(
+      '--font-mono',
+      `"${editorFontFamily}", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`,
+    )
+  }
+  if (editorFontSize) {
+    root.style.setProperty('--font-mono-size', `${editorFontSize}px`)
+  }
+
+  root.dataset.reducedMotion = String(!!reducedMotion)
+  root.dataset.canvasGrid = String(canvasGrid !== false)
 }

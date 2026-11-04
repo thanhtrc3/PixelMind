@@ -231,29 +231,40 @@ export class RunnerManager {
     if (running) return running
 
     const manager = project.packageManager === 'none' ? 'npm' : project.packageManager
-    const command =
-      manager === 'dotnet'
-        ? 'dotnet restore'
-        : manager === 'flutter'
-          ? 'flutter pub get'
-          : manager === 'yarn'
-            ? 'yarn install'
-            : manager === 'bun'
-              ? 'bun install'
-              : manager === 'pnpm'
-                ? 'pnpm install'
-                : 'npm install'
+    let command = 'npm install'
+    let note = '[system] Bắt đầu cài đặt các gói phụ thuộc...\n'
+
+    if (manager === 'dotnet') {
+      command = 'dotnet restore'
+      note = '[system] Đang khôi phục các gói thư viện NuGet cho giải pháp...\n'
+    } else if (manager === 'flutter') {
+      command = 'flutter pub get'
+      note = '[system] Đang tải các gói phụ thuộc Flutter (flutter pub get)...\n'
+    } else if (manager === 'yarn') {
+      command = 'yarn install'
+    } else if (manager === 'bun') {
+      command = 'bun install'
+    } else if (manager === 'pnpm') {
+      command = 'pnpm install'
+    } else if (manager === 'composer') {
+      command = 'composer install'
+      note = '[system] Đang cài đặt thư viện PHP Composer...\n'
+    } else if (manager === 'pip' || manager === 'python') {
+      command = 'pip install -r requirements.txt'
+      note = '[system] Đang cài đặt thư viện Python (pip)...\n'
+    } else if (manager === 'mvn') {
+      command = 'mvn clean install'
+      note = '[system] Đang tải thư viện Maven cho Java/Spring...\n'
+    } else if (manager === 'gradle') {
+      command = process.platform === 'win32' ? 'gradlew.bat build' : './gradlew build'
+      note = '[system] Đang build và nạp thư viện Gradle...\n'
+    }
 
     return this.launch(project, {
       script: 'install',
       command,
       kind: 'install',
-      note:
-        manager === 'dotnet'
-          ? '[system] Đang khôi phục các gói thư viện NuGet cho giải pháp...\n'
-          : manager === 'flutter'
-            ? '[system] Đang tải các gói phụ thuộc Flutter (flutter pub get)...\n'
-            : '[system] Bắt đầu cài đặt các gói phụ thuộc...\n',
+      note,
     })
   }
 

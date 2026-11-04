@@ -13,6 +13,89 @@
   user-select: none;
 }
 
+/* ═══════════════════════════════════════════════════
+   TOAST THÔNG BÁO NỔI HUD TRÊN CANVAS (PRO FLOATING PILL)
+   ═══════════════════════════════════════════════════ */
+.canvas__toast {
+  position: absolute;
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--glass-strong, var(--panel-1, #1e1e2d));
+  color: var(--text, #f0f2f5);
+  border: 1px solid var(--line-2, rgba(255, 255, 255, 0.16));
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: -0.1px;
+  pointer-events: none;
+  animation: pmCanvasToastSlideIn 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  white-space: nowrap;
+  user-select: none;
+}
+
+@keyframes pmCanvasToastSlideIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.canvas__toast-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.canvas__toast--ok .canvas__toast-icon {
+  color: #10b981;
+}
+
+.canvas__toast--info .canvas__toast-icon {
+  color: var(--accent, #6366f1);
+}
+
+.canvas__toast--warn .canvas__toast-icon {
+  color: #f59e0b;
+}
+
+.canvas__toast--err .canvas__toast-icon {
+  color: #ef4444;
+}
+
+.canvas__toast-text {
+  color: var(--text, #ffffff);
+  line-height: 1.4;
+}
+
+.canvas__toast-kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono, monospace);
+  background: var(--panel-3, rgba(255, 255, 255, 0.12));
+  color: var(--text-2, #d1d5db);
+  border-radius: 4px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.15));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  margin-left: 2px;
+}
+
 /* ── Thanh công cụ vẽ tầng 1 & tầng 2 ── */
 .canvas__tools,
 .canvas__topbar,

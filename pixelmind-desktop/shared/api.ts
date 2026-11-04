@@ -20,6 +20,7 @@ export interface PixelMindApi {
     get(): Promise<StoreData>
     patch(patch: Partial<StoreData>): Promise<StoreData>
     updateSettings(patch: Partial<Settings>): Promise<Settings>
+    resetSettings?(): Promise<Settings>
     reset(): Promise<StoreData>
     path(): Promise<string>
   }
@@ -32,6 +33,7 @@ export interface PixelMindApi {
     favorite(id: string): Promise<ProjectRecord[]>
     refresh(id: string): Promise<ProjectRecord | null>
     addPage(projectId: string, page: Omit<ProjectPage, 'id'>): Promise<ProjectRecord | null>
+    updatePage(projectId: string, page: ProjectPage): Promise<ProjectRecord | null>
     removePage(projectId: string, pageId: string): Promise<ProjectRecord | null>
     diagnose(idOrPath: string): Promise<ProjectDiagnosis>
     gitInit(projectId: string): Promise<boolean>
@@ -66,6 +68,7 @@ export interface PixelMindApi {
     openExternal(url: string): Promise<boolean>
     onMenuAction(cb: (action: string) => void): () => void
     popupMenu?(menuIndex: number, x: number, y: number): Promise<boolean>
+    clearCache?(): Promise<boolean>
   }
   inspect: {
     setMode(enabled: boolean): Promise<boolean>
@@ -102,5 +105,7 @@ export interface PixelMindApi {
     maximize: () => Promise<void>
     close: () => Promise<void>
     isMaximized: () => Promise<boolean>
+    setZoomFactor?: (factor: number) => void
+    getZoomFactor?: () => number
   }
 }

@@ -276,6 +276,10 @@ export function createBrowserMock(): PixelMindApi {
         writeSettings(settings)
         return settings
       },
+      async resetSettings() {
+        writeSettings({ ...DEFAULT_SETTINGS })
+        return { ...DEFAULT_SETTINGS }
+      },
       async reset() {
         writeSettings({ ...DEFAULT_SETTINGS })
         writeProjects([demoProject])
@@ -329,6 +333,32 @@ export function createBrowserMock(): PixelMindApi {
                       at: Date.now(),
                       actor: 'bạn',
                       action: `Thêm trang ${page.route} — ${page.title}`,
+                      kind: 'người' as const,
+                      status: 'ok' as const,
+                    },
+                    ...p.meta.activity,
+                  ],
+                },
+              }
+            : p,
+        )
+        writeProjects(projects)
+        return projects.find((p) => p.id === projectId) ?? null
+      },
+      async updatePage(projectId, page) {
+        const projects = readProjects().map((p) =>
+          p.id === projectId
+            ? {
+                ...p,
+                meta: {
+                  ...p.meta,
+                  pages: p.meta.pages.map((item) => (item.id === page.id ? page : item)),
+                  activity: [
+                    {
+                      id: `a-${Date.now()}`,
+                      at: Date.now(),
+                      actor: 'bạn',
+                      action: `Cập nhật trang ${page.route} — ${page.title}`,
                       kind: 'người' as const,
                       status: 'ok' as const,
                     },
@@ -549,6 +579,9 @@ export function createBrowserMock(): PixelMindApi {
       async popupMenu() {
         return false
       },
+      async clearCache() {
+        return true
+      },
     },
     window: {
       async minimize() {},
@@ -556,6 +589,12 @@ export function createBrowserMock(): PixelMindApi {
       async close() {},
       async isMaximized() {
         return false
+      },
+      setZoomFactor(factor: number) {
+        document.documentElement.style.zoom = String(factor)
+      },
+      getZoomFactor() {
+        return 1
       },
     },
   }

@@ -1,6 +1,6 @@
 /* Kiểu dữ liệu dùng chung giữa main process (Electron), preload và renderer. */
 
-export type ThemeMode = 'dark' | 'light'
+export type ThemeMode = 'dark' | 'light' | 'system'
 
 export interface Settings {
   theme: ThemeMode
@@ -12,6 +12,21 @@ export interface Settings {
   showHidden: boolean
   openLastProject: boolean
   defaultScript: string
+
+  // Mở rộng cài đặt chuyên nghiệp
+  windowZoom?: number // 85, 90, 100, 110, 125 (%)
+  autoSave?: boolean // Tự động lưu sau độ trễ
+  confirmQuitRunning?: boolean // Hỏi khi thoát lúc server dev đang chạy
+  editorFontFamily?: string // 'JetBrains Mono' | 'Fira Code' | 'Cascadia Code' | 'Consolas' | 'Monaco'
+  editorFontSize?: number // 11 - 18px
+  reducedMotion?: boolean // Giảm hiệu ứng động
+  canvasGrid?: boolean // Lưới chấm nền Canvas
+  smartGuides?: boolean // Thước đo khoảng cách thông minh
+  syncCanvasToTree?: boolean // Tự động chọn và cuộn tới phần tử trong cây Layers
+  hoverOutline?: boolean // Viền xanh khi rê chuột vào phần tử
+  clearConsoleOnRun?: boolean // Tự động xóa console khi chạy lại
+  maxLogLines?: number // Giới hạn dòng log RAM (500, 1000, 2000, 5000)
+  preferredPort?: number // Cổng dev mặc định ưu tiên (0 = tự động)
 }
 
 export interface ScriptEntry {
@@ -22,7 +37,22 @@ export interface ScriptEntry {
   direct?: boolean
 }
 
-export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'dotnet' | 'flutter' | 'python' | 'pip' | 'composer' | 'cargo' | 'go' | 'none'
+export type PackageManager =
+  | 'npm'
+  | 'pnpm'
+  | 'yarn'
+  | 'bun'
+  | 'dotnet'
+  | 'flutter'
+  | 'python'
+  | 'pip'
+  | 'composer'
+  | 'cargo'
+  | 'go'
+  | 'mvn'
+  | 'gradle'
+  | 'bundle'
+  | 'none'
 
 export interface ColorToken {
   id: string
@@ -66,6 +96,10 @@ export interface ProjectPage {
   mockup: boolean
   software: string
   frame: string
+  /** Bộ chọn CSS hoặc phần tử liên kết từ giao diện (ví dụ: nav a[href*="Product"], #btn-search) */
+  navLinkSelector?: string
+  /** Danh sách tham số mẫu / ID mẫu cho các trang chi tiết/động (ví dụ: ['1', '2', '3']) */
+  sampleParams?: string[]
 }
 
 export type VersionStatus = 'ok' | 'review' | 'error'
@@ -240,4 +274,17 @@ export const DEFAULT_SETTINGS: Settings = {
   showHidden: false,
   openLastProject: true,
   defaultScript: '',
+  windowZoom: 100,
+  autoSave: true,
+  confirmQuitRunning: true,
+  editorFontFamily: 'JetBrains Mono',
+  editorFontSize: 13,
+  reducedMotion: false,
+  canvasGrid: true,
+  smartGuides: true,
+  syncCanvasToTree: true,
+  hoverOutline: true,
+  clearConsoleOnRun: true,
+  maxLogLines: 1000,
+  preferredPort: 0,
 }
