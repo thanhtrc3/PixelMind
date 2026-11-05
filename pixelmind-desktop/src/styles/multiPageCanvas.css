@@ -268,6 +268,29 @@
   box-shadow: 0 0 14px currentColor, 0 0 0 2px rgba(255, 255, 255, 0.4);
 }
 
+/* Trạng thái nút bấm bị cuộn khuất ngoài viewport (chuyển sang màu đỏ cảnh báo) */
+.pm-multi-pin.is-clipped {
+  color: #ef4444 !important;
+  z-index: 530;
+}
+
+.pm-multi-pin.is-clipped .pm-multi-pin-dot {
+  background: #ef4444 !important;
+  box-shadow: 0 0 12px #ef4444, 0 0 0 2px #fff !important;
+  animation: pm-pulse-clipped 0.9s infinite alternate ease-in-out !important;
+}
+
+@keyframes pm-pulse-clipped {
+  from {
+    transform: scale(1);
+    box-shadow: 0 0 6px #ef4444;
+  }
+  to {
+    transform: scale(1.5);
+    box-shadow: 0 0 16px #ef4444, 0 0 0 3px rgba(239, 68, 68, 0.7);
+  }
+}
+
 @keyframes pm-pulse-dot {
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.4); opacity: 0.6; }

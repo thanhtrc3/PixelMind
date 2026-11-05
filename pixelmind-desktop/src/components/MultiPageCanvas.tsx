@@ -43,6 +43,14 @@ interface CanvasWin {
   }
 }
 
+interface DetectedAnchor {
+  x: number // Tọa độ trong khung nhìn iframe (0..WINDOW_WIDTH)
+  y: number // Tọa độ trong khung nhìn iframe (0..WINDOW_HEIGHT - 34)
+  isClipped: boolean // Nút bấm có bị cuộn khuất khỏi viewport hay không
+  clippedSide?: 'top' | 'bottom' | 'left' | 'right'
+  text?: string
+}
+
 type LayoutMode = 'cluster' | 'rings'
 
 const normalizeRoute = (route: string) => {
@@ -58,18 +66,59 @@ const joinPreviewUrl = (base: string, route: string) => {
 
 const getGroupInfo = (route: string) => {
   const clean = normalizeRoute(route).toLowerCase()
-  const seg = clean.split('/').filter(Boolean)[0] || 'other'
-  if (['account', 'identity', 'auth', 'login', 'register', 'user', 'manage'].includes(seg)) {
+  const full = clean
+
+  if (full.includes('leaderboard') || full.includes('rank') || full.includes('kydai') || full.includes('top')) {
+    return {
+      groupKey: 'leaderboard',
+      groupLabel: 'Bảng xếp hạng & Kỳ đài',
+      groupColor: '#f472b6',
+      sourceText: 'Menu [Bảng xếp hạng]',
+      relX: 0.48,
+      relY: 0.055,
+    }
+  }
+  if (full.includes('lobby') || full.includes('sanh') || full.includes('waiting')) {
+    return {
+      groupKey: 'lobby',
+      groupLabel: 'Sảnh chờ',
+      groupColor: '#10b981',
+      sourceText: 'Nút [Vào sảnh chờ]',
+      relX: 0.65,
+      relY: 0.62,
+    }
+  }
+  if (full.includes('profile') || full.includes('hoso') || full.includes('user') || full.includes('player')) {
+    return {
+      groupKey: 'profile',
+      groupLabel: 'Hồ sơ kỳ thủ',
+      groupColor: '#06b6d4',
+      sourceText: 'Menu [Hồ sơ]',
+      relX: 0.62,
+      relY: 0.055,
+    }
+  }
+  if (full.includes('room') || full.includes('match') || full.includes('play') || full.includes('game') || full.includes('board')) {
+    return {
+      groupKey: 'room',
+      groupLabel: 'Phòng cờ & Thi đấu',
+      groupColor: '#ec4899',
+      sourceText: 'Phòng cờ',
+      relX: 0.28,
+      relY: 0.55,
+    }
+  }
+  if (['account', 'identity', 'auth', 'login', 'register', 'signin', 'signup'].some((k) => full.includes(k))) {
     return {
       groupKey: 'auth',
       groupLabel: 'Tài khoản & Xác thực',
       groupColor: '#818cf8',
-      sourceText: clean.includes('login') ? 'Nút [Đăng nhập]' : clean.includes('reg') ? 'Nút [Đăng ký]' : 'Menu [Tài khoản]',
-      relX: clean.includes('reg') ? 0.88 : 0.80,
+      sourceText: clean.includes('reg') ? 'Nút [Tạo tài khoản]' : 'Nút [Đăng nhập]',
+      relX: clean.includes('reg') ? 0.70 : 0.82,
       relY: 0.055,
     }
   }
-  if (['product', 'products', 'item', 'items', 'category', 'categories', 'shop', 'catalog'].includes(seg)) {
+  if (['product', 'products', 'item', 'items', 'category', 'categories', 'shop', 'catalog'].some((k) => full.includes(k))) {
     return {
       groupKey: 'catalog',
       groupLabel: 'Sản phẩm & Danh mục',
@@ -79,27 +128,17 @@ const getGroupInfo = (route: string) => {
       relY: 0.055,
     }
   }
-  if (['cart', 'checkout', 'order', 'orders', 'payment', 'bill'].includes(seg)) {
+  if (['cart', 'checkout', 'order', 'orders', 'payment', 'bill'].some((k) => full.includes(k))) {
     return {
       groupKey: 'order',
       groupLabel: 'Đơn hàng & Giỏ hàng',
       groupColor: '#fbbf24',
       sourceText: 'Icon [Giỏ hàng]',
-      relX: 0.68,
+      relX: 0.76,
       relY: 0.055,
     }
   }
-  if (['leaderboard', 'lobby', 'room', 'rank', 'match', 'game', 'play'].includes(seg)) {
-    return {
-      groupKey: 'activity',
-      groupLabel: 'Bảng xếp hạng & Kỳ đài',
-      groupColor: '#f472b6',
-      sourceText: 'Menu [Bảng xếp hạng]',
-      relX: 0.48,
-      relY: 0.055,
-    }
-  }
-  if (['admin', 'setting', 'settings', 'dashboard', 'report'].includes(seg)) {
+  if (['admin', 'setting', 'settings', 'dashboard', 'report', 'manage'].some((k) => full.includes(k))) {
     return {
       groupKey: 'admin',
       groupLabel: 'Quản trị hệ thống',
@@ -109,12 +148,22 @@ const getGroupInfo = (route: string) => {
       relY: 0.055,
     }
   }
+  if (['privacy', 'policy', 'term', 'terms', 'about', 'contact'].some((k) => full.includes(k))) {
+    return {
+      groupKey: 'footer',
+      groupLabel: 'Chính sách & Thông tin',
+      groupColor: '#94a3b8',
+      sourceText: 'Liên kết chân trang',
+      relX: 0.25,
+      relY: 0.96,
+    }
+  }
   return {
     groupKey: 'general',
     groupLabel: 'Trang chức năng',
     groupColor: '#34d399',
-    sourceText: 'Liên kết điều hướng',
-    relX: 0.20,
+    sourceText: 'Điều hướng chức năng',
+    relX: 0.15,
     relY: 0.055,
   }
 }
@@ -481,54 +530,70 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
   return resolveCollisions([homeWin, ...satellites])
 }
 
-// ─── BỐ CỤC 2: QUỸ ĐẠO ĐA TẦNG (MULTI-RING ORBIT) ───
-function computeRingsLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): CanvasWin[] {
+// ─── BỐ CỤC 2: QUỸ ĐẠO ĐA TẦNG (MULTI-RING ORBIT) THEO ĐÚNG HƯỚNG NÚT BẤM (KHÔNG CHÉO DÂY) ───
+function computeRingsLayout(
+  homeWin: CanvasWin,
+  otherPages: ProjectPage[],
+  anchorsMap?: Record<string, DetectedAnchor>
+): CanvasWin[] {
   const satellites: CanvasWin[] = []
   const count = otherPages.length
   if (count === 0) return [homeWin]
 
-  let pageIdx = 0
-  let ringIndex = 0
+  const halfHomeW = WINDOW_WIDTH / 2
+  const halfHomeH = WINDOW_HEIGHT / 2
 
-  while (pageIdx < count) {
-    const rx = WINDOW_WIDTH * 0.95 + ringIndex * (WINDOW_WIDTH + 140)
-    const ry = WINDOW_HEIGHT * 0.95 + ringIndex * (WINDOW_HEIGHT + 120)
+  // 1. Tính toán góc xuất phát của nút bấm cho từng trang
+  const pagesWithAngle = otherPages.map((page) => {
+    const norm = normalizeRoute(page.route)
+    const info = getGroupInfo(norm)
+    const winId = `win:${page.id || norm}`
+    const anchor = anchorsMap?.[winId]
 
-    const perimeter = 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2)
-    const capacity = Math.max(5, Math.floor(perimeter / (WINDOW_WIDTH + 100)))
+    let btnX: number
+    let btnY: number
 
-    const remainingPages = count - pageIdx
-    const countInThisRing = Math.min(capacity, remainingPages)
-
-    for (let i = 0; i < countInThisRing; i++) {
-      const page = otherPages[pageIdx]
-      const norm = normalizeRoute(page.route)
-      const info = getGroupInfo(norm)
-
-      const angle = (i / countInThisRing) * 2 * Math.PI - Math.PI / 2
-      const x = Math.round(Math.cos(angle) * rx)
-      const y = Math.round(Math.sin(angle) * ry)
-
-      satellites.push({
-        id: `win:${page.id || norm}`,
-        page,
-        route: norm,
-        title: page.title || norm,
-        isHome: false,
-        x,
-        y,
-        w: WINDOW_WIDTH,
-        h: WINDOW_HEIGHT,
-        zIndex: 5,
-        groupKey: info.groupKey,
-        groupLabel: info.groupLabel,
-        groupColor: info.groupColor,
-        sourceHint: { text: info.sourceText, relX: info.relX, relY: info.relY },
-      })
-      pageIdx++
+    if (anchor) {
+      btnX = -halfHomeW + anchor.x
+      btnY = -halfHomeH + 34 + anchor.y
+    } else {
+      btnX = -halfHomeW + WINDOW_WIDTH * info.relX
+      btnY = -halfHomeH + 34 + (WINDOW_HEIGHT - 34) * info.relY
     }
-    ringIndex++
-  }
+
+    const angle = Math.atan2(btnY, btnX)
+    return { page, norm, info, winId, angle }
+  })
+
+  // Sắp xếp các trang theo thứ tự góc từ -PI đến +PI để các trang cùng chiều kim đồng hồ
+  // với vị trí các nút bấm trên trang chủ -> TRIỆT TIÊU 100% HIỆN TƯỢNG BẮT CHÉO DÂY!
+  pagesWithAngle.sort((a, b) => a.angle - b.angle)
+
+  // 2. Đặt các trang thẳng theo góc hướng của nút bấm
+  const rx = WINDOW_WIDTH * 1.05 + 160
+  const ry = WINDOW_HEIGHT * 1.05 + 140
+
+  pagesWithAngle.forEach((item) => {
+    const x = Math.round(Math.cos(item.angle) * rx)
+    const y = Math.round(Math.sin(item.angle) * ry)
+
+    satellites.push({
+      id: item.winId,
+      page: item.page,
+      route: item.norm,
+      title: item.page.title || item.norm,
+      isHome: false,
+      x,
+      y,
+      w: WINDOW_WIDTH,
+      h: WINDOW_HEIGHT,
+      zIndex: 5,
+      groupKey: item.info.groupKey,
+      groupLabel: item.info.groupLabel,
+      groupColor: item.info.groupColor,
+      sourceHint: { text: item.info.sourceText, relX: item.info.relX, relY: item.info.relY },
+    })
+  })
 
   return resolveCollisions([homeWin, ...satellites])
 }
@@ -548,7 +613,8 @@ export default function MultiPageCanvas({
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('cluster')
 
   // Quét tọa độ chính xác của nút bấm trên trang chủ
-  const [detectedAnchors, setDetectedAnchors] = useState<Record<string, { x: number; y: number }>>({})
+  const [detectedAnchors, setDetectedAnchors] = useState<Record<string, DetectedAnchor>>({})
+  const matchedElementsRef = useRef<Map<string, HTMLElement>>(new Map())
   const [isFlying, setIsFlying] = useState(false)
   const [flyingToWin, setFlyingToWin] = useState<CanvasWin | null>(null)
 
@@ -681,6 +747,72 @@ export default function MultiPageCanvas({
     setTimeout(() => {
       setIsFlying(false)
     }, 480)
+  }, [])
+
+  // Tính toán lại vị trí các nút theo thời gian thực khi cuộn trang hoặc co giãn
+  const recomputeAnchors = useCallback(() => {
+    const iframe = homeIframeRef.current
+    if (!iframe) return
+    const doc = iframe.contentDocument
+    if (!doc) return
+
+    const iframeH = WINDOW_HEIGHT - 34 // 566px
+    const iframeW = WINDOW_WIDTH // 960px
+
+    const nextAnchors: Record<string, DetectedAnchor> = {}
+
+    matchedElementsRef.current.forEach((el, satId) => {
+      if (!el.isConnected) return
+
+      const rect = el.getBoundingClientRect()
+      const centerX = rect.left + rect.width / 2
+      const centerY = rect.top + rect.height / 2
+
+      let isClipped = false
+      let clippedSide: 'top' | 'bottom' | 'left' | 'right' | undefined
+      let clampedX = centerX
+      let clampedY = centerY
+
+      // Kiểm tra xem nút bấm có bị cuộn khuất khỏi viewport của iframe không
+      if (rect.bottom < 4) {
+        // Nút đã cuộn khuất qua mép trên
+        isClipped = true
+        clippedSide = 'top'
+        clampedY = 0 // Ghim ngay mép trên của khung web
+        clampedX = Math.max(16, Math.min(iframeW - 16, centerX))
+      } else if (rect.top > iframeH - 4) {
+        // Nút đã cuộn khuất qua mép dưới
+        isClipped = true
+        clippedSide = 'bottom'
+        clampedY = iframeH // Ghim ngay mép dưới của khung web
+        clampedX = Math.max(16, Math.min(iframeW - 16, centerX))
+      } else if (rect.right < 4) {
+        isClipped = true
+        clippedSide = 'left'
+        clampedX = 0
+        clampedY = Math.max(16, Math.min(iframeH - 16, centerY))
+      } else if (rect.left > iframeW - 4) {
+        isClipped = true
+        clippedSide = 'right'
+        clampedX = iframeW
+        clampedY = Math.max(16, Math.min(iframeH - 16, centerY))
+      } else {
+        // Đang hiển thị bình thường trong khung nhìn
+        isClipped = false
+        clampedX = Math.max(10, Math.min(iframeW - 10, centerX))
+        clampedY = Math.max(10, Math.min(iframeH - 10, centerY))
+      }
+
+      nextAnchors[satId] = {
+        x: Math.round(clampedX),
+        y: Math.round(clampedY),
+        isClipped,
+        clippedSide,
+        text: (el.textContent || '').trim().slice(0, 30),
+      }
+    })
+
+    setDetectedAnchors(nextAnchors)
   }, [])
 
   // Thiết lập bắt click & quét vị trí nút bấm trong iframe
@@ -834,27 +966,38 @@ export default function MultiPageCanvas({
           // Phân phối 1-1 tuyệt đối: Mỗi nút bấm CHỈ GẮN VỚI DUY NHẤT 1 TRANG VỆ TINH!
           const claimedElements = new Set<HTMLElement>()
           const claimedSats = new Set<string>()
-          const newAnchors: Record<string, { x: number; y: number }> = {}
 
+          matchedElementsRef.current.clear()
           for (const match of matchScores) {
             if (!claimedSats.has(match.satId) && !claimedElements.has(match.el)) {
               claimedSats.add(match.satId)
               claimedElements.add(match.el)
-              const rect = match.el.getBoundingClientRect()
-              newAnchors[match.satId] = {
-                x: Math.round(rect.left + rect.width / 2),
-                y: Math.round(rect.top + rect.height / 2),
-              }
+              matchedElementsRef.current.set(match.satId, match.el)
             }
           }
 
-          setDetectedAnchors(newAnchors)
+          // Tính toán ngay tọa độ và trạng thái clip
+          recomputeAnchors()
+
+          // Gắn lắng nghe cuộn trang trong iframe theo thời gian thực
+          const iframeWin = iframe.contentWindow
+          if (iframeWin) {
+            const handleScroll = () => {
+              recomputeAnchors()
+            }
+            iframeWin.removeEventListener('scroll', handleScroll)
+            iframeWin.addEventListener('scroll', handleScroll, { passive: true })
+            doc.removeEventListener('scroll', handleScroll)
+            doc.addEventListener('scroll', handleScroll, { passive: true })
+            doc.removeEventListener('wheel', handleScroll)
+            doc.addEventListener('wheel', handleScroll, { passive: true })
+          }
         }
       } catch {
         // Safe cross-origin fallback
       }
     },
-    [flyToWindow]
+    [flyToWindow, recomputeAnchors]
   )
 
   // Áp dụng thuật toán sắp xếp
@@ -883,14 +1026,14 @@ export default function MultiPageCanvas({
 
       const computed =
         mode === 'rings'
-          ? computeRingsLayout(homeWin, otherPages)
+          ? computeRingsLayout(homeWin, otherPages, detectedAnchors)
           : computeClusterLayout(homeWin, otherPages)
 
       windowsRef.current = computed
       setWindows(computed)
       fitBounding(computed)
     },
-    [pages, fitBounding]
+    [pages, fitBounding, detectedAnchors]
   )
 
   // Căn vừa màn hình ngay khi mở
@@ -1070,6 +1213,8 @@ export default function MultiPageCanvas({
         let srcX: number
         let srcY: number
         const hasAnchor = Boolean(anchor)
+        const isClipped = Boolean(anchor?.isClipped)
+        const wireColor = isClipped ? '#ef4444' : (sat.groupColor || '#6366f1')
 
         if (anchor) {
           // Nối chính xác vào tâm của nút bấm thực tế trên trang chủ!
@@ -1139,9 +1284,16 @@ export default function MultiPageCanvas({
         let cp2Y = destY
 
         if (hasAnchor) {
-          // Dây xuất phát từ nút bấm trên navbar:
-          // Nếu cửa sổ đích ở phía trên: lượn vút lên trên
-          if (destY < srcY) {
+          if (isClipped && anchor?.clippedSide === 'top') {
+            // Nút bị cuộn khuất qua mép trên -> dây vươn thẳng đứng lên trên từ mép trên
+            cp1X = srcX
+            cp1Y = srcY - curveSpan
+          } else if (isClipped && anchor?.clippedSide === 'bottom') {
+            // Nút bị cuộn khuất qua mép dưới -> dây vươn thẳng đứng xuống dưới từ mép dưới
+            cp1X = srcX
+            cp1Y = srcY + curveSpan
+          } else if (destY < srcY) {
+            // Cửa sổ đích ở phía trên: lượn vút lên trên
             cp1X = srcX + (destX - srcX) * 0.18
             cp1Y = srcY - curveSpan
           } else {
@@ -1187,7 +1339,8 @@ export default function MultiPageCanvas({
           satId: sat.id,
           targetWin: sat,
           hasAnchor,
-          color: sat.groupColor || '#6366f1',
+          isClipped,
+          color: wireColor,
           label: sat.title,
           pathD,
           portSide,
@@ -1431,10 +1584,10 @@ export default function MultiPageCanvas({
           <svg className="pm-multi-svg" width={10000} height={10000} style={{ left: -5000, top: -5000 }}>
             <g transform="translate(5000, 5000)">
               <defs>
-                {windows.map((w) => (
+                {wires.map((w) => (
                   <marker
-                    key={`arrow-${w.id}`}
-                    id={`arrow-${w.id}`}
+                    key={`arrow-${w.satId}`}
+                    id={`arrow-${w.satId}`}
                     viewBox="0 0 10 10"
                     refX="7"
                     refY="5"
@@ -1442,7 +1595,7 @@ export default function MultiPageCanvas({
                     markerHeight="6"
                     orient="auto-start-reverse"
                   >
-                    <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill={w.groupColor} />
+                    <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill={w.color} />
                   </marker>
                 ))}
               </defs>
@@ -1490,13 +1643,17 @@ export default function MultiPageCanvas({
             .map((wire) => (
               <div
                 key={`pin-${wire.id}`}
-                className="pm-multi-pin"
+                className={`pm-multi-pin ${wire.isClipped ? 'is-clipped' : ''}`}
                 style={{
                   left: wire.srcPoint.x,
                   top: wire.srcPoint.y,
                   color: wire.color,
                 }}
-                title={`Nối từ nút bấm: ${wire.label} (Bấm để chuyển góc nhìn)`}
+                title={
+                  wire.isClipped
+                    ? `Nút bấm [${wire.label}] đã cuộn khuất khỏi tầm nhìn (Bấm để chuyển góc nhìn)`
+                    : `Nối từ nút bấm: ${wire.label} (Bấm để chuyển góc nhìn)`
+                }
                 onClick={() => flyToWindow(wire.targetWin)}
               >
                 <span className="pm-multi-pin-dot" />
