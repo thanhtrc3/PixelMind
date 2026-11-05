@@ -714,96 +714,141 @@ export default function MultiPageCanvas({
         doc.removeEventListener('click', handleClick, true)
         doc.addEventListener('click', handleClick, true)
 
-        // 2. Nếu là Trang chủ, quét tọa độ các nút bấm navbar để nối dây chính xác
+        // 2. Nếu là Trang chủ, quét vị trí các nút bấm riêng biệt để gắn dây nối 1-1 (không gộp thành cục)
         if (win.isHome) {
-          const elements = Array.from(
+          // Chỉ lấy các phần tử tương tác thực tế (leaf clickable elements), loại bỏ các thẻ bọc container lớn
+          const allCandidates = Array.from(
             doc.querySelectorAll<HTMLElement>(
-              'a, button, [role="button"], [data-route], [data-nav], nav a, header a, .navbar a, .nav a, .nav-link, .btn, [class*="menu"], [class*="nav"]'
+              'a, button, [role="button"], input[type="button"], input[type="submit"]'
             )
-          )
+          ).filter((el) => {
+            if (el.querySelectorAll('a, button').length > 0) return false
+            const rect = el.getBoundingClientRect()
+            return rect.width > 8 && rect.height > 8 && rect.top >= 0 && rect.top <= 1200
+          })
 
-          const newAnchors: Record<string, { x: number; y: number }> = {}
+          const otherWindows = windowsRef.current.filter((w) => !w.isHome)
+          const matchScores: Array<{
+            satId: string
+            el: HTMLElement
+            score: number
+          }> = []
 
-          windowsRef.current
-            .filter((w) => !w.isHome)
-            .forEach((sat) => {
-              let bestEl: HTMLElement | null = null
-              let bestScore = -1
+          otherWindows.forEach((sat) => {
+            const satNorm = normalizeRoute(sat.route).toLowerCase()
+            const satTitle = sat.title.toLowerCase()
 
-              const satNorm = normalizeRoute(sat.route).toLowerCase()
-              const satTitle = sat.title.toLowerCase()
+            allCandidates.forEach((el) => {
+              const href = (el.getAttribute('href') || el.getAttribute('data-route') || '').toLowerCase().trim()
+              const text = (el.textContent || '').toLowerCase().trim()
+              const id = (el.id || '').toLowerCase()
+              const className = (el.className || '').toLowerCase()
 
-              for (const el of elements) {
-                const href = (el.getAttribute('href') || el.getAttribute('data-route') || '').toLowerCase().trim()
-                const text = (el.textContent || '').toLowerCase().trim()
+              let score = 0
 
-                let score = 0
-                if (href && href !== '#' && href !== '/' && satNorm !== '/') {
-                  const normHref = normalizeRoute(href.replace(/^https?:\/\/[^/]+/, ''))
-                  if (normHref === satNorm) {
-                    score += 15
-                  } else if (normHref.endsWith(satNorm) || satNorm.endsWith(normHref)) {
-                    score += 12
-                  } else if (satNorm.includes(normHref) || normHref.includes(satNorm)) {
-                    score += 8
-                  }
+              // 1. So khớp route
+              if (href && href !== '#' && href !== '/' && satNorm !== '/') {
+                const normHref = normalizeRoute(href.replace(/^https?:\/\/[^/]+/, ''))
+                if (normHref === satNorm) {
+                  score += 150
+                } else if (normHref.endsWith(satNorm) || satNorm.endsWith(normHref)) {
+                  score += 120
+                } else if (satNorm.includes(normHref) || normHref.includes(satNorm)) {
+                  score += 80
                 }
+              }
 
-                if (text) {
-                  if (text === satTitle) {
-                    score += 10
-                  } else if (text.length > 2 && (satTitle.includes(text) || text.includes(satTitle))) {
-                    score += 6
-                  } else {
-                    if (
-                      sat.groupKey === 'activity' &&
-                      (text.includes('xếp hạng') || text.includes('kỳ đài') || text.includes('leaderboard') || text.includes('rank'))
-                    )
-                      score += 9
-                    if (
-                      sat.groupKey === 'auth' &&
-                      (text.includes('đăng nhập') || text.includes('tài khoản') || text.includes('đăng ký') || text.includes('login'))
-                    )
-                      score += 9
-                    if (
-                      sat.groupKey === 'catalog' &&
-                      (text.includes('sản phẩm') || text.includes('danh mục') || text.includes('product') || text.includes('shop'))
-                    )
-                      score += 9
-                    if (
-                      sat.groupKey === 'order' &&
-                      (text.includes('giỏ hàng') || text.includes('đơn hàng') || text.includes('cart') || text.includes('thanh toán'))
-                    )
-                      score += 9
-                    if (
-                      sat.groupKey === 'admin' &&
-                      (text.includes('quản trị') || text.includes('admin') || text.includes('dashboard') || text.includes('hệ thống'))
-                    )
-                      score += 9
+              // 2. So khớp nhãn văn bản của nút bấm
+              if (text) {
+                if (text === satTitle) {
+                  score += 100
+                } else if (text.length >= 2 && (satTitle.includes(text) || text.includes(satTitle))) {
+                  score += 70
+                } else {
+                  // Khớp từ khóa theo từng chức năng cụ thể
+                  if (
+                    sat.route.toLowerCase().includes('leaderboard') &&
+                    (text.includes('xếp hạng') || text.includes('kỳ đài') || text.includes('leaderboard') || text.includes('rank'))
+                  ) {
+                    score += 90
                   }
-                }
-
-                if (score > bestScore) {
-                  const rect = el.getBoundingClientRect()
-                  if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.top <= 1200) {
-                    bestScore = score
-                    bestEl = el
+                  if (
+                    sat.route.toLowerCase().includes('profile') &&
+                    (text.includes('hồ sơ') || text.includes('kỳ thủ') || text.includes('profile'))
+                  ) {
+                    score += 90
+                  }
+                  if (
+                    (sat.route.toLowerCase().includes('account') || sat.route.toLowerCase().includes('login') || sat.route.toLowerCase().includes('auth')) &&
+                    (text.includes('đăng nhập') || text.includes('tài khoản') || id.includes('auth') || className.includes('auth') || text.includes('login'))
+                  ) {
+                    score += 90
+                  }
+                  if (
+                    sat.route.toLowerCase().includes('lobby') &&
+                    (text.includes('sảnh') || text.includes('chờ') || text.includes('lobby'))
+                  ) {
+                    score += 90
+                  }
+                  if (
+                    sat.route.toLowerCase().includes('privacy') &&
+                    text.includes('privacy')
+                  ) {
+                    score += 90
+                  }
+                  if (
+                    sat.groupKey === 'catalog' &&
+                    (text.includes('sản phẩm') || text.includes('danh mục') || text.includes('product') || text.includes('shop'))
+                  ) {
+                    score += 75
+                  }
+                  if (
+                    sat.groupKey === 'order' &&
+                    (text.includes('giỏ hàng') || text.includes('đơn hàng') || text.includes('cart') || text.includes('thanh toán'))
+                  ) {
+                    score += 75
+                  }
+                  if (
+                    sat.groupKey === 'admin' &&
+                    (text.includes('quản trị') || text.includes('admin') || text.includes('dashboard'))
+                  ) {
+                    score += 75
                   }
                 }
               }
 
-              if (bestEl) {
-                const rect = bestEl.getBoundingClientRect()
-                newAnchors[sat.id] = {
-                  x: Math.round(rect.left + rect.width / 2),
-                  y: Math.round(rect.top + rect.height / 2),
-                }
+              // Không gán logo thương hiệu trang chủ cho các trang vệ tinh khác
+              if (id.includes('brand') || className.includes('brand') || text.includes('bàn cờ tướng')) {
+                score -= 100
+              }
+
+              if (score > 35) {
+                matchScores.push({ satId: sat.id, el, score })
               }
             })
+          })
 
-          if (Object.keys(newAnchors).length > 0) {
-            setDetectedAnchors(newAnchors)
+          // Sắp xếp điểm giảm dần để ghép cặp tốt nhất trước
+          matchScores.sort((a, b) => b.score - a.score)
+
+          // Phân phối 1-1 tuyệt đối: Mỗi nút bấm CHỈ GẮN VỚI DUY NHẤT 1 TRANG VỆ TINH!
+          const claimedElements = new Set<HTMLElement>()
+          const claimedSats = new Set<string>()
+          const newAnchors: Record<string, { x: number; y: number }> = {}
+
+          for (const match of matchScores) {
+            if (!claimedSats.has(match.satId) && !claimedElements.has(match.el)) {
+              claimedSats.add(match.satId)
+              claimedElements.add(match.el)
+              const rect = match.el.getBoundingClientRect()
+              newAnchors[match.satId] = {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+              }
+            }
           }
+
+          setDetectedAnchors(newAnchors)
         }
       } catch {
         // Safe cross-origin fallback
@@ -1015,6 +1060,8 @@ export default function MultiPageCanvas({
 
     const homeLeft = homeWin.x - homeWin.w / 2
     const homeTop = homeWin.y - homeWin.h / 2
+    const halfW = homeWin.w / 2
+    const halfH = homeWin.h / 2
 
     return windows
       .filter((w) => !w.isHome)
@@ -1022,15 +1069,30 @@ export default function MultiPageCanvas({
         const anchor = detectedAnchors[sat.id]
         let srcX: number
         let srcY: number
+        const hasAnchor = Boolean(anchor)
 
-        // Ưu tiên sử dụng tọa độ chính xác của nút bấm quét từ DOM trang chủ
         if (anchor) {
+          // Nối chính xác vào tâm của nút bấm thực tế trên trang chủ!
           srcX = homeLeft + anchor.x
           srcY = homeTop + 34 + anchor.y
         } else {
-          const hint = sat.sourceHint || { text: 'Điều hướng', relX: 0.5, relY: 0.055 }
-          srcX = homeLeft + homeWin.w * hint.relX
-          srcY = homeTop + 34 + (homeWin.h - 34) * hint.relY
+          // Các trang không có nút bấm trên navbar (ví dụ trang lỗi, privacy footer...):
+          // Xuất phát từ mép ngoài của cửa sổ trang chủ hướng về phía trang vệ tinh,
+          // TUYỆT ĐỐI không dồn vào thanh menu hay logo trang chủ.
+          const dx = sat.x - homeWin.x
+          const dy = sat.y - homeWin.y
+
+          if (Math.abs(dx) / halfW > Math.abs(dy) / halfH) {
+            // Mép trái hoặc phải
+            const signX = dx >= 0 ? 1 : -1
+            srcX = homeWin.x + halfW * signX
+            srcY = Math.round(homeWin.y + Math.max(-halfH * 0.7, Math.min(halfH * 0.7, (dy / (Math.abs(dx) || 1)) * halfW)))
+          } else {
+            // Mép trên hoặc dưới
+            const signY = dy >= 0 ? 1 : -1
+            srcX = Math.round(homeWin.x + Math.max(-halfW * 0.7, Math.min(halfW * 0.7, (dx / (Math.abs(dy) || 1)) * halfH)))
+            srcY = homeWin.y + halfH * signY
+          }
         }
 
         const dxFromHome = sat.x - homeWin.x
@@ -1067,23 +1129,53 @@ export default function MultiPageCanvas({
           return null
         }
 
+        // ─── TÍNH TOÁN ĐƯỜNG CONG TỰ NHIÊN, KHÔNG CẮT NGANG CÁC NÚT BÊN CẠNH ───
+        const dist = Math.hypot(destX - srcX, destY - srcY)
+        const curveSpan = Math.min(320, Math.max(100, dist * 0.38))
+
         let cp1X = srcX
         let cp1Y = srcY
         let cp2X = destX
         let cp2Y = destY
 
-        if (portSide === 'left' || portSide === 'right') {
-          const deltaX = destX - srcX
-          cp1X = srcX + deltaX * 0.45
-          cp1Y = srcY
-          cp2X = destX - deltaX * 0.45
-          cp2Y = destY
+        if (hasAnchor) {
+          // Dây xuất phát từ nút bấm trên navbar:
+          // Nếu cửa sổ đích ở phía trên: lượn vút lên trên
+          if (destY < srcY) {
+            cp1X = srcX + (destX - srcX) * 0.18
+            cp1Y = srcY - curveSpan
+          } else {
+            // Nếu cửa sổ đích ở phía dưới hoặc 2 bên: lượn nhẹ lên rồi uốn ra ngoài,
+            // không được nằm ngang đâm qua các nút bấm khác
+            cp1X = srcX + (destX - srcX) * 0.28
+            cp1Y = srcY - Math.min(80, curveSpan * 0.35)
+          }
         } else {
-          const deltaY = destY - srcY
-          cp1X = srcX
-          cp1Y = srcY + deltaY * 0.45
+          // Dây từ mép ngoài trang chủ
+          const dxEdge = srcX - homeWin.x
+          const dyEdge = srcY - homeWin.y
+          if (Math.abs(dxEdge) > Math.abs(dyEdge)) {
+            cp1X = srcX + (dxEdge > 0 ? curveSpan : -curveSpan)
+            cp1Y = srcY
+          } else {
+            cp1X = srcX
+            cp1Y = srcY + (dyEdge > 0 ? curveSpan : -curveSpan)
+          }
+        }
+
+        // Điểm uốn tại cổng cắm của cửa sổ đích
+        if (portSide === 'left') {
+          cp2X = destX - curveSpan
+          cp2Y = destY
+        } else if (portSide === 'right') {
+          cp2X = destX + curveSpan
+          cp2Y = destY
+        } else if (portSide === 'top') {
           cp2X = destX
-          cp2Y = destY - deltaY * 0.45
+          cp2Y = destY - curveSpan
+        } else {
+          cp2X = destX
+          cp2Y = destY + curveSpan
         }
 
         const pathD = `M ${srcX} ${srcY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${destX} ${destY}`
@@ -1094,6 +1186,7 @@ export default function MultiPageCanvas({
           id: `wire-${sat.id}`,
           satId: sat.id,
           targetWin: sat,
+          hasAnchor,
           color: sat.groupColor || '#6366f1',
           label: sat.title,
           pathD,
@@ -1391,22 +1484,24 @@ export default function MultiPageCanvas({
             </g>
           </svg>
 
-          {/* ── 3. CÁC ĐIỂM GHIM TRÊN NÚT BẤM CỦA TRANG CHỦ (CHẤM PHÁT SÁNG TINH TẾ) ── */}
-          {wires.map((wire) => (
-            <div
-              key={`pin-${wire.id}`}
-              className="pm-multi-pin"
-              style={{
-                left: wire.srcPoint.x,
-                top: wire.srcPoint.y,
-                color: wire.color,
-              }}
-              title={`Nối từ nút bấm: ${wire.label} (Bấm để chuyển góc nhìn)`}
-              onClick={() => flyToWindow(wire.targetWin)}
-            >
-              <span className="pm-multi-pin-dot" />
-            </div>
-          ))}
+          {/* ── 3. CÁC ĐIỂM GHIM TRÊN NÚT BẤM CỦA TRANG CHỦ (CHỈ HIỂN THỊ TẠI ĐÚNG NÚT BẤM THẬT) ── */}
+          {wires
+            .filter((wire) => wire.hasAnchor)
+            .map((wire) => (
+              <div
+                key={`pin-${wire.id}`}
+                className="pm-multi-pin"
+                style={{
+                  left: wire.srcPoint.x,
+                  top: wire.srcPoint.y,
+                  color: wire.color,
+                }}
+                title={`Nối từ nút bấm: ${wire.label} (Bấm để chuyển góc nhìn)`}
+                onClick={() => flyToWindow(wire.targetWin)}
+              >
+                <span className="pm-multi-pin-dot" />
+              </div>
+            ))}
         </div>
 
         {/* ── Thanh điều hướng nhanh khi đang chuyển góc nhìn sang trang khác ── */}
