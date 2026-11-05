@@ -620,7 +620,7 @@ export default function MultiPageCanvas({
     const targetWin = windows.find((w) => w.id === winId)
     if (!targetWin) return
 
-    maxZRef.current += 1
+    maxZRef.current = Math.min(450, maxZRef.current + 1)
     const newZ = maxZRef.current
     setActiveWinId(winId)
     setWindows((prev) => {
@@ -892,82 +892,7 @@ export default function MultiPageCanvas({
             transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
           }}
         >
-          {/* ── LỚP DÂY NỐI SVG BẮT NGUỒN TỪ THÀNH PHẦN NÚT BẤM TRÊN TRANG CHỦ ── */}
-          <svg className="pm-multi-svg" width={10000} height={10000} style={{ left: -5000, top: -5000 }}>
-            <g transform="translate(5000, 5000)">
-              <defs>
-                {windows.map((w) => (
-                  <marker
-                    key={`arrow-${w.id}`}
-                    id={`arrow-${w.id}`}
-                    viewBox="0 0 10 10"
-                    refX="7"
-                    refY="5"
-                    markerWidth="6"
-                    markerHeight="6"
-                    orient="auto-start-reverse"
-                  >
-                    <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill={w.groupColor} />
-                  </marker>
-                ))}
-              </defs>
-
-              {wires.map((wire) => {
-                const isHovered = hoveredWinId === wire.satId || activeWinId === wire.satId
-                return (
-                  <g key={wire.id}>
-                    {/* Dây bóng phát sáng khi hover */}
-                    <path
-                      d={wire.pathD}
-                      className="pm-multi-wire-glow"
-                      style={{
-                        stroke: wire.color,
-                        strokeWidth: isHovered ? 8 : 4,
-                        opacity: isHovered ? 0.45 : 0.18,
-                      }}
-                    />
-
-                    {/* Dây nối chính */}
-                    <path
-                      d={wire.pathD}
-                      className={`pm-multi-wire ${isHovered ? 'pm-multi-wire-active' : ''}`}
-                      markerEnd={`url(#arrow-${wire.satId})`}
-                      style={{
-                        stroke: wire.color,
-                        strokeWidth: isHovered ? 2.6 : 1.8,
-                        opacity: isHovered ? 1 : 0.6,
-                      }}
-                    />
-
-                    {/* Hạt ánh sáng chuyển động dọc dây nối */}
-                    <circle r={isHovered ? 4 : 2.5} fill={wire.color} className="pm-multi-particle">
-                      <animateMotion dur={isHovered ? '2s' : '3.5s'} repeatCount="indefinite" path={wire.pathD} />
-                    </circle>
-                  </g>
-                )
-              })}
-            </g>
-          </svg>
-
-          {/* ── CÁC ĐIỂM GHIM TRÊN NÚT BẤM CỦA TRANG CHỦ (SOURCE ANCHOR PINS) ── */}
-          {wires.map((wire) => (
-            <div
-              key={`pin-${wire.id}`}
-              className="pm-multi-pin"
-              style={{
-                left: wire.srcPoint.x,
-                top: wire.srcPoint.y,
-                borderColor: wire.color,
-                color: wire.color,
-              }}
-              title={`Điểm xuất phát: ${wire.label}`}
-            >
-              <span className="pm-multi-pin-dot" />
-              <span>{wire.label}</span>
-            </div>
-          ))}
-
-          {/* ── CÁC CỬA SỔ DESKTOP CÓ THỂ KÉO THẢ TỰ DO (WINDOWS) ── */}
+          {/* ── 1. CÁC CỬA SỔ DESKTOP (NẰM PHÍA DƯỚI) ── */}
           {windows.map((win) => {
             const isMatch = filteredQuery
               ? win.title.toLowerCase().includes(filteredQuery) || win.route.toLowerCase().includes(filteredQuery)
@@ -1070,6 +995,81 @@ export default function MultiPageCanvas({
               </div>
             )
           })}
+
+          {/* ── 2. LỚP DÂY NỐI SVG BẮT NGUỒN TỪ THÀNH PHẦN NÚT BẤM (NẰM TRÊN CÁC TRANG) ── */}
+          <svg className="pm-multi-svg" width={10000} height={10000} style={{ left: -5000, top: -5000 }}>
+            <g transform="translate(5000, 5000)">
+              <defs>
+                {windows.map((w) => (
+                  <marker
+                    key={`arrow-${w.id}`}
+                    id={`arrow-${w.id}`}
+                    viewBox="0 0 10 10"
+                    refX="7"
+                    refY="5"
+                    markerWidth="6"
+                    markerHeight="6"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill={w.groupColor} />
+                  </marker>
+                ))}
+              </defs>
+
+              {wires.map((wire) => {
+                const isHovered = hoveredWinId === wire.satId || activeWinId === wire.satId
+                return (
+                  <g key={wire.id}>
+                    {/* Dây bóng phát sáng khi hover */}
+                    <path
+                      d={wire.pathD}
+                      className="pm-multi-wire-glow"
+                      style={{
+                        stroke: wire.color,
+                        strokeWidth: isHovered ? 9 : 5,
+                        opacity: isHovered ? 0.55 : 0.28,
+                      }}
+                    />
+
+                    {/* Dây nối chính */}
+                    <path
+                      d={wire.pathD}
+                      className={`pm-multi-wire ${isHovered ? 'pm-multi-wire-active' : ''}`}
+                      markerEnd={`url(#arrow-${wire.satId})`}
+                      style={{
+                        stroke: wire.color,
+                        strokeWidth: isHovered ? 3.0 : 2.2,
+                        opacity: isHovered ? 1 : 0.85,
+                      }}
+                    />
+
+                    {/* Hạt ánh sáng chuyển động dọc dây nối */}
+                    <circle r={isHovered ? 4.5 : 3} fill={wire.color} className="pm-multi-particle">
+                      <animateMotion dur={isHovered ? '2s' : '3.5s'} repeatCount="indefinite" path={wire.pathD} />
+                    </circle>
+                  </g>
+                )
+              })}
+            </g>
+          </svg>
+
+          {/* ── 3. CÁC ĐIỂM GHIM TRÊN NÚT BẤM CỦA TRANG CHỦ (NẰM TRÊN CÙNG) ── */}
+          {wires.map((wire) => (
+            <div
+              key={`pin-${wire.id}`}
+              className="pm-multi-pin"
+              style={{
+                left: wire.srcPoint.x,
+                top: wire.srcPoint.y,
+                borderColor: wire.color,
+                color: wire.color,
+              }}
+              title={`Điểm xuất phát: ${wire.label}`}
+            >
+              <span className="pm-multi-pin-dot" />
+              <span>{wire.label}</span>
+            </div>
+          ))}
         </div>
 
         {/* ── Điều khiển Zoom & Căn giữa góc dưới ── */}

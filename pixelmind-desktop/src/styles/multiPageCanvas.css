@@ -186,55 +186,60 @@
   will-change: transform;
 }
 
-/* ── Dây nối SVG liên kết giữa nút bấm và trang đích ── */
+/* ── Dây nối SVG liên kết giữa nút bấm và trang đích (NẰM TRÊN CÁC TRANG) ── */
 .pm-multi-svg {
   position: absolute;
   top: 0;
   left: 0;
   pointer-events: none;
   overflow: visible;
-  z-index: 5;
+  z-index: 500;
 }
 
 .pm-multi-wire {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.85));
   transition: stroke-width 150ms ease, opacity 150ms ease;
 }
 
 .pm-multi-wire-glow {
   fill: none;
   stroke-linecap: round;
-  opacity: 0.25;
-  filter: blur(3px);
+  opacity: 0.35;
+  filter: blur(4px);
+  pointer-events: none;
 }
 
 .pm-multi-wire-active {
-  stroke-width: 2.8 !important;
+  stroke-width: 3.2 !important;
   opacity: 1 !important;
-  filter: drop-shadow(0 0 6px currentColor);
+  filter: drop-shadow(0 0 8px currentColor) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.95));
 }
 
 /* Hạt ánh sáng chuyển động dọc theo dây nối */
 .pm-multi-particle {
   pointer-events: none;
+  filter: drop-shadow(0 0 6px currentColor);
 }
 
-/* Điểm ghim xuất phát trên nút bấm Trang chủ (Anchor Pin) */
+/* Điểm ghim xuất phát trên nút bấm Trang chủ (Anchor Pin) - NẰM TRÊN CÙNG */
 .pm-multi-pin {
   position: absolute;
   transform: translate(-50%, -50%);
-  z-index: 15;
+  z-index: 510;
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 7px;
-  border-radius: 10px;
-  background: rgba(15, 23, 42, 0.95);
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: rgba(11, 15, 25, 0.95);
   border: 1.5px solid;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-  font-size: 9.5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(6px);
+  font-size: 10px;
   font-weight: 700;
   pointer-events: none;
   white-space: nowrap;
@@ -410,12 +415,12 @@
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  border: 2px solid #08090d;
-  z-index: 12;
-  box-shadow: 0 0 8px currentColor;
+  border: 2px solid #0b0f19;
+  z-index: 520;
+  box-shadow: 0 0 10px currentColor, 0 2px 6px rgba(0, 0, 0, 0.8);
 }
 
 .pm-win__port.left {
