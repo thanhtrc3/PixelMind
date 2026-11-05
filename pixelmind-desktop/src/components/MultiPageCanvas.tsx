@@ -51,8 +51,8 @@ const normalizeRoute = (route: string) => {
 }
 
 const joinPreviewUrl = (base: string, route: string) => {
-  const cleanBase = base.replace(/\/+$/, '')
-  const cleanRoute = route.startsWith('/') ? route : `/${route}`
+  const cleanBase = (base || '').replace(/\/+$/, '')
+  const cleanRoute = (route || '/').startsWith('/') ? route : `/${route}`
   return `${cleanBase}${cleanRoute === '/' ? '/' : cleanRoute}`
 }
 
@@ -119,22 +119,22 @@ const getGroupInfo = (route: string) => {
   }
 }
 
-// Kích thước chuẩn
-const HOME_WIDTH = 920
-const HOME_HEIGHT = 580
-const SATELLITE_WIDTH = 460
-const SATELLITE_HEIGHT = 320
-const GAP_X = 90
-const GAP_Y = 80
-const STEP_X = SATELLITE_WIDTH + GAP_X // 550
-const STEP_Y = SATELLITE_HEIGHT + GAP_Y // 400
+// Kích thước chuẩn các cửa sổ
+const HOME_WIDTH = 840
+const HOME_HEIGHT = 520
+const SATELLITE_WIDTH = 380
+const SATELLITE_HEIGHT = 260
+const GAP_X = 50
+const GAP_Y = 40
+const STEP_X = SATELLITE_WIDTH + GAP_X // 430
+const STEP_Y = SATELLITE_HEIGHT + GAP_Y // 300
+const SAFE_MARGIN = 120
 
 // ─── THUẬT TOÁN GIẢI TỎA VA CHẠM (COLLISION RELAXATION SOLVER) ───
-// Đảm bảo không bao giờ có 2 cửa sổ nào bị đè hay chồng lấn lên nhau!
 function resolveCollisions(windows: CanvasWin[]): CanvasWin[] {
   const result = windows.map((w) => ({ ...w }))
-  const PAD_X = 70
-  const PAD_Y = 60
+  const PAD_X = 50
+  const PAD_Y = 40
 
   for (let iter = 0; iter < 18; iter++) {
     let moved = false
@@ -172,11 +172,10 @@ function resolveCollisions(windows: CanvasWin[]): CanvasWin[] {
   return result
 }
 
-// ─── BỐ CỤC 1: PHÂN CỤM THEO HƯỚNG NÚT BẤM (CLUSTER GRID - MẶC ĐỊNH) ───
+// ─── BỐ CỤC 1: PHÂN CỤM THEO HƯỚNG NÚT BẤM (CLUSTER GRID) ───
 function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): CanvasWin[] {
   const halfHomeW = HOME_WIDTH / 2
   const halfHomeH = HOME_HEIGHT / 2
-  const SAFE_MARGIN = 180
 
   const groups: Record<string, { info: ReturnType<typeof getGroupInfo>; pages: ProjectPage[] }> = {}
   otherPages.forEach((page) => {
@@ -190,14 +189,14 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
 
   const satellites: CanvasWin[] = []
 
-  // 1. Nhóm 'catalog' (Sản phẩm & Danh mục) -> Đặt phía TRÊN Trang chủ
-  if (groups.catalog) {
+  // 1. Nhóm 'catalog' (Sản phẩm & Danh mục) -> Phía TRÊN
+  if (groups.catalog && groups.catalog.pages.length > 0) {
     const items = groups.catalog.pages
     const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(items.length))))
     const rows = Math.ceil(items.length / cols)
     const clusterW = cols * STEP_X - GAP_X
     const clusterH = rows * STEP_Y - GAP_Y
-    const centerX = -140
+    const centerX = -100
     const centerY = -(halfHomeH + SAFE_MARGIN + clusterH / 2)
 
     items.forEach((page, idx) => {
@@ -208,7 +207,7 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
       const norm = normalizeRoute(page.route)
       const info = groups.catalog.info
       satellites.push({
-        id: `win:${page.id}`,
+        id: `win:${page.id || norm}`,
         page,
         route: norm,
         title: page.title || norm,
@@ -226,15 +225,15 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
     })
   }
 
-  // 2. Nhóm 'auth' (Tài khoản & Xác thực) -> Đặt phía BÊN PHẢI Trang chủ
-  if (groups.auth) {
+  // 2. Nhóm 'auth' (Tài khoản & Xác thực) -> Phía BÊN PHẢI
+  if (groups.auth && groups.auth.pages.length > 0) {
     const items = groups.auth.pages
     const cols = Math.min(4, Math.max(3, Math.ceil(Math.sqrt(items.length))))
     const rows = Math.ceil(items.length / cols)
     const clusterW = cols * STEP_X - GAP_X
     const clusterH = rows * STEP_Y - GAP_Y
     const centerX = halfHomeW + SAFE_MARGIN + clusterW / 2
-    const centerY = -140
+    const centerY = -100
 
     items.forEach((page, idx) => {
       const col = idx % cols
@@ -244,7 +243,7 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
       const norm = normalizeRoute(page.route)
       const info = groups.auth.info
       satellites.push({
-        id: `win:${page.id}`,
+        id: `win:${page.id || norm}`,
         page,
         route: norm,
         title: page.title || norm,
@@ -262,15 +261,15 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
     })
   }
 
-  // 3. Nhóm 'order' (Đơn hàng & Giỏ hàng) -> Đặt phía DƯỚI BÊN PHẢI Trang chủ
-  if (groups.order) {
+  // 3. Nhóm 'order' (Đơn hàng & Giỏ hàng) -> Phía DƯỚI BÊN PHẢI
+  if (groups.order && groups.order.pages.length > 0) {
     const items = groups.order.pages
     const cols = Math.min(3, Math.max(2, Math.ceil(Math.sqrt(items.length))))
     const rows = Math.ceil(items.length / cols)
     const clusterW = cols * STEP_X - GAP_X
     const clusterH = rows * STEP_Y - GAP_Y
     const centerX = halfHomeW + SAFE_MARGIN + clusterW / 2
-    const centerY = halfHomeH + SAFE_MARGIN + clusterH / 2 + 100
+    const centerY = halfHomeH + SAFE_MARGIN + clusterH / 2 + 60
 
     items.forEach((page, idx) => {
       const col = idx % cols
@@ -280,7 +279,7 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
       const norm = normalizeRoute(page.route)
       const info = groups.order.info
       satellites.push({
-        id: `win:${page.id}`,
+        id: `win:${page.id || norm}`,
         page,
         route: norm,
         title: page.title || norm,
@@ -298,14 +297,14 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
     })
   }
 
-  // 4. Nhóm 'activity' (Bảng xếp hạng & Kỳ đài) -> Đặt TRỰC TIẾP PHÍA DƯỚI Trang chủ
-  if (groups.activity) {
+  // 4. Nhóm 'activity' (Bảng xếp hạng & Kỳ đài) -> Phía DƯỚI
+  if (groups.activity && groups.activity.pages.length > 0) {
     const items = groups.activity.pages
     const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(items.length))))
     const rows = Math.ceil(items.length / cols)
     const clusterW = cols * STEP_X - GAP_X
     const clusterH = rows * STEP_Y - GAP_Y
-    const centerX = -100
+    const centerX = -80
     const centerY = halfHomeH + SAFE_MARGIN + clusterH / 2
 
     items.forEach((page, idx) => {
@@ -316,7 +315,7 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
       const norm = normalizeRoute(page.route)
       const info = groups.activity.info
       satellites.push({
-        id: `win:${page.id}`,
+        id: `win:${page.id || norm}`,
         page,
         route: norm,
         title: page.title || norm,
@@ -334,7 +333,7 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
     })
   }
 
-  // 5. Nhóm 'admin' & 'general' -> Đặt phía BÊN TRÁI Trang chủ
+  // 5. Nhóm 'admin' & 'general' -> Phía BÊN TRÁI
   const leftItems = [...(groups.admin?.pages || []), ...(groups.general?.pages || [])]
   if (leftItems.length > 0) {
     const cols = Math.min(3, Math.max(2, Math.ceil(Math.sqrt(leftItems.length))))
@@ -352,7 +351,7 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
       const norm = normalizeRoute(page.route)
       const info = getGroupInfo(norm)
       satellites.push({
-        id: `win:${page.id}`,
+        id: `win:${page.id || norm}`,
         page,
         route: norm,
         title: page.title || norm,
@@ -370,21 +369,21 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
     })
   }
 
-  // Xử lý các trang còn sót lại nếu có
-  const processedIds = new Set(satellites.map((s) => s.id))
-  const remaining = otherPages.filter((p) => !processedIds.has(`win:${p.id}`))
+  // Các trang còn sót lại nếu có
+  const processedRoutes = new Set(satellites.map((s) => s.route))
+  const remaining = otherPages.filter((p) => !processedRoutes.has(normalizeRoute(p.route)))
   if (remaining.length > 0) {
     remaining.forEach((page, idx) => {
       const norm = normalizeRoute(page.route)
       const info = getGroupInfo(norm)
       satellites.push({
-        id: `win:${page.id}`,
+        id: `win:${page.id || norm}`,
         page,
         route: norm,
         title: page.title || norm,
         isHome: false,
-        x: -(halfHomeW + SAFE_MARGIN + 320),
-        y: 600 + idx * STEP_Y,
+        x: -(halfHomeW + SAFE_MARGIN + 240),
+        y: 450 + idx * STEP_Y,
         w: SATELLITE_WIDTH,
         h: SATELLITE_HEIGHT,
         zIndex: 5,
@@ -400,7 +399,6 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
 }
 
 // ─── BỐ CỤC 2: QUỸ ĐẠO ĐA TẦNG (MULTI-RING ORBIT) ───
-// Tự động chia các trang thành nhiều vòng elip đồng tâm mở rộng để không bao giờ đè lên nhau
 function computeRingsLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): CanvasWin[] {
   const satellites: CanvasWin[] = []
   const count = otherPages.length
@@ -410,11 +408,11 @@ function computeRingsLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Canv
   let ringIndex = 0
 
   while (pageIdx < count) {
-    const rx = HOME_WIDTH / 2 + SATELLITE_WIDTH / 2 + 240 + ringIndex * (SATELLITE_WIDTH + 140)
-    const ry = HOME_HEIGHT / 2 + SATELLITE_HEIGHT / 2 + 190 + ringIndex * (SATELLITE_HEIGHT + 120)
+    const rx = HOME_WIDTH / 2 + SATELLITE_WIDTH / 2 + 160 + ringIndex * (SATELLITE_WIDTH + 100)
+    const ry = HOME_HEIGHT / 2 + SATELLITE_HEIGHT / 2 + 130 + ringIndex * (SATELLITE_HEIGHT + 80)
 
     const perimeter = 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2)
-    const capacity = Math.max(6, Math.floor(perimeter / (SATELLITE_WIDTH + 120)))
+    const capacity = Math.max(6, Math.floor(perimeter / (SATELLITE_WIDTH + 80)))
 
     const remainingPages = count - pageIdx
     const countInThisRing = Math.min(capacity, remainingPages)
@@ -429,7 +427,7 @@ function computeRingsLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Canv
       const y = Math.round(Math.sin(angle) * ry)
 
       satellites.push({
-        id: `win:${page.id}`,
+        id: `win:${page.id || norm}`,
         page,
         route: norm,
         title: page.title || norm,
@@ -461,9 +459,43 @@ export default function MultiPageCanvas({
   onClose,
 }: MultiPageCanvasProps) {
   const stageRef = useRef<HTMLDivElement | null>(null)
-  const [windows, setWindows] = useState<CanvasWin[]>([])
+  const windowsRef = useRef<CanvasWin[]>([])
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('cluster')
-  const [view, setView] = useState({ zoom: 0.65, panX: 0, panY: 0 })
+
+  // Khởi tạo cửa sổ ĐỒNG BỘ ngay từ đầu (không để mảng rỗng)
+  const [windows, setWindows] = useState<CanvasWin[]>(() => {
+    const homePage = pages.find((p) => normalizeRoute(p.route) === '/')
+    const otherPages = pages.filter((p) => normalizeRoute(p.route) !== '/')
+
+    const homeWin: CanvasWin = {
+      id: homePage ? `win:${homePage.id}` : 'win:home',
+      page: homePage,
+      route: '/',
+      title: homePage?.title || 'Trang chủ',
+      isHome: true,
+      x: 0,
+      y: 0,
+      w: HOME_WIDTH,
+      h: HOME_HEIGHT,
+      zIndex: 10,
+      groupKey: 'home',
+      groupLabel: 'Trang chủ (Màn hình chuẩn)',
+      groupColor: '#6366f1',
+      sourceHint: { text: 'Trang chủ gốc', relX: 0.5, relY: 0.5 },
+    }
+
+    const initList = computeClusterLayout(homeWin, otherPages)
+    windowsRef.current = initList
+    return initList
+  })
+
+  // Camera viewport: Khởi tạo với tâm Trang chủ ngay giữa màn hình
+  const [view, setView] = useState(() => ({
+    zoom: 0.38,
+    panX: typeof window !== 'undefined' ? Math.round(window.innerWidth / 2) : 540,
+    panY: typeof window !== 'undefined' ? Math.round(window.innerHeight / 2) : 340,
+  }))
+
   const [isPanning, setIsPanning] = useState(false)
   const panStartRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null)
   const maxZRef = useRef(10)
@@ -471,7 +503,7 @@ export default function MultiPageCanvas({
   const [hoveredWinId, setHoveredWinId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Trạng thái kéo cửa sổ (Drag Window Header)
+  // Trạng thái kéo cửa sổ
   const dragWinRef = useRef<{
     winId: string
     startMouseX: number
@@ -503,43 +535,45 @@ export default function MultiPageCanvas({
     return () => window.removeEventListener('keydown', handleKey, true)
   }, [onClose])
 
-  // Căn giữa toàn bộ cửa sổ vào khung nhìn
-  const fitAll = useCallback(() => {
-    if (!stageRef.current || windows.length === 0) return
+  // Căn vừa toàn bộ các cửa sổ vào màn hình
+  const fitBounding = useCallback((customList?: CanvasWin[]) => {
+    const list = customList || windowsRef.current
+    if (!stageRef.current || !list || list.length === 0) return
     const rect = stageRef.current.getBoundingClientRect()
-    if (rect.width <= 0 || rect.height <= 0) return
+    const stageW = rect.width > 50 ? rect.width : window.innerWidth
+    const stageH = rect.height > 50 ? rect.height : window.innerHeight
 
     let minX = Number.POSITIVE_INFINITY
     let maxX = Number.NEGATIVE_INFINITY
     let minY = Number.POSITIVE_INFINITY
     let maxY = Number.NEGATIVE_INFINITY
 
-    windows.forEach((win) => {
+    list.forEach((win) => {
       minX = Math.min(minX, win.x - win.w / 2)
       maxX = Math.max(maxX, win.x + win.w / 2)
       minY = Math.min(minY, win.y - win.h / 2)
       maxY = Math.max(maxY, win.y + win.h / 2)
     })
 
-    const pad = 160
-    const boundW = Math.max(800, maxX - minX + pad * 2)
-    const boundH = Math.max(600, maxY - minY + pad * 2)
+    const pad = 90
+    const boundW = Math.max(600, maxX - minX + pad * 2)
+    const boundH = Math.max(400, maxY - minY + pad * 2)
     const centerX = (minX + maxX) / 2
     const centerY = (minY + maxY) / 2
 
-    const zoom = Math.max(0.18, Math.min(1, Math.min(rect.width / boundW, rect.height / boundH)))
-    const panX = rect.width / 2 - centerX * zoom
-    const panY = rect.height / 2 - centerY * zoom
+    const zoom = Math.max(0.14, Math.min(0.9, Math.min(stageW / boundW, stageH / boundH)))
+    const panX = stageW / 2 - centerX * zoom
+    const panY = stageH / 2 - centerY * zoom
 
     setView({ zoom, panX, panY })
-  }, [windows])
+  }, [])
 
   // Áp dụng thuật toán sắp xếp
   const applyLayout = useCallback(
     (mode: LayoutMode) => {
       setLayoutMode(mode)
       const homePage = pages.find((p) => normalizeRoute(p.route) === '/')
-      const otherPages = pages.filter((p) => p.id !== homePage?.id)
+      const otherPages = pages.filter((p) => normalizeRoute(p.route) !== '/')
 
       const homeWin: CanvasWin = {
         id: homePage ? `win:${homePage.id}` : 'win:home',
@@ -563,17 +597,24 @@ export default function MultiPageCanvas({
           ? computeRingsLayout(homeWin, otherPages)
           : computeClusterLayout(homeWin, otherPages)
 
+      windowsRef.current = computed
       setWindows(computed)
-      setTimeout(fitAll, 100)
+      fitBounding(computed)
     },
-    [pages, fitAll]
+    [pages, fitBounding]
   )
 
+  // Căn vừa màn hình ngay khi mở
   useEffect(() => {
-    applyLayout('cluster')
-  }, [pages])
+    const t1 = setTimeout(() => fitBounding(), 50)
+    const t2 = setTimeout(() => fitBounding(), 250)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
+  }, [fitBounding, layoutMode])
 
-  // ─── KÉO CỬA SỔ BẰNG THANH HEADER (DRAG & DROP WINDOW) ───
+  // Kéo cửa sổ tự do
   const startDragWindow = (winId: string, e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation()
     const targetWin = windows.find((w) => w.id === winId)
@@ -582,7 +623,11 @@ export default function MultiPageCanvas({
     maxZRef.current += 1
     const newZ = maxZRef.current
     setActiveWinId(winId)
-    setWindows((prev) => prev.map((w) => (w.id === winId ? { ...w, zIndex: newZ } : w)))
+    setWindows((prev) => {
+      const next = prev.map((w) => (w.id === winId ? { ...w, zIndex: newZ } : w))
+      windowsRef.current = next
+      return next
+    })
 
     dragWinRef.current = {
       winId,
@@ -600,9 +645,13 @@ export default function MultiPageCanvas({
       const newX = Math.round(dragWinRef.current.startWinX + dx)
       const newY = Math.round(dragWinRef.current.startWinY + dy)
 
-      setWindows((prev) =>
-        prev.map((w) => (w.id === dragWinRef.current?.winId ? { ...w, x: newX, y: newY } : w))
-      )
+      setWindows((prev) => {
+        const next = prev.map((w) =>
+          w.id === dragWinRef.current?.winId ? { ...w, x: newX, y: newY } : w
+        )
+        windowsRef.current = next
+        return next
+      })
     }
 
     const onPointerUp = () => {
@@ -615,7 +664,7 @@ export default function MultiPageCanvas({
     window.addEventListener('pointerup', onPointerUp)
   }
 
-  // ─── KÉO VÀ ZOOM SÂN KHẤU CANVAS VÔ CỰC (PAN & ZOOM) ───
+  // Kéo và phóng to sân khấu canvas
   const handleStagePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('.pm-win') || (e.target as HTMLElement).closest('.pm-multi-controls')) {
       return
@@ -648,7 +697,7 @@ export default function MultiPageCanvas({
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     e.stopPropagation()
     const factor = e.deltaY < 0 ? 1.08 : 0.92
-    const newZoom = Math.min(2.0, Math.max(0.15, view.zoom * factor))
+    const newZoom = Math.min(2.0, Math.max(0.12, view.zoom * factor))
     const ratio = newZoom / view.zoom
 
     const rect = e.currentTarget.getBoundingClientRect()
@@ -674,11 +723,10 @@ export default function MultiPageCanvas({
     return windows
       .filter((w) => !w.isHome)
       .map((sat) => {
-        // 1. Tọa độ nút bấm cụ thể trên Trang chủ
-        const srcX = homeLeft + homeWin.w * sat.sourceHint.relX
-        const srcY = homeTop + 34 + (homeWin.h - 34) * sat.sourceHint.relY
+        const hint = sat.sourceHint || { text: 'Điều hướng', relX: 0.5, relY: 0.055 }
+        const srcX = homeLeft + homeWin.w * hint.relX
+        const srcY = homeTop + 34 + (homeWin.h - 34) * hint.relY
 
-        // 2. Xác định cổng cắm thông minh (Smart Port)
         const dxFromHome = sat.x - homeWin.x
         const dyFromHome = sat.y - homeWin.y
 
@@ -708,7 +756,11 @@ export default function MultiPageCanvas({
           }
         }
 
-        // 3. Đường cong Cubic Bezier mượt mà
+        // Đảm bảo không bao giờ bị NaN
+        if (!Number.isFinite(srcX) || !Number.isFinite(srcY) || !Number.isFinite(destX) || !Number.isFinite(destY)) {
+          return null
+        }
+
         let cp1X = srcX
         let cp1Y = srcY
         let cp2X = destX
@@ -735,8 +787,8 @@ export default function MultiPageCanvas({
         return {
           id: `wire-${sat.id}`,
           satId: sat.id,
-          color: sat.groupColor,
-          label: sat.sourceHint.text,
+          color: sat.groupColor || '#6366f1',
+          label: hint.text,
           pathD,
           portSide,
           srcPoint: { x: srcX, y: srcY },
@@ -744,6 +796,7 @@ export default function MultiPageCanvas({
           midPoint: { x: midX, y: midY },
         }
       })
+      .filter((w): w is NonNullable<typeof w> => w !== null)
   }, [windows, homeWin])
 
   const portSideMap = useMemo(() => {
@@ -791,22 +844,22 @@ export default function MultiPageCanvas({
         </div>
 
         {/* Ô tìm kiếm trang */}
-        <div className="pm-flow__search-box" style={{ width: 220 }}>
-          <Search size={12} className="pm-flow__search-icon" />
+        <div className="pm-multi-search-box" style={{ width: 220 }}>
+          <Search size={12} className="pm-multi-search-icon" />
           <input
-            className="pm-flow__search-input"
+            className="pm-multi-search-input"
             placeholder="Tìm trang (/product, /login)..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
           {searchQuery && (
-            <button className="pm-flow__search-clear" onClick={() => setSearchQuery('')}>
+            <button className="pm-multi-search-clear" onClick={() => setSearchQuery('')}>
               <X size={11} />
             </button>
           )}
         </div>
 
-        <button className="pm-multi-topbar__btn" onClick={fitAll} title="Căn vừa toàn bộ các cửa sổ">
+        <button className="pm-multi-topbar__btn" onClick={() => fitBounding()} title="Căn vừa toàn bộ các cửa sổ">
           <Maximize2 size={12} /> Căn vừa
         </button>
 
@@ -1010,7 +1063,7 @@ export default function MultiPageCanvas({
                   {!win.isHome && (
                     <div className="pm-win__hint-pill">
                       <span className="from">Nối từ:</span>
-                      <span>{win.sourceHint.text}</span>
+                      <span>{win.sourceHint?.text || 'Điều hướng'}</span>
                     </div>
                   )}
                 </div>
@@ -1022,7 +1075,7 @@ export default function MultiPageCanvas({
         {/* ── Điều khiển Zoom & Căn giữa góc dưới ── */}
         <div className="pm-multi-controls">
           <button
-            onClick={() => setView((v) => ({ ...v, zoom: Math.max(0.15, v.zoom * 0.88) }))}
+            onClick={() => setView((v) => ({ ...v, zoom: Math.max(0.12, v.zoom * 0.88) }))}
             title="Thu nhỏ (-)"
           >
             <ZoomOut size={13} />
@@ -1034,7 +1087,7 @@ export default function MultiPageCanvas({
           >
             <ZoomIn size={13} />
           </button>
-          <button onClick={fitAll} title="Căn vừa toàn bộ (Fit)">
+          <button onClick={() => fitBounding()} title="Căn vừa toàn bộ (Fit)">
             <Maximize2 size={13} />
           </button>
           <button

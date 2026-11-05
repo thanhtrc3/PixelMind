@@ -11,10 +11,10 @@
   z-index: 60;
   display: flex;
   flex-direction: column;
-  background-color: #08090d;
+  background-color: #0b0f19;
   background-image:
-    radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.07), transparent 65%),
-    radial-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+    radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.12), transparent 70%),
+    radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px);
   background-size: 100% 100%, 24px 24px;
   user-select: none;
   overflow: hidden;
@@ -117,6 +117,51 @@
   background: rgba(239, 68, 68, 0.18);
   color: #ef4444;
   border-color: rgba(239, 68, 68, 0.4);
+}
+
+/* ── Hộp tìm kiếm trang trên TopBar ── */
+.pm-multi-search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 0 8px;
+  gap: 6px;
+}
+
+.pm-multi-search-icon {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.pm-multi-search-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #f1f5f9;
+  font-size: 11px;
+  width: 100%;
+}
+
+.pm-multi-search-input::placeholder {
+  color: #64748b;
+}
+
+.pm-multi-search-clear {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px;
+  display: grid;
+  place-items: center;
+}
+
+.pm-multi-search-clear:hover {
+  color: #fff;
 }
 
 /* ── Sân khấu vô cực ── */
