@@ -119,24 +119,22 @@ const getGroupInfo = (route: string) => {
   }
 }
 
-// Kích thước chuẩn các cửa sổ
-const HOME_WIDTH = 840
-const HOME_HEIGHT = 520
-const SATELLITE_WIDTH = 380
-const SATELLITE_HEIGHT = 260
-const GAP_X = 50
-const GAP_Y = 40
-const STEP_X = SATELLITE_WIDTH + GAP_X // 430
-const STEP_Y = SATELLITE_HEIGHT + GAP_Y // 300
-const SAFE_MARGIN = 120
+// Kích thước chuẩn các cửa sổ (mọi trang đều to chuẩn Desktop bằng với trang chủ)
+const WINDOW_WIDTH = 960
+const WINDOW_HEIGHT = 600
+const GAP_X = 140
+const GAP_Y = 120
+const STEP_X = WINDOW_WIDTH + GAP_X // 1100
+const STEP_Y = WINDOW_HEIGHT + GAP_Y // 720
+const SAFE_MARGIN = 160
 
 // ─── THUẬT TOÁN GIẢI TỎA VA CHẠM (COLLISION RELAXATION SOLVER) ───
 function resolveCollisions(windows: CanvasWin[]): CanvasWin[] {
   const result = windows.map((w) => ({ ...w }))
-  const PAD_X = 50
-  const PAD_Y = 40
+  const PAD_X = 70
+  const PAD_Y = 60
 
-  for (let iter = 0; iter < 18; iter++) {
+  for (let iter = 0; iter < 20; iter++) {
     let moved = false
     for (let i = 0; i < result.length; i++) {
       for (let j = i + 1; j < result.length; j++) {
@@ -154,12 +152,12 @@ function resolveCollisions(windows: CanvasWin[]): CanvasWin[] {
         if (overlapX > 0 && overlapY > 0) {
           moved = true
           if (overlapX < overlapY) {
-            const shift = overlapX / 2 + 2
+            const shift = overlapX / 2 + 4
             const sign = dx >= 0 ? 1 : -1
             if (!a.isHome) a.x -= shift * sign
             if (!b.isHome) b.x += shift * sign
           } else {
-            const shift = overlapY / 2 + 2
+            const shift = overlapY / 2 + 4
             const sign = dy >= 0 ? 1 : -1
             if (!a.isHome) a.y -= shift * sign
             if (!b.isHome) b.y += shift * sign
@@ -172,10 +170,95 @@ function resolveCollisions(windows: CanvasWin[]): CanvasWin[] {
   return result
 }
 
+// ─── HÀM TÌM CỬA SỔ PHÙ HỢP KHI BẤM NÚT / LINK TRÊN TRANG ───
+function findMatchingWindow(href: string, text: string, winList: CanvasWin[]): CanvasWin | null {
+  const normHref = href ? normalizeRoute(href.replace(/^https?:\/\/[^/]+/, '')) : ''
+  const cleanText = (text || '').trim().toLowerCase()
+
+  // 1. Kiểm tra về Trang chủ
+  const homeWin = winList.find((w) => w.isHome)
+  if (normHref === '/' || cleanText === 'trang chủ' || cleanText === 'home') {
+    return homeWin || null
+  }
+
+  // 2. Khớp chính xác theo route
+  if (normHref && normHref !== '/') {
+    const directMatch = winList.find(
+      (w) =>
+        !w.isHome &&
+        (normalizeRoute(w.route).toLowerCase() === normHref.toLowerCase() ||
+          normHref.toLowerCase().startsWith(normalizeRoute(w.route).toLowerCase()) ||
+          normalizeRoute(w.route).toLowerCase().startsWith(normHref.toLowerCase()))
+    )
+    if (directMatch) return directMatch
+  }
+
+  // 3. Khớp theo phân đoạn route (segment)
+  if (normHref && normHref !== '/') {
+    const segments = normHref.toLowerCase().split('/').filter(Boolean)
+    for (const seg of segments) {
+      if (['home', 'index', 'api'].includes(seg)) continue
+      const segMatch = winList.find((w) => !w.isHome && w.route.toLowerCase().includes(seg))
+      if (segMatch) return segMatch
+    }
+  }
+
+  // 4. Khớp theo text của nút bấm
+  if (cleanText) {
+    const textMatch = winList.find((w) => {
+      if (w.isHome) return false
+      const title = w.title.toLowerCase()
+      const route = w.route.toLowerCase()
+      if (title.includes(cleanText) || cleanText.includes(title)) return true
+      if (route.includes(cleanText)) return true
+
+      if (
+        cleanText.includes('xếp hạng') ||
+        cleanText.includes('bảng') ||
+        cleanText.includes('kỳ đài') ||
+        cleanText.includes('leaderboard') ||
+        cleanText.includes('rank')
+      ) {
+        return route.includes('leaderboard') || route.includes('rank') || title.includes('xếp hạng')
+      }
+      if (
+        cleanText.includes('sản phẩm') ||
+        cleanText.includes('product') ||
+        cleanText.includes('danh mục') ||
+        cleanText.includes('catalog') ||
+        cleanText.includes('shop')
+      ) {
+        return route.includes('product') || route.includes('catalog') || route.includes('categor') || title.includes('sản phẩm')
+      }
+      if (
+        cleanText.includes('giỏ hàng') ||
+        cleanText.includes('cart') ||
+        cleanText.includes('đơn hàng') ||
+        cleanText.includes('checkout')
+      ) {
+        return route.includes('cart') || route.includes('order') || route.includes('checkout')
+      }
+      if (cleanText.includes('đăng nhập') || cleanText.includes('login') || cleanText.includes('tài khoản')) {
+        return route.includes('login') || route.includes('auth') || route.includes('account')
+      }
+      if (cleanText.includes('đăng ký') || cleanText.includes('register')) {
+        return route.includes('register') || route.includes('auth')
+      }
+      if (cleanText.includes('quản trị') || cleanText.includes('admin') || cleanText.includes('dashboard')) {
+        return route.includes('admin') || route.includes('dashboard')
+      }
+      return false
+    })
+    if (textMatch) return textMatch
+  }
+
+  return null
+}
+
 // ─── BỐ CỤC 1: PHÂN CỤM THEO HƯỚNG NÚT BẤM (CLUSTER GRID) ───
 function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): CanvasWin[] {
-  const halfHomeW = HOME_WIDTH / 2
-  const halfHomeH = HOME_HEIGHT / 2
+  const halfHomeW = WINDOW_WIDTH / 2
+  const halfHomeH = WINDOW_HEIGHT / 2
 
   const groups: Record<string, { info: ReturnType<typeof getGroupInfo>; pages: ProjectPage[] }> = {}
   otherPages.forEach((page) => {
@@ -192,18 +275,18 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
   // 1. Nhóm 'catalog' (Sản phẩm & Danh mục) -> Phía TRÊN
   if (groups.catalog && groups.catalog.pages.length > 0) {
     const items = groups.catalog.pages
-    const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(items.length))))
+    const cols = Math.min(3, Math.max(2, Math.ceil(Math.sqrt(items.length))))
     const rows = Math.ceil(items.length / cols)
     const clusterW = cols * STEP_X - GAP_X
     const clusterH = rows * STEP_Y - GAP_Y
-    const centerX = -100
+    const centerX = 0
     const centerY = -(halfHomeH + SAFE_MARGIN + clusterH / 2)
 
     items.forEach((page, idx) => {
       const col = idx % cols
       const row = Math.floor(idx / cols)
-      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + SATELLITE_WIDTH / 2)
-      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + SATELLITE_HEIGHT / 2)
+      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + WINDOW_WIDTH / 2)
+      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + WINDOW_HEIGHT / 2)
       const norm = normalizeRoute(page.route)
       const info = groups.catalog.info
       satellites.push({
@@ -214,8 +297,8 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
         isHome: false,
         x,
         y,
-        w: SATELLITE_WIDTH,
-        h: SATELLITE_HEIGHT,
+        w: WINDOW_WIDTH,
+        h: WINDOW_HEIGHT,
         zIndex: 5,
         groupKey: info.groupKey,
         groupLabel: info.groupLabel,
@@ -228,18 +311,18 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
   // 2. Nhóm 'auth' (Tài khoản & Xác thực) -> Phía BÊN PHẢI
   if (groups.auth && groups.auth.pages.length > 0) {
     const items = groups.auth.pages
-    const cols = Math.min(4, Math.max(3, Math.ceil(Math.sqrt(items.length))))
+    const cols = Math.min(3, Math.max(2, Math.ceil(Math.sqrt(items.length))))
     const rows = Math.ceil(items.length / cols)
     const clusterW = cols * STEP_X - GAP_X
     const clusterH = rows * STEP_Y - GAP_Y
     const centerX = halfHomeW + SAFE_MARGIN + clusterW / 2
-    const centerY = -100
+    const centerY = -60
 
     items.forEach((page, idx) => {
       const col = idx % cols
       const row = Math.floor(idx / cols)
-      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + SATELLITE_WIDTH / 2)
-      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + SATELLITE_HEIGHT / 2)
+      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + WINDOW_WIDTH / 2)
+      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + WINDOW_HEIGHT / 2)
       const norm = normalizeRoute(page.route)
       const info = groups.auth.info
       satellites.push({
@@ -250,8 +333,8 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
         isHome: false,
         x,
         y,
-        w: SATELLITE_WIDTH,
-        h: SATELLITE_HEIGHT,
+        w: WINDOW_WIDTH,
+        h: WINDOW_HEIGHT,
         zIndex: 5,
         groupKey: info.groupKey,
         groupLabel: info.groupLabel,
@@ -269,13 +352,13 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
     const clusterW = cols * STEP_X - GAP_X
     const clusterH = rows * STEP_Y - GAP_Y
     const centerX = halfHomeW + SAFE_MARGIN + clusterW / 2
-    const centerY = halfHomeH + SAFE_MARGIN + clusterH / 2 + 60
+    const centerY = halfHomeH + SAFE_MARGIN + clusterH / 2 + 80
 
     items.forEach((page, idx) => {
       const col = idx % cols
       const row = Math.floor(idx / cols)
-      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + SATELLITE_WIDTH / 2)
-      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + SATELLITE_HEIGHT / 2)
+      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + WINDOW_WIDTH / 2)
+      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + WINDOW_HEIGHT / 2)
       const norm = normalizeRoute(page.route)
       const info = groups.order.info
       satellites.push({
@@ -286,8 +369,8 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
         isHome: false,
         x,
         y,
-        w: SATELLITE_WIDTH,
-        h: SATELLITE_HEIGHT,
+        w: WINDOW_WIDTH,
+        h: WINDOW_HEIGHT,
         zIndex: 5,
         groupKey: info.groupKey,
         groupLabel: info.groupLabel,
@@ -300,18 +383,18 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
   // 4. Nhóm 'activity' (Bảng xếp hạng & Kỳ đài) -> Phía DƯỚI
   if (groups.activity && groups.activity.pages.length > 0) {
     const items = groups.activity.pages
-    const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(items.length))))
+    const cols = Math.min(3, Math.max(2, Math.ceil(Math.sqrt(items.length))))
     const rows = Math.ceil(items.length / cols)
     const clusterW = cols * STEP_X - GAP_X
     const clusterH = rows * STEP_Y - GAP_Y
-    const centerX = -80
+    const centerX = 0
     const centerY = halfHomeH + SAFE_MARGIN + clusterH / 2
 
     items.forEach((page, idx) => {
       const col = idx % cols
       const row = Math.floor(idx / cols)
-      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + SATELLITE_WIDTH / 2)
-      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + SATELLITE_HEIGHT / 2)
+      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + WINDOW_WIDTH / 2)
+      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + WINDOW_HEIGHT / 2)
       const norm = normalizeRoute(page.route)
       const info = groups.activity.info
       satellites.push({
@@ -322,8 +405,8 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
         isHome: false,
         x,
         y,
-        w: SATELLITE_WIDTH,
-        h: SATELLITE_HEIGHT,
+        w: WINDOW_WIDTH,
+        h: WINDOW_HEIGHT,
         zIndex: 5,
         groupKey: info.groupKey,
         groupLabel: info.groupLabel,
@@ -346,8 +429,8 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
     leftItems.forEach((page, idx) => {
       const col = idx % cols
       const row = Math.floor(idx / cols)
-      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + SATELLITE_WIDTH / 2)
-      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + SATELLITE_HEIGHT / 2)
+      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + WINDOW_WIDTH / 2)
+      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + WINDOW_HEIGHT / 2)
       const norm = normalizeRoute(page.route)
       const info = getGroupInfo(norm)
       satellites.push({
@@ -358,8 +441,8 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
         isHome: false,
         x,
         y,
-        w: SATELLITE_WIDTH,
-        h: SATELLITE_HEIGHT,
+        w: WINDOW_WIDTH,
+        h: WINDOW_HEIGHT,
         zIndex: 5,
         groupKey: info.groupKey,
         groupLabel: info.groupLabel,
@@ -382,10 +465,10 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
         route: norm,
         title: page.title || norm,
         isHome: false,
-        x: -(halfHomeW + SAFE_MARGIN + 240),
-        y: 450 + idx * STEP_Y,
-        w: SATELLITE_WIDTH,
-        h: SATELLITE_HEIGHT,
+        x: -(halfHomeW + SAFE_MARGIN + WINDOW_WIDTH / 2),
+        y: halfHomeH + SAFE_MARGIN + idx * STEP_Y,
+        w: WINDOW_WIDTH,
+        h: WINDOW_HEIGHT,
         zIndex: 5,
         groupKey: info.groupKey,
         groupLabel: info.groupLabel,
@@ -408,11 +491,11 @@ function computeRingsLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Canv
   let ringIndex = 0
 
   while (pageIdx < count) {
-    const rx = HOME_WIDTH / 2 + SATELLITE_WIDTH / 2 + 160 + ringIndex * (SATELLITE_WIDTH + 100)
-    const ry = HOME_HEIGHT / 2 + SATELLITE_HEIGHT / 2 + 130 + ringIndex * (SATELLITE_HEIGHT + 80)
+    const rx = WINDOW_WIDTH * 0.95 + ringIndex * (WINDOW_WIDTH + 140)
+    const ry = WINDOW_HEIGHT * 0.95 + ringIndex * (WINDOW_HEIGHT + 120)
 
     const perimeter = 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2)
-    const capacity = Math.max(6, Math.floor(perimeter / (SATELLITE_WIDTH + 80)))
+    const capacity = Math.max(5, Math.floor(perimeter / (WINDOW_WIDTH + 100)))
 
     const remainingPages = count - pageIdx
     const countInThisRing = Math.min(capacity, remainingPages)
@@ -434,8 +517,8 @@ function computeRingsLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Canv
         isHome: false,
         x,
         y,
-        w: SATELLITE_WIDTH,
-        h: SATELLITE_HEIGHT,
+        w: WINDOW_WIDTH,
+        h: WINDOW_HEIGHT,
         zIndex: 5,
         groupKey: info.groupKey,
         groupLabel: info.groupLabel,
@@ -460,9 +543,16 @@ export default function MultiPageCanvas({
 }: MultiPageCanvasProps) {
   const stageRef = useRef<HTMLDivElement | null>(null)
   const windowsRef = useRef<CanvasWin[]>([])
+  const homeIframeRef = useRef<HTMLIFrameElement | null>(null)
+  const iframeRefs = useRef<Map<string, HTMLIFrameElement>>(new Map())
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('cluster')
 
-  // Khởi tạo cửa sổ ĐỒNG BỘ ngay từ đầu (không để mảng rỗng)
+  // Quét tọa độ chính xác của nút bấm trên trang chủ
+  const [detectedAnchors, setDetectedAnchors] = useState<Record<string, { x: number; y: number }>>({})
+  const [isFlying, setIsFlying] = useState(false)
+  const [flyingToWin, setFlyingToWin] = useState<CanvasWin | null>(null)
+
+  // Khởi tạo cửa sổ ĐỒNG BỘ ngay từ đầu (mọi cửa sổ đều to bằng kích thước trang chủ)
   const [windows, setWindows] = useState<CanvasWin[]>(() => {
     const homePage = pages.find((p) => normalizeRoute(p.route) === '/')
     const otherPages = pages.filter((p) => normalizeRoute(p.route) !== '/')
@@ -475,8 +565,8 @@ export default function MultiPageCanvas({
       isHome: true,
       x: 0,
       y: 0,
-      w: HOME_WIDTH,
-      h: HOME_HEIGHT,
+      w: WINDOW_WIDTH,
+      h: WINDOW_HEIGHT,
       zIndex: 10,
       groupKey: 'home',
       groupLabel: 'Trang chủ (Màn hình chuẩn)',
@@ -546,18 +636,181 @@ export default function MultiPageCanvas({
       maxY = Math.max(maxY, win.y + win.h / 2)
     })
 
-    const pad = 90
-    const boundW = Math.max(600, maxX - minX + pad * 2)
-    const boundH = Math.max(400, maxY - minY + pad * 2)
+    const pad = 120
+    const boundW = Math.max(800, maxX - minX + pad * 2)
+    const boundH = Math.max(500, maxY - minY + pad * 2)
     const centerX = (minX + maxX) / 2
     const centerY = (minY + maxY) / 2
 
-    const zoom = Math.max(0.14, Math.min(0.9, Math.min(stageW / boundW, stageH / boundH)))
+    const zoom = Math.max(0.12, Math.min(0.85, Math.min(stageW / boundW, stageH / boundH)))
     const panX = stageW / 2 - centerX * zoom
     const panY = stageH / 2 - centerY * zoom
 
     setView({ zoom, panX, panY })
   }, [])
+
+  // Chuyển góc nhìn camera mượt mà đến cửa sổ mục tiêu (không làm thay đổi trang chủ)
+  const flyToWindow = useCallback((targetWin: CanvasWin) => {
+    if (!stageRef.current) return
+    const rect = stageRef.current.getBoundingClientRect()
+    const stageW = rect.width > 50 ? rect.width : window.innerWidth
+    const stageH = rect.height > 50 ? rect.height : window.innerHeight
+
+    // Zoom vừa vặn cửa sổ để xem to rõ nét chuẩn thông thường
+    const targetZoom = Math.min(0.95, Math.max(0.65, (stageW * 0.8) / targetWin.w))
+    const targetPanX = Math.round(stageW / 2 - targetWin.x * targetZoom)
+    const targetPanY = Math.round(stageH / 2 - targetWin.y * targetZoom)
+
+    setActiveWinId(targetWin.id)
+    setFlyingToWin(targetWin)
+    setIsFlying(true)
+
+    setView({
+      zoom: targetZoom,
+      panX: targetPanX,
+      panY: targetPanY,
+    })
+
+    maxZRef.current = Math.min(450, maxZRef.current + 2)
+    setWindows((prev) => {
+      const next = prev.map((w) => (w.id === targetWin.id ? { ...w, zIndex: maxZRef.current } : w))
+      windowsRef.current = next
+      return next
+    })
+
+    setTimeout(() => {
+      setIsFlying(false)
+    }, 480)
+  }, [])
+
+  // Thiết lập bắt click & quét vị trí nút bấm trong iframe
+  const setupIframeEvents = useCallback(
+    (win: CanvasWin, iframe: HTMLIFrameElement | null) => {
+      if (!iframe) return
+      try {
+        const doc = iframe.contentDocument
+        if (!doc) return
+
+        // 1. Chặn click điều hướng: thay vì đổi trang trong iframe, chuyển góc nhìn camera sang trang đích
+        const handleClick = (e: MouseEvent) => {
+          const target = (e.target as HTMLElement).closest<HTMLElement>('a, button, [role="button"], [data-route]')
+          if (!target) return
+
+          const href = (target.getAttribute('href') || target.getAttribute('data-route') || '').trim()
+          const text = (target.textContent || '').trim()
+
+          // Bỏ qua anchor nội bộ trong trang
+          if (href.startsWith('#') && href.length > 1) return
+
+          e.preventDefault()
+          e.stopPropagation()
+
+          const targetWin = findMatchingWindow(href, text, windowsRef.current)
+          if (targetWin) {
+            flyToWindow(targetWin)
+          }
+        }
+
+        doc.removeEventListener('click', handleClick, true)
+        doc.addEventListener('click', handleClick, true)
+
+        // 2. Nếu là Trang chủ, quét tọa độ các nút bấm navbar để nối dây chính xác
+        if (win.isHome) {
+          const elements = Array.from(
+            doc.querySelectorAll<HTMLElement>(
+              'a, button, [role="button"], [data-route], [data-nav], nav a, header a, .navbar a, .nav a, .nav-link, .btn, [class*="menu"], [class*="nav"]'
+            )
+          )
+
+          const newAnchors: Record<string, { x: number; y: number }> = {}
+
+          windowsRef.current
+            .filter((w) => !w.isHome)
+            .forEach((sat) => {
+              let bestEl: HTMLElement | null = null
+              let bestScore = -1
+
+              const satNorm = normalizeRoute(sat.route).toLowerCase()
+              const satTitle = sat.title.toLowerCase()
+
+              for (const el of elements) {
+                const href = (el.getAttribute('href') || el.getAttribute('data-route') || '').toLowerCase().trim()
+                const text = (el.textContent || '').toLowerCase().trim()
+
+                let score = 0
+                if (href && href !== '#' && href !== '/' && satNorm !== '/') {
+                  const normHref = normalizeRoute(href.replace(/^https?:\/\/[^/]+/, ''))
+                  if (normHref === satNorm) {
+                    score += 15
+                  } else if (normHref.endsWith(satNorm) || satNorm.endsWith(normHref)) {
+                    score += 12
+                  } else if (satNorm.includes(normHref) || normHref.includes(satNorm)) {
+                    score += 8
+                  }
+                }
+
+                if (text) {
+                  if (text === satTitle) {
+                    score += 10
+                  } else if (text.length > 2 && (satTitle.includes(text) || text.includes(satTitle))) {
+                    score += 6
+                  } else {
+                    if (
+                      sat.groupKey === 'activity' &&
+                      (text.includes('xếp hạng') || text.includes('kỳ đài') || text.includes('leaderboard') || text.includes('rank'))
+                    )
+                      score += 9
+                    if (
+                      sat.groupKey === 'auth' &&
+                      (text.includes('đăng nhập') || text.includes('tài khoản') || text.includes('đăng ký') || text.includes('login'))
+                    )
+                      score += 9
+                    if (
+                      sat.groupKey === 'catalog' &&
+                      (text.includes('sản phẩm') || text.includes('danh mục') || text.includes('product') || text.includes('shop'))
+                    )
+                      score += 9
+                    if (
+                      sat.groupKey === 'order' &&
+                      (text.includes('giỏ hàng') || text.includes('đơn hàng') || text.includes('cart') || text.includes('thanh toán'))
+                    )
+                      score += 9
+                    if (
+                      sat.groupKey === 'admin' &&
+                      (text.includes('quản trị') || text.includes('admin') || text.includes('dashboard') || text.includes('hệ thống'))
+                    )
+                      score += 9
+                  }
+                }
+
+                if (score > bestScore) {
+                  const rect = el.getBoundingClientRect()
+                  if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.top <= 1200) {
+                    bestScore = score
+                    bestEl = el
+                  }
+                }
+              }
+
+              if (bestEl) {
+                const rect = bestEl.getBoundingClientRect()
+                newAnchors[sat.id] = {
+                  x: Math.round(rect.left + rect.width / 2),
+                  y: Math.round(rect.top + rect.height / 2),
+                }
+              }
+            })
+
+          if (Object.keys(newAnchors).length > 0) {
+            setDetectedAnchors(newAnchors)
+          }
+        }
+      } catch {
+        // Safe cross-origin fallback
+      }
+    },
+    [flyToWindow]
+  )
 
   // Áp dụng thuật toán sắp xếp
   const applyLayout = useCallback(
@@ -574,8 +827,8 @@ export default function MultiPageCanvas({
         isHome: true,
         x: 0,
         y: 0,
-        w: HOME_WIDTH,
-        h: HOME_HEIGHT,
+        w: WINDOW_WIDTH,
+        h: WINDOW_HEIGHT,
         zIndex: 10,
         groupKey: 'home',
         groupLabel: 'Trang chủ (Màn hình chuẩn)',
@@ -766,9 +1019,19 @@ export default function MultiPageCanvas({
     return windows
       .filter((w) => !w.isHome)
       .map((sat) => {
-        const hint = sat.sourceHint || { text: 'Điều hướng', relX: 0.5, relY: 0.055 }
-        const srcX = homeLeft + homeWin.w * hint.relX
-        const srcY = homeTop + 34 + (homeWin.h - 34) * hint.relY
+        const anchor = detectedAnchors[sat.id]
+        let srcX: number
+        let srcY: number
+
+        // Ưu tiên sử dụng tọa độ chính xác của nút bấm quét từ DOM trang chủ
+        if (anchor) {
+          srcX = homeLeft + anchor.x
+          srcY = homeTop + 34 + anchor.y
+        } else {
+          const hint = sat.sourceHint || { text: 'Điều hướng', relX: 0.5, relY: 0.055 }
+          srcX = homeLeft + homeWin.w * hint.relX
+          srcY = homeTop + 34 + (homeWin.h - 34) * hint.relY
+        }
 
         const dxFromHome = sat.x - homeWin.x
         const dyFromHome = sat.y - homeWin.y
@@ -830,8 +1093,9 @@ export default function MultiPageCanvas({
         return {
           id: `wire-${sat.id}`,
           satId: sat.id,
+          targetWin: sat,
           color: sat.groupColor || '#6366f1',
-          label: hint.text,
+          label: sat.title,
           pathD,
           portSide,
           srcPoint: { x: srcX, y: srcY },
@@ -840,7 +1104,7 @@ export default function MultiPageCanvas({
         }
       })
       .filter((w): w is NonNullable<typeof w> => w !== null)
-  }, [windows, homeWin])
+  }, [windows, homeWin, detectedAnchors])
 
   const portSideMap = useMemo(() => {
     const map: Record<string, 'top' | 'bottom' | 'left' | 'right'> = {}
@@ -873,7 +1137,7 @@ export default function MultiPageCanvas({
           </span>
           <div className="pm-multi-topbar__text">
             <b>Không gian Đa màn hình ({projectName})</b>
-            <span>Tự động sắp xếp thông minh · Kéo thanh tiêu đề để di chuyển · Dây nối từ nút bấm</span>
+            <span>Tự động sắp xếp thông minh · Bấm vào nút để chuyển góc nhìn · Kéo tiêu đề để di chuyển</span>
           </div>
         </div>
 
@@ -953,7 +1217,7 @@ export default function MultiPageCanvas({
         )}
 
         <div
-          className="pm-multi-world"
+          className={`pm-multi-world ${isFlying ? 'is-flying' : ''}`}
           style={{
             transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
           }}
@@ -1035,6 +1299,22 @@ export default function MultiPageCanvas({
 
                   {iframeUrl ? (
                     <iframe
+                      ref={(el) => {
+                        if (el) {
+                          iframeRefs.current.set(win.id, el)
+                          if (win.isHome) homeIframeRef.current = el
+                        } else {
+                          iframeRefs.current.delete(win.id)
+                        }
+                      }}
+                      onLoad={() => {
+                        const el = iframeRefs.current.get(win.id)
+                        if (el) {
+                          setupIframeEvents(win, el)
+                          setTimeout(() => setupIframeEvents(win, el), 600)
+                          setTimeout(() => setupIframeEvents(win, el), 1800)
+                        }
+                      }}
                       className="pm-win__frame"
                       src={iframeUrl}
                       title={win.title}
@@ -1047,14 +1327,6 @@ export default function MultiPageCanvas({
                   ) : (
                     <div style={{ height: '100%', display: 'grid', placeItems: 'center', background: '#f8fafc', color: '#64748b' }}>
                       <span style={{ fontSize: 12 }}>Chưa có máy chủ xem trước</span>
-                    </div>
-                  )}
-
-                  {/* Nhãn nguồn gốc điều hướng trên cửa sổ vệ tinh */}
-                  {!win.isHome && (
-                    <div className="pm-win__hint-pill">
-                      <span className="from">Nối từ:</span>
-                      <span>{win.sourceHint?.text || 'Điều hướng'}</span>
                     </div>
                   )}
                 </div>
@@ -1085,7 +1357,7 @@ export default function MultiPageCanvas({
               {wires.map((wire) => {
                 const isHovered = hoveredWinId === wire.satId || activeWinId === wire.satId
                 return (
-                  <g key={wire.id}>
+                  <g key={wire.id} onClick={() => flyToWindow(wire.targetWin)} style={{ cursor: 'pointer' }}>
                     {/* Dây bóng phát sáng khi hover */}
                     <path
                       d={wire.pathD}
@@ -1119,7 +1391,7 @@ export default function MultiPageCanvas({
             </g>
           </svg>
 
-          {/* ── 3. CÁC ĐIỂM GHIM TRÊN NÚT BẤM CỦA TRANG CHỦ (NẰM TRÊN CÙNG) ── */}
+          {/* ── 3. CÁC ĐIỂM GHIM TRÊN NÚT BẤM CỦA TRANG CHỦ (CHẤM PHÁT SÁNG TINH TẾ) ── */}
           {wires.map((wire) => (
             <div
               key={`pin-${wire.id}`}
@@ -1127,16 +1399,26 @@ export default function MultiPageCanvas({
               style={{
                 left: wire.srcPoint.x,
                 top: wire.srcPoint.y,
-                borderColor: wire.color,
                 color: wire.color,
               }}
-              title={`Điểm xuất phát: ${wire.label}`}
+              title={`Nối từ nút bấm: ${wire.label} (Bấm để chuyển góc nhìn)`}
+              onClick={() => flyToWindow(wire.targetWin)}
             >
               <span className="pm-multi-pin-dot" />
-              <span>{wire.label}</span>
             </div>
           ))}
         </div>
+
+        {/* ── Thanh điều hướng nhanh khi đang chuyển góc nhìn sang trang khác ── */}
+        {flyingToWin && !flyingToWin.isHome && (
+          <div className="pm-multi-focus-pill">
+            <span>
+              Đang xem: <b>{flyingToWin.title}</b> ({flyingToWin.route})
+            </span>
+            <button onClick={() => flyToWindow(homeWin)}>← Quay về Trang chủ</button>
+            <button onClick={() => fitBounding()}>Toàn cảnh</button>
+          </div>
+        )}
 
         {/* ── Điều khiển Zoom & Căn giữa góc dưới ── */}
         <div className="pm-multi-controls">
@@ -1157,12 +1439,7 @@ export default function MultiPageCanvas({
             <Maximize2 size={13} />
           </button>
           <button
-            onClick={() => {
-              if (stageRef.current) {
-                const rect = stageRef.current.getBoundingClientRect()
-                setView({ zoom: 1, panX: rect.width / 2, panY: rect.height / 2 })
-              }
-            }}
+            onClick={() => flyToWindow(homeWin)}
             title="Về ngay Trang chủ (1:1)"
             style={{ fontSize: 10, fontWeight: 700, width: 'auto', padding: '0 5px' }}
           >
@@ -1171,7 +1448,7 @@ export default function MultiPageCanvas({
         </div>
 
         <div className="pm-multi-hint">
-          Kéo thanh trên cùng của bất kỳ cửa sổ nào để di chuyển · Dây nối tự động co giãn theo thời gian thực
+          Bấm vào nút bất kỳ trên trang chủ để chuyển góc nhìn sang trang tương ứng · Kéo thanh tiêu đề để di chuyển
         </div>
       </div>
     </div>
