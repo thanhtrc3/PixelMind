@@ -1,0 +1,699 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ArrowUpRight,
+  LayoutGrid,
+  Maximize2,
+  RefreshCw,
+  Search,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react'
+import type { ProjectPage } from '@shared/types'
+import '../styles/multiPageCanvas.css'
+
+interface MultiPageCanvasProps {
+  projectName: string
+  pages: ProjectPage[]
+  previewUrl?: string | null
+  currentRoute?: string | null
+  onOpenPage: (route: string) => void
+  onClose: () => void
+}
+
+interface CanvasWin {
+  id: string
+  page?: ProjectPage
+  route: string
+  title: string
+  isHome: boolean
+  x: number // Tọa độ tâm cửa sổ trên canvas vô cực
+  y: number
+  w: number
+  h: number
+  zIndex: number
+  groupKey: string
+  groupLabel: string
+  groupColor: string
+  sourceHint: {
+    text: string
+    relX: number // Tỷ lệ vị trí trên trang chủ (0..1)
+    relY: number
+  }
+}
+
+const normalizeRoute = (route: string) => {
+  const value = (route || '/').trim() || '/'
+  return value.length > 1 ? value.replace(/\/+$/, '') : '/'
+}
+
+const joinPreviewUrl = (base: string, route: string) => {
+  const cleanBase = base.replace(/\/+$/, '')
+  const cleanRoute = route.startsWith('/') ? route : `/${route}`
+  return `${cleanBase}${cleanRoute === '/' ? '/' : cleanRoute}`
+}
+
+const getGroupInfo = (route: string) => {
+  const clean = normalizeRoute(route).toLowerCase()
+  const seg = clean.split('/').filter(Boolean)[0] || 'other'
+  if (['account', 'identity', 'auth', 'login', 'register', 'user', 'manage'].includes(seg)) {
+    return {
+      groupKey: 'auth',
+      groupLabel: 'Tài khoản & Xác thực',
+      groupColor: '#818cf8',
+      sourceText: clean.includes('login') ? 'Nút [Đăng nhập]' : clean.includes('reg') ? 'Nút [Đăng ký]' : 'Menu [Tài khoản]',
+      relX: clean.includes('reg') ? 0.88 : 0.80,
+      relY: 0.055,
+    }
+  }
+  if (['product', 'products', 'item', 'items', 'category', 'categories', 'shop', 'catalog'].includes(seg)) {
+    return {
+      groupKey: 'catalog',
+      groupLabel: 'Sản phẩm & Danh mục',
+      groupColor: '#38bdf8',
+      sourceText: 'Menu [Sản phẩm]',
+      relX: 0.32,
+      relY: 0.055,
+    }
+  }
+  if (['cart', 'checkout', 'order', 'orders', 'payment', 'bill'].includes(seg)) {
+    return {
+      groupKey: 'order',
+      groupLabel: 'Đơn hàng & Giỏ hàng',
+      groupColor: '#fbbf24',
+      sourceText: 'Icon [Giỏ hàng]',
+      relX: 0.68,
+      relY: 0.055,
+    }
+  }
+  if (['leaderboard', 'lobby', 'room', 'rank', 'match', 'game', 'play'].includes(seg)) {
+    return {
+      groupKey: 'activity',
+      groupLabel: 'Bảng xếp hạng & Kỳ đài',
+      groupColor: '#f472b6',
+      sourceText: 'Menu [Bảng xếp hạng]',
+      relX: 0.48,
+      relY: 0.055,
+    }
+  }
+  if (['admin', 'setting', 'settings', 'dashboard', 'report'].includes(seg)) {
+    return {
+      groupKey: 'admin',
+      groupLabel: 'Quản trị hệ thống',
+      groupColor: '#c084fc',
+      sourceText: 'Menu [Quản trị]',
+      relX: 0.94,
+      relY: 0.055,
+    }
+  }
+  return {
+    groupKey: 'general',
+    groupLabel: 'Trang chức năng',
+    groupColor: '#34d399',
+    sourceText: 'Liên kết điều hướng',
+    relX: 0.20,
+    relY: 0.055,
+  }
+}
+
+// Kích thước chuẩn
+const HOME_WIDTH = 920
+const HOME_HEIGHT = 580
+const SATELLITE_WIDTH = 460
+const SATELLITE_HEIGHT = 320
+
+export default function MultiPageCanvas({
+  projectName,
+  pages,
+  previewUrl,
+  currentRoute,
+  onOpenPage,
+  onClose,
+}: MultiPageCanvasProps) {
+  const stageRef = useRef<HTMLDivElement | null>(null)
+  const [windows, setWindows] = useState<CanvasWin[]>([])
+  const [view, setView] = useState({ zoom: 0.72, panX: 0, panY: 0 })
+  const [isPanning, setIsPanning] = useState(false)
+  const panStartRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null)
+  const maxZRef = useRef(10)
+  const [activeWinId, setActiveWinId] = useState<string | null>(null)
+  const [hoveredWinId, setHoveredWinId] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Trạng thái kéo cửa sổ (Drag Window Header)
+  const dragWinRef = useRef<{
+    winId: string
+    startMouseX: number
+    startMouseY: number
+    startWinX: number
+    startWinY: number
+  } | null>(null)
+
+  const baseUrl = useMemo(() => {
+    if (!previewUrl) return null
+    try {
+      const parsed = new URL(previewUrl)
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+      return parsed.origin
+    } catch {
+      return null
+    }
+  }, [previewUrl])
+
+  // Phím tắt bàn phím
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKey, true)
+    return () => window.removeEventListener('keydown', handleKey, true)
+  }, [onClose])
+
+  // Khởi tạo các cửa sổ: Trang chủ ở giữa, các trang vệ tinh xếp vòng quanh
+  const initWindows = useCallback(() => {
+    const homePage = pages.find((p) => normalizeRoute(p.route) === '/')
+    const otherPages = pages.filter((p) => p.id !== homePage?.id)
+
+    const homeWin: CanvasWin = {
+      id: homePage ? `win:${homePage.id}` : 'win:home',
+      page: homePage,
+      route: '/',
+      title: homePage?.title || 'Trang chủ',
+      isHome: true,
+      x: 0, // Tâm Trang chủ tại (0, 0)
+      y: 0,
+      w: HOME_WIDTH,
+      h: HOME_HEIGHT,
+      zIndex: 10,
+      groupKey: 'home',
+      groupLabel: 'Trang chủ (Màn hình chuẩn)',
+      groupColor: '#6366f1',
+      sourceHint: { text: 'Trang chủ gốc', relX: 0.5, relY: 0.5 },
+    }
+
+    // Bố trí các trang vệ tinh xung quanh Trang chủ theo hình Elip rộng
+    const count = otherPages.length
+    const radiusX = HOME_WIDTH / 2 + SATELLITE_WIDTH / 2 + 160
+    const radiusY = HOME_HEIGHT / 2 + SATELLITE_HEIGHT / 2 + 130
+
+    const satellites: CanvasWin[] = otherPages.map((page, idx) => {
+      const norm = normalizeRoute(page.route)
+      const info = getGroupInfo(norm)
+
+      // Phân bổ góc elip quanh trang chủ
+      const angle = (idx / Math.max(1, count)) * 2 * Math.PI - Math.PI / 2
+      const x = Math.cos(angle) * radiusX
+      const y = Math.sin(angle) * radiusY
+
+      return {
+        id: `win:${page.id}`,
+        page,
+        route: norm,
+        title: page.title || norm,
+        isHome: false,
+        x: Math.round(x),
+        y: Math.round(y),
+        w: SATELLITE_WIDTH,
+        h: SATELLITE_HEIGHT,
+        zIndex: 5,
+        groupKey: info.groupKey,
+        groupLabel: info.groupLabel,
+        groupColor: info.groupColor,
+        sourceHint: {
+          text: info.sourceText,
+          relX: info.relX,
+          relY: info.relY,
+        },
+      }
+    })
+
+    setWindows([homeWin, ...satellites])
+  }, [pages])
+
+  useEffect(() => {
+    initWindows()
+  }, [initWindows])
+
+  // Căn giữa toàn bộ cửa sổ vào khung nhìn
+  const fitAll = useCallback(() => {
+    if (!stageRef.current || windows.length === 0) return
+    const rect = stageRef.current.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+
+    let minX = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+
+    windows.forEach((win) => {
+      minX = Math.min(minX, win.x - win.w / 2)
+      maxX = Math.max(maxX, win.x + win.w / 2)
+      minY = Math.min(minY, win.y - win.h / 2)
+      maxY = Math.max(maxY, win.y + win.h / 2)
+    })
+
+    const pad = 120
+    const boundW = Math.max(600, maxX - minX + pad * 2)
+    const boundH = Math.max(400, maxY - minY + pad * 2)
+    const centerX = (minX + maxX) / 2
+    const centerY = (minY + maxY) / 2
+
+    const zoom = Math.max(0.28, Math.min(1, Math.min(rect.width / boundW, rect.height / boundH)))
+    const panX = rect.width / 2 - centerX * zoom
+    const panY = rect.height / 2 - centerY * zoom
+
+    setView({ zoom, panX, panY })
+  }, [windows])
+
+  useEffect(() => {
+    // Tự động căn giữa khi mở lần đầu
+    const t = setTimeout(fitAll, 80)
+    return () => clearTimeout(t)
+  }, [windows.length])
+
+  // ─── KÉO CỬA SỔ BẰNG THANH HEADER (DRAG & DROP WINDOW) ───
+  const startDragWindow = (winId: string, e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation()
+    const targetWin = windows.find((w) => w.id === winId)
+    if (!targetWin) return
+
+    // Đưa cửa sổ lên đầu (Bring to front)
+    maxZRef.current += 1
+    const newZ = maxZRef.current
+    setActiveWinId(winId)
+    setWindows((prev) => prev.map((w) => (w.id === winId ? { ...w, zIndex: newZ } : w)))
+
+    dragWinRef.current = {
+      winId,
+      startMouseX: e.clientX,
+      startMouseY: e.clientY,
+      startWinX: targetWin.x,
+      startWinY: targetWin.y,
+    }
+
+    const onPointerMove = (moveEvt: PointerEvent) => {
+      if (!dragWinRef.current) return
+      const dx = (moveEvt.clientX - dragWinRef.current.startMouseX) / view.zoom
+      const dy = (moveEvt.clientY - dragWinRef.current.startMouseY) / view.zoom
+
+      const newX = Math.round(dragWinRef.current.startWinX + dx)
+      const newY = Math.round(dragWinRef.current.startWinY + dy)
+
+      setWindows((prev) =>
+        prev.map((w) => (w.id === dragWinRef.current?.winId ? { ...w, x: newX, y: newY } : w))
+      )
+    }
+
+    const onPointerUp = () => {
+      dragWinRef.current = null
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+  }
+
+  // ─── KÉO VÀ ZOOM SÂN KHẤU CANVAS VÔ CỰC (PAN & ZOOM) ───
+  const handleStagePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('.pm-win') || (e.target as HTMLElement).closest('.pm-multi-controls')) {
+      return
+    }
+    panStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      panX: view.panX,
+      panY: view.panY,
+    }
+    setIsPanning(true)
+  }
+
+  const handleStagePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!panStartRef.current || !isPanning) return
+    const dx = e.clientX - panStartRef.current.startX
+    const dy = e.clientY - panStartRef.current.startY
+    setView((prev) => ({
+      ...prev,
+      panX: panStartRef.current!.panX + dx,
+      panY: panStartRef.current!.panY + dy,
+    }))
+  }
+
+  const handleStagePointerUp = () => {
+    panStartRef.current = null
+    setIsPanning(false)
+  }
+
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    e.stopPropagation()
+    const factor = e.deltaY < 0 ? 1.08 : 0.92
+    const newZoom = Math.min(2.0, Math.max(0.25, view.zoom * factor))
+    const ratio = newZoom / view.zoom
+
+    const rect = e.currentTarget.getBoundingClientRect()
+    const mouseX = e.clientX - rect.left
+    const mouseY = e.clientY - rect.top
+
+    setView((prev) => ({
+      zoom: newZoom,
+      panX: mouseX - (mouseX - prev.panX) * ratio,
+      panY: mouseY - (mouseY - prev.panY) * ratio,
+    }))
+  }
+
+  // ─── TÍNH TOÁN DÂY NỐI TỪ NÚT BẤM TRÊN TRANG CHỦ TỚI CÁC TRANG VỆ TINH ───
+  const homeWin = windows.find((w) => w.isHome) || windows[0]
+
+  const wires = useMemo(() => {
+    if (!homeWin) return []
+
+    // Tọa độ góc trên-trái của Trang chủ
+    const homeLeft = homeWin.x - homeWin.w / 2
+    const homeTop = homeWin.y - homeWin.h / 2
+
+    return windows
+      .filter((w) => !w.isHome)
+      .map((sat) => {
+        // 1. Tọa độ nút bấm cụ thể trên Trang chủ (Origin Point from Element)
+        const srcX = homeLeft + homeWin.w * sat.sourceHint.relX
+        const srcY = homeTop + 34 + (homeWin.h - 34) * sat.sourceHint.relY
+
+        // 2. Tọa độ cổng cắm trên cửa sổ vệ tinh (Target Port)
+        // Nếu cửa sổ nằm bên phải Trang chủ -> cắm vào mép trái; nếu nằm bên trái -> cắm vào mép phải
+        const isRightOfHome = sat.x >= homeWin.x
+        const destX = isRightOfHome ? sat.x - sat.w / 2 : sat.x + sat.w / 2
+        const destY = sat.y
+
+        // 3. Đường cong Cubic Bezier mượt mà hình chữ S
+        const dx = destX - srcX
+        const cp1X = srcX + dx * 0.45
+        const cp1Y = srcY
+        const cp2X = destX - dx * 0.45
+        const cp2Y = destY
+
+        const pathD = `M ${srcX} ${srcY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${destX} ${destY}`
+
+        // Tọa độ giữa dây để gắn nhãn
+        const midX = (srcX + destX) / 2
+        const midY = (srcY + destY) / 2
+
+        return {
+          id: `wire-${sat.id}`,
+          satId: sat.id,
+          color: sat.groupColor,
+          label: sat.sourceHint.text,
+          pathD,
+          srcPoint: { x: srcX, y: srcY },
+          destPoint: { x: destX, y: destY },
+          midPoint: { x: midX, y: midY },
+          isRightOfHome,
+        }
+      })
+  }, [windows, homeWin])
+
+  const filteredQuery = searchQuery.trim().toLowerCase()
+
+  return (
+    <div className="pm-multi-canvas" onPointerDown={(e) => e.stopPropagation()}>
+      {/* ── TopBar điều khiển ── */}
+      <div className="pm-multi-topbar">
+        <div className="pm-multi-topbar__title">
+          <span className="pm-multi-topbar__icon">
+            <LayoutGrid size={15} />
+          </span>
+          <div className="pm-multi-topbar__text">
+            <b>Không gian Đa màn hình ({projectName})</b>
+            <span>Kéo thanh trên cùng của từng cửa sổ để di chuyển · Dây nối từ chính nút bấm trên trang chủ</span>
+          </div>
+        </div>
+
+        <div className="pm-multi-topbar__spacer" />
+
+        {/* Ô tìm kiếm trang */}
+        <div className="pm-flow__search-box" style={{ width: 260 }}>
+          <Search size={12} className="pm-flow__search-icon" />
+          <input
+            className="pm-flow__search-input"
+            placeholder="Tìm trang để làm sáng (/product, /login)..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button className="pm-flow__search-clear" onClick={() => setSearchQuery('')}>
+              <X size={11} />
+            </button>
+          )}
+        </div>
+
+        <button className="pm-multi-topbar__btn" onClick={fitAll} title="Căn vừa toàn bộ các cửa sổ">
+          <Maximize2 size={12} /> Căn vừa
+        </button>
+
+        <button className="pm-multi-topbar__btn" onClick={initWindows} title="Tự động sắp xếp lại các trang quanh trang chủ">
+          <RefreshCw size={12} /> Tự động xếp vòng
+        </button>
+
+        <button className="pm-multi-topbar__close" onClick={onClose} title="Đóng chế độ đa màn hình (Esc)">
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* ── Sân khấu vô cực kéo thả ── */}
+      <div
+        className={`pm-multi-stage ${isPanning ? 'is-panning' : ''}`}
+        ref={stageRef}
+        onPointerDown={handleStagePointerDown}
+        onPointerMove={handleStagePointerMove}
+        onPointerUp={handleStagePointerUp}
+        onPointerCancel={handleStagePointerUp}
+        onWheel={handleWheel}
+      >
+        <div
+          className="pm-multi-world"
+          style={{
+            transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
+          }}
+        >
+          {/* ── LỚP DÂY NỐI SVG BẮT NGUỒN TỪ THÀNH PHẦN NÚT BẤM TRÊN TRANG CHỦ ── */}
+          <svg className="pm-multi-svg" width={6000} height={6000} style={{ left: -3000, top: -3000 }}>
+            <g transform="translate(3000, 3000)">
+              <defs>
+                {windows.map((w) => (
+                  <marker
+                    key={`arrow-${w.id}`}
+                    id={`arrow-${w.id}`}
+                    viewBox="0 0 10 10"
+                    refX="7"
+                    refY="5"
+                    markerWidth="6"
+                    markerHeight="6"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill={w.groupColor} />
+                  </marker>
+                ))}
+              </defs>
+
+              {wires.map((wire) => {
+                const isHovered = hoveredWinId === wire.satId || activeWinId === wire.satId
+                return (
+                  <g key={wire.id}>
+                    {/* Dây bóng phát sáng khi hover */}
+                    <path
+                      d={wire.pathD}
+                      className="pm-multi-wire-glow"
+                      style={{
+                        stroke: wire.color,
+                        strokeWidth: isHovered ? 8 : 4,
+                        opacity: isHovered ? 0.45 : 0.18,
+                      }}
+                    />
+
+                    {/* Dây nối chính */}
+                    <path
+                      d={wire.pathD}
+                      className={`pm-multi-wire ${isHovered ? 'pm-multi-wire-active' : ''}`}
+                      markerEnd={`url(#arrow-${wire.satId})`}
+                      style={{
+                        stroke: wire.color,
+                        strokeWidth: isHovered ? 2.6 : 1.8,
+                        opacity: isHovered ? 1 : 0.6,
+                      }}
+                    />
+
+                    {/* Hạt ánh sáng chuyển động dọc dây nối */}
+                    <circle r={isHovered ? 4 : 2.5} fill={wire.color} className="pm-multi-particle">
+                      <animateMotion dur={isHovered ? '2s' : '3.5s'} repeatCount="indefinite" path={wire.pathD} />
+                    </circle>
+                  </g>
+                )
+              })}
+            </g>
+          </svg>
+
+          {/* ── CÁC ĐIỂM GHIM TRÊN NÚT BẤM CỦA TRANG CHỦ (SOURCE ANCHOR PINS) ── */}
+          {wires.map((wire) => (
+            <div
+              key={`pin-${wire.id}`}
+              className="pm-multi-pin"
+              style={{
+                left: wire.srcPoint.x,
+                top: wire.srcPoint.y,
+                borderColor: wire.color,
+                color: wire.color,
+              }}
+              title={`Điểm xuất phát: ${wire.label}`}
+            >
+              <span className="pm-multi-pin-dot" />
+              <span>{wire.label}</span>
+            </div>
+          ))}
+
+          {/* ── CÁC CỬA SỔ DESKTOP CÓ THỂ KÉO THẢ TỰ DO (WINDOWS) ── */}
+          {windows.map((win) => {
+            const isMatch = filteredQuery
+              ? win.title.toLowerCase().includes(filteredQuery) || win.route.toLowerCase().includes(filteredQuery)
+              : true
+
+            const iframeUrl = baseUrl && !/[:{}[\]]/.test(win.route) ? joinPreviewUrl(baseUrl, win.route) : null
+            const isCurrent = Boolean(currentRoute && normalizeRoute(currentRoute) === win.route)
+
+            return (
+              <div
+                key={win.id}
+                className={[
+                  'pm-win',
+                  win.isHome ? 'is-home' : '',
+                  isCurrent ? 'is-current' : '',
+                  activeWinId === win.id ? 'is-active' : '',
+                  isMatch ? '' : 'is-dimmed',
+                ].filter(Boolean).join(' ')}
+                style={{
+                  left: win.x - win.w / 2,
+                  top: win.y - win.h / 2,
+                  width: win.w,
+                  height: win.h,
+                  zIndex: win.zIndex,
+                  opacity: isMatch ? 1 : 0.25,
+                }}
+                onMouseEnter={() => setHoveredWinId(win.id)}
+                onMouseLeave={() => setHoveredWinId(null)}
+              >
+                {/* ── THANH TIÊU ĐỀ CỬA SỔ: KÉO PHẦN NÀY ĐỂ DI CHUYỂN CỬA SỔ! ── */}
+                <div
+                  className="pm-win__header"
+                  onPointerDown={(e) => startDragWindow(win.id, e)}
+                  title="Nhấp và kéo thanh này để di chuyển cửa sổ tự do trên màn hình"
+                >
+                  <div className="pm-win__dots">
+                    <span className="pm-win__dot red" />
+                    <span className="pm-win__dot yellow" />
+                    <span className="pm-win__dot green" />
+                  </div>
+
+                  <div className="pm-win__title">
+                    <span className="pm-win__title-text">{win.title}</span>
+                    {win.isHome ? (
+                      <span className="pm-win__title-badge">Màn hình chuẩn</span>
+                    ) : (
+                      <span className="pm-win__route">{win.route}</span>
+                    )}
+                  </div>
+
+                  <div className="pm-win__actions" onPointerDown={(e) => e.stopPropagation()}>
+                    <button
+                      className="pm-win__btn"
+                      onClick={() => {
+                        onOpenPage(win.route)
+                        onClose()
+                      }}
+                      title="Mở toàn màn hình trang này"
+                    >
+                      <ArrowUpRight size={12} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* ── THÂN CỬA SỔ CHỨA IFRAME THẬT ── */}
+                <div className="pm-win__body">
+                  {/* Cổng kết nối bên mép cửa sổ vệ tinh */}
+                  {!win.isHome && (
+                    <span
+                      className="pm-win__port left"
+                      style={{ background: win.groupColor, color: win.groupColor }}
+                    />
+                  )}
+
+                  {iframeUrl ? (
+                    <iframe
+                      className="pm-win__frame"
+                      src={iframeUrl}
+                      title={win.title}
+                      loading="lazy"
+                      style={{
+                        width: win.w,
+                        height: win.h - 34,
+                      }}
+                    />
+                  ) : (
+                    <div style={{ height: '100%', display: 'grid', placeItems: 'center', background: '#f8fafc', color: '#64748b' }}>
+                      <span style={{ fontSize: 12 }}>Chưa có máy chủ xem trước</span>
+                    </div>
+                  )}
+
+                  {/* Nhãn nguồn gốc điều hướng trên cửa sổ vệ tinh */}
+                  {!win.isHome && (
+                    <div className="pm-win__hint-pill">
+                      <span className="from">Nối từ:</span>
+                      <span>{win.sourceHint.text}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* ── Điều khiển Zoom & Căn giữa góc dưới ── */}
+        <div className="pm-multi-controls">
+          <button
+            onClick={() => setView((v) => ({ ...v, zoom: Math.max(0.25, v.zoom * 0.88) }))}
+            title="Thu nhỏ (-)"
+          >
+            <ZoomOut size={13} />
+          </button>
+          <span className="zoom-text">{Math.round(view.zoom * 100)}%</span>
+          <button
+            onClick={() => setView((v) => ({ ...v, zoom: Math.min(2.0, v.zoom * 1.12) }))}
+            title="Phóng to (+)"
+          >
+            <ZoomIn size={13} />
+          </button>
+          <button onClick={fitAll} title="Căn vừa toàn bộ (Fit)">
+            <Maximize2 size={13} />
+          </button>
+          <button
+            onClick={() => {
+              // Về tâm Trang chủ
+              if (stageRef.current) {
+                const rect = stageRef.current.getBoundingClientRect()
+                setView({ zoom: 1, panX: rect.width / 2, panY: rect.height / 2 })
+              }
+            }}
+            title="Về ngay Trang chủ (1:1)"
+            style={{ fontSize: 10, fontWeight: 700, width: 'auto', padding: '0 5px' }}
+          >
+            1:1
+          </button>
+        </div>
+
+        <div className="pm-multi-hint">
+          Kéo thanh trên cùng của bất kỳ cửa sổ nào để di chuyển · Dây nối tự động co giãn theo thời gian thực
+        </div>
+      </div>
+    </div>
+  )
+}

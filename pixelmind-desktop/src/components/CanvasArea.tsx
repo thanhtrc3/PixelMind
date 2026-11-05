@@ -53,7 +53,7 @@ import DesignTokensDialog from './DesignTokensDialog'
 import type { DesignTokens, ProjectPage } from '@shared/types'
 import { editorBuffer, type ActionType, type ElementSnapshot } from '../lib/editorBuffer'
 import { PencilFillIcon } from './PanelIcons'
-import PageFlowMap from './PageFlowMap'
+import MultiPageCanvas from './MultiPageCanvas'
 
 export type CanvasMode = 'reference' | 'live' | 'compare' | 'overlay' | 'diff'
 export type ViewportKey = 'responsive' | 'mobile' | 'tablet' | 'desktop' | 'wide'
@@ -1841,7 +1841,7 @@ const CanvasArea = ({
             <button
               className={`canvas__seg-btn icon-only ${isPageFlowOpen ? 'active' : ''}`}
               onClick={() => setIsPageFlowOpen((open) => !open)}
-              title={isPageFlowOpen ? 'Đóng sơ đồ chức năng (Site Map)' : 'Sơ đồ chức năng dự án (Site Map)'}
+              title={isPageFlowOpen ? 'Đóng không gian Đa màn hình liên kết' : 'Không gian Đa màn hình liên kết (Multi-Page Canvas)'}
             >
               <Network size={13} />
             </button>
@@ -3853,12 +3853,12 @@ const CanvasArea = ({
         )}
 
         {isPageFlowOpen && (
-          <PageFlowMap
+          <MultiPageCanvas
             projectName={projectName}
             pages={pages}
             previewUrl={url ?? currentLiveUrl}
             currentRoute={currentRoute ?? null}
-            onOpenRoute={(route) => {
+            onOpenPage={(route) => {
               setIsPageFlowOpen(false)
               onOpenPage?.(route)
             }}
