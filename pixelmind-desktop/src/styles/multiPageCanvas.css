@@ -383,6 +383,46 @@
   transform: translateX(-50%);
 }
 
+.pm-win__port.bottom {
+  bottom: -5px;
+  top: auto;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.pm-win__port.right {
+  right: -5px;
+  left: auto;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* Nhóm nút chọn chế độ bố cục */
+.pm-multi-layout-toggles {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.pm-multi-layout-toggles .pm-multi-topbar__btn {
+  border: 0;
+  background: transparent;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  border-radius: 5px;
+}
+
+.pm-multi-layout-toggles .pm-multi-topbar__btn.active {
+  background: #6366f1;
+  color: #fff;
+  font-weight: 700;
+}
+
 /* Nhãn nguồn gốc điều hướng trên cửa sổ */
 .pm-win__hint-pill {
   position: absolute;
@@ -464,3 +504,4 @@
   border: 1px solid rgba(255, 255, 255, 0.06);
   pointer-events: none;
 }
+
