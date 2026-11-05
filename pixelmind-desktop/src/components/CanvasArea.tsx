@@ -27,6 +27,7 @@ import {
   MonitorUp,
   MousePointer2,
   Move,
+  Network,
   Play,
   RefreshCw,
   RotateCcw,
@@ -49,12 +50,13 @@ import {
 import type { ParsedError } from '../lib/errorParser'
 import VisualErrorCard from './VisualErrorCard'
 import DesignTokensDialog from './DesignTokensDialog'
-import type { DesignTokens } from '@shared/types'
+import type { DesignTokens, ProjectPage } from '@shared/types'
 import { editorBuffer, type ActionType, type ElementSnapshot } from '../lib/editorBuffer'
 import { PencilFillIcon } from './PanelIcons'
+import PageFlowMap from './PageFlowMap'
 
 export type CanvasMode = 'reference' | 'live' | 'compare' | 'overlay' | 'diff'
-export type ViewportKey = 'mobile' | 'tablet' | 'desktop' | 'wide'
+export type ViewportKey = 'responsive' | 'mobile' | 'tablet' | 'desktop' | 'wide'
 export type ToolKey = 'select' | 'pan' | 'rect' | 'text' | 'comment' | 'measure'
 export type HandleDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
@@ -88,6 +90,7 @@ interface ViewportConfig {
 }
 
 const VIEWPORTS: ViewportConfig[] = [
+  { key: 'responsive', label: 'Toàn khung', icon: Maximize2, w: 0, h: 0 },
   { key: 'mobile', label: 'Mobile', icon: Smartphone, w: 375, h: 812 },
   { key: 'tablet', label: 'Tablet', icon: Tablet, w: 768, h: 1024 },
   { key: 'desktop', label: 'Desktop', icon: Monitor, w: 1440, h: 900 },
@@ -210,6 +213,9 @@ interface CanvasAreaProps {
   onCreateIndexHtml?: () => void
   onAddDevScript?: () => void
   onUrlChange?: (url: string, pathname: string) => void
+  pages?: ProjectPage[]
+  currentRoute?: string | null
+  onOpenPage?: (route: string) => void
 }
 
 const COLOR_SWATCHES = [
@@ -252,6 +258,9 @@ const CanvasArea = ({
   onCreateIndexHtml: _onCreateIndexHtml,
   onAddDevScript: _onAddDevScript,
   onUrlChange,
+  pages = [],
+  currentRoute,
+  onOpenPage,
 }: CanvasAreaProps) => {
 
   const [currentLiveUrl, setCurrentLiveUrl] = useState<string | null>(url ?? null)
@@ -262,9 +271,9 @@ const CanvasArea = ({
     }
   }, [url])
 
-  const [viewport, setViewport] = useState<ViewportKey>('desktop')
+  const [viewport, setViewport] = useState<ViewportKey>('responsive')
   const [tool, setTool] = useState<ToolKey>('select')
-  const [zoom, setZoom] = useState(51)
+  const [zoom, setZoom] = useState(100)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isPanning, setIsPanning] = useState(false)
   const panStartRef = useRef({ x: 0, y: 0 })
@@ -278,7 +287,7 @@ const CanvasArea = ({
   const [hoverEl, setHoverEl] = useState<HoverElementInfo | null>(null)
   const [selectedEl, setSelectedEl] = useState<RealElementInfo | null>(null)
   const [resizingEl, setResizingEl] = useState<ResizingState | null>(null)
-  const [inspectorWidth, setInspectorWidth] = useState(380)
+  const [inspectorWidth, setInspectorWidth] = useState(320)
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const sidebarDragRef = useRef({ startX: 0, startWidth: 380 })
 
@@ -296,6 +305,7 @@ const CanvasArea = ({
   const initialTextRef = useRef<string>('')
   const currentRouteRef = useRef<string>('/')
   const [isTokensDialogOpen, setIsTokensDialogOpen] = useState(false)
+  const [isPageFlowOpen, setIsPageFlowOpen] = useState(false)
   const [projectTokens, setProjectTokens] = useState<DesignTokens | null>(null)
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false)
 
@@ -422,20 +432,27 @@ const CanvasArea = ({
     [],
   )
 
-  const currentVp = VIEWPORTS.find((v) => v.key === viewport) ?? VIEWPORTS[2]
+  const currentVp = VIEWPORTS.find((v) => v.key === viewport) ?? VIEWPORTS[0]
 
   // Zoom to Fit (F)
   const zoomToFit = useCallback(() => {
     if (!stageRef.current) return
+    if (viewport === 'responsive') {
+      setZoom(100)
+      setPan({ x: 0, y: 0 })
+      return
+    }
     const stageW = stageRef.current.clientWidth - 80
     const stageH = stageRef.current.clientHeight - 80
     if (stageW <= 0 || stageH <= 0) return
-    const scaleX = stageW / currentVp.w
-    const scaleY = stageH / currentVp.h
+    const targetW = currentVp.w || 1440
+    const targetH = currentVp.h || 900
+    const scaleX = stageW / targetW
+    const scaleY = stageH / targetH
     const fitScale = Math.min(scaleX, scaleY, 1)
-    setZoom(Math.max(10, Math.min(100, Math.round(fitScale * 100))))
+    setZoom(Math.max(65, Math.min(100, Math.round(fitScale * 100))))
     setPan({ x: 0, y: 0 })
-  }, [currentVp.w, currentVp.h])
+  }, [viewport, currentVp.w, currentVp.h])
 
   // Lắng nghe phím tắt bàn phím
   useEffect(() => {
@@ -1370,235 +1387,9 @@ const CanvasArea = ({
 
   const modifiedCount = Object.keys(modifiedStyles).length + (selectedEl && originalStyles && selectedEl.textSnippet !== originalStyles.text ? 1 : 0)
 
-  return (
-    <div className="canvas">
-      {/* Toast thông báo nổi HUD cao cấp (Figma / Webflow Style) */}
-      {toast && (
-        <div className={`canvas__toast canvas__toast--${toast.kind || 'ok'}`}>
-          <div className="canvas__toast-icon">
-            {toast.kind === 'err' ? (
-              <AlertCircle size={13} />
-            ) : toast.kind === 'warn' ? (
-              <AlertTriangle size={13} />
-            ) : toast.kind === 'info' ? (
-              <Info size={13} />
-            ) : (
-              <CheckCircle2 size={13} />
-            )}
-          </div>
-          <span className="canvas__toast-text">{toast.text}</span>
-          {toast.shortcut && <kbd className="canvas__toast-kbd">{toast.shortcut}</kbd>}
-        </div>
-      )}
+  const renderFrameContent = () => (
+    <>
 
-      {/* Lớp Drag Shield toàn màn hình */}
-      {(resizingEl || isResizingSidebar || isMovingEl) && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 9999,
-            cursor: isMovingEl ? 'move' : resizingEl ? `${resizingEl.handle}-resize` : 'col-resize',
-          }}
-        />
-      )}
-
-      {/* ═══════════════════════════════════════════════
-          HÀNG 1: THANH CÔNG CỤ ĐỈNH CANVAS
-          ═══════════════════════════════════════════════ */}
-      {isToolbarCollapsed ? (
-        <div
-          className="canvas__tools-collapsed"
-          onClick={() => setIsToolbarCollapsed(false)}
-          title="Mở rộng thanh công cụ Canvas"
-        >
-          <ChevronDown size={12} />
-          <span>Mở rộng thanh công cụ</span>
-        </div>
-      ) : (
-        <div className="canvas__tools">
-          {/* Nhóm 1: Soi phần tử & Con trỏ */}
-          <div className="canvas__seg">
-            <button
-              className={`canvas__seg-btn ${isInspectMode ? 'active accent' : ''}`}
-              onClick={() => {
-                const next = !isInspectMode
-                setIsInspectMode(next)
-                if (!next) {
-                  setSelectedEl(null)
-                  setHoverEl(null)
-                }
-                showToast(
-                  next ? 'Đã bật chế độ Soi phần tử' : 'Đã tắt chế độ Soi phần tử',
-                  next ? 'ok' : 'info',
-                  next ? 'Phím I' : undefined,
-                )
-              }}
-              title="Bật/Tắt chế độ Soi phần tử (Phím tắt: I)"
-              style={{
-                height: 28,
-                padding: '0 10px',
-                gap: 6,
-                borderRadius: 6,
-                fontWeight: 650,
-                background: isInspectMode ? 'var(--accent, #6d5df5)' : 'var(--panel-2)',
-                color: isInspectMode ? '#ffffff' : 'var(--text)',
-                border: '1px solid var(--line)',
-                display: 'inline-flex',
-                alignItems: 'center',
-              }}
-            >
-              <PencilFillIcon size={12} />
-            </button>
-
-            {TOOLS.map((t) => (
-              <button
-                key={t.key}
-                className={`canvas__seg-btn icon-only ${tool === t.key ? 'active' : ''}`}
-                onClick={() => setTool(t.key)}
-                title={`${t.label} (${t.shortcut})`}
-              >
-                <t.icon size={13} />
-              </button>
-            ))}
-          </div>
-
-          <div className="canvas__tools-spacer" />
-
-          {/* Nhóm 2: Thiết bị / Viewport */}
-          <div className="canvas__seg">
-            {VIEWPORTS.map((v) => (
-              <button
-                key={v.key}
-                className={`canvas__seg-btn ${viewport === v.key ? 'active' : ''}`}
-                onClick={() => setViewport(v.key)}
-                title={`${v.label} · ${v.w} × ${v.h}`}
-              >
-                <v.icon size={12} />
-                <span>{v.label}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="canvas__tools-spacer" />
-
-          {/* Nhóm 3: Tiện ích Tokens & Tải lại */}
-          <div className="canvas__seg">
-            <button
-              className="canvas__tool-btn"
-              style={{ width: 'auto', padding: '0 8px', gap: 4, display: 'inline-flex' }}
-              title="Hệ thống thiết kế (Design Tokens & Theme Manager)"
-              onClick={() => setIsTokensDialogOpen(true)}
-            >
-              <Palette size={13} style={{ color: 'var(--accent, #6d5df5)' }} />
-              <span style={{ fontSize: 11, fontWeight: 600 }}>Tokens</span>
-            </button>
-            <button
-              className="canvas__tool-btn"
-              title="Tải lại giao diện (Ctrl+R)"
-              onClick={() => setIframeKey((k) => k + 1)}
-            >
-              <RefreshCw size={13} />
-            </button>
-            {url && onOpenExternal && (
-              <button
-                className="canvas__tool-btn"
-                title="Mở trên trình duyệt ngoài"
-                onClick={() => onOpenExternal(url)}
-              >
-                <ExternalLink size={13} />
-              </button>
-            )}
-          </div>
-
-          {/* Nhóm 4: Zoom */}
-          <div className="canvas__seg">
-            <button
-              className="canvas__tool-btn"
-              title="Thu nhỏ (Ctrl -)"
-              onClick={() => setZoom((z) => Math.max(10, z - 10))}
-            >
-              <ZoomOut size={13} />
-            </button>
-            <span className="canvas__zoom-badge" onClick={zoomToFit} title="Nhấp để vừa khung (F)">
-              {zoom}%
-            </span>
-            <button
-              className="canvas__tool-btn"
-              title="Phóng to (Ctrl +)"
-              onClick={() => setZoom((z) => Math.min(200, z + 10))}
-            >
-              <ZoomIn size={13} />
-            </button>
-            <button className="canvas__tool-btn" title="Vừa khung nhìn (F)" onClick={zoomToFit}>
-              <Maximize2 size={13} />
-            </button>
-          </div>
-
-          {/* Nút thu gọn thanh công cụ lên đỉnh */}
-          <button
-            className="canvas__tool-btn"
-            title="Thu gọn thanh công cụ để mở rộng không gian Canvas"
-            onClick={() => setIsToolbarCollapsed(true)}
-            style={{ marginLeft: 2 }}
-          >
-            <ChevronUp size={13} />
-          </button>
-        </div>
-      )}
-      {/* ═══════════════════════════════════════════════
-          THÂN CANVAS: BÊN TRÁI LÀ STAGE, BÊN PHẢI LÀ INSPECTOR SIDE PANEL
-          ═══════════════════════════════════════════════ */}
-      <div className="canvas__body">
-        {/* SÂN KHẤU VÔ CỰC (Bên trái) */}
-        <div
-          className={`canvas__stage tool-${tool} ${isPanning ? 'is-panning' : ''}`}
-          ref={stageRef}
-          onWheel={handleWheel}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onClick={() => {
-            if (!isPanActive) {
-              setSelectedEl(null)
-            }
-          }}
-        >
-          {/* Layer biến đổi Pan & Zoom */}
-          <div
-            className="canvas__transform-layer"
-            style={{
-              transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom / 100})`,
-            }}
-          >
-            {/* KHUNG ARTBOARD TRÔI NỔI */}
-            <div
-              className="canvas__frame-wrap"
-              style={{ width: currentVp.w }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="canvas__frame-bar">
-                <div className="canvas__frame-dots">
-                  <span className="dot red" />
-                  <span className="dot yellow" />
-                  <span className="dot green" />
-                </div>
-                <span className="canvas__frame-url" title={currentLiveUrl || url || ''}>
-                  {(currentLiveUrl || url) ? (currentLiveUrl || url)!.replace(/^https?:\/\//, '') : 'localhost:Chưa khởi động'}
-                </span>
-                <span className="canvas__frame-size">
-                  {currentVp.w} × {currentVp.h}
-                </span>
-              </div>
-
-              <div
-                className="canvas__frame-content"
-                style={{
-                  height: currentVp.h,
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
-              >
                 {(isPanActive || isPanning) && (
                   <div
                     style={{
@@ -1951,9 +1742,294 @@ const CanvasArea = ({
                     )}
                   </div>
                 )}
+
+    </>
+  )
+
+  return (
+    <div className="canvas">
+      {/* Toast thông báo nổi HUD cao cấp (Figma / Webflow Style) */}
+      {toast && (
+        <div className={`canvas__toast canvas__toast--${toast.kind || 'ok'}`}>
+          <div className="canvas__toast-icon">
+            {toast.kind === 'err' ? (
+              <AlertCircle size={13} />
+            ) : toast.kind === 'warn' ? (
+              <AlertTriangle size={13} />
+            ) : toast.kind === 'info' ? (
+              <Info size={13} />
+            ) : (
+              <CheckCircle2 size={13} />
+            )}
+          </div>
+          <span className="canvas__toast-text">{toast.text}</span>
+          {toast.shortcut && <kbd className="canvas__toast-kbd">{toast.shortcut}</kbd>}
+        </div>
+      )}
+
+      {/* Lớp Drag Shield toàn màn hình */}
+      {(resizingEl || isResizingSidebar || isMovingEl) && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            cursor: isMovingEl ? 'move' : resizingEl ? `${resizingEl.handle}-resize` : 'col-resize',
+          }}
+        />
+      )}
+
+      {/* ═══════════════════════════════════════════════
+          HÀNG 1: THANH CÔNG CỤ ĐỈNH CANVAS
+          ═══════════════════════════════════════════════ */}
+      {isToolbarCollapsed ? (
+        <div
+          className="canvas__tools-collapsed"
+          onClick={() => setIsToolbarCollapsed(false)}
+          title="Mở rộng thanh công cụ Canvas"
+        >
+          <ChevronDown size={12} />
+          <span>Mở rộng thanh công cụ</span>
+        </div>
+      ) : (
+        <div className="canvas__tools">
+          {/* Nhóm 1: Soi phần tử & Con trỏ */}
+          <div className="canvas__seg">
+            <button
+              className={`canvas__seg-btn ${isInspectMode ? 'active accent' : ''}`}
+              onClick={() => {
+                const next = !isInspectMode
+                setIsInspectMode(next)
+                if (!next) {
+                  setSelectedEl(null)
+                  setHoverEl(null)
+                }
+                showToast(
+                  next ? 'Đã bật chế độ Soi phần tử' : 'Đã tắt chế độ Soi phần tử',
+                  next ? 'ok' : 'info',
+                  next ? 'Phím I' : undefined,
+                )
+              }}
+              title="Bật/Tắt chế độ Soi phần tử (Phím tắt: I)"
+              style={{
+                height: 28,
+                padding: '0 10px',
+                gap: 6,
+                borderRadius: 6,
+                fontWeight: 650,
+                background: isInspectMode ? 'var(--accent, #6d5df5)' : 'var(--panel-2)',
+                color: isInspectMode ? '#ffffff' : 'var(--text)',
+                border: '1px solid var(--line)',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              <PencilFillIcon size={12} />
+            </button>
+
+            {TOOLS.map((t) => (
+              <button
+                key={t.key}
+                className={`canvas__seg-btn icon-only ${tool === t.key ? 'active' : ''}`}
+                onClick={() => setTool(t.key)}
+                title={`${t.label} (${t.shortcut})`}
+              >
+                <t.icon size={13} />
+              </button>
+            ))}
+
+            <button
+              className={`canvas__seg-btn icon-only ${isPageFlowOpen ? 'active' : ''}`}
+              onClick={() => setIsPageFlowOpen((open) => !open)}
+              title={isPageFlowOpen ? 'Đóng sơ đồ chức năng (Site Map)' : 'Sơ đồ chức năng dự án (Site Map)'}
+            >
+              <Network size={13} />
+            </button>
+          </div>
+
+          <div className="canvas__tools-spacer" />
+
+          {/* Nhóm 2: Thiết bị / Viewport */}
+          <div className="canvas__seg">
+            {VIEWPORTS.map((v) => (
+              <button
+                key={v.key}
+                className={`canvas__seg-btn ${viewport === v.key ? 'active' : ''}`}
+                onClick={() => {
+                  setViewport(v.key)
+                  if (v.key === 'responsive') {
+                    setZoom(100)
+                    setPan({ x: 0, y: 0 })
+                  }
+                }}
+                title={v.key === 'responsive' ? 'Toàn khung (100% full màn hình, chuẩn web)' : `${v.label} · ${v.w} × ${v.h}`}
+              >
+                <v.icon size={12} />
+                <span>{v.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="canvas__tools-spacer" />
+
+          {/* Nhóm 3: Tiện ích Tokens & Tải lại */}
+          <div className="canvas__seg">
+            <button
+              className="canvas__tool-btn"
+              style={{ width: 'auto', padding: '0 8px', gap: 4, display: 'inline-flex' }}
+              title="Hệ thống thiết kế (Design Tokens & Theme Manager)"
+              onClick={() => setIsTokensDialogOpen(true)}
+            >
+              <Palette size={13} style={{ color: 'var(--accent, #6d5df5)' }} />
+              <span style={{ fontSize: 11, fontWeight: 600 }}>Tokens</span>
+            </button>
+            <button
+              className="canvas__tool-btn"
+              title="Tải lại giao diện (Ctrl+R)"
+              onClick={() => setIframeKey((k) => k + 1)}
+            >
+              <RefreshCw size={13} />
+            </button>
+            {url && onOpenExternal && (
+              <button
+                className="canvas__tool-btn"
+                title="Mở trên trình duyệt ngoài"
+                onClick={() => onOpenExternal(url)}
+              >
+                <ExternalLink size={13} />
+              </button>
+            )}
+          </div>
+
+          {/* Nhóm 4: Zoom */}
+          <div className="canvas__seg">
+            <button
+              className="canvas__tool-btn"
+              title="Thu nhỏ (Ctrl -)"
+              onClick={() => setZoom((z) => Math.max(10, z - 10))}
+            >
+              <ZoomOut size={13} />
+            </button>
+            <span className="canvas__zoom-badge" onClick={zoomToFit} title="Nhấp để vừa khung (F)">
+              {zoom}%
+            </span>
+            <button
+              className="canvas__tool-btn"
+              title="Phóng to (Ctrl +)"
+              onClick={() => setZoom((z) => Math.min(200, z + 10))}
+            >
+              <ZoomIn size={13} />
+            </button>
+            <button
+              className="canvas__tool-btn"
+              title="Khôi phục kích thước 100% (Scale 1:1)"
+              onClick={() => {
+                setZoom(100)
+                setPan({ x: 0, y: 0 })
+              }}
+              style={{ fontSize: 10, fontWeight: 700, padding: '0 4px', width: 'auto' }}
+            >
+              1:1
+            </button>
+            <button className="canvas__tool-btn" title="Vừa khung nhìn (F)" onClick={zoomToFit}>
+              <Maximize2 size={13} />
+            </button>
+          </div>
+
+          {/* Nút thu gọn thanh công cụ lên đỉnh */}
+          <button
+            className="canvas__tool-btn"
+            title="Thu gọn thanh công cụ để mở rộng không gian Canvas"
+            onClick={() => setIsToolbarCollapsed(true)}
+            style={{ marginLeft: 2 }}
+          >
+            <ChevronUp size={13} />
+          </button>
+        </div>
+      )}
+      {/* ═══════════════════════════════════════════════
+          THÂN CANVAS: BÊN TRÁI LÀ STAGE, BÊN PHẢI LÀ INSPECTOR SIDE PANEL
+          ═══════════════════════════════════════════════ */}
+      <div className="canvas__body">
+        {/* SÂN KHẤU VÔ CỰC (Bên trái) */}
+        <div
+          className={`canvas__stage tool-${tool} ${isPanning ? 'is-panning' : ''}`}
+          ref={stageRef}
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onClick={() => {
+            if (!isPanActive) {
+              setSelectedEl(null)
+            }
+          }}
+        >
+          {/* SÂN KHẤU: Toàn khung (Full 100%) hoặc Khung thiết bị Artboard */}
+          {viewport === 'responsive' ? (
+            <div
+              className="canvas__responsive-wrap"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                overflow: 'hidden',
+                background: '#ffffff',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                className="canvas__frame-content canvas__frame-content--responsive"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                {renderFrameContent()}
               </div>
             </div>
-          </div>
+          ) : (
+            <div
+              className="canvas__transform-layer"
+              style={{
+                transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom / 100})`,
+              }}
+            >
+              <div
+                className="canvas__frame-wrap"
+                style={{ width: currentVp.w }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="canvas__frame-bar">
+                  <div className="canvas__frame-dots">
+                    <span className="dot red" />
+                    <span className="dot yellow" />
+                    <span className="dot green" />
+                  </div>
+                  <span className="canvas__frame-url" title={currentLiveUrl || url || ''}>
+                    {(currentLiveUrl || url) ? (currentLiveUrl || url)!.replace(/^https?:\/\//, '') : 'localhost:Chưa khởi động'}
+                  </span>
+                  <span className="canvas__frame-size">
+                    {currentVp.w} × {currentVp.h}
+                  </span>
+                </div>
+
+                <div
+                  className="canvas__frame-content"
+                  style={{
+                    height: currentVp.h,
+                    position: 'relative',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {renderFrameContent()}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="canvas__hint">
             <span>▷ Soi phần tử (Phím I) · Kéo để pan (H hoặc Space) · Ctrl + lăn chuột để zoom · F để vừa khung</span>
@@ -1981,13 +2057,12 @@ const CanvasArea = ({
             {/* Header đỉnh của Side Panel */}
             <div className="canvas__inspector-hd">
               <div className="canvas__inspector-title-area">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <div className="canvas__inspector-eyebrow">
                   <div className="canvas__inspector-badge-live">
                     <span className="pulse-dot" />
                     <span>Live DOM</span>
                   </div>
-                  <span style={{ fontSize: 11, color: '#64748b' }}>•</span>
-                  <span style={{ fontSize: 11, color: '#94a3b8' }}>Visual Style Editor</span>
+                  <span className="canvas__inspector-eyebrow-text">Visual Style Editor</span>
                 </div>
                 <div className="canvas__inspector-tag-title">
                   {selectedEl ? (
@@ -2446,12 +2521,12 @@ const CanvasArea = ({
                         </div>
 
                         {/* Bộ điều khiển chi tiết Lề ngoài (Margin) */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span className="canvas__inspector-field-lbl" style={{ color: '#f59e0b', fontWeight: 600 }}>
-                              Lề Ngoài (Margin: {selectedEl.computedStyles.margin})
+                        <div className="canvas__spacing-group">
+                          <div className="canvas__spacing-hd">
+                            <span className="canvas__spacing-title" style={{ color: '#f59e0b' }}>
+                              Lề ngoài (Margin)
                             </span>
-                            <div style={{ display: 'flex', gap: 4 }}>
+                            <div className="canvas__spacing-actions">
                               <button
                                 className="canvas__btn-group-item"
                                 style={{ background: '#1c202d', borderRadius: 4, padding: '2px 6px', fontSize: 10 }}
@@ -2475,6 +2550,9 @@ const CanvasArea = ({
                                 16px
                               </button>
                             </div>
+                          </div>
+                          <div className="canvas__spacing-value" title={selectedEl.computedStyles.margin}>
+                            {selectedEl.computedStyles.margin}
                           </div>
 
                           <div className="canvas__box-model-4col">
@@ -2637,12 +2715,12 @@ const CanvasArea = ({
                         </div>
 
                         {/* Bộ điều khiển chi tiết Đệm trong (Padding) */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span className="canvas__inspector-field-lbl" style={{ color: '#10b981', fontWeight: 600 }}>
-                              Đệm Trong (Padding: {selectedEl.computedStyles.padding})
+                        <div className="canvas__spacing-group">
+                          <div className="canvas__spacing-hd">
+                            <span className="canvas__spacing-title" style={{ color: '#10b981' }}>
+                              Đệm trong (Padding)
                             </span>
-                            <div style={{ display: 'flex', gap: 4 }}>
+                            <div className="canvas__spacing-actions">
                               <button
                                 className="canvas__btn-group-item"
                                 style={{ background: '#1c202d', borderRadius: 4, padding: '2px 6px', fontSize: 10 }}
@@ -2667,6 +2745,9 @@ const CanvasArea = ({
                                 0px
                               </button>
                             </div>
+                          </div>
+                          <div className="canvas__spacing-value" title={selectedEl.computedStyles.padding}>
+                            {selectedEl.computedStyles.padding}
                           </div>
 
                           <div className="canvas__box-model-4col">
@@ -3730,35 +3811,59 @@ const CanvasArea = ({
               </>
             ) : (
               <div className="canvas__inspector-empty-wrap">
-                <div className="canvas__inspector-empty-radar">
-                  <MousePointer2 size={26} />
+                <div className="canvas__inspector-empty-hero">
+                  <div className="canvas__inspector-empty-radar">
+                    <MousePointer2 size={20} />
+                  </div>
+                  <div className="canvas__inspector-empty-copy">
+                    <h4>Chế độ Soi phần tử đang bật</h4>
+                    <p>
+                      Rê chuột vào giao diện xem trước bên trái và <b>nhấp vào bất kỳ thành phần nào</b> (nút bấm, tiêu đề, menu, thẻ) để mở bảng thông số và sửa trực tiếp.
+                    </p>
+                  </div>
                 </div>
-                <h4>Chế độ Soi phần tử đang bật</h4>
-                <p>
-                  Rê chuột vào giao diện xem trước bên trái và <b>nhấp vào bất kỳ thành phần nào</b> (nút bấm, tiêu đề, menu, thẻ) để mở bảng thông số và sửa trực tiếp.
-                </p>
 
                 <div className="canvas__inspector-shortcuts">
-                  <div className="canvas__inspector-shortcut-item">
-                    <span>Bật / Tắt chế độ soi</span>
-                    <kbd>I</kbd>
+                  <div className="canvas__inspector-shortcuts-hd">
+                    <Sparkles size={11} />
+                    <span>Phím tắt nhanh</span>
                   </div>
-                  <div className="canvas__inspector-shortcut-item">
-                    <span>Di chuyển Canvas (Pan)</span>
-                    <kbd>Space / H</kbd>
-                  </div>
-                  <div className="canvas__inspector-shortcut-item">
-                    <span>Căn vừa khung nhìn</span>
-                    <kbd>F</kbd>
-                  </div>
-                  <div className="canvas__inspector-shortcut-item">
-                    <span>Thoát chế độ soi</span>
-                    <kbd>Esc</kbd>
+                  <div className="canvas__inspector-shortcuts-grid">
+                    <div className="canvas__inspector-shortcut-item">
+                      <span>Bật / tắt soi</span>
+                      <kbd>I</kbd>
+                    </div>
+                    <div className="canvas__inspector-shortcut-item">
+                      <span>Di chuyển canvas</span>
+                      <kbd>Space / H</kbd>
+                    </div>
+                    <div className="canvas__inspector-shortcut-item">
+                      <span>Căn vừa khung</span>
+                      <kbd>F</kbd>
+                    </div>
+                    <div className="canvas__inspector-shortcut-item">
+                      <span>Thoát chế độ soi</span>
+                      <kbd>Esc</kbd>
+                    </div>
                   </div>
                 </div>
               </div>
             )}
           </aside>
+        )}
+
+        {isPageFlowOpen && (
+          <PageFlowMap
+            projectName={projectName}
+            pages={pages}
+            previewUrl={url ?? currentLiveUrl}
+            currentRoute={currentRoute ?? null}
+            onOpenRoute={(route) => {
+              setIsPageFlowOpen(false)
+              onOpenPage?.(route)
+            }}
+            onClose={() => setIsPageFlowOpen(false)}
+          />
         )}
       </div>
 
@@ -3771,6 +3876,7 @@ const CanvasArea = ({
           onTokensUpdated={(t) => setProjectTokens(t)}
         />
       )}
+
     </div>
   )
 }

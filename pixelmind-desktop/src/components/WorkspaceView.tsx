@@ -483,6 +483,9 @@ const WorkspaceView = ({
                       onCreateIndexHtml={onCreateIndexHtml}
                       onAddDevScript={onAddDevScript}
                       onUrlChange={onUrlChange}
+                      pages={project.meta.pages}
+                      currentRoute={currentRoute ?? null}
+                      onOpenPage={onOpenPage}
                     />
                   ) : (
                     <FileViewer

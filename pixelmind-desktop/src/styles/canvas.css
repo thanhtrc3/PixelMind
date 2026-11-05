@@ -288,6 +288,24 @@
   cursor: text;
 }
 
+/* ═══════════════════════════════════════════════════
+   CHẾ ĐỘ XEM TRƯỚC TOÀN KHUNG (Responsive Full Screen)
+   ═══════════════════════════════════════════════════ */
+.canvas__responsive-wrap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #ffffff;
+  z-index: 1;
+}
+
+.canvas__frame-content--responsive {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 /* 
   VÙNG BIẾN ĐỔI (Transform Layer):
   Neo chính xác tại top: 50%; left: 50%.
@@ -806,7 +824,7 @@
 }
 
 .canvas__inspector-sidebar {
-  width: 360px;
+  width: 320px;
   flex-shrink: 0;
   height: 100%;
   display: flex;
@@ -834,11 +852,25 @@
 .canvas__inspector-hd {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: 8px;
+  padding: 9px 12px;
   background: #12151e;
   border-bottom: 1px solid var(--line, #232733);
   flex-shrink: 0;
+}
+
+.canvas__inspector-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+}
+
+.canvas__inspector-eyebrow-text {
+  font-size: 10px;
+  font-weight: 500;
+  color: #7c8798;
+  letter-spacing: 0.2px;
 }
 
 .canvas__inspector-badge-live {
@@ -879,7 +911,7 @@
 }
 
 .canvas__inspector-tag-title {
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 750;
   color: #ffffff;
   display: flex;
@@ -898,10 +930,10 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 14px 16px;
+  padding: 11px 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .canvas__inspector-bd::-webkit-scrollbar {
@@ -1066,73 +1098,112 @@
   flex-shrink: 0;
 }
 
-/* Empty State tinh xảo */
+/* Empty State gọn gàng */
 .canvas__inspector-empty-wrap {
   flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 32px 20px;
-  gap: 14px;
+  align-items: stretch;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 10px 2px 4px;
+  gap: 12px;
+}
+
+.canvas__inspector-empty-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.canvas__inspector-empty-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .canvas__inspector-empty-radar {
-  width: 58px;
-  height: 58px;
-  border-radius: 16px;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 10px;
   background: linear-gradient(135deg, rgba(109, 93, 245, 0.18), rgba(20, 24, 33, 0.9));
   border: 1px solid rgba(109, 93, 245, 0.35);
   display: grid;
   place-items: center;
   color: var(--accent-text, #a78bfa);
-  box-shadow: 0 8px 24px rgba(109, 93, 245, 0.15);
+  box-shadow: 0 6px 16px rgba(109, 93, 245, 0.12);
 }
 
 .canvas__inspector-empty-wrap h4 {
-  font-size: 14.5px;
+  font-size: 12.5px;
   font-weight: 750;
   color: #ffffff;
   margin: 0;
 }
 
 .canvas__inspector-empty-wrap p {
-  font-size: 12px;
+  font-size: 11px;
   color: #94a3b8;
-  line-height: 1.6;
+  line-height: 1.5;
   margin: 0;
-  max-width: 280px;
+  max-width: none;
 }
 
 .canvas__inspector-shortcuts {
-  margin-top: 8px;
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid #232733;
   border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 11px;
+  padding: 8px 10px;
+}
+
+.canvas__inspector-shortcuts-hd {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.canvas__inspector-shortcuts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 10px;
 }
 
 .canvas__inspector-shortcut-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  font-size: 10.5px;
   color: #cbd5e1;
 }
 
+.canvas__inspector-shortcut-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .canvas__inspector-shortcut-item kbd {
-  padding: 2px 6px;
+  flex-shrink: 0;
+  padding: 1px 5px;
   border-radius: 4px;
   background: #1c202d;
   border: 1px solid #374151;
   color: #ffffff;
   font-family: var(--font-mono, monospace);
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 700;
 }
 
@@ -1191,8 +1262,8 @@
   display: flex;
   background: #090b10;
   border-bottom: 1px solid var(--line, #232733);
-  padding: 4px 8px;
-  gap: 4px;
+  padding: 3px 6px;
+  gap: 3px;
   flex-shrink: 0;
 }
 
@@ -1201,13 +1272,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 7px 10px;
-  border-radius: 6px;
+  gap: 5px;
+  padding: 6px 8px;
+  border-radius: 5px;
   background: transparent;
   border: none;
   color: #94a3b8;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
@@ -1382,8 +1453,70 @@
 
 .canvas__box-model-4col {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+/* Bộ điều khiển Margin / Padding gọn và không bị tràn */
+.canvas__spacing-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.canvas__spacing-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.canvas__spacing-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.canvas__spacing-actions {
+  display: flex;
   gap: 4px;
+  flex-shrink: 0;
+}
+
+.canvas__spacing-value {
+  margin-top: -2px;
+  font-family: var(--font-mono, monospace);
+  font-size: 9.5px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.canvas__box-model-4col .canvas__inspector-prop-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: #0f131c;
+  border: 1px solid #232733;
+  border-radius: 6px;
+}
+
+.canvas__box-model-4col .canvas__inspector-prop-lbl {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #7c8798;
+  white-space: nowrap;
+}
+
+.canvas__box-model-4col .canvas__inspector-field-input {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
 }
 
 /* Thẻ thông tin mã nguồn thật (Code Sync Card) */
