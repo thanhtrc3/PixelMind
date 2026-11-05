@@ -135,6 +135,20 @@ const App = () => {
   settingsRef.current = settings
   const lastUrlRef = useRef<string | null>(null)
 
+  /* ── Chặn kéo thả tệp/URL làm điều hướng ứng dụng Electron ───────── */
+  useEffect(() => {
+    const preventDrag = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    window.addEventListener('dragover', preventDrag, false)
+    window.addEventListener('drop', preventDrag, false)
+    return () => {
+      window.removeEventListener('dragover', preventDrag, false)
+      window.removeEventListener('drop', preventDrag, false)
+    }
+  }, [])
+
   /* ── Áp dụng chủ đề / màu nhấn / cỡ chữ / thu phóng ───────────────── */
 
   useEffect(() => {

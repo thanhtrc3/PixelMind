@@ -178,6 +178,21 @@
   cursor: grabbing !important;
 }
 
+/* Lớp màn che vô hình khi kéo canvas hoặc kéo cửa sổ (chống iframe cướp sự kiện chuột và gây treo/đen) */
+.pm-multi-pan-catcher {
+  position: absolute;
+  inset: 0;
+  z-index: 9999;
+  cursor: grabbing !important;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.pm-multi-canvas.is-interacting iframe,
+.pm-multi-stage.is-panning iframe {
+  pointer-events: none !important;
+}
+
 .pm-multi-world {
   position: absolute;
   top: 0;

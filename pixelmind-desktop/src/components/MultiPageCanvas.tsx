@@ -497,20 +497,11 @@ export default function MultiPageCanvas({
   }))
 
   const [isPanning, setIsPanning] = useState(false)
-  const panStartRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null)
+  const [isDraggingWin, setIsDraggingWin] = useState(false)
   const maxZRef = useRef(10)
   const [activeWinId, setActiveWinId] = useState<string | null>(null)
   const [hoveredWinId, setHoveredWinId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-
-  // Trạng thái kéo cửa sổ
-  const dragWinRef = useRef<{
-    winId: string
-    startMouseX: number
-    startMouseY: number
-    startWinX: number
-    startWinY: number
-  } | null>(null)
 
   const baseUrl = useMemo(() => {
     if (!previewUrl) return null
@@ -616,6 +607,7 @@ export default function MultiPageCanvas({
 
   // Kéo cửa sổ tự do
   const startDragWindow = (winId: string, e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
     e.stopPropagation()
     const targetWin = windows.find((w) => w.id === winId)
     if (!targetWin) return
@@ -623,75 +615,84 @@ export default function MultiPageCanvas({
     maxZRef.current = Math.min(450, maxZRef.current + 1)
     const newZ = maxZRef.current
     setActiveWinId(winId)
+    setIsDraggingWin(true)
+
     setWindows((prev) => {
       const next = prev.map((w) => (w.id === winId ? { ...w, zIndex: newZ } : w))
       windowsRef.current = next
       return next
     })
 
-    dragWinRef.current = {
-      winId,
-      startMouseX: e.clientX,
-      startMouseY: e.clientY,
-      startWinX: targetWin.x,
-      startWinY: targetWin.y,
-    }
+    const startMouseX = e.clientX
+    const startMouseY = e.clientY
+    const startWinX = targetWin.x
+    const startWinY = targetWin.y
+    const curZoom = view.zoom
 
     const onPointerMove = (moveEvt: PointerEvent) => {
-      if (!dragWinRef.current) return
-      const dx = (moveEvt.clientX - dragWinRef.current.startMouseX) / view.zoom
-      const dy = (moveEvt.clientY - dragWinRef.current.startMouseY) / view.zoom
+      moveEvt.preventDefault()
+      const dx = (moveEvt.clientX - startMouseX) / curZoom
+      const dy = (moveEvt.clientY - startMouseY) / curZoom
 
-      const newX = Math.round(dragWinRef.current.startWinX + dx)
-      const newY = Math.round(dragWinRef.current.startWinY + dy)
+      const newX = Math.round(startWinX + dx)
+      const newY = Math.round(startWinY + dy)
 
       setWindows((prev) => {
-        const next = prev.map((w) =>
-          w.id === dragWinRef.current?.winId ? { ...w, x: newX, y: newY } : w
-        )
+        const next = prev.map((w) => (w.id === winId ? { ...w, x: newX, y: newY } : w))
         windowsRef.current = next
         return next
       })
     }
 
-    const onPointerUp = () => {
-      dragWinRef.current = null
+    const onPointerUp = (upEvt: PointerEvent) => {
+      upEvt.preventDefault()
+      setIsDraggingWin(false)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
     }
 
-    window.addEventListener('pointermove', onPointerMove)
-    window.addEventListener('pointerup', onPointerUp)
+    window.addEventListener('pointermove', onPointerMove, { passive: false })
+    window.addEventListener('pointerup', onPointerUp, { passive: false })
+    window.addEventListener('pointercancel', onPointerUp, { passive: false })
   }
 
-  // Kéo và phóng to sân khấu canvas
+  // Kéo và phóng to sân khấu canvas (Pan stage)
   const handleStagePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('.pm-win') || (e.target as HTMLElement).closest('.pm-multi-controls')) {
       return
     }
-    panStartRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      panX: view.panX,
-      panY: view.panY,
-    }
+    e.preventDefault()
+    e.stopPropagation()
+
     setIsPanning(true)
-  }
+    const startMouseX = e.clientX
+    const startMouseY = e.clientY
+    const startPanX = view.panX
+    const startPanY = view.panY
 
-  const handleStagePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!panStartRef.current || !isPanning) return
-    const dx = e.clientX - panStartRef.current.startX
-    const dy = e.clientY - panStartRef.current.startY
-    setView((prev) => ({
-      ...prev,
-      panX: panStartRef.current!.panX + dx,
-      panY: panStartRef.current!.panY + dy,
-    }))
-  }
+    const onPointerMove = (moveEvt: PointerEvent) => {
+      moveEvt.preventDefault()
+      const dx = moveEvt.clientX - startMouseX
+      const dy = moveEvt.clientY - startMouseY
+      setView((prev) => ({
+        ...prev,
+        panX: Math.round(startPanX + dx),
+        panY: Math.round(startPanY + dy),
+      }))
+    }
 
-  const handleStagePointerUp = () => {
-    panStartRef.current = null
-    setIsPanning(false)
+    const onPointerUp = (upEvt: PointerEvent) => {
+      upEvt.preventDefault()
+      setIsPanning(false)
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
+    }
+
+    window.addEventListener('pointermove', onPointerMove, { passive: false })
+    window.addEventListener('pointerup', onPointerUp, { passive: false })
+    window.addEventListener('pointercancel', onPointerUp, { passive: false })
   }
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -810,7 +811,19 @@ export default function MultiPageCanvas({
   const filteredQuery = searchQuery.trim().toLowerCase()
 
   return (
-    <div className="pm-multi-canvas" onPointerDown={(e) => e.stopPropagation()}>
+    <div
+      className={`pm-multi-canvas ${isPanning || isDraggingWin ? 'is-interacting' : ''}`}
+      onPointerDown={(e) => e.stopPropagation()}
+      onPointerUp={(e) => e.stopPropagation()}
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
+    >
       {/* ── TopBar điều khiển ── */}
       <div className="pm-multi-topbar">
         <div className="pm-multi-topbar__title">
@@ -881,11 +894,11 @@ export default function MultiPageCanvas({
         className={`pm-multi-stage ${isPanning ? 'is-panning' : ''}`}
         ref={stageRef}
         onPointerDown={handleStagePointerDown}
-        onPointerMove={handleStagePointerMove}
-        onPointerUp={handleStagePointerUp}
-        onPointerCancel={handleStagePointerUp}
         onWheel={handleWheel}
       >
+        {/* Lớp màn che bảo vệ khi kéo thả (chống iframe cướp sự kiện và ngăn Chromium drop) */}
+        {(isPanning || isDraggingWin) && <div className="pm-multi-pan-catcher" />}
+
         <div
           className="pm-multi-world"
           style={{
