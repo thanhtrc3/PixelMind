@@ -44,6 +44,7 @@ interface CanvasWin {
 }
 
 interface DetectedAnchor {
+  parentId: string // ID của cửa sổ chứa nút bấm (cha)
   x: number // Tọa độ trong khung nhìn iframe (0..WINDOW_WIDTH)
   y: number // Tọa độ trong khung nhìn iframe (0..WINDOW_HEIGHT - 34)
   isClipped: boolean // Nút bấm có bị cuộn khuất khỏi viewport hay không
@@ -175,7 +176,6 @@ const GAP_X = 140
 const GAP_Y = 120
 const STEP_X = WINDOW_WIDTH + GAP_X // 1100
 const STEP_Y = WINDOW_HEIGHT + GAP_Y // 720
-const SAFE_MARGIN = 160
 
 // ─── THUẬT TOÁN GIẢI TỎA VA CHẠM (COLLISION RELAXATION SOLVER) ───
 function resolveCollisions(windows: CanvasWin[]): CanvasWin[] {
@@ -304,298 +304,263 @@ function findMatchingWindow(href: string, text: string, winList: CanvasWin[]): C
   return null
 }
 
-// ─── BỐ CỤC 1: PHÂN CỤM THEO HƯỚNG NÚT BẤM (CLUSTER GRID) ───
-function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): CanvasWin[] {
-  const halfHomeW = WINDOW_WIDTH / 2
-  const halfHomeH = WINDOW_HEIGHT / 2
+// ─── TÌM ID CỦA CỬA SỔ CHA THEO PHÂN CẤP ROUTE DỰ ÁN ───
+export function getParentWinIdForRoute(
+  route: string,
+  allWindows: Array<{ id: string; route: string; isHome: boolean }>
+): string {
+  const homeWin = allWindows.find((w) => w.isHome) || allWindows[0]
+  if (!homeWin) return ''
+  const norm = normalizeRoute(route).toLowerCase()
+  if (norm === '/') return ''
 
-  const groups: Record<string, { info: ReturnType<typeof getGroupInfo>; pages: ProjectPage[] }> = {}
-  otherPages.forEach((page) => {
-    const norm = normalizeRoute(page.route)
-    const info = getGroupInfo(norm)
-    if (!groups[info.groupKey]) {
-      groups[info.groupKey] = { info, pages: [] }
-    }
-    groups[info.groupKey].pages.push(page)
-  })
+  // Danh sách các trang khác (loại trừ chính nó và Trang chủ)
+  const otherCandidates = allWindows.filter(
+    (w) => !w.isHome && normalizeRoute(w.route).toLowerCase() !== norm
+  )
 
-  const satellites: CanvasWin[] = []
+  const segments = norm.split('/').filter(Boolean)
 
-  // 1. Nhóm 'catalog' (Sản phẩm & Danh mục) -> Phía TRÊN
-  if (groups.catalog && groups.catalog.pages.length > 0) {
-    const items = groups.catalog.pages
-    const cols = Math.min(3, Math.max(2, Math.ceil(Math.sqrt(items.length))))
-    const rows = Math.ceil(items.length / cols)
-    const clusterW = cols * STEP_X - GAP_X
-    const clusterH = rows * STEP_Y - GAP_Y
-    const centerX = 0
-    const centerY = -(halfHomeH + SAFE_MARGIN + clusterH / 2)
-
-    items.forEach((page, idx) => {
-      const col = idx % cols
-      const row = Math.floor(idx / cols)
-      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + WINDOW_WIDTH / 2)
-      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + WINDOW_HEIGHT / 2)
-      const norm = normalizeRoute(page.route)
-      const info = groups.catalog.info
-      satellites.push({
-        id: `win:${page.id || norm}`,
-        page,
-        route: norm,
-        title: page.title || norm,
-        isHome: false,
-        x,
-        y,
-        w: WINDOW_WIDTH,
-        h: WINDOW_HEIGHT,
-        zIndex: 5,
-        groupKey: info.groupKey,
-        groupLabel: info.groupLabel,
-        groupColor: info.groupColor,
-        sourceHint: { text: info.sourceText, relX: info.relX, relY: info.relY },
-      })
-    })
+  // 1. Tìm tiền tố cha theo phân đoạn path (segment) từ sâu về cạn
+  // Ví dụ: '/cart/checkout/success' -> thử '/cart/checkout' -> thử '/cart'
+  for (let len = segments.length - 1; len >= 1; len--) {
+    const prefix = '/' + segments.slice(0, len).join('/')
+    const found = otherCandidates.find(
+      (w) => normalizeRoute(w.route).toLowerCase() === prefix
+    )
+    if (found) return found.id
   }
 
-  // 2. Nhóm 'auth' (Tài khoản & Xác thực) -> Phía BÊN PHẢI
-  if (groups.auth && groups.auth.pages.length > 0) {
-    const items = groups.auth.pages
-    const cols = Math.min(3, Math.max(2, Math.ceil(Math.sqrt(items.length))))
-    const rows = Math.ceil(items.length / cols)
-    const clusterW = cols * STEP_X - GAP_X
-    const clusterH = rows * STEP_Y - GAP_Y
-    const centerX = halfHomeW + SAFE_MARGIN + clusterW / 2
-    const centerY = -60
-
-    items.forEach((page, idx) => {
-      const col = idx % cols
-      const row = Math.floor(idx / cols)
-      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + WINDOW_WIDTH / 2)
-      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + WINDOW_HEIGHT / 2)
-      const norm = normalizeRoute(page.route)
-      const info = groups.auth.info
-      satellites.push({
-        id: `win:${page.id || norm}`,
-        page,
-        route: norm,
-        title: page.title || norm,
-        isHome: false,
-        x,
-        y,
-        w: WINDOW_WIDTH,
-        h: WINDOW_HEIGHT,
-        zIndex: 5,
-        groupKey: info.groupKey,
-        groupLabel: info.groupLabel,
-        groupColor: info.groupColor,
-        sourceHint: { text: info.sourceText, relX: info.relX, relY: info.relY },
-      })
+  // 2. Tìm trang cha có route là tiền tố dài nhất (ví dụ: '/cart/checkoutsuccess' với '/cart/checkout')
+  const prefixMatches = otherCandidates
+    .filter((w) => {
+      const wNorm = normalizeRoute(w.route).toLowerCase()
+      return wNorm !== '/' && norm.startsWith(wNorm)
     })
+    .sort((a, b) => b.route.length - a.route.length)
+
+  if (prefixMatches.length > 0) {
+    return prefixMatches[0].id
   }
 
-  // 3. Nhóm 'order' (Đơn hàng & Giỏ hàng) -> Phía DƯỚI BÊN PHẢI
-  if (groups.order && groups.order.pages.length > 0) {
-    const items = groups.order.pages
-    const cols = Math.min(3, Math.max(2, Math.ceil(Math.sqrt(items.length))))
-    const rows = Math.ceil(items.length / cols)
-    const clusterW = cols * STEP_X - GAP_X
-    const clusterH = rows * STEP_Y - GAP_Y
-    const centerX = halfHomeW + SAFE_MARGIN + clusterW / 2
-    const centerY = halfHomeH + SAFE_MARGIN + clusterH / 2 + 80
-
-    items.forEach((page, idx) => {
-      const col = idx % cols
-      const row = Math.floor(idx / cols)
-      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + WINDOW_WIDTH / 2)
-      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + WINDOW_HEIGHT / 2)
-      const norm = normalizeRoute(page.route)
-      const info = groups.order.info
-      satellites.push({
-        id: `win:${page.id || norm}`,
-        page,
-        route: norm,
-        title: page.title || norm,
-        isHome: false,
-        x,
-        y,
-        w: WINDOW_WIDTH,
-        h: WINDOW_HEIGHT,
-        zIndex: 5,
-        groupKey: info.groupKey,
-        groupLabel: info.groupLabel,
-        groupColor: info.groupColor,
-        sourceHint: { text: info.sourceText, relX: info.relX, relY: info.relY },
-      })
-    })
-  }
-
-  // 4. Nhóm 'activity' (Bảng xếp hạng & Kỳ đài) -> Phía DƯỚI
-  if (groups.activity && groups.activity.pages.length > 0) {
-    const items = groups.activity.pages
-    const cols = Math.min(3, Math.max(2, Math.ceil(Math.sqrt(items.length))))
-    const rows = Math.ceil(items.length / cols)
-    const clusterW = cols * STEP_X - GAP_X
-    const clusterH = rows * STEP_Y - GAP_Y
-    const centerX = 0
-    const centerY = halfHomeH + SAFE_MARGIN + clusterH / 2
-
-    items.forEach((page, idx) => {
-      const col = idx % cols
-      const row = Math.floor(idx / cols)
-      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + WINDOW_WIDTH / 2)
-      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + WINDOW_HEIGHT / 2)
-      const norm = normalizeRoute(page.route)
-      const info = groups.activity.info
-      satellites.push({
-        id: `win:${page.id || norm}`,
-        page,
-        route: norm,
-        title: page.title || norm,
-        isHome: false,
-        x,
-        y,
-        w: WINDOW_WIDTH,
-        h: WINDOW_HEIGHT,
-        zIndex: 5,
-        groupKey: info.groupKey,
-        groupLabel: info.groupLabel,
-        groupColor: info.groupColor,
-        sourceHint: { text: info.sourceText, relX: info.relX, relY: info.relY },
-      })
-    })
-  }
-
-  // 5. Nhóm 'admin' & 'general' -> Phía BÊN TRÁI
-  const leftItems = [...(groups.admin?.pages || []), ...(groups.general?.pages || [])]
-  if (leftItems.length > 0) {
-    const cols = Math.min(3, Math.max(2, Math.ceil(Math.sqrt(leftItems.length))))
-    const rows = Math.ceil(leftItems.length / cols)
-    const clusterW = cols * STEP_X - GAP_X
-    const clusterH = rows * STEP_Y - GAP_Y
-    const centerX = -(halfHomeW + SAFE_MARGIN + clusterW / 2)
-    const centerY = 0
-
-    leftItems.forEach((page, idx) => {
-      const col = idx % cols
-      const row = Math.floor(idx / cols)
-      const x = Math.round(centerX - clusterW / 2 + col * STEP_X + WINDOW_WIDTH / 2)
-      const y = Math.round(centerY - clusterH / 2 + row * STEP_Y + WINDOW_HEIGHT / 2)
-      const norm = normalizeRoute(page.route)
-      const info = getGroupInfo(norm)
-      satellites.push({
-        id: `win:${page.id || norm}`,
-        page,
-        route: norm,
-        title: page.title || norm,
-        isHome: false,
-        x,
-        y,
-        w: WINDOW_WIDTH,
-        h: WINDOW_HEIGHT,
-        zIndex: 5,
-        groupKey: info.groupKey,
-        groupLabel: info.groupLabel,
-        groupColor: info.groupColor,
-        sourceHint: { text: info.sourceText, relX: info.relX, relY: info.relY },
-      })
-    })
-  }
-
-  // Các trang còn sót lại nếu có
-  const processedRoutes = new Set(satellites.map((s) => s.route))
-  const remaining = otherPages.filter((p) => !processedRoutes.has(normalizeRoute(p.route)))
-  if (remaining.length > 0) {
-    remaining.forEach((page, idx) => {
-      const norm = normalizeRoute(page.route)
-      const info = getGroupInfo(norm)
-      satellites.push({
-        id: `win:${page.id || norm}`,
-        page,
-        route: norm,
-        title: page.title || norm,
-        isHome: false,
-        x: -(halfHomeW + SAFE_MARGIN + WINDOW_WIDTH / 2),
-        y: halfHomeH + SAFE_MARGIN + idx * STEP_Y,
-        w: WINDOW_WIDTH,
-        h: WINDOW_HEIGHT,
-        zIndex: 5,
-        groupKey: info.groupKey,
-        groupLabel: info.groupLabel,
-        groupColor: info.groupColor,
-        sourceHint: { text: info.sourceText, relX: info.relX, relY: info.relY },
-      })
-    })
-  }
-
-  return resolveCollisions([homeWin, ...satellites])
+  // 3. Mặc định các trang cấp 1 (ví dụ /cart, /buildpc, /dashboard) nối về Trang chủ
+  return homeWin.id
 }
 
-// ─── BỐ CỤC 2: QUỸ ĐẠO ĐA TẦNG (MULTI-RING ORBIT) THEO ĐÚNG HƯỚNG NÚT BẤM (KHÔNG CHÉO DÂY) ───
+// ─── BỐ CỤC 1: XẾP THEO CỤM PHÂN CẤP CÂY DỰ ÁN (HIERARCHY CLUSTERS) ───
+function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): CanvasWin[] {
+  if (otherPages.length === 0) return [homeWin]
+
+  // Khởi tạo các node trang
+  const winList: CanvasWin[] = otherPages.map((page) => {
+    const norm = normalizeRoute(page.route)
+    const info = getGroupInfo(norm)
+    return {
+      id: `win:${page.id || norm}`,
+      page,
+      route: norm,
+      title: page.title || norm,
+      isHome: false,
+      x: 0,
+      y: 0,
+      w: WINDOW_WIDTH,
+      h: WINDOW_HEIGHT,
+      zIndex: 5,
+      groupKey: info.groupKey,
+      groupLabel: info.groupLabel,
+      groupColor: info.groupColor,
+      sourceHint: { text: info.sourceText, relX: info.relX, relY: info.relY },
+    }
+  })
+
+  const allCandidateWins = [homeWin, ...winList]
+
+  // Xác định cha cho từng trang
+  const parentMap = new Map<string, string>()
+  winList.forEach((win) => {
+    const parentId = getParentWinIdForRoute(win.route, allCandidateWins)
+    parentMap.set(win.id, parentId || homeWin.id)
+  })
+
+  // Phân loại: Các trang cấp 1 (con trực tiếp của Home) là gốc của các nhánh (branches)
+  const level1Wins = winList.filter((w) => parentMap.get(w.id) === homeWin.id)
+  const handled = new Set<string>()
+
+  // Gom các trang con theo từng nhánh cấp 1
+  const branches: Array<{
+    root: CanvasWin
+    children: CanvasWin[]
+  }> = []
+
+  level1Wins.forEach((root) => {
+    handled.add(root.id)
+    const descendants: CanvasWin[] = []
+    const queue = [root.id]
+    while (queue.length > 0) {
+      const curId = queue.shift()!
+      winList.forEach((w) => {
+        if (!handled.has(w.id) && parentMap.get(w.id) === curId) {
+          handled.add(w.id)
+          descendants.push(w)
+          queue.push(w.id)
+        }
+      })
+    }
+    branches.push({ root, children: descendants })
+  })
+
+  // Bất kỳ trang nào còn lại chưa gán nhánh
+  winList.forEach((w) => {
+    if (!handled.has(w.id)) {
+      branches.push({ root: w, children: [] })
+    }
+  })
+
+  // Xếp các nhánh quanh Trang chủ
+  const numBranches = branches.length
+  const branchRadius = WINDOW_WIDTH * 1.15 + 240
+
+  branches.forEach((branch, bIdx) => {
+    const baseAngle = -Math.PI / 2 + (bIdx / Math.max(1, numBranches)) * Math.PI * 2
+    const rootX = Math.round(Math.cos(baseAngle) * branchRadius)
+    const rootY = Math.round(Math.sin(baseAngle) * (WINDOW_HEIGHT * 1.15 + 200))
+
+    branch.root.x = rootX
+    branch.root.y = rootY
+
+    const isRightHemisphere = rootX >= 0
+    const dirX = isRightHemisphere ? 1 : -1
+    const numChildren = branch.children.length
+
+    if (numChildren > 0) {
+      branch.children.forEach((child, cIdx) => {
+        const childParentId = parentMap.get(child.id)
+        const immediateParent =
+          branch.children.find((c) => c.id === childParentId) || branch.root
+
+        child.x = immediateParent.x + dirX * STEP_X
+        const offsetIdx = cIdx - (numChildren - 1) / 2
+        child.y = Math.round(branch.root.y + offsetIdx * STEP_Y)
+      })
+    }
+  })
+
+  return resolveCollisions([homeWin, ...winList])
+}
+
+
+
+
+
+// ─── BỐ CỤC 2: QUỸ ĐẠO ĐA TẦNG THEO PHÂN CẤP CÂY DỰ ÁN (HIERARCHY RINGS) ───
 function computeRingsLayout(
   homeWin: CanvasWin,
   otherPages: ProjectPage[],
   anchorsMap?: Record<string, DetectedAnchor>
 ): CanvasWin[] {
-  const satellites: CanvasWin[] = []
-  const count = otherPages.length
-  if (count === 0) return [homeWin]
+  if (otherPages.length === 0) return [homeWin]
 
   const halfHomeW = WINDOW_WIDTH / 2
   const halfHomeH = WINDOW_HEIGHT / 2
 
-  // 1. Tính toán góc xuất phát của nút bấm cho từng trang
-  const pagesWithAngle = otherPages.map((page) => {
+  const winList: CanvasWin[] = otherPages.map((page) => {
     const norm = normalizeRoute(page.route)
     const info = getGroupInfo(norm)
-    const winId = `win:${page.id || norm}`
-    const anchor = anchorsMap?.[winId]
+    return {
+      id: `win:${page.id || norm}`,
+      page,
+      route: norm,
+      title: page.title || norm,
+      isHome: false,
+      x: 0,
+      y: 0,
+      w: WINDOW_WIDTH,
+      h: WINDOW_HEIGHT,
+      zIndex: 5,
+      groupKey: info.groupKey,
+      groupLabel: info.groupLabel,
+      groupColor: info.groupColor,
+      sourceHint: { text: info.sourceText, relX: info.relX, relY: info.relY },
+    }
+  })
 
+  const allCandidateWins = [homeWin, ...winList]
+
+  // Xác định cha cho từng trang
+  const parentMap = new Map<string, string>()
+  winList.forEach((win) => {
+    const parentId = getParentWinIdForRoute(win.route, allCandidateWins)
+    parentMap.set(win.id, parentId || homeWin.id)
+  })
+
+  // 1. Phân loại các trang theo tầng (Level)
+  const level1 = winList.filter((w) => parentMap.get(w.id) === homeWin.id)
+  const level2 = winList.filter((w) => {
+    const pId = parentMap.get(w.id)
+    return pId && pId !== homeWin.id && level1.some((l1) => l1.id === pId)
+  })
+  const level3 = winList.filter((w) => !level1.includes(w) && !level2.includes(w))
+
+  // 2. Tầng 1: Đặt trên Vòng quỹ đạo 1 theo góc nút bấm trên Trang chủ
+  const level1WithAngle = level1.map((win) => {
+    const anchor = anchorsMap?.[win.id]
     let btnX: number
     let btnY: number
-
     if (anchor) {
       btnX = -halfHomeW + anchor.x
       btnY = -halfHomeH + 34 + anchor.y
     } else {
-      btnX = -halfHomeW + WINDOW_WIDTH * info.relX
-      btnY = -halfHomeH + 34 + (WINDOW_HEIGHT - 34) * info.relY
+      btnX = -halfHomeW + WINDOW_WIDTH * win.sourceHint.relX
+      btnY = -halfHomeH + 34 + (WINDOW_HEIGHT - 34) * win.sourceHint.relY
     }
-
     const angle = Math.atan2(btnY, btnX)
-    return { page, norm, info, winId, angle }
+    return { win, angle }
   })
 
-  // Sắp xếp các trang theo thứ tự góc từ -PI đến +PI để các trang cùng chiều kim đồng hồ
-  // với vị trí các nút bấm trên trang chủ -> TRIỆT TIÊU 100% HIỆN TƯỢNG BẮT CHÉO DÂY!
-  pagesWithAngle.sort((a, b) => a.angle - b.angle)
+  level1WithAngle.sort((a, b) => a.angle - b.angle)
 
-  // 2. Đặt các trang thẳng theo góc hướng của nút bấm
-  const rx = WINDOW_WIDTH * 1.05 + 160
-  const ry = WINDOW_HEIGHT * 1.05 + 140
+  const R1_X = WINDOW_WIDTH * 1.15 + 240
+  const R1_Y = WINDOW_HEIGHT * 1.15 + 200
 
-  pagesWithAngle.forEach((item) => {
-    const x = Math.round(Math.cos(item.angle) * rx)
-    const y = Math.round(Math.sin(item.angle) * ry)
+  const winAngleMap = new Map<string, number>()
 
-    satellites.push({
-      id: item.winId,
-      page: item.page,
-      route: item.norm,
-      title: item.page.title || item.norm,
-      isHome: false,
-      x,
-      y,
-      w: WINDOW_WIDTH,
-      h: WINDOW_HEIGHT,
-      zIndex: 5,
-      groupKey: item.info.groupKey,
-      groupLabel: item.info.groupLabel,
-      groupColor: item.info.groupColor,
-      sourceHint: { text: item.info.sourceText, relX: item.info.relX, relY: item.info.relY },
+  level1WithAngle.forEach((item) => {
+    item.win.x = Math.round(Math.cos(item.angle) * R1_X)
+    item.win.y = Math.round(Math.sin(item.angle) * R1_Y)
+    winAngleMap.set(item.win.id, item.angle)
+  })
+
+  // 3. Tầng 2: Đặt trên Vòng quỹ đạo 2, nằm ngay phía sau cha của nó
+  const R2_X = WINDOW_WIDTH * 2.3 + 500
+  const R2_Y = WINDOW_HEIGHT * 2.3 + 420
+
+  level1.forEach((pWin) => {
+    const myChildren = level2.filter((c) => parentMap.get(c.id) === pWin.id)
+    if (myChildren.length === 0) return
+    const pAngle = winAngleMap.get(pWin.id) || 0
+    const count = myChildren.length
+    const angleSpan = Math.min(0.5, 0.16 * count)
+
+    myChildren.forEach((child, idx) => {
+      const childAngle = pAngle + (count > 1 ? (idx - (count - 1) / 2) * (angleSpan / (count - 1)) : 0)
+      child.x = Math.round(Math.cos(childAngle) * R2_X)
+      child.y = Math.round(Math.sin(childAngle) * R2_Y)
+      winAngleMap.set(child.id, childAngle)
     })
   })
 
-  return resolveCollisions([homeWin, ...satellites])
+  // 4. Tầng 3 (cháu): Đặt trên Vòng quỹ đạo 3, nằm phía sau cha của nó
+  const R3_X = WINDOW_WIDTH * 3.4 + 750
+  const R3_Y = WINDOW_HEIGHT * 3.4 + 620
+
+  level3.forEach((gChild, idx) => {
+    const pId = parentMap.get(gChild.id)
+    const pAngle = (pId && winAngleMap.get(pId)) || ((idx / Math.max(1, level3.length)) * Math.PI * 2)
+    gChild.x = Math.round(Math.cos(pAngle) * R3_X)
+    gChild.y = Math.round(Math.sin(pAngle) * R3_Y)
+  })
+
+  return resolveCollisions([homeWin, ...winList])
 }
 
 export default function MultiPageCanvas({
@@ -612,9 +577,9 @@ export default function MultiPageCanvas({
   const iframeRefs = useRef<Map<string, HTMLIFrameElement>>(new Map())
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('cluster')
 
-  // Quét tọa độ chính xác của nút bấm trên trang chủ
+  // Quét tọa độ chính xác của nút bấm trên từng trang cha
   const [detectedAnchors, setDetectedAnchors] = useState<Record<string, DetectedAnchor>>({})
-  const matchedElementsRef = useRef<Map<string, HTMLElement>>(new Map())
+  const matchedElementsRef = useRef<Map<string, { parentId: string; el: HTMLElement }>>(new Map())
   const [isFlying, setIsFlying] = useState(false)
   const [flyingToWin, setFlyingToWin] = useState<CanvasWin | null>(null)
 
@@ -749,20 +714,17 @@ export default function MultiPageCanvas({
     }, 480)
   }, [])
 
-  // Tính toán lại vị trí các nút theo thời gian thực khi cuộn trang hoặc co giãn
+  // Tính toán lại vị trí các nút theo thời gian thực khi cuộn trang hoặc co giãn trên mọi cửa sổ cha
   const recomputeAnchors = useCallback(() => {
-    const iframe = homeIframeRef.current
-    if (!iframe) return
-    const doc = iframe.contentDocument
-    if (!doc) return
-
     const iframeH = WINDOW_HEIGHT - 34 // 566px
     const iframeW = WINDOW_WIDTH // 960px
 
     const nextAnchors: Record<string, DetectedAnchor> = {}
 
-    matchedElementsRef.current.forEach((el, satId) => {
+    matchedElementsRef.current.forEach(({ parentId, el }, childId) => {
       if (!el.isConnected) return
+      const parentIframe = iframeRefs.current.get(parentId)
+      if (!parentIframe) return
 
       const rect = el.getBoundingClientRect()
       const centerX = rect.left + rect.width / 2
@@ -773,7 +735,7 @@ export default function MultiPageCanvas({
       let clampedX = centerX
       let clampedY = centerY
 
-      // Kiểm tra xem nút bấm có bị cuộn khuất khỏi viewport của iframe không
+      // Kiểm tra xem nút bấm có bị cuộn khuất khỏi viewport của iframe cha không
       if (rect.bottom < 4) {
         // Nút đã cuộn khuất qua mép trên
         isClipped = true
@@ -803,7 +765,8 @@ export default function MultiPageCanvas({
         clampedY = Math.max(10, Math.min(iframeH - 10, centerY))
       }
 
-      nextAnchors[satId] = {
+      nextAnchors[childId] = {
+        parentId,
         x: Math.round(clampedX),
         y: Math.round(clampedY),
         isClipped,
@@ -815,7 +778,7 @@ export default function MultiPageCanvas({
     setDetectedAnchors(nextAnchors)
   }, [])
 
-  // Thiết lập bắt click & quét vị trí nút bấm trong iframe
+  // Thiết lập bắt click & quét vị trí nút bấm trong iframe của từng trang cha
   const setupIframeEvents = useCallback(
     (win: CanvasWin, iframe: HTMLIFrameElement | null) => {
       if (!iframe) return
@@ -831,7 +794,6 @@ export default function MultiPageCanvas({
           const href = (target.getAttribute('href') || target.getAttribute('data-route') || '').trim()
           const text = (target.textContent || '').trim()
 
-          // Bỏ qua anchor nội bộ trong trang
           if (href.startsWith('#') && href.length > 1) return
 
           e.preventDefault()
@@ -846,29 +808,34 @@ export default function MultiPageCanvas({
         doc.removeEventListener('click', handleClick, true)
         doc.addEventListener('click', handleClick, true)
 
-        // 2. Nếu là Trang chủ, quét vị trí các nút bấm riêng biệt để gắn dây nối 1-1 (không gộp thành cục)
-        if (win.isHome) {
-          // Chỉ lấy các phần tử tương tác thực tế (leaf clickable elements), loại bỏ các thẻ bọc container lớn
+        // 2. Tìm tất cả các trang con có cha trực tiếp là cửa sổ này (win.id)
+        const myChildren = windowsRef.current.filter((w) => {
+          if (w.id === win.id) return false
+          const pId = getParentWinIdForRoute(w.route, windowsRef.current)
+          return pId === win.id
+        })
+
+        if (myChildren.length > 0) {
           const allCandidates = Array.from(
             doc.querySelectorAll<HTMLElement>(
-              'a, button, [role="button"], input[type="button"], input[type="submit"]'
+              'a, button, [role="button"], input[type="button"], input[type="submit"], [data-route]'
             )
           ).filter((el) => {
             if (el.querySelectorAll('a, button').length > 0) return false
             const rect = el.getBoundingClientRect()
-            return rect.width > 8 && rect.height > 8 && rect.top >= 0 && rect.top <= 1200
+            return rect.width > 6 && rect.height > 6
           })
 
-          const otherWindows = windowsRef.current.filter((w) => !w.isHome)
           const matchScores: Array<{
-            satId: string
+            childId: string
             el: HTMLElement
             score: number
           }> = []
 
-          otherWindows.forEach((sat) => {
-            const satNorm = normalizeRoute(sat.route).toLowerCase()
-            const satTitle = sat.title.toLowerCase()
+          myChildren.forEach((child) => {
+            const childNorm = normalizeRoute(child.route).toLowerCase()
+            const childTitle = child.title.toLowerCase()
+            const lastSegment = childNorm.split('/').filter(Boolean).pop() || ''
 
             allCandidates.forEach((el) => {
               const href = (el.getAttribute('href') || el.getAttribute('data-route') || '').toLowerCase().trim()
@@ -878,108 +845,80 @@ export default function MultiPageCanvas({
 
               let score = 0
 
-              // 1. So khớp route
-              if (href && href !== '#' && href !== '/' && satNorm !== '/') {
+              if (href && href !== '#' && href !== '/') {
                 const normHref = normalizeRoute(href.replace(/^https?:\/\/[^/]+/, ''))
-                if (normHref === satNorm) {
+                if (normHref === childNorm) {
                   score += 150
-                } else if (normHref.endsWith(satNorm) || satNorm.endsWith(normHref)) {
-                  score += 120
-                } else if (satNorm.includes(normHref) || normHref.includes(satNorm)) {
+                } else if (lastSegment && (normHref.endsWith(lastSegment) || normHref.includes(lastSegment))) {
+                  score += 110
+                } else if (normHref.includes(childNorm) || childNorm.includes(normHref)) {
                   score += 80
                 }
               }
 
-              // 2. So khớp nhãn văn bản của nút bấm
               if (text) {
-                if (text === satTitle) {
+                if (text === childTitle) {
                   score += 100
-                } else if (text.length >= 2 && (satTitle.includes(text) || text.includes(satTitle))) {
+                } else if (text.length >= 2 && (childTitle.includes(text) || text.includes(childTitle))) {
                   score += 70
-                } else {
-                  // Khớp từ khóa theo từng chức năng cụ thể
-                  if (
-                    sat.route.toLowerCase().includes('leaderboard') &&
-                    (text.includes('xếp hạng') || text.includes('kỳ đài') || text.includes('leaderboard') || text.includes('rank'))
-                  ) {
-                    score += 90
-                  }
-                  if (
-                    sat.route.toLowerCase().includes('profile') &&
-                    (text.includes('hồ sơ') || text.includes('kỳ thủ') || text.includes('profile'))
-                  ) {
-                    score += 90
-                  }
-                  if (
-                    (sat.route.toLowerCase().includes('account') || sat.route.toLowerCase().includes('login') || sat.route.toLowerCase().includes('auth')) &&
-                    (text.includes('đăng nhập') || text.includes('tài khoản') || id.includes('auth') || className.includes('auth') || text.includes('login'))
-                  ) {
-                    score += 90
-                  }
-                  if (
-                    sat.route.toLowerCase().includes('lobby') &&
-                    (text.includes('sảnh') || text.includes('chờ') || text.includes('lobby'))
-                  ) {
-                    score += 90
-                  }
-                  if (
-                    sat.route.toLowerCase().includes('privacy') &&
-                    text.includes('privacy')
-                  ) {
-                    score += 90
-                  }
-                  if (
-                    sat.groupKey === 'catalog' &&
-                    (text.includes('sản phẩm') || text.includes('danh mục') || text.includes('product') || text.includes('shop'))
-                  ) {
-                    score += 75
-                  }
-                  if (
-                    sat.groupKey === 'order' &&
-                    (text.includes('giỏ hàng') || text.includes('đơn hàng') || text.includes('cart') || text.includes('thanh toán'))
-                  ) {
-                    score += 75
-                  }
-                  if (
-                    sat.groupKey === 'admin' &&
-                    (text.includes('quản trị') || text.includes('admin') || text.includes('dashboard'))
-                  ) {
-                    score += 75
-                  }
+                } else if (lastSegment && text.includes(lastSegment)) {
+                  score += 60
                 }
               }
 
-              // Không gán logo thương hiệu trang chủ cho các trang vệ tinh khác
+              if (lastSegment === 'create' && (text.includes('thêm') || text.includes('tạo') || text.includes('create') || text.includes('new'))) {
+                score += 85
+              }
+              if (lastSegment === 'delete' && (text.includes('xóa') || text.includes('delete') || text.includes('remove'))) {
+                score += 85
+              }
+              if (lastSegment === 'edit' && (text.includes('sửa') || text.includes('chỉnh') || text.includes('edit') || text.includes('update'))) {
+                score += 85
+              }
+              if (lastSegment === 'details' && (text.includes('chi tiết') || text.includes('details') || text.includes('xem'))) {
+                score += 85
+              }
+              if (lastSegment === 'checkout' && (text.includes('thanh toán') || text.includes('checkout') || text.includes('đặt hàng'))) {
+                score += 85
+              }
+              if (childNorm.includes('leaderboard') && (text.includes('xếp hạng') || text.includes('kỳ đài') || text.includes('leaderboard') || text.includes('rank'))) {
+                score += 85
+              }
+              if (childNorm.includes('lobby') && (text.includes('sảnh') || text.includes('chờ') || text.includes('lobby'))) {
+                score += 85
+              }
+              if (childNorm.includes('profile') && (text.includes('hồ sơ') || text.includes('kỳ thủ') || text.includes('profile'))) {
+                score += 85
+              }
+              if ((childNorm.includes('login') || childNorm.includes('account')) && (text.includes('đăng nhập') || text.includes('tài khoản') || id.includes('auth') || className.includes('auth'))) {
+                score += 85
+              }
+
               if (id.includes('brand') || className.includes('brand') || text.includes('bàn cờ tướng')) {
                 score -= 100
               }
 
               if (score > 35) {
-                matchScores.push({ satId: sat.id, el, score })
+                matchScores.push({ childId: child.id, el, score })
               }
             })
           })
 
-          // Sắp xếp điểm giảm dần để ghép cặp tốt nhất trước
           matchScores.sort((a, b) => b.score - a.score)
 
-          // Phân phối 1-1 tuyệt đối: Mỗi nút bấm CHỈ GẮN VỚI DUY NHẤT 1 TRANG VỆ TINH!
           const claimedElements = new Set<HTMLElement>()
-          const claimedSats = new Set<string>()
+          const claimedChildren = new Set<string>()
 
-          matchedElementsRef.current.clear()
           for (const match of matchScores) {
-            if (!claimedSats.has(match.satId) && !claimedElements.has(match.el)) {
-              claimedSats.add(match.satId)
+            if (!claimedChildren.has(match.childId) && !claimedElements.has(match.el)) {
+              claimedChildren.add(match.childId)
               claimedElements.add(match.el)
-              matchedElementsRef.current.set(match.satId, match.el)
+              matchedElementsRef.current.set(match.childId, { parentId: win.id, el: match.el })
             }
           }
 
-          // Tính toán ngay tọa độ và trạng thái clip
           recomputeAnchors()
 
-          // Gắn lắng nghe cuộn trang trong iframe theo thời gian thực
           const iframeWin = iframe.contentWindow
           if (iframeWin) {
             const handleScroll = () => {
@@ -1195,86 +1134,97 @@ export default function MultiPageCanvas({
     }))
   }
 
-  // ─── TÍNH TOÁN DÂY NỐI TỪ NÚT BẤM TRÊN TRANG CHỦ TỚI CÁC TRANG VỆ TINH ───
+  // ─── TÍNH TOÁN BẢN ĐỒ QUAN HỆ CHA - CON THEO PHÂN CẤP CÂY DỰ ÁN ───
+  const parentMap = useMemo(() => {
+    const map = new Map<string, string>()
+    const home = windows.find((w) => w.isHome) || windows[0]
+    if (!home) return map
+
+    windows.forEach((win) => {
+      if (win.id === home.id) return
+      const parentId = getParentWinIdForRoute(win.route, windows)
+      map.set(win.id, parentId || home.id)
+    })
+    return map
+  }, [windows])
+
+  // ─── TÍNH TOÁN DÂY NỐI TỪ NÚT BẤM TRÊN TRANG CHA TỚI TỪNG TRANG CON ───
   const homeWin = windows.find((w) => w.isHome) || windows[0]
 
   const wires = useMemo(() => {
-    if (!homeWin) return []
-
-    const homeLeft = homeWin.x - homeWin.w / 2
-    const homeTop = homeWin.y - homeWin.h / 2
-    const halfW = homeWin.w / 2
-    const halfH = homeWin.h / 2
-
     return windows
-      .filter((w) => !w.isHome)
-      .map((sat) => {
-        const anchor = detectedAnchors[sat.id]
+      .map((childWin) => {
+        if (childWin.isHome) return null
+        const parentId = parentMap.get(childWin.id)
+        if (!parentId) return null
+        const parentWin = windows.find((w) => w.id === parentId)
+        if (!parentWin) return null
+
+        const anchor = detectedAnchors[childWin.id]
         let srcX: number
         let srcY: number
-        const hasAnchor = Boolean(anchor)
+        const hasAnchor = Boolean(anchor && anchor.parentId === parentWin.id)
         const isClipped = Boolean(anchor?.isClipped)
-        const wireColor = isClipped ? '#ef4444' : (sat.groupColor || '#6366f1')
+        const wireColor = isClipped ? '#ef4444' : (childWin.groupColor || '#6366f1')
 
-        if (anchor) {
-          // Nối chính xác vào tâm của nút bấm thực tế trên trang chủ!
-          srcX = homeLeft + anchor.x
-          srcY = homeTop + 34 + anchor.y
+        const parentLeft = parentWin.x - parentWin.w / 2
+        const parentTop = parentWin.y - parentWin.h / 2
+        const parentHalfW = parentWin.w / 2
+        const parentHalfH = parentWin.h / 2
+
+        if (hasAnchor && anchor) {
+          // Nối chính xác vào tâm của nút bấm thực tế trên trang cha!
+          srcX = parentLeft + anchor.x
+          srcY = parentTop + 34 + anchor.y
         } else {
-          // Các trang không có nút bấm trên navbar (ví dụ trang lỗi, privacy footer...):
-          // Xuất phát từ mép ngoài của cửa sổ trang chủ hướng về phía trang vệ tinh,
-          // TUYỆT ĐỐI không dồn vào thanh menu hay logo trang chủ.
-          const dx = sat.x - homeWin.x
-          const dy = sat.y - homeWin.y
+          // Chưa quét thấy nút trong trang cha: Nối từ mép của trang cha hướng về phía trang con
+          const dx = childWin.x - parentWin.x
+          const dy = childWin.y - parentWin.y
 
-          if (Math.abs(dx) / halfW > Math.abs(dy) / halfH) {
-            // Mép trái hoặc phải
+          if (Math.abs(dx) / parentHalfW > Math.abs(dy) / parentHalfH) {
             const signX = dx >= 0 ? 1 : -1
-            srcX = homeWin.x + halfW * signX
-            srcY = Math.round(homeWin.y + Math.max(-halfH * 0.7, Math.min(halfH * 0.7, (dy / (Math.abs(dx) || 1)) * halfW)))
+            srcX = parentWin.x + parentHalfW * signX
+            srcY = Math.round(parentWin.y + Math.max(-parentHalfH * 0.7, Math.min(parentHalfH * 0.7, (dy / (Math.abs(dx) || 1)) * parentHalfW)))
           } else {
-            // Mép trên hoặc dưới
             const signY = dy >= 0 ? 1 : -1
-            srcX = Math.round(homeWin.x + Math.max(-halfW * 0.7, Math.min(halfW * 0.7, (dx / (Math.abs(dy) || 1)) * halfH)))
-            srcY = homeWin.y + halfH * signY
+            srcX = Math.round(parentWin.x + Math.max(-parentHalfW * 0.7, Math.min(parentHalfW * 0.7, (dx / (Math.abs(dy) || 1)) * parentHalfH)))
+            srcY = parentWin.y + parentHalfH * signY
           }
         }
 
-        const dxFromHome = sat.x - homeWin.x
-        const dyFromHome = sat.y - homeWin.y
+        const dxFromParent = childWin.x - parentWin.x
+        const dyFromParent = childWin.y - parentWin.y
 
-        let destX = sat.x
-        let destY = sat.y
+        let destX = childWin.x
+        let destY = childWin.y
         let portSide: 'top' | 'bottom' | 'left' | 'right' = 'left'
 
-        if (Math.abs(dxFromHome) > Math.abs(dyFromHome) * 1.15) {
-          if (dxFromHome >= 0) {
+        if (Math.abs(dxFromParent) > Math.abs(dyFromParent) * 1.15) {
+          if (dxFromParent >= 0) {
             portSide = 'left'
-            destX = sat.x - sat.w / 2
-            destY = sat.y
+            destX = childWin.x - childWin.w / 2
+            destY = childWin.y
           } else {
             portSide = 'right'
-            destX = sat.x + sat.w / 2
-            destY = sat.y
+            destX = childWin.x + childWin.w / 2
+            destY = childWin.y
           }
         } else {
-          if (dyFromHome <= 0) {
+          if (dyFromParent <= 0) {
             portSide = 'bottom'
-            destX = sat.x
-            destY = sat.y + sat.h / 2
+            destX = childWin.x
+            destY = childWin.y + childWin.h / 2
           } else {
             portSide = 'top'
-            destX = sat.x
-            destY = sat.y - sat.h / 2
+            destX = childWin.x
+            destY = childWin.y - childWin.h / 2
           }
         }
 
-        // Đảm bảo không bao giờ bị NaN
         if (!Number.isFinite(srcX) || !Number.isFinite(srcY) || !Number.isFinite(destX) || !Number.isFinite(destY)) {
           return null
         }
 
-        // ─── TÍNH TOÁN ĐƯỜNG CONG TỰ NHIÊN, KHÔNG CẮT NGANG CÁC NÚT BÊN CẠNH ───
         const dist = Math.hypot(destX - srcX, destY - srcY)
         const curveSpan = Math.min(320, Math.max(100, dist * 0.38))
 
@@ -1285,27 +1235,21 @@ export default function MultiPageCanvas({
 
         if (hasAnchor) {
           if (isClipped && anchor?.clippedSide === 'top') {
-            // Nút bị cuộn khuất qua mép trên -> dây vươn thẳng đứng lên trên từ mép trên
             cp1X = srcX
             cp1Y = srcY - curveSpan
           } else if (isClipped && anchor?.clippedSide === 'bottom') {
-            // Nút bị cuộn khuất qua mép dưới -> dây vươn thẳng đứng xuống dưới từ mép dưới
             cp1X = srcX
             cp1Y = srcY + curveSpan
           } else if (destY < srcY) {
-            // Cửa sổ đích ở phía trên: lượn vút lên trên
             cp1X = srcX + (destX - srcX) * 0.18
             cp1Y = srcY - curveSpan
           } else {
-            // Nếu cửa sổ đích ở phía dưới hoặc 2 bên: lượn nhẹ lên rồi uốn ra ngoài,
-            // không được nằm ngang đâm qua các nút bấm khác
             cp1X = srcX + (destX - srcX) * 0.28
             cp1Y = srcY - Math.min(80, curveSpan * 0.35)
           }
         } else {
-          // Dây từ mép ngoài trang chủ
-          const dxEdge = srcX - homeWin.x
-          const dyEdge = srcY - homeWin.y
+          const dxEdge = srcX - parentWin.x
+          const dyEdge = srcY - parentWin.y
           if (Math.abs(dxEdge) > Math.abs(dyEdge)) {
             cp1X = srcX + (dxEdge > 0 ? curveSpan : -curveSpan)
             cp1Y = srcY
@@ -1315,7 +1259,6 @@ export default function MultiPageCanvas({
           }
         }
 
-        // Điểm uốn tại cổng cắm của cửa sổ đích
         if (portSide === 'left') {
           cp2X = destX - curveSpan
           cp2Y = destY
@@ -1335,13 +1278,14 @@ export default function MultiPageCanvas({
         const midY = (srcY + destY) / 2
 
         return {
-          id: `wire-${sat.id}`,
-          satId: sat.id,
-          targetWin: sat,
+          id: `wire-${childWin.id}`,
+          satId: childWin.id,
+          parentWin,
+          targetWin: childWin,
           hasAnchor,
           isClipped,
           color: wireColor,
-          label: sat.title,
+          label: childWin.title,
           pathD,
           portSide,
           srcPoint: { x: srcX, y: srcY },
@@ -1350,7 +1294,7 @@ export default function MultiPageCanvas({
         }
       })
       .filter((w): w is NonNullable<typeof w> => w !== null)
-  }, [windows, homeWin, detectedAnchors])
+  }, [windows, parentMap, detectedAnchors])
 
   const portSideMap = useMemo(() => {
     const map: Record<string, 'top' | 'bottom' | 'left' | 'right'> = {}
@@ -1637,7 +1581,7 @@ export default function MultiPageCanvas({
             </g>
           </svg>
 
-          {/* ── 3. CÁC ĐIỂM GHIM TRÊN NÚT BẤM CỦA TRANG CHỦ (CHỈ HIỂN THỊ TẠI ĐÚNG NÚT BẤM THẬT) ── */}
+          {/* ── 3. CÁC ĐIỂM GHIM TRÊN NÚT BẤM (NẰM TRÊN NÚT CỦA CỬA SỔ CHA) ── */}
           {wires
             .filter((wire) => wire.hasAnchor)
             .map((wire) => (
@@ -1651,8 +1595,8 @@ export default function MultiPageCanvas({
                 }}
                 title={
                   wire.isClipped
-                    ? `Nút bấm [${wire.label}] đã cuộn khuất khỏi tầm nhìn (Bấm để chuyển góc nhìn)`
-                    : `Nối từ nút bấm: ${wire.label} (Bấm để chuyển góc nhìn)`
+                    ? `Nút bấm mở [${wire.label}] đã cuộn khuất khỏi tầm nhìn (Bấm để chuyển góc nhìn)`
+                    : `Nối từ nút bấm: [${wire.parentWin.title}] -> [${wire.label}] (Bấm để chuyển góc nhìn)`
                 }
                 onClick={() => flyToWindow(wire.targetWin)}
               >
@@ -1667,7 +1611,18 @@ export default function MultiPageCanvas({
             <span>
               Đang xem: <b>{flyingToWin.title}</b> ({flyingToWin.route})
             </span>
-            <button onClick={() => flyToWindow(homeWin)}>← Quay về Trang chủ</button>
+            {(() => {
+              const pId = parentMap.get(flyingToWin.id)
+              const parent = pId ? windows.find((w) => w.id === pId) : homeWin
+              return parent ? (
+                <button onClick={() => flyToWindow(parent)}>
+                  ← Quay về {parent.title}
+                </button>
+              ) : null
+            })()}
+            {homeWin && (
+              <button onClick={() => flyToWindow(homeWin)}>Trang chủ</button>
+            )}
             <button onClick={() => fitBounding()}>Toàn cảnh</button>
           </div>
         )}
