@@ -626,9 +626,14 @@ const App = () => {
     let cleanRoute = route.startsWith('/') ? route : `/${route}`
     // Tự động sửa các route ASP.NET Core cũ còn lưu trong giao diện
     if (project?.packageManager === 'dotnet' || project?.framework?.includes('ASP.NET')) {
-      if (cleanRoute.startsWith('/account/')) {
+      const lower = cleanRoute.toLowerCase()
+      if (lower === '/shared/error') {
+        cleanRoute = '/Home/Error'
+      } else if (lower === '/account' || lower === '/home/account') {
+        cleanRoute = '/Account'
+      } else if (cleanRoute.startsWith('/account/')) {
         cleanRoute = `/Identity/Account/${cleanRoute.slice(9)}`
-      } else if (['/leaderboard', '/lobby', '/profile', '/account', '/privacy', '/room'].includes(cleanRoute.toLowerCase())) {
+      } else if (['/leaderboard', '/lobby', '/profile', '/privacy', '/room'].includes(lower)) {
         cleanRoute = `/Home${cleanRoute}`
       }
     }
@@ -637,7 +642,8 @@ const App = () => {
 
     if (run?.url) {
       const base = run.url.replace(/\/+$/, '')
-      const fullUrl = cleanRoute === '/' ? `${base}/` : `${base}${cleanRoute}`
+      const sep = cleanRoute.includes('?') ? '&' : '?'
+      const fullUrl = cleanRoute === '/' ? `${base}/?preview=true` : `${base}${cleanRoute}${sep}preview=true`
       setPreviewUrl(fullUrl)
     } else {
       setPreviewUrl(null)

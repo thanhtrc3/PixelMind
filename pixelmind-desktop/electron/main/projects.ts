@@ -724,7 +724,13 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
     if (viewsMatch) {
       const [, controller, action] = viewsMatch
       let route = ''
-      if (controller.toLowerCase() === 'home' && action.toLowerCase() === 'index') {
+      if (controller.toLowerCase() === 'shared') {
+        if (action.toLowerCase() === 'error') {
+          route = '/Home/Error'
+        } else {
+          continue
+        }
+      } else if (controller.toLowerCase() === 'home' && action.toLowerCase() === 'index') {
         route = '/'
       } else if (controller.toLowerCase() === 'home') {
         route = `/Home/${action}`

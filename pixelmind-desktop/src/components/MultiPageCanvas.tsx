@@ -62,7 +62,8 @@ const normalizeRoute = (route: string) => {
 const joinPreviewUrl = (base: string, route: string) => {
   const cleanBase = (base || '').replace(/\/+$/, '')
   const cleanRoute = (route || '/').startsWith('/') ? route : `/${route}`
-  return `${cleanBase}${cleanRoute === '/' ? '/' : cleanRoute}`
+  const sep = cleanRoute.includes('?') ? '&' : '?'
+  return `${cleanBase}${cleanRoute === '/' ? '/' : cleanRoute}${sep}preview=true`
 }
 
 const getGroupInfo = (route: string) => {
@@ -783,6 +784,25 @@ export default function MultiPageCanvas({
     (win: CanvasWin, iframe: HTMLIFrameElement | null) => {
       if (!iframe) return
       try {
+        const iframeWin = iframe.contentWindow
+        if (iframeWin && iframeWin.localStorage) {
+          try {
+            if (!iframeWin.localStorage.getItem('bancotuong.token')) {
+              iframeWin.localStorage.setItem('bancotuong.token', 'preview-token')
+              iframeWin.localStorage.setItem(
+                'bancotuong.user',
+                JSON.stringify({
+                  id: 1,
+                  username: 'Kỳ Thủ',
+                  displayName: 'Kỳ Thủ Mẫu',
+                  email: 'preview@bancotuong.vn',
+                  elo: 1200,
+                })
+              )
+            }
+          } catch {}
+        }
+
         const doc = iframe.contentDocument
         if (!doc) return
 

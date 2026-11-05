@@ -30,9 +30,14 @@ const normalizeProject = (project: ProjectRecord): ProjectRecord => {
   const pages = rawPages.map((page) => {
     let route = page.route
     if (isDotnet) {
-      if (route.startsWith('/account/')) {
+      const lower = route.toLowerCase()
+      if (lower === '/shared/error') {
+        route = '/Home/Error'
+      } else if (lower === '/account' || lower === '/home/account') {
+        route = '/Account'
+      } else if (route.startsWith('/account/')) {
         route = `/Identity/Account/${route.slice('/account/'.length)}`
-      } else if (['/leaderboard', '/lobby', '/profile', '/account', '/privacy', '/room'].includes(route.toLowerCase())) {
+      } else if (['/leaderboard', '/lobby', '/profile', '/privacy', '/room'].includes(lower)) {
         route = `/Home${route}`
       }
     }
