@@ -1657,6 +1657,23 @@ const CanvasArea = ({
                     onLoad={() => {
                       try {
                         const win = iframeRef.current?.contentWindow
+                        if (win && win.localStorage) {
+                          try {
+                            if (!win.localStorage.getItem('bancotuong.token')) {
+                              win.localStorage.setItem('bancotuong.token', 'preview-token')
+                              win.localStorage.setItem(
+                                'bancotuong.user',
+                                JSON.stringify({
+                                  id: 1,
+                                  username: 'Kỳ Thủ',
+                                  displayName: 'Kỳ Thủ Mẫu',
+                                  email: 'preview@bancotuong.vn',
+                                  elo: 1200,
+                                })
+                              )
+                            }
+                          } catch {}
+                        }
                         if (win && win.location) {
                           const href = win.location.href
                           const pathname = win.location.pathname || '/'
