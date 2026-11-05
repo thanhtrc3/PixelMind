@@ -607,9 +607,11 @@ export default function MultiPageCanvas({
 
   // Kéo cửa sổ tự do
   const startDragWindow = (winId: string, e: React.PointerEvent<HTMLDivElement>) => {
+    // Chỉ xử lý chuột trái (button === 0)
+    if (e.button !== 0) return
     e.preventDefault()
     e.stopPropagation()
-    const targetWin = windows.find((w) => w.id === winId)
+    const targetWin = windowsRef.current.find((w) => w.id === winId) || windows.find((w) => w.id === winId)
     if (!targetWin) return
 
     maxZRef.current = Math.min(450, maxZRef.current + 1)
@@ -629,8 +631,25 @@ export default function MultiPageCanvas({
     const startWinY = targetWin.y
     const curZoom = view.zoom
 
-    const onPointerMove = (moveEvt: PointerEvent) => {
-      moveEvt.preventDefault()
+    let cleanedUp = false
+    const cleanup = () => {
+      if (cleanedUp) return
+      cleanedUp = true
+      setIsDraggingWin(false)
+      window.removeEventListener('pointermove', onPointerMove, true)
+      window.removeEventListener('pointerup', onPointerUp, true)
+      window.removeEventListener('pointercancel', onPointerUp, true)
+      window.removeEventListener('mouseup', onPointerUp, true)
+      window.removeEventListener('touchend', onPointerUp, true)
+      window.removeEventListener('blur', cleanup, true)
+    }
+
+    const onPointerMove = (moveEvt: MouseEvent | PointerEvent) => {
+      // Dừng kéo ngay khi người dùng thả nút chuột (buttons === 0)
+      if (moveEvt.buttons === 0) {
+        cleanup()
+        return
+      }
       const dx = (moveEvt.clientX - startMouseX) / curZoom
       const dy = (moveEvt.clientY - startMouseY) / curZoom
 
@@ -644,22 +663,28 @@ export default function MultiPageCanvas({
       })
     }
 
-    const onPointerUp = (upEvt: PointerEvent) => {
-      upEvt.preventDefault()
-      setIsDraggingWin(false)
-      window.removeEventListener('pointermove', onPointerMove)
-      window.removeEventListener('pointerup', onPointerUp)
-      window.removeEventListener('pointercancel', onPointerUp)
+    const onPointerUp = () => {
+      cleanup()
     }
 
-    window.addEventListener('pointermove', onPointerMove, { passive: false })
-    window.addEventListener('pointerup', onPointerUp, { passive: false })
-    window.addEventListener('pointercancel', onPointerUp, { passive: false })
+    // Đăng ký ở capture phase (true) để luôn bắt được sự kiện dù có phần tử con nào chặn
+    window.addEventListener('pointermove', onPointerMove, { capture: true, passive: false })
+    window.addEventListener('pointerup', onPointerUp, { capture: true, passive: false })
+    window.addEventListener('pointercancel', onPointerUp, { capture: true, passive: false })
+    window.addEventListener('mouseup', onPointerUp, { capture: true, passive: false })
+    window.addEventListener('touchend', onPointerUp, { capture: true, passive: false })
+    window.addEventListener('blur', cleanup, { capture: true })
   }
 
   // Kéo và phóng to sân khấu canvas (Pan stage)
   const handleStagePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('.pm-win') || (e.target as HTMLElement).closest('.pm-multi-controls')) {
+    // Chỉ xử lý nút chuột trái
+    if (e.button !== 0) return
+    if (
+      (e.target as HTMLElement).closest('.pm-win') ||
+      (e.target as HTMLElement).closest('.pm-multi-controls') ||
+      (e.target as HTMLElement).closest('.pm-multi-topbar')
+    ) {
       return
     }
     e.preventDefault()
@@ -671,8 +696,25 @@ export default function MultiPageCanvas({
     const startPanX = view.panX
     const startPanY = view.panY
 
-    const onPointerMove = (moveEvt: PointerEvent) => {
-      moveEvt.preventDefault()
+    let cleanedUp = false
+    const cleanup = () => {
+      if (cleanedUp) return
+      cleanedUp = true
+      setIsPanning(false)
+      window.removeEventListener('pointermove', onPointerMove, true)
+      window.removeEventListener('pointerup', onPointerUp, true)
+      window.removeEventListener('pointercancel', onPointerUp, true)
+      window.removeEventListener('mouseup', onPointerUp, true)
+      window.removeEventListener('touchend', onPointerUp, true)
+      window.removeEventListener('blur', cleanup, true)
+    }
+
+    const onPointerMove = (moveEvt: MouseEvent | PointerEvent) => {
+      // Dừng kéo ngay khi người dùng thả nút chuột (buttons === 0)
+      if (moveEvt.buttons === 0) {
+        cleanup()
+        return
+      }
       const dx = moveEvt.clientX - startMouseX
       const dy = moveEvt.clientY - startMouseY
       setView((prev) => ({
@@ -682,17 +724,17 @@ export default function MultiPageCanvas({
       }))
     }
 
-    const onPointerUp = (upEvt: PointerEvent) => {
-      upEvt.preventDefault()
-      setIsPanning(false)
-      window.removeEventListener('pointermove', onPointerMove)
-      window.removeEventListener('pointerup', onPointerUp)
-      window.removeEventListener('pointercancel', onPointerUp)
+    const onPointerUp = () => {
+      cleanup()
     }
 
-    window.addEventListener('pointermove', onPointerMove, { passive: false })
-    window.addEventListener('pointerup', onPointerUp, { passive: false })
-    window.addEventListener('pointercancel', onPointerUp, { passive: false })
+    // Đăng ký ở capture phase (true)
+    window.addEventListener('pointermove', onPointerMove, { capture: true, passive: false })
+    window.addEventListener('pointerup', onPointerUp, { capture: true, passive: false })
+    window.addEventListener('pointercancel', onPointerUp, { capture: true, passive: false })
+    window.addEventListener('mouseup', onPointerUp, { capture: true, passive: false })
+    window.addEventListener('touchend', onPointerUp, { capture: true, passive: false })
+    window.addEventListener('blur', cleanup, { capture: true })
   }
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -814,7 +856,6 @@ export default function MultiPageCanvas({
     <div
       className={`pm-multi-canvas ${isPanning || isDraggingWin ? 'is-interacting' : ''}`}
       onPointerDown={(e) => e.stopPropagation()}
-      onPointerUp={(e) => e.stopPropagation()}
       onDragOver={(e) => {
         e.preventDefault()
         e.stopPropagation()
@@ -897,7 +938,19 @@ export default function MultiPageCanvas({
         onWheel={handleWheel}
       >
         {/* Lớp màn che bảo vệ khi kéo thả (chống iframe cướp sự kiện và ngăn Chromium drop) */}
-        {(isPanning || isDraggingWin) && <div className="pm-multi-pan-catcher" />}
+        {(isPanning || isDraggingWin) && (
+          <div
+            className="pm-multi-pan-catcher"
+            onPointerUp={() => {
+              setIsPanning(false)
+              setIsDraggingWin(false)
+            }}
+            onMouseUp={() => {
+              setIsPanning(false)
+              setIsDraggingWin(false)
+            }}
+          />
+        )}
 
         <div
           className="pm-multi-world"
