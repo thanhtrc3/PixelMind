@@ -270,10 +270,12 @@ function createWindow() {
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const current = mainWindow?.webContents.getURL() ?? ''
-    // Không can thiệp hoặc đẩy ra ngoài nếu là dev server localhost
-    if (url.includes('localhost') || url.includes('127.0.0.1')) {
+    // Chỉ cho phép Vite HMR dev server của chính ứng dụng desktop
+    const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+    if (isDev && rendererUrl && url.startsWith(rendererUrl)) {
       return
     }
+    // Ngăn chặn tuyệt đối mainWindow bị điều hướng khi người dùng kéo thả hoặc drop URL vào cửa sổ chính
     if (url !== current) {
       event.preventDefault()
       if (/^https?:/i.test(url)) void shell.openExternal(url)
