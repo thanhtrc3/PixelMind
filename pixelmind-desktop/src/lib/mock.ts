@@ -559,6 +559,9 @@ export function createBrowserMock(): PixelMindApi {
       async syncCode(_payload) {
         return { success: true, oldLine: '<span>Old</span>', newLine: '<span>New</span>' }
       },
+      async syncNav(_payload) {
+        return { success: true, filePath: 'src/App.tsx', lineNumber: 1 }
+      },
     },
     tokens: {
       async get(_projectPath) {

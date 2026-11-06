@@ -3872,9 +3872,11 @@ const CanvasArea = ({
         {isPageFlowOpen && (
           <MultiPageCanvas
             projectName={projectName}
+            projectPath={projectPath}
             pages={pages}
             previewUrl={url ?? currentLiveUrl}
             currentRoute={currentRoute ?? null}
+            onNotify={(kind, message) => showToast(message, kind)}
             onOpenPage={(route) => {
               setIsPageFlowOpen(false)
               onOpenPage?.(route)

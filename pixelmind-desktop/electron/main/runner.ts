@@ -5,7 +5,7 @@ import { createServer } from 'node:http'
 import type { Server } from 'node:http'
 import { promises as fs } from 'node:fs'
 import { Socket } from 'node:net'
-import { extname, join, normalize, resolve, sep } from 'node:path'
+import { extname, join, normalize, resolve, sep, basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { PackageManager, RunLog, RunState } from '../../shared/types'
 
@@ -323,6 +323,19 @@ export class RunnerManager {
     this.emitLog(id, `$ ${command}  (${entry.state.cwd})\n`, 'system')
     if (options.note) this.emitLog(id, options.note, 'system')
 
+    // .NET: dừng bản app cũ còn sót lại để tránh lỗi khoá file .exe khi build lại
+    if (process.platform === 'win32' && /\bdotnet\b/i.test(command)) {
+      const exeName = basename(entry.state.cwd)
+      if (exeName) {
+        try {
+          execSync(`taskkill /IM "${exeName}.exe" /T /F`, { stdio: 'ignore' })
+          this.emitLog(id, `[system] Đã dừng tiến trình ${exeName}.exe cũ (nếu có) để tránh khoá tệp build.\n`, 'system')
+        } catch {
+          // Không có tiến trình cũ — bỏ qua
+        }
+      }
+    }
+
     let child: ChildProcess
     try {
       child = spawn(command, {
@@ -475,6 +488,13 @@ export class RunnerManager {
             entry.child?.kill('SIGKILL')
           } catch {}
         }
+        // Dừng tiến trình file exe của dự án nếu còn chạy nền (tránh khoá file build)
+        const exeName = basename(entry.state.cwd)
+        if (exeName) {
+          try {
+            execSync(`taskkill /IM "${exeName}.exe" /T /F`, { stdio: 'ignore' })
+          } catch {}
+        }
       } else {
         try {
           process.kill(-pid, 'SIGKILL')
@@ -506,8 +526,18 @@ export class RunnerManager {
   /** Dừng toàn bộ tiến trình đang chạy của một dự án cụ thể */
   stopOfProject(projectId: string): void {
     for (const entry of this.entries.values()) {
-      if (entry.state.projectId === projectId && (entry.state.status === 'running' || entry.state.status === 'starting')) {
-        this.stop(entry.state.id)
+      if (entry.state.projectId === projectId) {
+        if (entry.state.status === 'running' || entry.state.status === 'starting') {
+          this.stop(entry.state.id)
+        }
+        if (process.platform === 'win32') {
+          const exeName = basename(entry.state.cwd)
+          if (exeName) {
+            try {
+              execSync(`taskkill /IM "${exeName}.exe" /T /F`, { stdio: 'ignore' })
+            } catch {}
+          }
+        }
       }
     }
   }

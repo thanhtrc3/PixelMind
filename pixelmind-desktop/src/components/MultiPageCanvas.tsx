@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   Compass,
   LayoutGrid,
+  Link2,
   Maximize2,
   RefreshCw,
   Search,
@@ -11,15 +12,18 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import type { ProjectPage } from '@shared/types'
+import { api } from '../lib/bridge'
 import '../styles/multiPageCanvas.css'
 
 interface MultiPageCanvasProps {
   projectName: string
+  projectPath?: string
   pages: ProjectPage[]
   previewUrl?: string | null
   currentRoute?: string | null
   onOpenPage: (route: string) => void
   onClose: () => void
+  onNotify?: (kind: 'ok' | 'info' | 'warn' | 'err', message: string) => void
 }
 
 interface CanvasWin {
@@ -50,6 +54,167 @@ interface DetectedAnchor {
   isClipped: boolean // Nút bấm có bị cuộn khuất khỏi viewport hay không
   clippedSide?: 'top' | 'bottom' | 'left' | 'right'
   text?: string
+  tagName?: string
+  className?: string
+  elementId?: string
+}
+
+/** Thông tin nút bấm nguồn dùng để dò lại đúng thẻ trong mã nguồn. */
+interface WireSource {
+  text?: string
+  tagName?: string
+  className?: string
+  elementId?: string
+}
+
+/** Dây nối do người dùng tự tạo bằng kéo thả từ một nút bấm sang trang đích. */
+interface ManualWire {
+  id: string
+  parentId: string // Cửa sổ chứa nút bấm nguồn
+  targetId: string // Cửa sổ đích
+  anchorKey?: string // Khóa detectedAnchors nếu nút nguồn trùng nút đã quét (dây bám theo khi cuộn)
+  sourceX: number // Tọa độ nút nguồn trong iframe cha (dự phòng)
+  sourceY: number
+  source: WireSource
+}
+
+/** Trạng thái đang kéo dây từ nút bấm nguồn ra ngoài canvas. */
+interface ConnectDrag {
+  parentId: string
+  anchorKey?: string
+  sourceX: number
+  sourceY: number
+  source: WireSource
+  srcWorldX: number
+  srcWorldY: number
+  srcClientX: number
+  srcClientY: number
+  clientX: number
+  clientY: number
+  hoverTargetId: string | null
+}
+
+interface WireShape {
+  parentWin: CanvasWin
+  targetWin: CanvasWin
+  isClipped: boolean
+  color: string
+  pathD: string
+  portSide: 'top' | 'bottom' | 'left' | 'right'
+  srcPoint: { x: number; y: number }
+  destPoint: { x: number; y: number }
+  midPoint: { x: number; y: number }
+}
+
+interface Wire extends WireShape {
+  id: string
+  satId: string
+  hasAnchor: boolean
+  label: string
+  source?: WireSource
+  anchorKey?: string
+}
+
+/** Thao tác mã nguồn cần hoàn tác khi người dùng nhấn Ctrl+Z. */
+interface CodeRevert {
+  action: 'link' | 'unlink'
+  currentPath?: string
+  targetRoute: string
+  source: WireSource
+}
+
+interface HistoryEntry {
+  manualWires: ManualWire[]
+  hiddenWireIds: string[]
+  codeReverts?: CodeRevert[]
+}
+
+/** Dựng hình học dây nối từ tâm nút bấm thực tế trên trang cha tới cửa sổ đích. */
+function computeWireShape(parentWin: CanvasWin, targetWin: CanvasWin, anchor: DetectedAnchor): WireShape | null {
+  const isClipped = Boolean(anchor.isClipped)
+  const color = isClipped ? '#ef4444' : targetWin.groupColor || '#6366f1'
+
+  const srcX = parentWin.x - parentWin.w / 2 + anchor.x
+  const srcY = parentWin.y - parentWin.h / 2 + 34 + anchor.y
+
+  const dxFromParent = targetWin.x - parentWin.x
+  const dyFromParent = targetWin.y - parentWin.y
+
+  let destX = targetWin.x
+  let destY = targetWin.y
+  let portSide: 'top' | 'bottom' | 'left' | 'right' = 'left'
+
+  if (Math.abs(dxFromParent) > Math.abs(dyFromParent) * 1.15) {
+    if (dxFromParent >= 0) {
+      portSide = 'left'
+      destX = targetWin.x - targetWin.w / 2
+      destY = targetWin.y
+    } else {
+      portSide = 'right'
+      destX = targetWin.x + targetWin.w / 2
+      destY = targetWin.y
+    }
+  } else {
+    if (dyFromParent <= 0) {
+      portSide = 'bottom'
+      destX = targetWin.x
+      destY = targetWin.y + targetWin.h / 2
+    } else {
+      portSide = 'top'
+      destX = targetWin.x
+      destY = targetWin.y - targetWin.h / 2
+    }
+  }
+
+  if (![srcX, srcY, destX, destY].every((n) => Number.isFinite(n))) return null
+
+  const dist = Math.hypot(destX - srcX, destY - srcY)
+  const curveSpan = Math.min(320, Math.max(100, dist * 0.38))
+
+  let cp1X = srcX
+  let cp1Y = srcY
+  let cp2X = destX
+  let cp2Y = destY
+
+  if (isClipped && anchor.clippedSide === 'top') {
+    cp1X = srcX
+    cp1Y = srcY - curveSpan
+  } else if (isClipped && anchor.clippedSide === 'bottom') {
+    cp1X = srcX
+    cp1Y = srcY + curveSpan
+  } else if (destY < srcY) {
+    cp1X = srcX + (destX - srcX) * 0.18
+    cp1Y = srcY - curveSpan
+  } else {
+    cp1X = srcX + (destX - srcX) * 0.28
+    cp1Y = srcY - Math.min(80, curveSpan * 0.35)
+  }
+
+  if (portSide === 'left') {
+    cp2X = destX - curveSpan
+    cp2Y = destY
+  } else if (portSide === 'right') {
+    cp2X = destX + curveSpan
+    cp2Y = destY
+  } else if (portSide === 'top') {
+    cp2X = destX
+    cp2Y = destY - curveSpan
+  } else {
+    cp2X = destX
+    cp2Y = destY + curveSpan
+  }
+
+  return {
+    parentWin,
+    targetWin,
+    isClipped,
+    color,
+    pathD: `M ${srcX} ${srcY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${destX} ${destY}`,
+    portSide,
+    srcPoint: { x: srcX, y: srcY },
+    destPoint: { x: destX, y: destY },
+    midPoint: { x: (srcX + destX) / 2, y: (srcY + destY) / 2 },
+  }
 }
 
 type LayoutMode = 'cluster' | 'rings'
@@ -566,11 +731,13 @@ function computeRingsLayout(
 
 export default function MultiPageCanvas({
   projectName,
+  projectPath,
   pages,
   previewUrl,
   currentRoute,
   onOpenPage,
   onClose,
+  onNotify,
 }: MultiPageCanvasProps) {
   const stageRef = useRef<HTMLDivElement | null>(null)
   const windowsRef = useRef<CanvasWin[]>([])
@@ -625,6 +792,161 @@ export default function MultiPageCanvas({
   const [hoveredWinId, setHoveredWinId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Dây nối thủ công, các dây tự động đã bị xoá và trạng thái chọn dây
+  const [manualWires, setManualWires] = useState<ManualWire[]>([])
+  const [hiddenWireIds, setHiddenWireIds] = useState<Set<string>>(() => new Set())
+  const [selectedWireId, setSelectedWireId] = useState<string | null>(null)
+
+  // Chế độ nối dây bằng kéo thả + trạng thái đang kéo
+  const [isConnectMode, setIsConnectMode] = useState(false)
+  const [connectDrag, setConnectDrag] = useState<ConnectDrag | null>(null)
+  const connectModeRef = useRef(false)
+
+  const viewRef = useRef(view)
+  viewRef.current = view
+
+  // Lịch sử thao tác (Ctrl+Z)
+  const historyRef = useRef<HistoryEntry[]>([])
+  const wiresRef = useRef<Wire[]>([])
+  const unlinkedButtonsRef = useRef<Set<string>>(new Set())
+
+  const syncWireCode = useCallback(
+    async (
+      action: 'link' | 'unlink',
+      source: WireSource,
+      targetRoute: string,
+      currentPath?: string
+    ): Promise<boolean> => {
+      if (!projectPath) {
+        onNotify?.('warn', 'Chưa xác định được thư mục dự án để đồng bộ mã nguồn')
+        return false
+      }
+      if (!api?.inspect?.syncNav) {
+        onNotify?.('warn', 'Tính năng đồng bộ mã nguồn chưa sẵn sàng')
+        return false
+      }
+      try {
+        const res = await api.inspect.syncNav({
+          projectPath,
+          currentPath,
+          targetRoute,
+          action,
+          textSnippet: source.text,
+          tagName: source.tagName,
+          className: source.className,
+          id: source.elementId,
+        })
+        if (res.success) {
+          onNotify?.(
+            'ok',
+            action === 'link'
+              ? `Đã thêm liên kết tới ${targetRoute} trong mã nguồn`
+              : `Đã xoá liên kết tới ${targetRoute} trong mã nguồn`
+          )
+          return true
+        }
+        onNotify?.('warn', res.error || 'Không đồng bộ được mã nguồn')
+        return false
+      } catch (err) {
+        onNotify?.('err', `Lỗi đồng bộ mã nguồn: ${String(err)}`)
+        return false
+      }
+    },
+    [projectPath, onNotify]
+  )
+
+  const pushHistory = useCallback(
+    (codeReverts?: CodeRevert[]) => {
+      historyRef.current.push({
+        manualWires,
+        hiddenWireIds: [...hiddenWireIds],
+        codeReverts,
+      })
+      if (historyRef.current.length > 60) historyRef.current.shift()
+    },
+    [manualWires, hiddenWireIds]
+  )
+
+  const undo = useCallback(() => {
+    const prev = historyRef.current.pop()
+    if (!prev) return
+    setManualWires(prev.manualWires)
+    setHiddenWireIds(new Set(prev.hiddenWireIds))
+    setSelectedWireId(null)
+    // Hoàn tác cả thay đổi trong mã nguồn (nếu có)
+    prev.codeReverts?.forEach((revert) => {
+      void syncWireCode(revert.action, revert.source, revert.targetRoute, revert.currentPath)
+    })
+  }, [syncWireCode])
+
+  const deleteWire = useCallback(
+    (wireId: string) => {
+      const wire = wiresRef.current.find((w) => w.id === wireId)
+      const revert: CodeRevert[] = wire?.source
+        ? [
+            {
+              action: 'link',
+              currentPath: wire.parentWin.route,
+              targetRoute: wire.targetWin.route,
+              source: wire.source,
+            },
+          ]
+        : []
+
+      pushHistory(revert)
+
+      if (wireId.startsWith('wire-')) {
+        setHiddenWireIds((prev) => {
+          const next = new Set(prev)
+          next.add(wireId)
+          return next
+        })
+      } else {
+        setManualWires((prev) => prev.filter((w) => w.id !== wireId))
+      }
+      if (wire?.anchorKey) {
+        setHiddenWireIds((prev) => {
+          const next = new Set(prev)
+          next.add(`wire-${wire.anchorKey}`)
+          return next
+        })
+      }
+      setSelectedWireId(null)
+
+      if (wire?.source) {
+        // Đánh dấu nút này đã bị huỷ liên kết để khi click không chuyển trang nữa
+        if (wire.source.text) {
+          unlinkedButtonsRef.current.add(`${wire.parentWin.id}:${wire.source.text}`)
+        }
+        if (wire.source.elementId) {
+          unlinkedButtonsRef.current.add(`${wire.parentWin.id}:#${wire.source.elementId}`)
+        }
+        if (wire.anchorKey) {
+          unlinkedButtonsRef.current.add(`${wire.parentWin.id}:${wire.anchorKey}`)
+        }
+
+        // Cập nhật DOM trực tiếp trong iframe nếu có
+        try {
+          const parentIframe = iframeRefs.current.get(wire.parentWin.id)
+          const doc = parentIframe?.contentDocument
+          if (doc) {
+            const matchedEl = wire.anchorKey ? matchedElementsRef.current.get(wire.anchorKey)?.el : null
+            const candidate =
+              matchedEl || (wire.source.elementId ? doc.getElementById(wire.source.elementId) : null)
+            if (candidate) {
+              candidate.setAttribute('href', '#')
+              candidate.removeAttribute('data-route')
+            }
+          }
+        } catch {}
+
+        // Xoá logic nối trang trong mã nguồn
+        void syncWireCode('unlink', wire.source, wire.targetWin.route, wire.parentWin.route)
+      }
+    },
+    [pushHistory, syncWireCode]
+  )
+
   const baseUrl = useMemo(() => {
     if (!previewUrl) return null
     try {
@@ -639,14 +961,54 @@ export default function MultiPageCanvas({
   // Phím tắt bàn phím
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName?.toLowerCase()
+      const isTyping =
+        tag === 'input' || tag === 'textarea' || tag === 'select' || Boolean(target?.isContentEditable)
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !isTyping) {
+        e.preventDefault()
+        e.stopPropagation()
+        undo()
+        return
+      }
+
       if (e.key === 'Escape') {
+        if (connectDrag) {
+          setConnectDrag(null)
+          e.stopPropagation()
+          return
+        }
+        if (isConnectMode) {
+          setIsConnectMode(false)
+          e.stopPropagation()
+          return
+        }
+        if (selectedWireId) {
+          setSelectedWireId(null)
+          e.stopPropagation()
+          return
+        }
         e.stopPropagation()
         onClose()
+        return
+      }
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedWireId && !isTyping) {
+        e.preventDefault()
+        e.stopPropagation()
+        deleteWire(selectedWireId)
       }
     }
     window.addEventListener('keydown', handleKey, true)
     return () => window.removeEventListener('keydown', handleKey, true)
-  }, [onClose])
+  }, [onClose, isConnectMode, connectDrag, selectedWireId, deleteWire, undo])
+
+  // Đồng bộ cờ chế độ nối dây để listener trong iframe đọc được giá trị mới nhất
+  useEffect(() => {
+    connectModeRef.current = isConnectMode
+    if (!isConnectMode) setConnectDrag(null)
+  }, [isConnectMode])
 
   // Căn vừa toàn bộ các cửa sổ vào màn hình
   const fitBounding = useCallback((customList?: CanvasWin[]) => {
@@ -773,6 +1135,9 @@ export default function MultiPageCanvas({
         isClipped,
         clippedSide,
         text: (el.textContent || '').trim().slice(0, 30),
+        tagName: el.tagName.toLowerCase(),
+        className: typeof el.className === 'string' ? el.className : '',
+        elementId: el.id || '',
       }
     })
 
@@ -808,6 +1173,13 @@ export default function MultiPageCanvas({
 
         // 1. Chặn click điều hướng: thay vì đổi trang trong iframe, chuyển góc nhìn camera sang trang đích
         const handleClick = (e: MouseEvent) => {
+          // Đang ở chế độ nối dây: không cho click điều hướng
+          if (connectModeRef.current) {
+            e.preventDefault()
+            e.stopPropagation()
+            return
+          }
+
           const target = (e.target as HTMLElement).closest<HTMLElement>('a, button, [role="button"], [data-route]')
           if (!target) return
 
@@ -819,6 +1191,46 @@ export default function MultiPageCanvas({
           e.preventDefault()
           e.stopPropagation()
 
+          // Ưu tiên dây nối hiện có: bấm nút sẽ đi tới đúng trang đã nối,
+          // kể cả khi mã nguồn chưa kịp tải lại sau khi đổi dây.
+          let anchorKey: string | undefined
+          matchedElementsRef.current.forEach((value, key) => {
+            if (value.parentId !== win.id) return
+            if (value.el === target || value.el.contains(target) || target.contains(value.el)) {
+              anchorKey = key
+            }
+          })
+
+          const targetClass = target.getAttribute('class') || ''
+          const wired = wiresRef.current.find((w) => {
+            if (w.parentWin.id !== win.id) return false
+            if (anchorKey && w.anchorKey && w.anchorKey === anchorKey) return true
+            const src = w.source
+            if (!src) return false
+            if (src.elementId && target.id && src.elementId === target.id) return true
+            if (src.text && text && src.text === text.slice(0, 30)) return true
+            return Boolean(src.className && targetClass && src.className === targetClass)
+          })
+
+          if (wired) {
+            flyToWindow(wired.targetWin)
+            return
+          }
+
+          // Kiểm tra xem nút bấm này có từng bị xoá dây nối (unlinked) hay không
+          const isExplicitlyUnlinked =
+            (anchorKey && hiddenWireIds.has(`wire-${anchorKey}`)) ||
+            (anchorKey && unlinkedButtonsRef.current.has(`${win.id}:${anchorKey}`)) ||
+            (text && unlinkedButtonsRef.current.has(`${win.id}:${text}`)) ||
+            (target.id && unlinkedButtonsRef.current.has(`${win.id}:#${target.id}`)) ||
+            href === '#' ||
+            href === 'javascript:void(0)'
+
+          if (isExplicitlyUnlinked) {
+            // Đã xoá dây liên kết: không thực hiện điều hướng ngầm định
+            return
+          }
+
           const targetWin = findMatchingWindow(href, text, windowsRef.current)
           if (targetWin) {
             flyToWindow(targetWin)
@@ -827,6 +1239,65 @@ export default function MultiPageCanvas({
 
         doc.removeEventListener('click', handleClick, true)
         doc.addEventListener('click', handleClick, true)
+
+        // 1b. Chế độ nối dây: giữ chuột trên một nút bấm để bắt đầu kéo dây
+        const handleConnectPointerDown = (e: PointerEvent) => {
+          if (!connectModeRef.current || e.button !== 0) return
+          const target = (e.target as HTMLElement)?.closest<HTMLElement>(
+            'a, button, [role="button"], input[type="button"], input[type="submit"], [data-route], [onclick]'
+          )
+          if (!target) return
+
+          const parentWin = windowsRef.current.find((w) => w.id === win.id)
+          const stage = stageRef.current
+          const stageRect = stage?.getBoundingClientRect()
+          if (!parentWin || !stageRect) return
+
+          e.preventDefault()
+          e.stopPropagation()
+
+          const rect = target.getBoundingClientRect()
+          const relX = Math.round(rect.left + rect.width / 2)
+          const relY = Math.round(rect.top + rect.height / 2)
+
+          // Tìm anchor đã quét tương ứng để dây bám theo khi trang cha cuộn
+          let anchorKey: string | undefined
+          matchedElementsRef.current.forEach((value, key) => {
+            if (value.parentId !== win.id) return
+            if (value.el === target || value.el.contains(target) || target.contains(value.el)) {
+              anchorKey = key
+            }
+          })
+
+          const srcWorldX = parentWin.x - parentWin.w / 2 + relX
+          const srcWorldY = parentWin.y - parentWin.h / 2 + 34 + relY
+          const v = viewRef.current
+          const srcClientX = stageRect.left + v.panX + srcWorldX * v.zoom
+          const srcClientY = stageRect.top + v.panY + srcWorldY * v.zoom
+
+          setConnectDrag({
+            parentId: win.id,
+            anchorKey,
+            sourceX: relX,
+            sourceY: relY,
+            source: {
+              text: (target.textContent || '').trim().slice(0, 30),
+              tagName: target.tagName.toLowerCase(),
+              className: target.getAttribute('class') || '',
+              elementId: target.id || '',
+            },
+            srcWorldX,
+            srcWorldY,
+            srcClientX,
+            srcClientY,
+            clientX: srcClientX,
+            clientY: srcClientY,
+            hoverTargetId: null,
+          })
+        }
+
+        doc.removeEventListener('pointerdown', handleConnectPointerDown, true)
+        doc.addEventListener('pointerdown', handleConnectPointerDown, true)
 
         // 2. Tìm tất cả các trang con có cha trực tiếp là cửa sổ này (win.id)
         const myChildren = windowsRef.current.filter((w) => {
@@ -994,6 +1465,70 @@ export default function MultiPageCanvas({
     },
     [pages, fitBounding, detectedAnchors]
   )
+
+  // Đồng bộ danh sách cửa sổ khi dự án được thêm/xoá trang trong lúc đang mở.
+  // Thêm/xoá trang sẽ xếp lại toàn bộ; chỉ đổi tên/route thì giữ nguyên vị trí.
+  const pageIdsRef = useRef(pages.map((p) => p.id).join('|'))
+  useEffect(() => {
+    const homePage = pages.find((p) => normalizeRoute(p.route) === '/')
+    const otherPages = pages.filter((p) => normalizeRoute(p.route) !== '/')
+
+    const homeWin: CanvasWin = {
+      id: homePage ? `win:${homePage.id}` : 'win:home',
+      page: homePage,
+      route: '/',
+      title: homePage?.title || 'Trang chủ',
+      isHome: true,
+      x: 0,
+      y: 0,
+      w: WINDOW_WIDTH,
+      h: WINDOW_HEIGHT,
+      zIndex: 10,
+      groupKey: 'home',
+      groupLabel: 'Trang chủ (Màn hình chuẩn)',
+      groupColor: '#6366f1',
+      sourceHint: { text: 'Trang chủ gốc', relX: 0.5, relY: 0.5 },
+    }
+
+    const computed =
+      layoutMode === 'rings'
+        ? computeRingsLayout(homeWin, otherPages, detectedAnchors)
+        : computeClusterLayout(homeWin, otherPages)
+
+    const nextIds = pages.map((p) => p.id).join('|')
+    const idsChanged = pageIdsRef.current !== nextIds
+    pageIdsRef.current = nextIds
+
+    // Thêm/xoá trang: xếp lại toàn bộ để cửa sổ mới không đè lên cửa sổ cũ.
+    if (idsChanged) {
+      windowsRef.current = computed
+      setWindows(computed)
+      const timer = setTimeout(() => fitBounding(computed), 80)
+      return () => clearTimeout(timer)
+    }
+
+    // Chỉ đổi tên/route: giữ nguyên vị trí người dùng đã kéo.
+    setWindows((prev) => {
+      const prevById = new Map(prev.map((w) => [w.id, w]))
+      let changed = false
+      const merged = computed.map((cw) => {
+        const old = prevById.get(cw.id)
+        if (!old) {
+          changed = true
+          return cw
+        }
+        if (old.title !== cw.title || old.route !== cw.route || old.page !== cw.page) {
+          changed = true
+          return { ...old, page: cw.page, route: cw.route, title: cw.title }
+        }
+        return old
+      })
+      if (!changed) return prev
+      windowsRef.current = merged
+      return merged
+    })
+    return undefined
+  }, [pages, layoutMode, detectedAnchors, fitBounding])
 
   // Căn vừa màn hình ngay khi mở
   useEffect(() => {
@@ -1171,150 +1706,179 @@ export default function MultiPageCanvas({
   // ─── TÍNH TOÁN DÂY NỐI TỪ NÚT BẤM TRÊN TRANG CHA TỚI TỪNG TRANG CON ───
   const homeWin = windows.find((w) => w.isHome) || windows[0]
 
-  const wires = useMemo(() => {
-    return windows
-      .map((childWin) => {
-        if (childWin.isHome) return null
-        const parentId = parentMap.get(childWin.id)
-        if (!parentId) return null
-        const parentWin = windows.find((w) => w.id === parentId)
-        if (!parentWin) return null
+  const wires = useMemo<Wire[]>(() => {
+    const list: Wire[] = []
 
-        const anchor = detectedAnchors[childWin.id]
-        let srcX: number
-        let srcY: number
-        const hasAnchor = Boolean(anchor && anchor.parentId === parentWin.id)
-        const isClipped = Boolean(anchor?.isClipped)
-        const wireColor = isClipped ? '#ef4444' : (childWin.groupColor || '#6366f1')
+    // Dây tự động: chỉ hiển thị khi quét được nút bấm thật trên trang cha.
+    windows.forEach((childWin) => {
+      if (childWin.isHome) return
+      const anchor = detectedAnchors[childWin.id]
+      if (!anchor) return
+      const parentWin = windows.find((w) => w.id === anchor.parentId)
+      if (!parentWin) return
 
-        const parentLeft = parentWin.x - parentWin.w / 2
-        const parentTop = parentWin.y - parentWin.h / 2
-        const parentHalfW = parentWin.w / 2
-        const parentHalfH = parentWin.h / 2
+      const autoId = `wire-${childWin.id}`
+      if (hiddenWireIds.has(autoId)) return
 
-        if (hasAnchor && anchor) {
-          // Nối chính xác vào tâm của nút bấm thực tế trên trang cha!
-          srcX = parentLeft + anchor.x
-          srcY = parentTop + 34 + anchor.y
-        } else {
-          // Chưa quét thấy nút trong trang cha: Nối từ mép của trang cha hướng về phía trang con
-          const dx = childWin.x - parentWin.x
-          const dy = childWin.y - parentWin.y
-
-          if (Math.abs(dx) / parentHalfW > Math.abs(dy) / parentHalfH) {
-            const signX = dx >= 0 ? 1 : -1
-            srcX = parentWin.x + parentHalfW * signX
-            srcY = Math.round(parentWin.y + Math.max(-parentHalfH * 0.7, Math.min(parentHalfH * 0.7, (dy / (Math.abs(dx) || 1)) * parentHalfW)))
-          } else {
-            const signY = dy >= 0 ? 1 : -1
-            srcX = Math.round(parentWin.x + Math.max(-parentHalfW * 0.7, Math.min(parentHalfW * 0.7, (dx / (Math.abs(dy) || 1)) * parentHalfH)))
-            srcY = parentWin.y + parentHalfH * signY
-          }
-        }
-
-        const dxFromParent = childWin.x - parentWin.x
-        const dyFromParent = childWin.y - parentWin.y
-
-        let destX = childWin.x
-        let destY = childWin.y
-        let portSide: 'top' | 'bottom' | 'left' | 'right' = 'left'
-
-        if (Math.abs(dxFromParent) > Math.abs(dyFromParent) * 1.15) {
-          if (dxFromParent >= 0) {
-            portSide = 'left'
-            destX = childWin.x - childWin.w / 2
-            destY = childWin.y
-          } else {
-            portSide = 'right'
-            destX = childWin.x + childWin.w / 2
-            destY = childWin.y
-          }
-        } else {
-          if (dyFromParent <= 0) {
-            portSide = 'bottom'
-            destX = childWin.x
-            destY = childWin.y + childWin.h / 2
-          } else {
-            portSide = 'top'
-            destX = childWin.x
-            destY = childWin.y - childWin.h / 2
-          }
-        }
-
-        if (!Number.isFinite(srcX) || !Number.isFinite(srcY) || !Number.isFinite(destX) || !Number.isFinite(destY)) {
-          return null
-        }
-
-        const dist = Math.hypot(destX - srcX, destY - srcY)
-        const curveSpan = Math.min(320, Math.max(100, dist * 0.38))
-
-        let cp1X = srcX
-        let cp1Y = srcY
-        let cp2X = destX
-        let cp2Y = destY
-
-        if (hasAnchor) {
-          if (isClipped && anchor?.clippedSide === 'top') {
-            cp1X = srcX
-            cp1Y = srcY - curveSpan
-          } else if (isClipped && anchor?.clippedSide === 'bottom') {
-            cp1X = srcX
-            cp1Y = srcY + curveSpan
-          } else if (destY < srcY) {
-            cp1X = srcX + (destX - srcX) * 0.18
-            cp1Y = srcY - curveSpan
-          } else {
-            cp1X = srcX + (destX - srcX) * 0.28
-            cp1Y = srcY - Math.min(80, curveSpan * 0.35)
-          }
-        } else {
-          const dxEdge = srcX - parentWin.x
-          const dyEdge = srcY - parentWin.y
-          if (Math.abs(dxEdge) > Math.abs(dyEdge)) {
-            cp1X = srcX + (dxEdge > 0 ? curveSpan : -curveSpan)
-            cp1Y = srcY
-          } else {
-            cp1X = srcX
-            cp1Y = srcY + (dyEdge > 0 ? curveSpan : -curveSpan)
-          }
-        }
-
-        if (portSide === 'left') {
-          cp2X = destX - curveSpan
-          cp2Y = destY
-        } else if (portSide === 'right') {
-          cp2X = destX + curveSpan
-          cp2Y = destY
-        } else if (portSide === 'top') {
-          cp2X = destX
-          cp2Y = destY - curveSpan
-        } else {
-          cp2X = destX
-          cp2Y = destY + curveSpan
-        }
-
-        const pathD = `M ${srcX} ${srcY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${destX} ${destY}`
-        const midX = (srcX + destX) / 2
-        const midY = (srcY + destY) / 2
-
-        return {
-          id: `wire-${childWin.id}`,
-          satId: childWin.id,
-          parentWin,
-          targetWin: childWin,
-          hasAnchor,
-          isClipped,
-          color: wireColor,
-          label: childWin.title,
-          pathD,
-          portSide,
-          srcPoint: { x: srcX, y: srcY },
-          destPoint: { x: destX, y: destY },
-          midPoint: { x: midX, y: midY },
-        }
+      const shape = computeWireShape(parentWin, childWin, anchor)
+      if (!shape) return
+      list.push({
+        ...shape,
+        id: autoId,
+        satId: childWin.id,
+        hasAnchor: true,
+        label: childWin.title,
+        anchorKey: childWin.id,
+        source: {
+          text: anchor.text,
+          tagName: anchor.tagName,
+          className: anchor.className,
+          elementId: anchor.elementId,
+        },
       })
-      .filter((w): w is NonNullable<typeof w> => w !== null)
-  }, [windows, parentMap, detectedAnchors])
+    })
+
+    // Dây thủ công: nối từ nút bấm nguồn sang trang đích.
+    manualWires.forEach((mw) => {
+      const parentWin = windows.find((w) => w.id === mw.parentId)
+      const targetWin = windows.find((w) => w.id === mw.targetId)
+      if (!parentWin || !targetWin || targetWin.isHome) return
+
+      const tracked = mw.anchorKey ? detectedAnchors[mw.anchorKey] : undefined
+      const anchor: DetectedAnchor =
+        tracked && tracked.parentId === mw.parentId
+          ? tracked
+          : {
+              parentId: mw.parentId,
+              x: mw.sourceX,
+              y: mw.sourceY,
+              isClipped: false,
+              text: mw.source.text,
+              tagName: mw.source.tagName,
+              className: mw.source.className,
+              elementId: mw.source.elementId,
+            }
+
+      const shape = computeWireShape(parentWin, targetWin, anchor)
+      if (!shape) return
+      list.push({
+        ...shape,
+        id: mw.id,
+        satId: targetWin.id,
+        hasAnchor: true,
+        label: targetWin.title,
+        anchorKey: mw.anchorKey,
+        source: mw.source,
+      })
+    })
+
+    return list
+  }, [windows, detectedAnchors, manualWires, hiddenWireIds])
+
+  wiresRef.current = wires
+
+  /** Tìm cửa sổ đích dưới con trỏ khi đang kéo dây. */
+  const resolveDropTarget = (clientX: number, clientY: number, excludeId?: string): CanvasWin | null => {
+    const stageRect = stageRef.current?.getBoundingClientRect()
+    if (!stageRect) return null
+    const v = viewRef.current
+    const worldX = (clientX - stageRect.left - v.panX) / v.zoom
+    const worldY = (clientY - stageRect.top - v.panY) / v.zoom
+
+    return (
+      windowsRef.current.find(
+        (w) =>
+          w.id !== excludeId &&
+          !w.isHome &&
+          Math.abs(worldX - w.x) <= w.w / 2 &&
+          Math.abs(worldY - w.y) <= w.h / 2
+      ) || null
+    )
+  }
+
+  const handleConnectDragMove = (e: React.PointerEvent) => {
+    const hover = resolveDropTarget(e.clientX, e.clientY, connectDrag?.parentId)
+    setConnectDrag((prev) =>
+      prev ? { ...prev, clientX: e.clientX, clientY: e.clientY, hoverTargetId: hover?.id || null } : prev
+    )
+  }
+
+  const handleConnectDragEnd = (e: React.PointerEvent) => {
+    const drag = connectDrag
+    if (!drag) {
+      setConnectDrag(null)
+      return
+    }
+
+    const target = resolveDropTarget(e.clientX, e.clientY, drag.parentId)
+    if (target) {
+      const parentWin = windowsRef.current.find((w) => w.id === drag.parentId)
+      const parentRoute = parentWin?.route
+      pushHistory([
+        {
+          action: 'unlink',
+          currentPath: parentRoute,
+          targetRoute: target.route,
+          source: drag.source,
+        },
+      ])
+
+      // Xoá đánh dấu unlinked nếu có trên nút này
+      if (drag.anchorKey) {
+        unlinkedButtonsRef.current.delete(`${drag.parentId}:${drag.anchorKey}`)
+        setHiddenWireIds((prev) => {
+          const next = new Set(prev)
+          next.add(`wire-${drag.anchorKey}`)
+          return next
+        })
+      }
+      if (drag.source.text) {
+        unlinkedButtonsRef.current.delete(`${drag.parentId}:${drag.source.text}`)
+      }
+      if (drag.source.elementId) {
+        unlinkedButtonsRef.current.delete(`${drag.parentId}:#${drag.source.elementId}`)
+      }
+
+      const id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+      setManualWires((prev) => [
+        ...prev.filter((mw) => {
+          if (mw.parentId !== drag.parentId) return true
+          if (drag.anchorKey && mw.anchorKey === drag.anchorKey) return false
+          if (drag.source.elementId && mw.source.elementId === drag.source.elementId) return false
+          if (drag.source.text && mw.source.text === drag.source.text) return false
+          return true
+        }),
+        {
+          id,
+          parentId: drag.parentId,
+          targetId: target.id,
+          anchorKey: drag.anchorKey,
+          sourceX: drag.sourceX,
+          sourceY: drag.sourceY,
+          source: drag.source,
+        },
+      ])
+
+      // Cập nhật DOM trực tiếp trong iframe nếu có
+      try {
+        const parentIframe = iframeRefs.current.get(drag.parentId)
+        const doc = parentIframe?.contentDocument
+        if (doc) {
+          const matchedEl = drag.anchorKey ? matchedElementsRef.current.get(drag.anchorKey)?.el : null
+          const candidate =
+            matchedEl || (drag.source.elementId ? doc.getElementById(drag.source.elementId) : null)
+          if (candidate) {
+            candidate.setAttribute('href', target.route)
+            candidate.setAttribute('data-route', target.route)
+          }
+        }
+      } catch {}
+
+      // Thêm logic nối trang vào mã nguồn của nút bấm nguồn
+      void syncWireCode('link', drag.source, target.route, parentRoute)
+    }
+    setConnectDrag(null)
+  }
 
   const portSideMap = useMemo(() => {
     const map: Record<string, 'top' | 'bottom' | 'left' | 'right'> = {}
@@ -1450,6 +2014,8 @@ export default function MultiPageCanvas({
                   isCurrent ? 'is-current' : '',
                   activeWinId === win.id ? 'is-active' : '',
                   isMatch ? '' : 'is-dimmed',
+                  isConnectMode && !win.isHome && win.id !== connectDrag?.parentId ? 'is-wire-target' : '',
+                  connectDrag?.hoverTargetId === win.id ? 'is-drop-target' : '',
                 ].filter(Boolean).join(' ')}
                 style={{
                   left: win.x - win.w / 2,
@@ -1550,8 +2116,8 @@ export default function MultiPageCanvas({
               <defs>
                 {wires.map((w) => (
                   <marker
-                    key={`arrow-${w.satId}`}
-                    id={`arrow-${w.satId}`}
+                    key={`arrow-${w.id}`}
+                    id={`arrow-${w.id}`}
                     viewBox="0 0 10 10"
                     refX="7"
                     refY="5"
@@ -1566,35 +2132,57 @@ export default function MultiPageCanvas({
 
               {wires.map((wire) => {
                 const isHovered = hoveredWinId === wire.satId || activeWinId === wire.satId
+                const isSelected = selectedWireId === wire.id
                 return (
-                  <g key={wire.id} onClick={() => flyToWindow(wire.targetWin)} style={{ cursor: 'pointer' }}>
-                    {/* Dây bóng phát sáng khi hover */}
+                  <g key={wire.id} style={{ cursor: 'pointer' }}>
+                    {/* Vùng bấm rộng để dễ chọn dây */}
+                    <path
+                      d={wire.pathD}
+                      fill="none"
+                      stroke="transparent"
+                      strokeWidth={14}
+                      style={{ pointerEvents: 'stroke' }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setSelectedWireId((prev) => (prev === wire.id ? null : wire.id))
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation()
+                        flyToWindow(wire.targetWin)
+                      }}
+                    >
+                      <title>{`Dây nối: ${wire.parentWin.title} → ${wire.label} (Bấm để chọn, Delete để xoá)`}</title>
+                    </path>
+
+                    {/* Dây bóng phát sáng khi hover hoặc được chọn */}
                     <path
                       d={wire.pathD}
                       className="pm-multi-wire-glow"
                       style={{
                         stroke: wire.color,
-                        strokeWidth: isHovered ? 9 : 5,
-                        opacity: isHovered ? 0.55 : 0.28,
+                        strokeWidth: isSelected ? 11 : isHovered ? 9 : 5,
+                        opacity: isSelected ? 0.8 : isHovered ? 0.55 : 0.28,
                       }}
                     />
 
                     {/* Dây nối chính */}
                     <path
                       d={wire.pathD}
-                      className={`pm-multi-wire ${isHovered ? 'pm-multi-wire-active' : ''}`}
-                      markerEnd={`url(#arrow-${wire.satId})`}
+                      className={[
+                        'pm-multi-wire',
+                        isHovered ? 'pm-multi-wire-active' : '',
+                        isSelected ? 'pm-multi-wire-selected' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      markerEnd={`url(#arrow-${wire.id})`}
                       style={{
                         stroke: wire.color,
-                        strokeWidth: isHovered ? 3.0 : 2.2,
-                        opacity: isHovered ? 1 : 0.85,
+                        strokeWidth: isSelected ? 3.6 : isHovered ? 3.0 : 2.2,
+                        opacity: isSelected ? 1 : isHovered ? 1 : 0.85,
                       }}
                     />
-
-                    {/* Hạt ánh sáng chuyển động dọc dây nối */}
-                    <circle r={isHovered ? 4.5 : 3} fill={wire.color} className="pm-multi-particle">
-                      <animateMotion dur={isHovered ? '2s' : '3.5s'} repeatCount="indefinite" path={wire.pathD} />
-                    </circle>
                   </g>
                 )
               })}
@@ -1672,10 +2260,70 @@ export default function MultiPageCanvas({
           >
             1:1
           </button>
+          <span style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.14)', margin: '0 2px' }} />
+          <button
+            className={isConnectMode ? 'active' : ''}
+            onClick={() => setIsConnectMode((v) => !v)}
+            title={
+              isConnectMode
+                ? 'Thoát chế độ nối dây (Esc)'
+                : 'Bật chế độ nối dây: giữ chuột vào một nút bấm trong trang rồi kéo sang trang đích'
+            }
+          >
+            <Link2 size={13} />
+          </button>
         </div>
 
+        {/* ── Hướng dẫn khi bật chế độ nối dây ── */}
+        {isConnectMode && !connectDrag && (
+          <div className="pm-multi-connect-banner">
+            <Link2 size={13} />
+            <span>
+              Giữ chuột vào một nút bấm trong trang rồi kéo sang trang đích để nối dây · Esc để thoát
+            </span>
+          </div>
+        )}
+
+        {/* ── Vùng bắt sự kiện và dây tạm khi đang kéo ── */}
+        {connectDrag && (
+          <>
+            <div
+              className="pm-multi-connect-catcher"
+              onPointerMove={handleConnectDragMove}
+              onPointerUp={handleConnectDragEnd}
+              onPointerCancel={() => setConnectDrag(null)}
+            />
+
+            <svg className="pm-multi-wire-drag" width="100%" height="100%">
+              {(() => {
+                const sx = connectDrag.srcClientX
+                const sy = connectDrag.srcClientY
+                const cx = connectDrag.clientX
+                const cy = connectDrag.clientY
+                const midY = (sy + cy) / 2
+                const color = connectDrag.hoverTargetId ? '#22c55e' : '#6366f1'
+                return (
+                  <>
+                    <path
+                      d={`M ${sx} ${sy} C ${sx} ${midY}, ${cx} ${midY}, ${cx} ${cy}`}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth={2.5}
+                      strokeDasharray="7 5"
+                      strokeLinecap="round"
+                      opacity={0.95}
+                    />
+                    <circle cx={sx} cy={sy} r={5} fill={color} stroke="#0b0f19" strokeWidth={2} />
+                    <circle cx={cx} cy={cy} r={connectDrag.hoverTargetId ? 8 : 6} fill={color} stroke="#0b0f19" strokeWidth={2} />
+                  </>
+                )
+              })()}
+            </svg>
+          </>
+        )}
+
         <div className="pm-multi-hint">
-          Bấm vào nút bất kỳ trên trang chủ để chuyển góc nhìn sang trang tương ứng · Kéo thanh tiêu đề để di chuyển
+          Bấm vào dây để chọn · Delete để xoá dây · Ctrl+Z để hoàn tác · Kéo thanh tiêu đề để di chuyển
         </div>
       </div>
     </div>

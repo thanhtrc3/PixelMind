@@ -234,10 +234,9 @@
   filter: drop-shadow(0 0 8px currentColor) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.95));
 }
 
-/* Hạt ánh sáng chuyển động dọc theo dây nối */
-.pm-multi-particle {
-  pointer-events: none;
-  filter: drop-shadow(0 0 6px currentColor);
+.pm-multi-wire-selected {
+  opacity: 1 !important;
+  filter: drop-shadow(0 0 7px currentColor) drop-shadow(0 0 16px currentColor) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.95));
 }
 
 /* Điểm ghim xuất phát trên nút bấm Trang chủ (Chấm phát sáng tinh tế tại nút bấm) */
@@ -259,7 +258,6 @@
   border-radius: 50%;
   background: currentColor;
   box-shadow: 0 0 10px currentColor, 0 0 0 2px rgba(11, 15, 25, 0.95);
-  animation: pm-pulse-dot 1.8s infinite ease-in-out;
   transition: transform 120ms ease;
 }
 
@@ -618,6 +616,62 @@
 .pm-multi-controls button:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
+}
+
+.pm-multi-controls button.active {
+  background: rgba(99, 102, 241, 0.9);
+  color: #fff;
+}
+
+/* ── Chế độ nối dây bằng kéo thả ── */
+.pm-multi-connect-banner {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 620px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(79, 70, 229, 0.92);
+  border: 1px solid rgba(165, 180, 252, 0.55);
+  color: #eef2ff;
+  font-size: 11.5px;
+  line-height: 1.4;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.pm-multi-connect-catcher {
+  position: absolute;
+  inset: 0;
+  z-index: 900;
+  cursor: crosshair;
+  background: transparent;
+}
+
+.pm-multi-wire-drag {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* Cửa sổ chưa có dây: gợi ý là đích hợp lệ khi bật chế độ nối dây */
+.pm-win.is-wire-target {
+  outline: 2px dashed rgba(129, 140, 248, 0.75);
+  outline-offset: 3px;
+}
+
+/* Cửa sổ đang được trỏ tới khi kéo dây */
+.pm-win.is-drop-target {
+  outline: 3px solid #22c55e;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 7px rgba(34, 197, 94, 0.22), 0 18px 40px rgba(0, 0, 0, 0.55);
 }
 
 .pm-multi-controls .zoom-text {

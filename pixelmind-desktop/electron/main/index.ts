@@ -2020,6 +2020,464 @@ ipcMain.handle(
   }
 )
 
+/* ───────────────────────── IPC: Đồng bộ logic nối trang vào mã nguồn ───────────────────────── */
+
+interface SourceTagSpan {
+  start: number
+  end: number
+  name: string
+  attrsStart: number
+  attrsEnd: number
+}
+
+const NAV_SOURCE_TAGS = [
+  'a',
+  'button',
+  'link',
+  'navlink',
+  'routerlink',
+  'router-link',
+  'nuxt-link',
+  'input',
+  'li',
+  'div',
+  'span',
+]
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+function parseOpeningTagAt(content: string, start: number): SourceTagSpan | null {
+  const match = /^<([A-Za-z][\w.:-]*)/.exec(content.slice(start, start + 80))
+  if (!match) return null
+  let i = start + match[0].length
+  const attrsStart = i
+  let quote: string | null = null
+  let brace = 0
+  while (i < content.length) {
+    const ch = content[i]
+    if (quote) {
+      if (ch === quote && content[i - 1] !== '\\') quote = null
+    } else if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch
+    } else if (ch === '{') {
+      brace++
+    } else if (ch === '}') {
+      brace = Math.max(0, brace - 1)
+    } else if (ch === '>' && brace === 0) {
+      return { start, end: i + 1, name: match[1], attrsStart, attrsEnd: i }
+    }
+    i++
+  }
+  return null
+}
+
+function collectSourceTags(content: string): SourceTagSpan[] {
+  const tags: SourceTagSpan[] = []
+  const re = new RegExp(`<(${NAV_SOURCE_TAGS.join('|')})\\b`, 'gi')
+  let match: RegExpExecArray | null
+  while ((match = re.exec(content)) !== null) {
+    const span = parseOpeningTagAt(content, match.index)
+    if (span) tags.push(span)
+  }
+  return tags
+}
+
+function pickSourceTag(
+  content: string,
+  tags: SourceTagSpan[],
+  payload: { textSnippet?: string; tagName?: string; className?: string; id?: string },
+  lineHint?: number
+): SourceTagSpan | null {
+  const snippet = (payload.textSnippet || '').trim().slice(0, 30)
+  const classes = (payload.className || '')
+    .split(/\s+/)
+    .filter((c) => c.length > 2 && !GENERIC_CSS_CLASSES[c.toLowerCase()])
+  const wantedTag = (payload.tagName || '').toLowerCase()
+
+  let best: SourceTagSpan | null = null
+  let bestScore = -1
+
+  for (const tag of tags) {
+    const attrs = content.slice(tag.attrsStart, tag.attrsEnd)
+    const after = content.slice(tag.end, Math.min(content.length, tag.end + 600))
+    const closeIdx = after.search(new RegExp(`</${escapeRegExp(tag.name)}\\b`, 'i'))
+    const ownHtml = closeIdx >= 0 ? after.slice(0, closeIdx) : after.slice(0, 200)
+    const ownText = ownHtml.replace(/<[^>]*>/g, '')
+    let score = 0
+
+    // Chỉ ưu tiên text nằm BÊN TRONG thẻ, tránh nhận nhầm thẻ đứng trước
+    if (snippet && (attrs.includes(snippet) || ownText.includes(snippet))) score += 90
+    else if (snippet && after.slice(0, 90).includes(snippet)) score += 10
+    if (snippet && ownText.includes(snippet)) score += 20
+    if (
+      payload.id &&
+      new RegExp(`\\bid\\s*=\\s*["']${escapeRegExp(payload.id)}["']`, 'i').test(attrs)
+    ) {
+      score += 120
+    }
+    for (const cls of classes) {
+      if (attrs.includes(cls)) score += 40
+    }
+    if (wantedTag && wantedTag === tag.name.toLowerCase()) score += 30
+    if (['a', 'button', 'link', 'navlink'].includes(tag.name.toLowerCase())) score += 15
+    else score -= 15
+
+    if (lineHint) {
+      const line = content.slice(0, tag.start).split('\n').length
+      if (Math.abs(line - lineHint) <= 30) score += 25
+    }
+
+    if (score > bestScore) {
+      bestScore = score
+      best = tag
+    }
+  }
+
+  return bestScore >= 40 ? best : null
+}
+
+interface AttrMatch {
+  fullStart: number
+  fullEnd: number
+  value: string
+}
+
+function findStaticAttr(attrs: string, name: string): AttrMatch | null {
+  const re = new RegExp(`\\b${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, 'i')
+  const m = re.exec(attrs)
+  if (!m) return null
+  return { fullStart: m.index, fullEnd: m.index + m[0].length, value: m[2] }
+}
+
+function findBracedAttr(attrs: string, name: string): AttrMatch | null {
+  const re = new RegExp(`\\b${name}\\s*=\\s*\\{`, 'i')
+  const m = re.exec(attrs)
+  if (!m) return null
+  let i = m.index + m[0].length
+  let depth = 1
+  let quote: string | null = null
+  while (i < attrs.length) {
+    const ch = attrs[i]
+    if (quote) {
+      if (ch === quote && attrs[i - 1] !== '\\') quote = null
+    } else if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch
+    } else if (ch === '{') {
+      depth++
+    } else if (ch === '}') {
+      depth--
+      if (depth === 0) {
+        return {
+          fullStart: m.index,
+          fullEnd: i + 1,
+          value: attrs.slice(m.index + m[0].length, i),
+        }
+      }
+    }
+    i++
+  }
+  return null
+}
+
+function setStaticAttr(attrs: string, name: string, value: string): string | null {
+  const found = findStaticAttr(attrs, name)
+  if (!found) return null
+  return `${attrs.slice(0, found.fullStart)}${name}="${value}"${attrs.slice(found.fullEnd)}`
+}
+
+function upsertStaticAttr(attrs: string, name: string, value: string): string {
+  const updated = setStaticAttr(attrs, name, value)
+  if (updated !== null) return updated
+  return `${attrs.trimEnd()} ${name}="${value}"`
+}
+
+function removeStaticAttr(attrs: string, name: string): string {
+  const found = findStaticAttr(attrs, name)
+  if (!found) return attrs
+  return attrs.slice(0, found.fullStart) + attrs.slice(found.fullEnd)
+}
+
+/** Tách route kiểu ASP.NET MVC (/Home/Profile hoặc /Profile) thành controller/action/id. */
+function routeToAspAction(route: string): { controller: string; action: string; id?: string } {
+  const parts = routeCore(route).split('/').filter(Boolean)
+  if (parts.length === 0) return { controller: 'Home', action: 'Index' }
+  if (parts.length === 1) {
+    const single = parts[0]
+    if (single.toLowerCase() === 'home') return { controller: 'Home', action: 'Index' }
+    // Với các route tầng 1 như /Lobby, /Leaderboard, /Profile, /Privacy, /Room -> controller mặc định là Home
+    return { controller: 'Home', action: single }
+  }
+  return { controller: parts[0], action: parts[1], id: parts[2] }
+}
+
+function hasAspNavigation(attrs: string): boolean {
+  return /\basp-(action|controller|area|route-[\w-]+)\s*=/i.test(attrs)
+}
+
+/** Ghi đè điều hướng ASP.NET Tag Helper (asp-controller/asp-action). */
+function setAspNavigation(attrs: string, route: string): string {
+  const { controller, action, id } = routeToAspAction(route)
+  let result = attrs
+  result = removeStaticAttr(result, 'asp-action')
+  result = removeStaticAttr(result, 'asp-controller')
+  result = removeStaticAttr(result, 'asp-area')
+  result = removeStaticAttr(result, 'href')
+  result = result.replace(/\s*asp-route-[\w-]+\s*=\s*(["'])[\s\S]*?\1/gi, '')
+  result = upsertStaticAttr(result, 'asp-area', '')
+  result = upsertStaticAttr(result, 'asp-controller', controller)
+  result = upsertStaticAttr(result, 'asp-action', action)
+  if (id) result = upsertStaticAttr(result, 'asp-route-id', id)
+  return result
+}
+
+/** Xoá điều hướng ASP.NET nếu nó đang trỏ tới route cần ngắt. */
+function removeAspNavigation(attrs: string, route: string): string {
+  const { controller, action } = routeToAspAction(route)
+  const routeParts = routeCore(route).toLowerCase().split('/').filter(Boolean)
+  const targetActionName = routeParts.pop() || action.toLowerCase()
+
+  const aspAction = findStaticAttr(attrs, 'asp-action')
+  if (!aspAction) return attrs
+
+  const currentAction = aspAction.value.trim().toLowerCase()
+  const matchesAction =
+    currentAction === action.toLowerCase() ||
+    currentAction === targetActionName ||
+    (routeParts.length > 0 && routeParts.includes(currentAction))
+
+  if (!matchesAction) return attrs
+
+  const aspController = findStaticAttr(attrs, 'asp-controller')
+  if (aspController && controller && controller.toLowerCase() !== 'home') {
+    if (aspController.value.trim().toLowerCase() !== controller.toLowerCase()) {
+      return attrs
+    }
+  }
+
+  let result = attrs
+  result = removeStaticAttr(result, 'asp-action')
+  result = removeStaticAttr(result, 'asp-controller')
+  result = removeStaticAttr(result, 'asp-area')
+  result = result.replace(/\s*asp-route-[\w-]+\s*=\s*(["'])[\s\S]*?\1/gi, '')
+  // Không để lại href trỏ tới trang cũ
+  const href = findStaticAttr(result, 'href')
+  if (href) result = setStaticAttr(result, 'href', '#') ?? result
+  else result = `${result.trimEnd()} href="#"`
+  return result
+}
+
+function routeCore(route: string): string {
+  const clean = (route || '').split(/[?#]/)[0].trim()
+  return clean.length > 1 ? clean.replace(/\/+$/, '') : '/'
+}
+
+function handlerPointsTo(handler: string, route: string): boolean {
+  const core = routeCore(route).toLowerCase()
+  const lower = handler.toLowerCase()
+  if (core === '/') return lower.includes("'/'") || lower.includes('"/"')
+  const last = core.split('/').filter(Boolean).pop() || ''
+  return lower.includes(core) || (last.length >= 2 && lower.includes(last))
+}
+
+function handlerHasNavigation(handler: string): boolean {
+  return /navigate\s*\(|history\.(push|replace)\s*\(|location\.(href|assign|replace)|router\.(push|replace)|routerLink/i.test(
+    handler
+  )
+}
+
+function replaceRouteInHandler(handler: string, route: string): string | null {
+  const re = /(["'`])(\/[^"'`]*|#[^"'`]*)\1/
+  if (!re.test(handler)) return null
+  return handler.replace(re, (_m, quote: string) => `${quote}${route}${quote}`)
+}
+
+type SourceFlavor = 'jsx' | 'html' | 'vue' | 'svelte' | 'razor'
+
+function detectFlavor(fullPath: string): SourceFlavor {
+  const lower = fullPath.toLowerCase()
+  if (lower.endsWith('.cshtml') || lower.endsWith('.razor')) return 'razor'
+  if (lower.endsWith('.vue')) return 'vue'
+  if (lower.endsWith('.svelte')) return 'svelte'
+  if (lower.endsWith('.tsx') || lower.endsWith('.jsx') || lower.endsWith('.ts') || lower.endsWith('.js')) return 'jsx'
+  return 'html'
+}
+
+function addNavigation(attrs: string, tagName: string, route: string, flavor: SourceFlavor): string {
+  // Dự án ASP.NET MVC/Razor (.cshtml, .razor) hoặc đã có Tag Helper asp-*
+  if (flavor === 'razor' || hasAspNavigation(attrs)) {
+    return setAspNavigation(attrs, route)
+  }
+
+  const lower = tagName.toLowerCase()
+  const preferredAttr =
+    ['link', 'navlink', 'routerlink', 'router-link', 'nuxt-link'].includes(lower)
+      ? 'to'
+      : lower === 'a'
+        ? 'href'
+        : null
+
+  if (preferredAttr) {
+    const set = setStaticAttr(attrs, preferredAttr, route)
+    if (set !== null) return set
+    for (const name of ['href', 'to', 'data-route']) {
+      const existing = setStaticAttr(attrs, name, route)
+      if (existing !== null) return existing
+      const braced = findBracedAttr(attrs, name)
+      if (braced) {
+        return `${attrs.slice(0, braced.fullStart)}${name}="${route}"${attrs.slice(braced.fullEnd)}`
+      }
+    }
+    return `${attrs} ${preferredAttr}="${route}"`
+  }
+
+  // Nút bấm / phần tử không có thuộc tính điều hướng: gắn handler chuyển trang
+  const jsxHandler = flavor === 'jsx' || flavor === 'svelte'
+  const clickAttr = flavor === 'jsx' ? 'onClick' : flavor === 'vue' ? '@click' : flavor === 'svelte' ? 'on:click' : 'onclick'
+
+  const braced = findBracedAttr(attrs, clickAttr)
+  if (braced) {
+    const replaced = replaceRouteInHandler(braced.value, route)
+    const nextValue =
+      replaced !== null ? replaced : `${braced.value.replace(/\s*$/, '')}; window.location.href = '${route}'`
+    return `${attrs.slice(0, braced.fullStart)}${clickAttr}={${nextValue}}${attrs.slice(braced.fullEnd)}`
+  }
+
+  const staticH = findStaticAttr(attrs, clickAttr)
+  if (staticH) {
+    const replaced = replaceRouteInHandler(staticH.value, route)
+    const nextValue =
+      replaced !== null ? replaced : `${staticH.value.replace(/\s*;?\s*$/, '')};window.location.href='${route}'`
+    return `${attrs.slice(0, staticH.fullStart)}${clickAttr}="${nextValue}"${attrs.slice(staticH.fullEnd)}`
+  }
+
+  if (jsxHandler) {
+    return `${attrs} ${clickAttr}={() => { window.location.href = '${route}' }}`
+  }
+  if (flavor === 'vue') {
+    return `${attrs} @click="window.location.href = '${route}'"`
+  }
+  return `${attrs} onclick="window.location.href='${route}'"`
+}
+
+function removeNavigation(attrs: string, route: string): string {
+  let result = attrs
+
+  // Dự án ASP.NET MVC/Razor: gỡ Tag Helper đang trỏ tới trang này
+  result = removeAspNavigation(result, route)
+
+  const handlerNames = ['onClick', 'onclick', '@click', 'on:click', 'v-on:click']
+
+  for (const name of handlerNames) {
+    const braced = findBracedAttr(result, name)
+    if (braced && handlerHasNavigation(braced.value) && handlerPointsTo(braced.value, route)) {
+      result = result.slice(0, braced.fullStart) + result.slice(braced.fullEnd)
+      continue
+    }
+    const staticH = findStaticAttr(result, name)
+    if (staticH && handlerHasNavigation(staticH.value) && handlerPointsTo(staticH.value, route)) {
+      result = result.slice(0, staticH.fullStart) + result.slice(staticH.fullEnd)
+    }
+  }
+
+  for (const name of ['href', 'to', 'data-route']) {
+    const found = findStaticAttr(result, name)
+    if (found && routeCore(found.value).toLowerCase() === routeCore(route).toLowerCase()) {
+      result = `${result.slice(0, found.fullStart)}${name}="#"${result.slice(found.fullEnd)}`
+    }
+  }
+
+  // Dọn khoảng trắng thừa sau khi bỏ thuộc tính
+  return result.replace(/[ \t]{2,}/g, ' ').replace(/\s+$/, '')
+}
+
+ipcMain.handle(
+  'inspect:sync-nav',
+  async (
+    _e,
+    payload: {
+      projectPath: string
+      currentPath?: string
+      targetRoute: string
+      action: 'link' | 'unlink'
+      textSnippet?: string
+      tagName?: string
+      className?: string
+      id?: string
+    }
+  ) => {
+    try {
+      if (!payload?.projectPath || !payload.targetRoute) {
+        return { success: false, error: 'Thiếu thông tin dự án hoặc trang đích' }
+      }
+
+      const loc = await scanProjectForSource(
+        payload.projectPath,
+        payload.textSnippet,
+        payload.tagName,
+        payload.className,
+        payload.currentPath,
+        payload.id
+      )
+      if (!loc) {
+        return { success: false, error: 'Không tìm thấy tệp mã nguồn chứa nút bấm' }
+      }
+
+      const content = await fs.readFile(loc.fullPath, 'utf8')
+      const tags = collectSourceTags(content)
+      const tag = pickSourceTag(content, tags, payload, loc.lineNumber)
+      if (!tag) {
+        return { success: false, error: 'Không xác định được thẻ chứa nút bấm trong mã nguồn' }
+      }
+
+      const flavor = detectFlavor(loc.fullPath)
+      const attrs = content.slice(tag.attrsStart, tag.attrsEnd)
+      const nextAttrs =
+        payload.action === 'link'
+          ? addNavigation(attrs, tag.name, payload.targetRoute, flavor)
+          : removeNavigation(attrs, payload.targetRoute)
+
+      let finalAttrs = nextAttrs
+      if (finalAttrs === attrs && payload.action === 'unlink') {
+        // Fallback dứt điểm cho thao tác xoá dây: gỡ mọi liên kết điều hướng dù cú pháp biến thể
+        let forced = removeStaticAttr(attrs, 'asp-action')
+        forced = removeStaticAttr(forced, 'asp-controller')
+        forced = removeStaticAttr(forced, 'asp-area')
+        const href = findStaticAttr(forced, 'href')
+        if (href) forced = setStaticAttr(forced, 'href', '#') ?? forced
+        else forced = `${forced.trimEnd()} href="#"`
+        if (forced !== attrs) {
+          finalAttrs = forced
+        }
+      }
+
+      if (finalAttrs === attrs) {
+        return {
+          success: false,
+          error:
+            payload.action === 'link'
+              ? 'Nút bấm đã trỏ tới trang này rồi'
+              : 'Không tìm thấy logic nối trang tương ứng trong mã nguồn',
+        }
+      }
+
+      const nextTag = `<${tag.name}${finalAttrs}>`
+      const updated = content.slice(0, tag.start) + nextTag + content.slice(tag.end)
+      await fs.writeFile(loc.fullPath, updated, 'utf8')
+
+      const lineNumber = updated.slice(0, tag.start).split('\n').length
+      return {
+        success: true,
+        filePath: loc.filePath,
+        lineNumber,
+        oldLine: content.split('\n')[lineNumber - 1]?.trim(),
+        newLine: nextTag.trim(),
+      }
+    } catch (err: unknown) {
+      return { success: false, error: String(err) }
+    }
+  }
+)
+
 /* ───────────────────────── IPC: Design Tokens & Theme Manager (Phân hệ 3) ───────────────────────── */
 
 async function findProjectCssDir(rootDir: string): Promise<string> {

@@ -91,6 +91,23 @@ export interface PixelMindApi {
       tagName?: string
       lineNumber?: number
     }): Promise<{ success: boolean; error?: string; oldLine?: string; newLine?: string }>
+    syncNav(payload: {
+      projectPath: string
+      currentPath?: string
+      targetRoute: string
+      action: 'link' | 'unlink'
+      textSnippet?: string
+      tagName?: string
+      className?: string
+      id?: string
+    }): Promise<{
+      success: boolean
+      error?: string
+      filePath?: string
+      lineNumber?: number
+      oldLine?: string
+      newLine?: string
+    }>
   }
   tokens: {
     get(projectPath: string): Promise<DesignTokens>

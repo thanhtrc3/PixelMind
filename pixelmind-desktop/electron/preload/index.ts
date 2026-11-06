@@ -127,6 +127,16 @@ const api: PixelMindApi = {
       tagName?: string
       lineNumber?: number
     }) => ipcRenderer.invoke('inspect:sync-code', payload),
+    syncNav: (payload: {
+      projectPath: string
+      currentPath?: string
+      targetRoute: string
+      action: 'link' | 'unlink'
+      textSnippet?: string
+      tagName?: string
+      className?: string
+      id?: string
+    }) => ipcRenderer.invoke('inspect:sync-nav', payload),
   },
   tokens: {
     get: (projectPath: string) => ipcRenderer.invoke('tokens:get', projectPath),
