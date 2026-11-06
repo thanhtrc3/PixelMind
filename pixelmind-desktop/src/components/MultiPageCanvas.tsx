@@ -419,17 +419,17 @@ function findMatchingWindow(href: string, text: string, winList: CanvasWin[]): C
   }
 
   // 4. Khớp theo text của nút bấm
-  if (cleanText) {
+  if (cleanText && cleanText.length >= 2) {
     const textMatch = winList.find((w) => {
       if (w.isHome) return false
       const title = w.title.toLowerCase()
       const route = w.route.toLowerCase()
+      if (title === cleanText) return true
       if (title.includes(cleanText) || cleanText.includes(title)) return true
-      if (route.includes(cleanText)) return true
+      if (cleanText.length >= 3 && route.includes(cleanText)) return true
 
       if (
         cleanText.includes('xếp hạng') ||
-        cleanText.includes('bảng') ||
         cleanText.includes('kỳ đài') ||
         cleanText.includes('leaderboard') ||
         cleanText.includes('rank')
@@ -1180,40 +1180,94 @@ export default function MultiPageCanvas({
             return
           }
 
-          const target = (e.target as HTMLElement).closest<HTMLElement>('a, button, [role="button"], [data-route]')
+          const target = (e.target as HTMLElement).closest<HTMLElement>(
+            'a, button, [role="button"], input[type="button"], input[type="submit"], [data-route]'
+          )
           if (!target) return
 
-          const href = (target.getAttribute('href') || target.getAttribute('data-route') || '').trim()
+          const rawHref = (target.getAttribute('href') || target.getAttribute('data-route') || '').trim()
           const text = (target.textContent || '').trim()
+          const targetId = (target.id || '').trim()
 
-          if (href.startsWith('#') && href.length > 1) return
+          if (rawHref.startsWith('#') && rawHref.length > 1) return
 
           e.preventDefault()
           e.stopPropagation()
 
-          // Ưu tiên dây nối hiện có: bấm nút sẽ đi tới đúng trang đã nối,
-          // kể cả khi mã nguồn chưa kịp tải lại sau khi đổi dây.
+          // 1. Tìm anchorKey tương ứng trong matchedElementsRef
           let anchorKey: string | undefined
           matchedElementsRef.current.forEach((value, key) => {
             if (value.parentId !== win.id) return
-            if (value.el === target || value.el.contains(target) || target.contains(value.el)) {
+            if (
+              value.el === target ||
+              value.el.contains(target) ||
+              (target.tagName.toLowerCase() === 'a' && value.el.closest('a') === target)
+            ) {
               anchorKey = key
             }
           })
 
-          const targetClass = target.getAttribute('class') || ''
-          const wired = wiresRef.current.find((w) => {
-            if (w.parentWin.id !== win.id) return false
-            if (anchorKey && w.anchorKey && w.anchorKey === anchorKey) return true
-            const src = w.source
-            if (!src) return false
-            if (src.elementId && target.id && src.elementId === target.id) return true
-            if (src.text && text && src.text === text.slice(0, 30)) return true
-            return Boolean(src.className && targetClass && src.className === targetClass)
-          })
+          const normHref =
+            rawHref && rawHref !== '#' && rawHref !== 'javascript:void(0)'
+              ? normalizeRoute(rawHref.replace(/^https?:\/\/[^/]+/, '')).toLowerCase()
+              : ''
+          const cleanText = text.toLowerCase()
 
-          if (wired) {
-            flyToWindow(wired.targetWin)
+          // 2. Tìm dây nối xuất phát từ nút bấm này: dùng hệ thống điểm số đa tiêu chí để chọn dây chính xác nhất
+          let bestWire: Wire | null = null
+          let bestScore = 0
+
+          for (const w of wiresRef.current) {
+            if (w.parentWin.id !== win.id) continue
+
+            let score = 0
+
+            // Khớp chính xác ID phần tử nếu có
+            if (targetId && w.source?.elementId && targetId === w.source.elementId) {
+              score += 200
+            }
+
+            // Khớp anchorKey hoặc satId với phần tử đã quét
+            if (anchorKey && (w.anchorKey === anchorKey || w.satId === anchorKey)) {
+              score += 160
+            }
+
+            // Khớp route đích của dây với href / data-route của nút
+            if (normHref) {
+              const targetRoute = normalizeRoute(w.targetWin.route).toLowerCase()
+              if (targetRoute === normHref) {
+                score += 140
+              } else if (normHref.endsWith(targetRoute) || targetRoute.endsWith(normHref)) {
+                score += 100
+              } else if (targetRoute.includes(normHref) || normHref.includes(targetRoute)) {
+                score += 70
+              }
+            }
+
+            // Khớp text của nút với text lưu trong dây nguồn hoặc tiêu đề trang đích
+            if (cleanText && cleanText.length >= 2) {
+              const srcText = (w.source?.text || '').trim().toLowerCase()
+              const wireLabel = (w.label || w.targetWin.title || '').trim().toLowerCase()
+              if (srcText && srcText === cleanText) {
+                score += 120
+              } else if (srcText && (srcText.includes(cleanText) || cleanText.includes(srcText))) {
+                score += 80
+              } else if (
+                wireLabel &&
+                (wireLabel === cleanText || wireLabel.includes(cleanText) || cleanText.includes(wireLabel))
+              ) {
+                score += 75
+              }
+            }
+
+            if (score > bestScore) {
+              bestScore = score
+              bestWire = w
+            }
+          }
+
+          if (bestWire && bestScore >= 70) {
+            flyToWindow(bestWire.targetWin)
             return
           }
 
@@ -1221,17 +1275,17 @@ export default function MultiPageCanvas({
           const isExplicitlyUnlinked =
             (anchorKey && hiddenWireIds.has(`wire-${anchorKey}`)) ||
             (anchorKey && unlinkedButtonsRef.current.has(`${win.id}:${anchorKey}`)) ||
-            (text && unlinkedButtonsRef.current.has(`${win.id}:${text}`)) ||
-            (target.id && unlinkedButtonsRef.current.has(`${win.id}:#${target.id}`)) ||
-            href === '#' ||
-            href === 'javascript:void(0)'
+            (cleanText && unlinkedButtonsRef.current.has(`${win.id}:${cleanText}`)) ||
+            (targetId && unlinkedButtonsRef.current.has(`${win.id}:#${targetId}`)) ||
+            rawHref === '#' ||
+            rawHref === 'javascript:void(0)'
 
           if (isExplicitlyUnlinked) {
             // Đã xoá dây liên kết: không thực hiện điều hướng ngầm định
             return
           }
 
-          const targetWin = findMatchingWindow(href, text, windowsRef.current)
+          const targetWin = findMatchingWindow(rawHref, text, windowsRef.current)
           if (targetWin) {
             flyToWindow(targetWin)
           }
@@ -1396,6 +1450,13 @@ export default function MultiPageCanvas({
           })
 
           matchScores.sort((a, b) => b.score - a.score)
+
+          // Dọn dẹp các liên kết cũ của cửa sổ này trước khi lưu liên kết mới
+          for (const [k, v] of matchedElementsRef.current.entries()) {
+            if (v.parentId === win.id) {
+              matchedElementsRef.current.delete(k)
+            }
+          }
 
           const claimedElements = new Set<HTMLElement>()
           const claimedChildren = new Set<string>()
