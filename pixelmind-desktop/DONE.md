@@ -276,3 +276,30 @@ HIỆN TẠI (Chuẩn Modern Desktop App như VS Code / Figma / Cursor):
    - **Kiểm tra chất lượng mã nguồn**:
      - `npm run typecheck`: Hoàn thành không có bất kì lỗi kiểu nào (0 error).
      - `npm run build`: Đóng gói Electron Main, Preload và Renderer hoàn tất thành công 100%.
+
+19. **Hệ Thống Hộp Công Cụ Visual Designer 2.0 (VS2022 Toolbox & Full CRUD Designer Engine)**:
+   - **Cấu trúc Tab Sidebar**:
+     - Tích hợp tab **Hộp công cụ** (`toolbox`) thành tab thứ 7 trên Sidebar trái với phím tắt toàn cục `Ctrl+Alt+X`.
+     - 3 Sub-tab chuyên biệt:
+       1. **Phần tử** (Catalog 60 mục cốt lõi chuẩn MVP phân chia 9 nhóm: Bố cục, Văn bản, Điều hướng, Nút, Biểu mẫu, Dữ liệu, Phản hồi, Marketing, Tiện ích).
+       2. **Linh kiện mẫu** (12 part mẫu trong `/toolbox` với nút "Chèn vào trang" hoạt động thật).
+       3. **Của dự án** (Tự động quét component, Razor partials, class CSS, assets ảnh, và routes từ thư mục dự án).
+   - **Tương tác chuẩn Visual Studio 2022**:
+     - **Kéo thả vào Canvas**: Hiển thị vạch xanh chỉ thị chèn trước/sau có hai điểm neo tròn tinh tế và nhãn tag nổi `⬆️ Chèn trước:` / `⬇️ Chèn sau:`, viền nét đứt màu xanh ngọc phát sáng khi thả vào trong container `📥 Thả vào trong:`.
+     - **Phím tắt & Thao tác nhanh**: Nhấp đúp (Double-click) hoặc nhấn phím `Enter` trên thẻ công cụ để chèn ngay vào trang.
+     - **Menu chuột phải trên công cụ**: Chèn vào trang, Chèn sau phần tử đang chọn, Chèn vào trong container, Sao chép mã HTML, Sao chép mã CSS.
+     - **Header '...'**: Sắp xếp A-Z hoặc theo nhóm, Quét lại dự án, Khôi phục danh mục mặc định.
+   - **Hộp thoại Diff & 3 Lựa Chọn Xác Nhận An Toàn (`MutationDiffDialog`)**:
+     - Hiển thị so sánh Before/After trực quan với số dòng cụ thể trước khi ghi file.
+     - Cung cấp đủ 3 nút hành động:
+       1. **[Ghi vào mã nguồn]**: Tự động sao lưu file vào `.pixelmind/backups/`, ghi đĩa và cập nhật Live DOM.
+       2. **[Chỉ xem trước]**: Cập nhật tức thì trên Live DOM xem trước mà không ghi vào ổ đĩa.
+       3. **[Huỷ]**: Đóng hộp thoại, không thực hiện thay đổi.
+   - **Tab "Thuộc tính" trong Inspector**:
+     - Chỉnh sửa linh hoạt ID, Class, và nội dung văn bản (Text content cho leaf elements).
+     - Phím tắt & thao tác nhanh: Nhân bản (Ctrl+D), Xoá phần tử (Delete), kèm diff và hoàn tác.
+   - **Menu Ngữ Cảnh Chuột Phải Trực Tiếp Trên Canvas (`PM_ELEMENT_CONTEXTMENU`)**:
+     - Nhấp chuột phải vào bất kỳ phần tử nào trên Canvas trong chế độ Soi để mở menu: Nhân bản, Xoá, Sao chép HTML, Sao chép Selector, Chỉnh sửa thuộc tính.
+   - **Bộ Đệm Hoàn Tác RAM Toàn Năng (Undo/Redo Engine - Ctrl+Z / Ctrl+Y)**:
+     - Quản lý các hành động `INSERT`, `DELETE`, `DUPLICATE`, `ATTRS` trong `editorBuffer`.
+     - Khôi phục chính xác cả nội dung tệp mã nguồn lẫn trạng thái DOM trong iframe.

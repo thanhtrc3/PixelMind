@@ -568,6 +568,33 @@ export function createBrowserMock(): PixelMindApi {
         return { success: true, filePath: 'src/styles/variables.css' }
       },
     },
+    toolbox: {
+      async mutate(_payload) {
+        return {
+          success: true,
+          filePath: 'src/App.tsx',
+          fullPath: 'src/App.tsx',
+          oldBlock: '<div>Old</div>',
+          newBlock: '<div>New</div>',
+          startLine: 1,
+          endLine: 1,
+          element: null,
+        }
+      },
+      async writeFile(_payload) {
+        return { success: true }
+      },
+      async scan(_projectPath) {
+        return {
+          success: true,
+          framework: 'html' as const,
+          components: [],
+          classes: [],
+          assets: [],
+          routes: [],
+        }
+      },
+    },
     system: {
       async openExternal(url) {
         window.open(url, '_blank', 'noopener')

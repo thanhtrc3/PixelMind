@@ -12,6 +12,13 @@ import type {
   Settings,
   StoreData,
 } from './types'
+import type {
+  MutationPreview,
+  ProjectScanResult,
+  ToolboxMutationPayload,
+  ToolboxWritePayload,
+  ToolboxWriteResult,
+} from './toolbox'
 
 /** Hợp đồng API mà preload (Electron) và bản giả lập trên trình duyệt cùng cài đặt. */
 export interface PixelMindApi {
@@ -99,6 +106,14 @@ export interface PixelMindApi {
       tokens: DesignTokens
       syncTarget?: 'css' | 'tailwind' | 'both'
     }): Promise<{ success: boolean; filePath?: string; tailwindPath?: string; error?: string }>
+  }
+  toolbox: {
+    /** Xem trước hoặc áp dụng một phép biến đổi phần tử. */
+    mutate(payload: ToolboxMutationPayload): Promise<MutationPreview>
+    /** Ghi đè toàn bộ nội dung tệp (dùng cho Undo/Redo). */
+    writeFile(payload: ToolboxWritePayload): Promise<ToolboxWriteResult>
+    /** Quét component / partial / class / asset / route của dự án. */
+    scan(projectPath: string): Promise<ProjectScanResult>
   }
   window?: {
     minimize: () => Promise<void>

@@ -11,7 +11,7 @@ import {
   Image as ImageIcon,
   Layers,
   LayoutDashboard,
-  Package,
+  Boxes,
   Palette,
   PanelLeft,
   Play,
@@ -974,9 +974,9 @@ const App = () => {
           setSidebarTab('design')
           setIsSidebarOpen(true)
           break
-        case 'tab-parts':
+        case 'tab-toolbox':
           setView('workspace')
-          setSidebarTab('part')
+          setSidebarTab('toolbox')
           setIsSidebarOpen(true)
           break
         case 'save':
@@ -1121,13 +1121,13 @@ const App = () => {
         },
       },
       {
-        id: 'tab-parts',
-        label: 'Thanh bên: Thư viện linh kiện mẫu (Part Library)',
-        icon: Package,
+        id: 'tab-toolbox',
+        label: 'Thanh bên: Hộp công cụ (Phần tử · Linh kiện · Của dự án)',
+        icon: Boxes,
         disabled: !project,
         run: () => {
           setView('workspace')
-          setSidebarTab('part')
+          setSidebarTab('toolbox')
           setIsSidebarOpen(true)
         },
       },

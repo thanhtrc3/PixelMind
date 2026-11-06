@@ -15,6 +15,13 @@ import type {
   StoreData,
 } from '../../shared/types'
 import type { PixelMindApi } from '../../shared/api'
+import type {
+  MutationPreview,
+  ProjectScanResult,
+  ToolboxMutationPayload,
+  ToolboxWritePayload,
+  ToolboxWriteResult,
+} from '../../shared/toolbox'
 
 /* Cß║ºu nß╗æi duy nhß║Ñt giß╗»a renderer v├á main process. Renderer kh├┤ng c├│ quyß╗ün Node. */
 
@@ -132,6 +139,14 @@ const api: PixelMindApi = {
     get: (projectPath: string) => ipcRenderer.invoke('tokens:get', projectPath),
     save: (payload: { projectPath: string; tokens: DesignTokens; syncTarget?: 'css' | 'tailwind' | 'both' }) =>
       ipcRenderer.invoke('tokens:save', payload),
+  },
+  toolbox: {
+    mutate: (payload: ToolboxMutationPayload): Promise<MutationPreview> =>
+      ipcRenderer.invoke('toolbox:mutate', payload),
+    writeFile: (payload: ToolboxWritePayload): Promise<ToolboxWriteResult> =>
+      ipcRenderer.invoke('toolbox:write-file', payload),
+    scan: (projectPath: string): Promise<ProjectScanResult> =>
+      ipcRenderer.invoke('toolbox:scan', projectPath),
   },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),

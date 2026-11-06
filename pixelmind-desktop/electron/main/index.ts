@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import type { MenuItemConstructorOptions } from 'electron'
 import type { DesignTokens, ProjectPage, ProjectRecord, Settings, StoreData } from '../../shared/types'
+import type { ToolboxMutationPayload, ToolboxWritePayload } from '../../shared/toolbox'
 import {
   DEFAULT_DESIGN_TOKENS,
   generateVariablesCss,
@@ -25,6 +26,7 @@ import {
   writeFileContent,
 } from './projects'
 import { RunnerManager } from './runner'
+import { runToolboxMutation, scanProjectToolbox, writeToolboxFile } from './toolbox'
 
 // Tắt Same-Origin Policy & Site Isolation cho iframe trong Electron
 app.commandLine.appendSwitch('disable-web-security')
@@ -898,6 +900,7 @@ function getInspectorScript(isActive: boolean) {
         tagName: el.tagName.toLowerCase(),
         id: el.id || '',
         className: typeof el.className === 'string' ? el.className.trim() : '',
+        outerHTML: el.outerHTML,
         isLeaf: isLeaf,
         childrenCount: el.children.length,
         currentPath: window.location.pathname || '/',
@@ -1031,6 +1034,131 @@ function getInspectorScript(isActive: boolean) {
       return null;
     }
 
+    /* ── Hộp công cụ: tiện ích DOM ── */
+
+    function ensureUid(el) {
+      if (!el || el.nodeType !== 1) return '';
+      if (!el.getAttribute('data-pm-uid')) {
+        el.setAttribute('data-pm-uid', 'pm_' + Math.random().toString(36).slice(2, 9));
+      }
+      return el.getAttribute('data-pm-uid');
+    }
+
+    function uidElements(root) {
+      var uids = [ensureUid(root)];
+      if (root.querySelectorAll) {
+        var all = root.querySelectorAll('*');
+        for (var i = 0; i < all.length; i++) ensureUid(all[i]);
+      }
+      return uids;
+    }
+
+    function insertHtmlNodes(html, targetUid, placement) {
+      var target = targetUid ? document.querySelector('[data-pm-uid="' + targetUid + '"]') : null;
+      if (!target) target = document.body;
+      var wrapper = document.createElement('div');
+      wrapper.innerHTML = html;
+      var nodes = Array.prototype.slice.call(wrapper.childNodes);
+      var parent = target;
+      var reference = null;
+      if (placement === 'before') {
+        parent = target.parentNode || document.body;
+        reference = target;
+      } else if (placement === 'inside') {
+        parent = target;
+        reference = null;
+      } else {
+        parent = target.parentNode || document.body;
+        reference = target.nextSibling;
+      }
+      var index = Array.prototype.indexOf.call(parent.childNodes, reference);
+      if (index < 0) index = parent.childNodes.length;
+      var uids = [];
+      for (var i = 0; i < nodes.length; i++) {
+        var node = nodes[i];
+        parent.insertBefore(node, reference);
+        if (node.nodeType === 1) {
+          uids = uids.concat(uidElements(node));
+        }
+      }
+      return { uids: uids, parentUid: ensureUid(parent), index: index };
+    }
+
+    function insertHtmlAtIndex(html, parentUid, index) {
+      var parent = parentUid ? document.querySelector('[data-pm-uid="' + parentUid + '"]') : document.body;
+      if (!parent) parent = document.body;
+      var wrapper = document.createElement('div');
+      wrapper.innerHTML = html;
+      var nodes = Array.prototype.slice.call(wrapper.childNodes);
+      var reference = parent.childNodes[index] || null;
+      var uids = [];
+      for (var i = 0; i < nodes.length; i++) {
+        var node = nodes[i];
+        parent.insertBefore(node, reference);
+        if (node.nodeType === 1) uids = uids.concat(uidElements(node));
+      }
+      return { uids: uids, parentUid: ensureUid(parent), index: index };
+    }
+
+    function removeByUid(uid) {
+      var el = uid ? document.querySelector('[data-pm-uid="' + uid + '"]') : lastSelected;
+      if (!el || el === document.body || el === document.documentElement) return null;
+      var parent = el.parentElement;
+      if (!parent) return null;
+      var index = Array.prototype.indexOf.call(parent.childNodes, el);
+      var html = el.outerHTML;
+      var parentUid = ensureUid(parent);
+      parent.removeChild(el);
+      return { parentUid: parentUid, index: index, html: html };
+    }
+
+    function applyElementAttrs(uid, attributes, text) {
+      var el = uid ? document.querySelector('[data-pm-uid="' + uid + '"]') : lastSelected;
+      if (!el) return null;
+      if (attributes) {
+        for (var key in attributes) {
+          if (!Object.prototype.hasOwnProperty.call(attributes, key)) continue;
+          var value = attributes[key];
+          if (value === null || value === undefined || value === '') {
+            el.removeAttribute(key);
+          } else {
+            el.setAttribute(key, value);
+          }
+        }
+      }
+      if (typeof text === 'string' && el.children.length === 0) {
+        el.textContent = text;
+      }
+      return extractElementInfo(el);
+    }
+
+    function computeDropPlacement(el, x, y) {
+      var rect = el.getBoundingClientRect();
+      var tag = el.tagName.toUpperCase();
+      var leaf = ['IMG','INPUT','BUTTON','A','H1','H2','H3','H4','H5','H6','P','SPAN','LI','TD','TH','LABEL','TEXTAREA','SELECT'].indexOf(tag) !== -1;
+      if (leaf || el.children.length === 0) {
+        return y > rect.top + rect.height / 2 ? 'after' : 'before';
+      }
+      if (y < rect.top + rect.height * 0.25) return 'before';
+      if (y > rect.top + rect.height * 0.75) return 'after';
+      return 'inside';
+    }
+
+    function hasToolboxDrag(dt) {
+      if (!dt) return false;
+      var types = dt.types || [];
+      for (var i = 0; i < types.length; i++) {
+        if (types[i] === 'application/x-pixelmind-toolbox') return true;
+      }
+      return false;
+    }
+
+    function dropElementAt(x, y) {
+      var el = document.elementFromPoint(x, y);
+      if (!el || el === document.documentElement) el = document.body;
+      return el;
+    }
+
     window.addEventListener('mouseover', function(e) {
       if (!window.__PM_INSPECT_ACTIVE) return;
       var target = e.target;
@@ -1084,6 +1212,24 @@ function getInspectorScript(isActive: boolean) {
       window.parent.postMessage({
         type: 'PM_SELECT_ELEMENT',
         payload: info
+      }, '*');
+    }, true);
+
+    window.addEventListener('contextmenu', function(e) {
+      if (!window.__PM_INSPECT_ACTIVE) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var target = e.target;
+      if (!target || target === document.documentElement) target = document.body;
+      lastSelected = target;
+      var info = extractElementInfo(target);
+      window.parent.postMessage({
+        type: 'PM_ELEMENT_CONTEXTMENU',
+        payload: {
+          info: info,
+          clientX: e.clientX,
+          clientY: e.clientY
+        }
       }, '*');
     }, true);
 
@@ -1380,6 +1526,88 @@ function getInspectorScript(isActive: boolean) {
             message: 'Đã chuyển <' + dragEl.tagName.toLowerCase() + '> vào <' + newParentTag + '>, phân cấp phần tử đã cập nhật!'
           }, '*');
         }
+      } else if (e.data.type === 'PM_TOOLBOX_INSERT') {
+        var insertPayload = e.data.payload || {};
+        var insertResult = insertHtmlNodes(
+          insertPayload.html || '',
+          insertPayload.targetUid,
+          insertPayload.placement || 'after'
+        );
+        sendDomTree();
+        window.parent.postMessage({
+          type: 'PM_TOOLBOX_DOM_RESULT',
+          requestId: e.data.requestId,
+          action: 'insert',
+          result: insertResult
+        }, '*');
+      } else if (e.data.type === 'PM_TOOLBOX_DELETE') {
+        var deleteResult = removeByUid(e.data.uid);
+        sendDomTree();
+        window.parent.postMessage({
+          type: 'PM_TOOLBOX_DOM_RESULT',
+          requestId: e.data.requestId,
+          action: 'delete',
+          result: deleteResult
+        }, '*');
+      } else if (e.data.type === 'PM_TOOLBOX_DUPLICATE') {
+        var dupEl = e.data.uid ? document.querySelector('[data-pm-uid="' + e.data.uid + '"]') : lastSelected;
+        var dupResult = null;
+        if (dupEl && dupEl.parentNode) {
+          var clone = dupEl.cloneNode(true);
+          clone.removeAttribute('data-pm-uid');
+          var dupUids = uidElements(clone);
+          dupEl.parentNode.insertBefore(clone, dupEl.nextSibling);
+          dupResult = {
+            uids: dupUids,
+            parentUid: ensureUid(dupEl.parentNode),
+            index: Array.prototype.indexOf.call(dupEl.parentNode.childNodes, clone),
+            html: clone.outerHTML
+          };
+        }
+        sendDomTree();
+        window.parent.postMessage({
+          type: 'PM_TOOLBOX_DOM_RESULT',
+          requestId: e.data.requestId,
+          action: 'duplicate',
+          result: dupResult
+        }, '*');
+      } else if (e.data.type === 'PM_TOOLBOX_ATTRS' || e.data.type === 'PM_TOOLBOX_DOM_ATTRS') {
+        var attrInfo = applyElementAttrs(e.data.uid, e.data.attributes, e.data.text);
+        sendDomTree();
+        window.parent.postMessage({
+          type: 'PM_TOOLBOX_DOM_RESULT',
+          requestId: e.data.requestId,
+          action: 'attributes',
+          info: attrInfo
+        }, '*');
+      } else if (e.data.type === 'PM_TOOLBOX_DOM_INSERT') {
+        var reinsertResult = insertHtmlAtIndex(e.data.html || '', e.data.parentUid, e.data.index);
+        sendDomTree();
+        window.parent.postMessage({
+          type: 'PM_TOOLBOX_DOM_RESULT',
+          requestId: e.data.requestId,
+          action: 'dom-insert',
+          result: reinsertResult
+        }, '*');
+      } else if (e.data.type === 'PM_TOOLBOX_DOM_REMOVE') {
+        var removeUids = e.data.uids || [];
+        for (var ri = 0; ri < removeUids.length; ri++) {
+          removeByUid(removeUids[ri]);
+        }
+        sendDomTree();
+        window.parent.postMessage({
+          type: 'PM_TOOLBOX_DOM_RESULT',
+          requestId: e.data.requestId,
+          action: 'dom-remove'
+        }, '*');
+      } else if (e.data.type === 'PM_TOOLBOX_GET_INFO') {
+        var infoEl = e.data.uid ? document.querySelector('[data-pm-uid="' + e.data.uid + '"]') : document.body;
+        window.parent.postMessage({
+          type: 'PM_TOOLBOX_DOM_RESULT',
+          requestId: e.data.requestId,
+          action: 'info',
+          info: infoEl ? extractElementInfo(infoEl) : null
+        }, '*');
       }
     });
 
@@ -1514,25 +1742,81 @@ function getInspectorScript(isActive: boolean) {
       } catch (err) {}
     }
 
+    /* ── Hộp công cụ: nhận kéo-thả từ panel bên trái ── */
+
+    document.addEventListener('dragover', function(e) {
+      if (!hasToolboxDrag(e.dataTransfer)) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'copy'; } catch (err) {}
+      var el = dropElementAt(e.clientX, e.clientY);
+      var rect = el.getBoundingClientRect();
+      var firstCls = (typeof el.className === 'string' && el.className.trim())
+        ? el.className.trim().split(/\s+/)[0]
+        : '';
+      window.parent.postMessage({
+        type: 'PM_TOOLBOX_DROP_HOVER',
+        payload: {
+          uid: ensureUid(el),
+          tagName: el.tagName.toLowerCase(),
+          tag: el.tagName.toLowerCase() + (el.id ? '#' + el.id : (firstCls ? '.' + firstCls : '')),
+          placement: computeDropPlacement(el, e.clientX, e.clientY),
+          rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+        }
+      }, '*');
+    }, true);
+
+    document.addEventListener('dragleave', function(e) {
+      if (!hasToolboxDrag(e.dataTransfer)) return;
+      if (e.relatedTarget) return;
+      window.parent.postMessage({ type: 'PM_TOOLBOX_DROP_HOVER', payload: null }, '*');
+    }, true);
+
+    document.addEventListener('drop', function(e) {
+      if (!hasToolboxDrag(e.dataTransfer)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var el = dropElementAt(e.clientX, e.clientY);
+      window.parent.postMessage({
+        type: 'PM_TOOLBOX_DROP',
+        payload: {
+          targetUid: ensureUid(el),
+          targetTag: el.tagName.toLowerCase(),
+          placement: computeDropPlacement(el, e.clientX, e.clientY)
+        }
+      }, '*');
+      window.parent.postMessage({ type: 'PM_TOOLBOX_DROP_HOVER', payload: null }, '*');
+    }, true);
+
     // Chuyển tiếp phím tắt Ctrl+Z (Undo), Ctrl+Y (Redo), Ctrl+S (Save) từ iframe lên PixelMind
     window.addEventListener('keydown', function(e) {
       var isZ = e.key === 'z' || e.key === 'Z';
       var isY = e.key === 'y' || e.key === 'Y';
       var isS = e.key === 's' || e.key === 'S';
-      if ((e.ctrlKey || e.metaKey) && (isZ || isY || isS)) {
-        var target = e.target;
-        var isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-        if (!isInput) {
-          e.preventDefault();
-          window.parent.postMessage({
-            type: 'PM_KEYBOARD_SHORTCUT',
-            payload: {
-              key: e.key.toLowerCase(),
-              ctrlKey: e.ctrlKey || e.metaKey,
-              shiftKey: e.shiftKey
-            }
-          }, '*');
-        }
+      var isD = e.key === 'd' || e.key === 'D';
+      var isDelete = e.key === 'Delete' || e.key === 'Backspace';
+      var target = e.target;
+      var isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if (isInput) return;
+      if ((e.ctrlKey || e.metaKey) && (isZ || isY || isS || isD)) {
+        e.preventDefault();
+        window.parent.postMessage({
+          type: 'PM_KEYBOARD_SHORTCUT',
+          payload: {
+            key: e.key.toLowerCase(),
+            ctrlKey: e.ctrlKey || e.metaKey,
+            shiftKey: e.shiftKey
+          }
+        }, '*');
+      } else if (isDelete && !e.ctrlKey && !e.metaKey && window.__PM_INSPECT_ACTIVE) {
+        e.preventDefault();
+        window.parent.postMessage({
+          type: 'PM_KEYBOARD_SHORTCUT',
+          payload: {
+            key: e.key.toLowerCase(),
+            ctrlKey: false,
+            shiftKey: e.shiftKey
+          }
+        }, '*');
       }
     });
 
@@ -1854,6 +2138,40 @@ ipcMain.handle(
     return await scanProjectForSource(projectPath, textSnippet, tagName, className, currentPath, id, selector)
   }
 )
+
+/* ───────────────────────── IPC: Toolbox (Hộp công cụ) ───────────────────────── */
+
+ipcMain.handle('toolbox:mutate', async (_e, payload: ToolboxMutationPayload) => {
+  try {
+    return await runToolboxMutation(payload)
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+})
+
+ipcMain.handle('toolbox:write-file', async (_e, payload: ToolboxWritePayload) => {
+  try {
+    return await writeToolboxFile(payload)
+  } catch (error) {
+    return { success: false, error: (error as Error).message }
+  }
+})
+
+ipcMain.handle('toolbox:scan', async (_e, projectPath: string) => {
+  try {
+    return await scanProjectToolbox(projectPath)
+  } catch (error) {
+    return {
+      success: false,
+      error: (error as Error).message,
+      framework: 'unknown',
+      components: [],
+      classes: [],
+      assets: [],
+      routes: [],
+    }
+  }
+})
 
 function camelToKebabCase(str: string): string {
   return str.replace(/([a-z0-9]|(?=[A-Z]))([A-Z])/g, '$1-$2').toLowerCase()
