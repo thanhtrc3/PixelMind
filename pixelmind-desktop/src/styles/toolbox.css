@@ -514,6 +514,9 @@
 }
 
 .pm-toolbox-section {
+  /* Không co lại theo chiều cao: nếu thiếu, các nhóm bị ép nhỏ và cắt cụt
+     danh sách (Component/Partial chỉ còn 1 dòng, Class CSS bị đè lên nhóm sau). */
+  flex: 0 0 auto;
   border: 1px solid var(--line);
   border-radius: var(--r-md, 6px);
   overflow: hidden;
