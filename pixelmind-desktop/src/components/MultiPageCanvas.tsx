@@ -2244,6 +2244,11 @@ export default function MultiPageCanvas({
                         opacity: isSelected ? 1 : isHovered ? 1 : 0.85,
                       }}
                     />
+
+                    {/* Hạt ánh sáng chuyển động dọc dây nối */}
+                    <circle r={isHovered ? 4.5 : 3} fill={wire.color} className="pm-multi-particle">
+                      <animateMotion dur={isHovered ? '2s' : '3.5s'} repeatCount="indefinite" path={wire.pathD} />
+                    </circle>
                   </g>
                 )
               })}

@@ -239,6 +239,13 @@
   filter: drop-shadow(0 0 7px currentColor) drop-shadow(0 0 16px currentColor) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.95));
 }
 
+/* Hạt ánh sáng chuyển động dọc theo dây nối */
+.pm-multi-particle {
+  pointer-events: none;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+}
+
 /* Điểm ghim xuất phát trên nút bấm Trang chủ (Chấm phát sáng tinh tế tại nút bấm) */
 .pm-multi-pin {
   position: absolute;
@@ -258,6 +265,7 @@
   border-radius: 50%;
   background: currentColor;
   box-shadow: 0 0 10px currentColor, 0 0 0 2px rgba(11, 15, 25, 0.95);
+  animation: pm-pulse-dot 1.8s infinite ease-in-out;
   transition: transform 120ms ease;
 }
 
@@ -673,7 +681,6 @@
   outline-offset: 4px;
   box-shadow: 0 0 0 7px rgba(34, 197, 94, 0.22), 0 18px 40px rgba(0, 0, 0, 0.55);
 }
-
 .pm-multi-controls .zoom-text {
   font-size: 11px;
   font-family: var(--font-mono, monospace);

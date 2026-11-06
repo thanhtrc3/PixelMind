@@ -20,6 +20,7 @@ import {
   ExternalLink,
   Globe,
   Hand,
+  Hash,
   Info,
   Layers,
   Maximize2,
@@ -40,6 +41,7 @@ import {
   Palette,
   Square,
   Tablet,
+  Trash2,
   Type,
   X,
   ZoomIn,
@@ -50,8 +52,16 @@ import {
 import type { ParsedError } from '../lib/errorParser'
 import VisualErrorCard from './VisualErrorCard'
 import DesignTokensDialog from './DesignTokensDialog'
+import MutationDiffDialog from './MutationDiffDialog'
 import type { DesignTokens, ProjectPage } from '@shared/types'
-import { editorBuffer, type ActionType, type ElementSnapshot } from '../lib/editorBuffer'
+import type {
+  InsertPlacement,
+  MutationPreview,
+  ToolboxMutationPayload,
+} from '@shared/toolbox'
+import { editorBuffer, type ActionType, type DomMutationRecord, type ElementSnapshot } from '../lib/editorBuffer'
+import { onToolboxInsert, takePendingToolboxInsert, toolboxDrag } from '../lib/toolboxBridge'
+import type { ToolboxDragItem } from '../lib/toolboxBridge'
 import { PencilFillIcon } from './PanelIcons'
 import MultiPageCanvas from './MultiPageCanvas'
 
@@ -130,6 +140,7 @@ export interface RealElementInfo {
   tagName: string
   id: string
   className: string
+  outerHTML?: string
   isLeaf?: boolean
   childrenCount?: number
   currentPath?: string
@@ -292,7 +303,7 @@ const CanvasArea = ({
   const sidebarDragRef = useRef({ startX: 0, startWidth: 380 })
 
   // Phân hệ 2: Tabs & Two-Way Code Sync & Modified Styles
-  const [inspectorTab, setInspectorTab] = useState<'design' | 'code'>('design')
+  const [inspectorTab, setInspectorTab] = useState<'design' | 'code' | 'attrs'>('design')
   const [modifiedStyles, setModifiedStyles] = useState<Record<string, string>>({})
   const [isMovingEl, setIsMovingEl] = useState(false)
   const [dropTargetHover, setDropTargetHover] = useState<{
@@ -301,6 +312,39 @@ const CanvasArea = ({
     tag: string
     rect: { top: number; left: number; width: number; height: number }
   } | null>(null)
+
+  // ─── HỘP CÔNG CỤ: kéo-thả, diff & thuộc tính ───
+  const [toolboxDropHover, setToolboxDropHover] = useState<{
+    uid: string
+    tagName: string
+    tag: string
+    placement: InsertPlacement
+    rect: { top: number; left: number; width: number; height: number }
+  } | null>(null)
+  const [canvasContextMenu, setCanvasContextMenu] = useState<{
+    x: number
+    y: number
+    info: RealElementInfo
+  } | null>(null)
+  const [pendingMutation, setPendingMutation] = useState<{
+    payload: ToolboxMutationPayload
+    preview: MutationPreview
+    title: string
+    subtitle?: string
+    mode: 'insert' | 'delete' | 'duplicate' | 'attributes'
+    domHtml?: string
+    targetUid?: string
+    placement?: InsertPlacement
+    attrsBefore?: Record<string, string | null>
+    attrsAfter?: Record<string, string | null>
+    textBefore?: string
+    textAfter?: string
+  } | null>(null)
+  const [mutationBusy, setMutationBusy] = useState(false)
+  const [attrsDraft, setAttrsDraft] = useState({ id: '', className: '', text: '' })
+  const toolboxRequestsRef = useRef<Map<string, (data: any) => void>>(new Map())
+  const isInsertingRef = useRef(false)
+  const lastInsertTimeRef = useRef(0)
   const [isDirtyBuffer, setIsDirtyBuffer] = useState(editorBuffer.isDirty())
   const initialTextRef = useRef<string>('')
   const currentRouteRef = useRef<string>('/')
@@ -457,9 +501,12 @@ const CanvasArea = ({
   // Lắng nghe phím tắt bàn phím
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+      const target = e.target as HTMLElement | null
+      if (target && (['INPUT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable)) {
         return
       }
+      // Không xử lý phím tắt khi đang mở hộp thoại (diff, tokens, v.v.)
+      const hasDialog = Boolean(document.querySelector('.pm-overlay'))
 
       // Phím tắt toàn cục: Hoàn tác (Ctrl+Z), Làm lại (Ctrl+Y hoặc Ctrl+Shift+Z), Lưu (Ctrl+S)
       if (e.ctrlKey || e.metaKey) {
@@ -482,6 +529,19 @@ const CanvasArea = ({
           editorBuffer.saveAllDirtyFiles(showToast)
           return
         }
+        if (e.key === 'd' || e.key === 'D') {
+          if (selectedEl && !pendingMutation && !hasDialog) {
+            e.preventDefault()
+            void beginToolboxDuplicate()
+          }
+          return
+        }
+      }
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEl && !pendingMutation && !hasDialog) {
+        e.preventDefault()
+        void beginToolboxDelete()
+        return
       }
 
       if (e.code === 'Space' && !e.repeat) {
@@ -535,7 +595,7 @@ const CanvasArea = ({
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [isInspectMode, selectedEl, zoomToFit, showToast])
+  }, [isInspectMode, selectedEl, zoomToFit, showToast, sourceLoc?.fullPath, projectPath, pendingMutation])
 
   // Xử lý zoom bằng bánh lăn chuột (Ctrl + Wheel)
   const handleWheel = (e: React.WheelEvent) => {
@@ -622,20 +682,57 @@ const CanvasArea = ({
           }
         }
       } else if (e.data.type === 'PM_KEYBOARD_SHORTCUT') {
-        const { key, shiftKey } = e.data.payload || {}
+        const { key, shiftKey, ctrlKey } = e.data.payload || {}
         if (key === 's') {
           editorBuffer.saveAllDirtyFiles(showToast)
         } else if (key === 'z' && !shiftKey) {
           if (editorBuffer.canUndo()) editorBuffer.undo()
         } else if (key === 'y' || (key === 'z' && shiftKey)) {
           if (editorBuffer.canRedo()) editorBuffer.redo()
+        } else if (key === 'delete' || key === 'backspace') {
+          void beginToolboxDelete()
+        } else if (key === 'd' && ctrlKey) {
+          void beginToolboxDuplicate()
+        }
+      } else if (e.data.type === 'PM_TOOLBOX_DOM_RESULT') {
+        const resolver = toolboxRequestsRef.current.get(e.data.requestId)
+        if (resolver) {
+          toolboxRequestsRef.current.delete(e.data.requestId)
+          resolver(e.data)
+        }
+      } else if (e.data.type === 'PM_TOOLBOX_DROP_HOVER') {
+        setToolboxDropHover(e.data.payload || null)
+      } else if (e.data.type === 'PM_TOOLBOX_DROP') {
+        const item = toolboxDrag.current()
+        if (item) {
+          toolboxDrag.end()
+          void beginToolboxInsert(item, {
+            targetUid: e.data.payload?.targetUid,
+            placement: e.data.payload?.placement,
+          })
+        }
+      } else if (e.data.type === 'PM_ELEMENT_CONTEXTMENU') {
+        const payload = e.data.payload
+        if (payload?.info) {
+          setSelectedEl(payload.info)
+          setCanvasContextMenu({
+            x: payload.clientX,
+            y: payload.clientY,
+            info: payload.info,
+          })
         }
       }
     }
 
     window.addEventListener('message', handleWindowMessage)
     return () => window.removeEventListener('message', handleWindowMessage)
-  }, [isInspectMode, selectedEl, originalStyles, showToast])
+  }, [isInspectMode, selectedEl, originalStyles, showToast, sourceLoc?.fullPath, projectPath])
+
+  useEffect(() => {
+    const handleDismissMenu = () => setCanvasContextMenu(null)
+    window.addEventListener('click', handleDismissMenu)
+    return () => window.removeEventListener('click', handleDismissMenu)
+  }, [])
 
   // Đồng bộ trạng thái inspect mode xuống Electron main process và iframe
   useEffect(() => {
@@ -665,6 +762,42 @@ const CanvasArea = ({
   // Đăng ký bộ xử lý phản chiếu Undo/Redo lên DOM thật trong iframe
   useEffect(() => {
     const unsub = editorBuffer.onApplyHistory((action, isUndo) => {
+      // ── Thao tác Hộp công cụ: phản chiếu bằng DOM op thay vì style delta ──
+      if (action.dom) {
+        const dom = action.dom
+        if (dom.kind === 'insert' || dom.kind === 'duplicate') {
+          if (isUndo) {
+            void sendToolboxMessage('PM_TOOLBOX_DOM_REMOVE', { uids: dom.uids || [] })
+          } else {
+            void sendToolboxMessage('PM_TOOLBOX_DOM_INSERT', {
+              parentUid: dom.parentUid,
+              index: dom.index,
+              html: dom.html,
+            }).then((data) => {
+              if (data?.result?.uids) dom.uids = data.result.uids
+            })
+          }
+        } else if (dom.kind === 'delete') {
+          if (isUndo) {
+            void sendToolboxMessage('PM_TOOLBOX_DOM_INSERT', {
+              parentUid: dom.parentUid,
+              index: dom.index,
+              html: dom.html,
+            })
+          } else {
+            void sendToolboxMessage('PM_TOOLBOX_DOM_REMOVE', { uids: dom.uids || [] })
+          }
+        } else if (dom.kind === 'attributes') {
+          void sendToolboxMessage('PM_TOOLBOX_DOM_ATTRS', {
+            uid: dom.targetUid,
+            attributes: isUndo ? dom.attributesBefore : dom.attributesAfter,
+            text: isUndo ? dom.textBefore : dom.textAfter,
+          })
+        }
+        showToast(isUndo ? `↶ Hoàn tác: ${action.description}` : `↷ Làm lại: ${action.description}`)
+        return
+      }
+
       // 1. Chỉ lấy đúng các thuộc tính style delta thực tế thay vì áp đặt cả 50 computed styles
       const delta = action.deltaStyles || {}
       const deltaKeys = Object.keys(delta)
@@ -1222,6 +1355,586 @@ const CanvasArea = ({
     }
   }
 
+  // ─── HỘP CÔNG CỤ: CẦU NỐI DOM ↔ MÃ NGUỒN ───
+  const sendToolboxMessage = useCallback(
+    (type: string, payload: Record<string, unknown> = {}, timeout = 2500): Promise<any> => {
+      return new Promise((resolve) => {
+        const win = iframeRef.current?.contentWindow
+        if (!win) {
+          resolve(null)
+          return
+        }
+        const requestId = `tb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+        toolboxRequestsRef.current.set(requestId, resolve)
+        try {
+          win.postMessage({ type, requestId, payload, ...payload }, '*')
+        } catch {
+          toolboxRequestsRef.current.delete(requestId)
+          resolve(null)
+          return
+        }
+        window.setTimeout(() => {
+          if (toolboxRequestsRef.current.has(requestId)) {
+            toolboxRequestsRef.current.delete(requestId)
+            resolve(null)
+          }
+        }, timeout)
+      })
+    },
+    [],
+  )
+
+  const buildTarget = useCallback(
+    (info: RealElementInfo | null, placement?: InsertPlacement) => ({
+      uid: info?.uid,
+      tagName: info?.tagName,
+      id: info?.id,
+      className: info?.className,
+      textSnippet: info?.textSnippet,
+      domPath: info?.domPath,
+      selector: info?.selector,
+      currentPath: info?.currentPath || currentRouteRef.current,
+      fullPath: info?.uid && info.uid === selectedEl?.uid ? sourceLoc?.fullPath : undefined,
+      lineNumber: info?.uid && info.uid === selectedEl?.uid ? sourceLoc?.lineNumber : undefined,
+      placement,
+    }),
+    [selectedEl?.uid, sourceLoc?.fullPath, sourceLoc?.lineNumber],
+  )
+
+  const beginToolboxInsert = useCallback(
+    async (item: ToolboxDragItem, target?: { targetUid?: string; placement?: InsertPlacement }) => {
+      if (!projectPath) {
+        showToast('Hãy mở một dự án trước khi chèn phần tử.', 'err')
+        return
+      }
+
+      // Ngăn chặn các sự kiện chèn lặp lại (debounce 500ms)
+      const now = Date.now()
+      if (isInsertingRef.current || (now - lastInsertTimeRef.current < 500)) {
+        return
+      }
+      isInsertingRef.current = true
+      lastInsertTimeRef.current = now
+      toolboxDrag.end()
+
+      try {
+        let info: RealElementInfo | null = selectedEl
+        const targetUid = target?.targetUid || selectedEl?.uid || 'pm_body'
+        const placement = target?.placement || (selectedEl ? 'after' : 'inside')
+
+        if (targetUid && targetUid !== info?.uid) {
+          const data = await sendToolboxMessage('PM_TOOLBOX_GET_INFO', { uid: targetUid })
+          if (data?.info) info = data.info as RealElementInfo
+        }
+
+        // Tự động định vị tệp và dòng mã nguồn của phần tử mục tiêu
+        let resolvedFullPath = info?.uid && info.uid === selectedEl?.uid ? sourceLoc?.fullPath : undefined
+        let resolvedLineNumber = info?.uid && info.uid === selectedEl?.uid ? sourceLoc?.lineNumber : undefined
+
+        if (!resolvedFullPath && info && api?.inspect?.locateSource) {
+          try {
+            const loc = await api.inspect.locateSource({
+              projectPath,
+              textSnippet: info.textSnippet,
+              tagName: info.tagName,
+              className: info.className,
+              currentPath: info.currentPath || currentRouteRef.current,
+              id: info.id,
+              selector: info.selector,
+            })
+            if (loc?.fullPath) {
+              resolvedFullPath = loc.fullPath
+              resolvedLineNumber = loc.lineNumber
+            }
+          } catch {}
+        }
+
+        const targetObj = {
+          ...buildTarget(info, placement),
+          fullPath: resolvedFullPath,
+          lineNumber: resolvedLineNumber,
+        }
+
+        const domHtml = item.css
+          ? `${item.html}\n<style data-pm-toolbox>${item.css}</style>`
+          : item.html
+
+        // 1. Chèn ngay lập tức vào Live DOM trong iframe (hiển thị lập tức tại vị trí kéo thả, không cần tải lại)
+        const domData = await sendToolboxMessage('PM_TOOLBOX_INSERT', {
+          html: domHtml || '',
+          targetUid,
+          placement,
+        })
+        const r = domData?.result
+
+        // 2. Tự động ghi đồng bộ vào mã nguồn tệp tương ứng trên ổ đĩa
+        let writeResult: any = null
+        try {
+          writeResult = await api.toolbox.mutate({
+            kind: 'insert',
+            projectPath,
+            target: targetObj,
+            html: item.html,
+            css: item.css,
+            dryRun: false,
+          })
+        } catch (err) {
+          console.warn('Lỗi ghi mã nguồn khi chèn công cụ:', err)
+        }
+
+        // 3. Đưa vào bộ đệm hoàn tác (Ctrl+Z / Ctrl+Y)
+        editorBuffer.pushAction({
+          type: 'INSERT',
+          description: `Chèn ${item.name}`,
+          target: {
+            tagName: targetObj.tagName || 'div',
+            id: targetObj.id,
+            className: targetObj.className,
+            domPath: targetObj.domPath,
+            uid: targetObj.uid,
+            selector: targetObj.selector,
+            textSnippet: targetObj.textSnippet,
+          },
+          sourceLoc: writeResult?.fullPath
+            ? {
+                filePath: writeResult.filePath || '',
+                fullPath: writeResult.fullPath,
+                lineNumber: writeResult.startLine || 1,
+              }
+            : (resolvedFullPath
+                ? {
+                    filePath: writeResult?.filePath || '',
+                    fullPath: resolvedFullPath,
+                    lineNumber: resolvedLineNumber || 1,
+                  }
+                : undefined),
+          before: { styles: {} },
+          after: { styles: {} },
+          dom: {
+            kind: 'insert',
+            parentUid: r?.parentUid,
+            index: r?.index,
+            uids: r?.uids || [],
+            html: domHtml,
+          },
+          fileBefore: writeResult?.oldText,
+          fileAfter: writeResult?.newText,
+          projectPath,
+        })
+
+        showToast(`Đã chèn “${item.name}” vào trang (Ctrl+Z để hoàn tác)`, 'ok')
+      } finally {
+        window.setTimeout(() => {
+          isInsertingRef.current = false
+        }, 400)
+      }
+    },
+    [projectPath, selectedEl, sourceLoc, buildTarget, sendToolboxMessage, showToast],
+  )
+
+  const beginToolboxDelete = useCallback(async () => {
+    if (!projectPath || !selectedEl) {
+      showToast('Chọn một phần tử trên canvas trước.', 'info')
+      return
+    }
+    const payload: ToolboxMutationPayload = {
+      kind: 'delete',
+      projectPath,
+      target: buildTarget(selectedEl),
+      dryRun: true,
+    }
+    try {
+      const preview = await api.toolbox.mutate(payload)
+      if (!preview.success) {
+        showToast(preview.error || 'Không thể xoá phần tử.', 'err')
+        return
+      }
+      setPendingMutation({
+        payload,
+        preview,
+        title: `Xoá <${selectedEl.tagName.toLowerCase()}>`,
+        subtitle: 'Phần tử sẽ bị xoá khỏi cả canvas lẫn mã nguồn. Có thể hoàn tác bằng Ctrl+Z.',
+        mode: 'delete',
+        targetUid: selectedEl.uid,
+      })
+    } catch {
+      showToast('Không thể tạo bản xem trước.', 'err')
+    }
+  }, [projectPath, selectedEl, sourceLoc, buildTarget, showToast])
+
+  const beginToolboxDuplicate = useCallback(async () => {
+    if (!projectPath || !selectedEl) {
+      showToast('Chọn một phần tử trên canvas trước.', 'info')
+      return
+    }
+    const payload: ToolboxMutationPayload = {
+      kind: 'duplicate',
+      projectPath,
+      target: buildTarget(selectedEl),
+      dryRun: true,
+    }
+    try {
+      const preview = await api.toolbox.mutate(payload)
+      if (!preview.success) {
+        showToast(preview.error || 'Không thể nhân bản phần tử.', 'err')
+        return
+      }
+      setPendingMutation({
+        payload,
+        preview,
+        title: `Nhân bản <${selectedEl.tagName.toLowerCase()}>`,
+        subtitle: 'Một bản sao sẽ được thêm ngay sau phần tử đang chọn.',
+        mode: 'duplicate',
+        targetUid: selectedEl.uid,
+      })
+    } catch {
+      showToast('Không thể tạo bản xem trước.', 'err')
+    }
+  }, [projectPath, selectedEl, sourceLoc, buildTarget, showToast])
+
+  const beginToolboxAttributes = useCallback(async () => {
+    if (!projectPath || !selectedEl) {
+      showToast('Chọn một phần tử trên canvas trước.', 'info')
+      return
+    }
+
+    const attributes: Record<string, string | null> = {}
+    const before: Record<string, string | null> = {}
+    const after: Record<string, string | null> = {}
+
+    const nextId = attrsDraft.id.trim()
+    const nextClass = attrsDraft.className.trim()
+    if (nextId !== (selectedEl.id || '')) {
+      attributes.id = nextId || null
+      before.id = selectedEl.id || null
+      after.id = nextId || null
+    }
+    if (nextClass !== (selectedEl.className || '')) {
+      attributes.class = nextClass || null
+      before.class = selectedEl.className || null
+      after.class = nextClass || null
+    }
+
+    const textChanged = Boolean(selectedEl.isLeaf) && attrsDraft.text !== selectedEl.textSnippet
+    if (Object.keys(attributes).length === 0 && !textChanged) {
+      showToast('Chưa có thay đổi thuộc tính nào.', 'info')
+      return
+    }
+
+    const payload: ToolboxMutationPayload = {
+      kind: 'attributes',
+      projectPath,
+      target: buildTarget(selectedEl),
+      attributes,
+      text: textChanged ? attrsDraft.text : undefined,
+      dryRun: true,
+    }
+
+    try {
+      const preview = await api.toolbox.mutate(payload)
+      if (!preview.success) {
+        showToast(preview.error || 'Không thể sửa thuộc tính.', 'err')
+        return
+      }
+      setPendingMutation({
+        payload,
+        preview,
+        title: `Sửa thuộc tính <${selectedEl.tagName.toLowerCase()}>`,
+        subtitle: 'Chỉ các thuộc tính thay đổi mới được ghi vào mã nguồn.',
+        mode: 'attributes',
+        targetUid: selectedEl.uid,
+        attrsBefore: before,
+        attrsAfter: after,
+        textBefore: selectedEl.textSnippet,
+        textAfter: textChanged ? attrsDraft.text : undefined,
+      })
+    } catch {
+      showToast('Không thể tạo bản xem trước.', 'err')
+    }
+  }, [projectPath, selectedEl, sourceLoc, attrsDraft, buildTarget, showToast])
+
+  const applyPendingMutation = useCallback(async () => {
+    if (!pendingMutation) return
+    setMutationBusy(true)
+    try {
+      const {
+        payload,
+        mode,
+        domHtml,
+        targetUid,
+        placement,
+        attrsBefore,
+        attrsAfter,
+        textBefore,
+        textAfter,
+        preview,
+      } = pendingMutation
+
+      const result = await api.toolbox.mutate({ ...payload, dryRun: false })
+      if (!result.success) {
+        showToast(result.error || 'Không ghi được mã nguồn.', 'err')
+        return
+      }
+
+      let dom: DomMutationRecord | undefined
+      if (mode === 'insert') {
+        const data = await sendToolboxMessage('PM_TOOLBOX_INSERT', {
+          html: domHtml || '',
+          targetUid,
+          placement,
+        })
+        const r = data?.result
+        dom = {
+          kind: 'insert',
+          parentUid: r?.parentUid,
+          index: r?.index,
+          uids: r?.uids || [],
+          html: domHtml,
+        }
+        if (r?.uids?.[0] && iframeRef.current?.contentWindow) {
+          iframeRef.current.contentWindow.postMessage({ type: 'PM_SELECT_BY_UID', uid: r.uids[0] }, '*')
+        }
+      } else if (mode === 'duplicate') {
+        const data = await sendToolboxMessage('PM_TOOLBOX_DUPLICATE', { uid: targetUid })
+        const r = data?.result
+        dom = {
+          kind: 'duplicate',
+          parentUid: r?.parentUid,
+          index: r?.index,
+          uids: r?.uids || [],
+          html: r?.html,
+        }
+      } else if (mode === 'delete') {
+        const data = await sendToolboxMessage('PM_TOOLBOX_DELETE', { uid: targetUid })
+        const r = data?.result
+        dom = {
+          kind: 'delete',
+          parentUid: r?.parentUid,
+          index: r?.index,
+          html: r?.html,
+          uids: targetUid ? [targetUid] : [],
+        }
+      } else {
+        const data = await sendToolboxMessage('PM_TOOLBOX_ATTRS', {
+          uid: targetUid,
+          attributes: attrsAfter,
+          text: textAfter,
+        })
+        dom = {
+          kind: 'attributes',
+          targetUid,
+          attributesBefore: attrsBefore,
+          attributesAfter: attrsAfter,
+          textBefore,
+          textAfter,
+        }
+        if (data?.info) {
+          setSelectedEl(data.info as RealElementInfo)
+        }
+      }
+
+      editorBuffer.pushAction({
+        type:
+          mode === 'insert'
+            ? 'INSERT'
+            : mode === 'delete'
+              ? 'DELETE'
+              : mode === 'duplicate'
+                ? 'DUPLICATE'
+                : 'ATTRS',
+        description:
+          mode === 'insert'
+            ? 'Chèn phần tử mới'
+            : mode === 'delete'
+              ? 'Xoá phần tử'
+              : mode === 'duplicate'
+                ? 'Nhân bản phần tử'
+                : 'Sửa thuộc tính',
+        target: {
+          tagName: payload.target?.tagName || 'div',
+          id: payload.target?.id,
+          className: payload.target?.className,
+          domPath: payload.target?.domPath,
+          uid: payload.target?.uid,
+          selector: payload.target?.selector,
+          textSnippet: payload.target?.textSnippet,
+        },
+        sourceLoc: result.fullPath
+          ? {
+              filePath: result.filePath || '',
+              fullPath: result.fullPath,
+              lineNumber: result.startLine || 1,
+            }
+          : undefined,
+        before: { styles: {}, text: textBefore },
+        after: { styles: {}, text: textAfter },
+        dom,
+        fileBefore: preview.oldText,
+        fileAfter: result.newText,
+        projectPath,
+      })
+
+      setPendingMutation(null)
+      showToast(
+        mode === 'insert'
+          ? 'Đã chèn phần tử vào trang và mã nguồn.'
+          : mode === 'delete'
+            ? 'Đã xoá phần tử khỏi trang và mã nguồn.'
+            : mode === 'duplicate'
+              ? 'Đã nhân bản phần tử.'
+              : 'Đã cập nhật thuộc tính phần tử.',
+        'ok',
+      )
+    } catch {
+      showToast('Không áp dụng được thay đổi.', 'err')
+    } finally {
+      setMutationBusy(false)
+    }
+  }, [pendingMutation, projectPath, sendToolboxMessage, showToast])
+
+  const applyPreviewOnlyMutation = useCallback(async () => {
+    if (!pendingMutation) return
+    setMutationBusy(true)
+    try {
+      const {
+        payload,
+        mode,
+        domHtml,
+        targetUid,
+        placement,
+        attrsBefore,
+        attrsAfter,
+        textBefore,
+        textAfter,
+      } = pendingMutation
+
+      let dom: DomMutationRecord | undefined
+      if (mode === 'insert') {
+        const data = await sendToolboxMessage('PM_TOOLBOX_INSERT', {
+          html: domHtml || '',
+          targetUid,
+          placement,
+        })
+        const r = data?.result
+        dom = {
+          kind: 'insert',
+          parentUid: r?.parentUid,
+          index: r?.index,
+          uids: r?.uids || [],
+          html: domHtml,
+        }
+        if (r?.uids?.[0] && iframeRef.current?.contentWindow) {
+          iframeRef.current.contentWindow.postMessage({ type: 'PM_SELECT_BY_UID', uid: r.uids[0] }, '*')
+        }
+      } else if (mode === 'duplicate') {
+        const data = await sendToolboxMessage('PM_TOOLBOX_DUPLICATE', { uid: targetUid })
+        const r = data?.result
+        dom = {
+          kind: 'duplicate',
+          parentUid: r?.parentUid,
+          index: r?.index,
+          uids: r?.uids || [],
+          html: r?.html,
+        }
+      } else if (mode === 'delete') {
+        const data = await sendToolboxMessage('PM_TOOLBOX_DELETE', { uid: targetUid })
+        const r = data?.result
+        dom = {
+          kind: 'delete',
+          parentUid: r?.parentUid,
+          index: r?.index,
+          html: r?.html,
+          uids: targetUid ? [targetUid] : [],
+        }
+      } else {
+        const data = await sendToolboxMessage('PM_TOOLBOX_ATTRS', {
+          uid: targetUid,
+          attributes: attrsAfter,
+          text: textAfter,
+        })
+        dom = {
+          kind: 'attributes',
+          targetUid,
+          attributesBefore: attrsBefore,
+          attributesAfter: attrsAfter,
+          textBefore,
+          textAfter,
+        }
+        if (data?.info) {
+          setSelectedEl(data.info as RealElementInfo)
+        }
+      }
+
+      editorBuffer.pushAction({
+        type:
+          mode === 'insert'
+            ? 'INSERT'
+            : mode === 'delete'
+              ? 'DELETE'
+              : mode === 'duplicate'
+                ? 'DUPLICATE'
+                : 'ATTRS',
+        description:
+          mode === 'insert'
+            ? 'Chèn phần tử (Live Preview)'
+            : mode === 'delete'
+              ? 'Xoá phần tử (Live Preview)'
+              : mode === 'duplicate'
+                ? 'Nhân bản phần tử (Live Preview)'
+                : 'Sửa thuộc tính (Live Preview)',
+        target: {
+          tagName: payload.target?.tagName || 'div',
+          id: payload.target?.id,
+          className: payload.target?.className,
+          domPath: payload.target?.domPath,
+          uid: payload.target?.uid,
+          selector: payload.target?.selector,
+          textSnippet: payload.target?.textSnippet,
+        },
+        before: { styles: {}, text: textBefore },
+        after: { styles: {}, text: textAfter },
+        dom,
+        projectPath,
+      })
+
+      setPendingMutation(null)
+      showToast('Đã áp dụng vào xem trước (Live Preview). Chưa ghi vào mã nguồn.', 'ok')
+    } catch {
+      showToast('Không áp dụng được thay đổi.', 'err')
+    } finally {
+      setMutationBusy(false)
+    }
+  }, [pendingMutation, projectPath, sendToolboxMessage, showToast])
+
+  useEffect(() => {
+    const unsub = onToolboxInsert((request) => {
+      void beginToolboxInsert(request.item, {
+        targetUid: request.targetUid,
+        placement: request.placement,
+      })
+    })
+    const pending = takePendingToolboxInsert()
+    if (pending) {
+      void beginToolboxInsert(pending.item, {
+        targetUid: pending.targetUid,
+        placement: pending.placement,
+      })
+    }
+    return unsub
+  }, [beginToolboxInsert])
+
+  useEffect(() => {
+    if (!selectedEl) {
+      setAttrsDraft({ id: '', className: '', text: '' })
+      return
+    }
+    setAttrsDraft({
+      id: selectedEl.id || '',
+      className: selectedEl.className || '',
+      text: selectedEl.textSnippet || '',
+    })
+  }, [selectedEl?.uid, selectedEl?.id, selectedEl?.className, selectedEl?.textSnippet])
+
   // ─── KÉO CO GIÃN ĐỘ RỘNG SIDE PANEL CẠNH PHẢI ───
   const handleSidebarResizeStart = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -1500,6 +2213,120 @@ const CanvasArea = ({
                       <code>{dropTargetHover.tag}</code>
                     </span>
                   </div>
+                )}
+
+                {/* Khung chỉ báo thả phần tử từ Hộp công cụ — chuẩn VS2022 / Webflow */}
+                {toolboxDropHover && (
+                  <>
+                    {/* Bounding box mờ bao quanh phần tử mục tiêu */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: toolboxDropHover.rect.top,
+                        left: toolboxDropHover.rect.left,
+                        width: toolboxDropHover.rect.width,
+                        height: toolboxDropHover.rect.height,
+                        border: toolboxDropHover.placement === 'inside'
+                          ? '2.5px dashed #0284c7'
+                          : '1px dashed rgba(2, 132, 199, 0.45)',
+                        backgroundColor: toolboxDropHover.placement === 'inside'
+                          ? 'rgba(2, 132, 199, 0.14)'
+                          : 'rgba(2, 132, 199, 0.04)',
+                        borderRadius: 6,
+                        pointerEvents: 'none',
+                        zIndex: 39,
+                        boxShadow: toolboxDropHover.placement === 'inside'
+                          ? '0 0 0 3px rgba(2, 132, 199, 0.25), inset 0 0 14px rgba(2, 132, 199, 0.15)'
+                          : 'none',
+                        transition: 'all 60ms ease-out',
+                      }}
+                    />
+
+                    {/* VẠCH XANH CHỈ THỊ CHÈN TRƯỚC / SAU CHUẨN VS2022 / FIGMA */}
+                    {toolboxDropHover.placement !== 'inside' && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: toolboxDropHover.placement === 'before'
+                            ? toolboxDropHover.rect.top - 2
+                            : toolboxDropHover.rect.top + toolboxDropHover.rect.height - 2,
+                          left: Math.max(0, toolboxDropHover.rect.left - 4),
+                          width: toolboxDropHover.rect.width + 8,
+                          height: 4,
+                          background: '#0284c7',
+                          borderRadius: 2,
+                          zIndex: 41,
+                          pointerEvents: 'none',
+                          boxShadow: '0 0 10px rgba(2, 132, 199, 0.8), 0 0 3px #38bdf8',
+                        }}
+                      >
+                        {/* Điểm neo tròn bên trái */}
+                        <span
+                          style={{
+                            position: 'absolute',
+                            left: -4,
+                            top: -3,
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            background: '#0284c7',
+                            border: '2px solid #ffffff',
+                            boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                          }}
+                        />
+                        {/* Điểm neo tròn bên phải */}
+                        <span
+                          style={{
+                            position: 'absolute',
+                            right: -4,
+                            top: -3,
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            background: '#0284c7',
+                            border: '2px solid #ffffff',
+                            boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Pill nhãn hiển thị vị trí chèn */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: toolboxDropHover.placement === 'before'
+                          ? Math.max(2, toolboxDropHover.rect.top - 24)
+                          : toolboxDropHover.placement === 'after'
+                            ? toolboxDropHover.rect.top + toolboxDropHover.rect.height + 4
+                            : Math.max(2, toolboxDropHover.rect.top - 22),
+                        left: toolboxDropHover.rect.left,
+                        padding: '3px 9px',
+                        borderRadius: 4,
+                        background: '#0284c7',
+                        color: '#ffffff',
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+                        zIndex: 42,
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      <span>
+                        {toolboxDropHover.placement === 'inside'
+                          ? '📥 Thả vào trong:'
+                          : toolboxDropHover.placement === 'before'
+                            ? '⬆️ Chèn trước:'
+                            : '⬇️ Chèn sau:'}
+                      </span>
+                      <code style={{ background: 'rgba(0,0,0,0.25)', padding: '1px 5px', borderRadius: 3 }}>
+                        {toolboxDropHover.tag}
+                      </code>
+                    </div>
+                  </>
                 )}
 
                 {/* Khung viền phần tử ĐÃ CHỌN (Selection Box) */}
@@ -2004,6 +2831,12 @@ const CanvasArea = ({
                   position: 'relative',
                   overflow: 'hidden',
                 }}
+                onDragOver={(e) => {
+                  if (toolboxDrag.current()) {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'copy'
+                  }
+                }}
               >
                 {renderFrameContent()}
               </div>
@@ -2040,6 +2873,12 @@ const CanvasArea = ({
                     height: currentVp.h,
                     position: 'relative',
                     overflow: 'hidden',
+                  }}
+                  onDragOver={(e) => {
+                    if (toolboxDrag.current()) {
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = 'copy'
+                    }
                   }}
                 >
                   {renderFrameContent()}
@@ -2094,13 +2933,29 @@ const CanvasArea = ({
               </div>
 
               {selectedEl && (
-                <button
-                  className="canvas__tool-btn"
-                  title="Sao chép CSS Selector"
-                  onClick={handleCopySelector}
-                >
-                  <Copy size={13} />
-                </button>
+                <>
+                  <button
+                    className="canvas__tool-btn"
+                    title="Sao chép CSS Selector"
+                    onClick={handleCopySelector}
+                  >
+                    <Copy size={13} />
+                  </button>
+                  <button
+                    className="canvas__tool-btn"
+                    title="Nhân bản phần tử (Ctrl+D)"
+                    onClick={() => void beginToolboxDuplicate()}
+                  >
+                    <Copy size={13} />
+                  </button>
+                  <button
+                    className="canvas__tool-btn canvas__tool-btn--danger"
+                    title="Xoá phần tử (Delete)"
+                    onClick={() => void beginToolboxDelete()}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </>
               )}
 
               <button
@@ -2132,6 +2987,13 @@ const CanvasArea = ({
               >
                 <Code2 size={12} />
                 <span>Mã nguồn thật {modifiedCount > 0 ? `(${modifiedCount})` : sourceLoc ? '●' : ''}</span>
+              </button>
+              <button
+                className={`canvas__inspector-tab-btn ${inspectorTab === 'attrs' ? 'active' : ''}`}
+                onClick={() => setInspectorTab('attrs')}
+              >
+                <SlidersHorizontal size={12} />
+                <span>Thuộc tính</span>
               </button>
             </div>
 
@@ -3670,7 +4532,7 @@ const CanvasArea = ({
                         </div>
                       </div>
                     </>
-                  ) : (
+                  ) : inspectorTab === 'code' ? (
                     /* TAB 2: ĐỒNG BỘ MÃ NGUỒN THẬT (TWO-WAY CODE SYNC) */
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                       <div className="canvas__source-card">
@@ -3754,6 +4616,80 @@ const CanvasArea = ({
                         </div>
                         <p style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.6, margin: 0 }}>
                           Khi bạn bấm nút <b>Lưu thay đổi vào mã nguồn thật</b>, PixelMind sẽ ghi trực tiếp vào tệp mã nguồn (.cshtml, .tsx, .jsx, .html, .vue, .svelte, .py, .php...) trên máy tính. Máy chủ phát triển sẽ lập tức nhận diện tệp thay đổi và cập nhật giao diện vĩnh viễn!
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    /* TAB 3: THUỘC TÍNH PHẦN TỬ (HỘP CÔNG CỤ) */
+                    <div className="canvas__attrs-panel">
+                      <div className="canvas__inspector-card">
+                        <div className="canvas__inspector-card-hd">
+                          <SlidersHorizontal size={13} style={{ color: '#38bdf8' }} />
+                          <span>Thuộc tính HTML</span>
+                        </div>
+
+                        <div className="canvas__inspector-field">
+                          <span className="canvas__inspector-field-lbl">ID</span>
+                          <input
+                            className="canvas__inspector-field-input"
+                            value={attrsDraft.id}
+                            placeholder="vd: hero-section"
+                            onChange={(event) => setAttrsDraft((prev) => ({ ...prev, id: event.target.value }))}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          />
+                        </div>
+
+                        <div className="canvas__inspector-field">
+                          <span className="canvas__inspector-field-lbl">Class</span>
+                          <input
+                            className="canvas__inspector-field-input"
+                            value={attrsDraft.className}
+                            placeholder="vd: card shadow-lg"
+                            onChange={(event) => setAttrsDraft((prev) => ({ ...prev, className: event.target.value }))}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          />
+                        </div>
+
+                        <div className="canvas__inspector-field">
+                          <span className="canvas__inspector-field-lbl">Nội dung văn bản</span>
+                          <textarea
+                            className="canvas__inspector-field-input"
+                            rows={3}
+                            value={attrsDraft.text}
+                            disabled={!selectedEl.isLeaf}
+                            onChange={(event) => setAttrsDraft((prev) => ({ ...prev, text: event.target.value }))}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          />
+                          {!selectedEl.isLeaf && (
+                            <em className="canvas__attrs-hint">
+                              Chỉ sửa được văn bản của phần tử không có phần tử con.
+                            </em>
+                          )}
+                        </div>
+
+                        <button
+                          className="btn primary canvas__attrs-apply"
+                          onClick={() => void beginToolboxAttributes()}
+                        >
+                          <Check size={13} /> Áp dụng & xem diff
+                        </button>
+                      </div>
+
+                      <div className="canvas__inspector-card">
+                        <div className="canvas__inspector-card-hd">
+                          <Copy size={13} style={{ color: '#a78bfa' }} />
+                          <span>Thao tác nhanh</span>
+                        </div>
+                        <div className="canvas__attrs-quick">
+                          <button className="btn secondary" onClick={() => void beginToolboxDuplicate()}>
+                            <Copy size={12} /> Nhân bản (Ctrl+D)
+                          </button>
+                          <button className="btn secondary canvas__attrs-danger" onClick={() => void beginToolboxDelete()}>
+                            <Trash2 size={12} /> Xoá (Delete)
+                          </button>
+                        </div>
+                        <p className="canvas__attrs-hint">
+                          Mọi thay đổi đều hiển thị diff trước khi ghi và có thể hoàn tác bằng Ctrl+Z.
                         </p>
                       </div>
                     </div>
@@ -3895,6 +4831,116 @@ const CanvasArea = ({
           onTokensUpdated={(t) => setProjectTokens(t)}
         />
       )}
+
+      {/* ── Menu ngữ cảnh chuột phải trên Canvas (Live Element Context Menu) ── */}
+      {canvasContextMenu && (
+        <div
+          className="pm-canvas-context-menu"
+          style={{
+            position: 'fixed',
+            left: Math.min(window.innerWidth - 240, canvasContextMenu.x),
+            top: Math.min(window.innerHeight - 280, canvasContextMenu.y),
+            zIndex: 9999,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="pm-canvas-context-menu__hd">
+            <span className="pm-canvas-context-menu__tag">
+              &lt;{canvasContextMenu.info.tagName.toLowerCase()}&gt;
+            </span>
+            {canvasContextMenu.info.id && (
+              <span className="pm-canvas-context-menu__id">#{canvasContextMenu.info.id}</span>
+            )}
+          </div>
+
+          <button
+            className="pm-canvas-context-menu__item"
+            onClick={() => {
+              void beginToolboxDuplicate()
+              setCanvasContextMenu(null)
+            }}
+          >
+            <Copy size={13} />
+            <span>Nhân bản (Ctrl+D)</span>
+          </button>
+
+          <button
+            className="pm-canvas-context-menu__item pm-canvas-context-menu__item--danger"
+            onClick={() => {
+              void beginToolboxDelete()
+              setCanvasContextMenu(null)
+            }}
+          >
+            <Trash2 size={13} />
+            <span>Xoá phần tử (Delete)</span>
+          </button>
+
+          <div className="pm-canvas-context-menu__divider" />
+
+          <button
+            className="pm-canvas-context-menu__item"
+            onClick={() => {
+              if (canvasContextMenu.info.outerHTML) {
+                void navigator.clipboard.writeText(canvasContextMenu.info.outerHTML)
+                showToast('Đã sao chép mã HTML phần tử vào bộ nhớ tạm.', 'ok')
+              }
+              setCanvasContextMenu(null)
+            }}
+          >
+            <Code2 size={13} />
+            <span>Sao chép mã HTML</span>
+          </button>
+
+          <button
+            className="pm-canvas-context-menu__item"
+            onClick={() => {
+              if (canvasContextMenu.info.selector) {
+                void navigator.clipboard.writeText(canvasContextMenu.info.selector)
+                showToast('Đã sao chép CSS Selector.', 'ok')
+              }
+              setCanvasContextMenu(null)
+            }}
+          >
+            <Hash size={13} />
+            <span>Sao chép CSS Selector</span>
+          </button>
+
+          <div className="pm-canvas-context-menu__divider" />
+
+          <button
+            className="pm-canvas-context-menu__item"
+            onClick={() => {
+              setInspectorTab('attrs')
+              setCanvasContextMenu(null)
+            }}
+          >
+            <SlidersHorizontal size={13} />
+            <span>Chỉnh sửa thuộc tính...</span>
+          </button>
+        </div>
+      )}
+
+      <MutationDiffDialog
+        open={Boolean(pendingMutation)}
+        title={pendingMutation?.title || 'Xác nhận thay đổi mã nguồn'}
+        subtitle={pendingMutation?.subtitle}
+        preview={pendingMutation?.preview ?? null}
+        busy={mutationBusy}
+        confirmLabel={
+          pendingMutation?.mode === 'delete'
+            ? 'Xoá khỏi mã nguồn'
+            : pendingMutation?.mode === 'duplicate'
+              ? 'Nhân bản trong mã nguồn'
+              : pendingMutation?.mode === 'attributes'
+                ? 'Ghi thuộc tính'
+                : 'Chèn vào mã nguồn'
+        }
+        onCancel={() => {
+          if (!mutationBusy) setPendingMutation(null)
+        }}
+        onConfirm={() => void applyPendingMutation()}
+        onPreviewOnly={() => void applyPreviewOnlyMutation()}
+      />
 
     </div>
   )

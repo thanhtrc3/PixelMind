@@ -5,8 +5,8 @@ import {
   ArrowRight,
   ArrowUp,
   Box,
+  Boxes,
   ChevronDown,
-  Copy,
   ExternalLink,
   FileCode2,
   FileText,
@@ -23,7 +23,6 @@ import {
   List,
   Loader2,
   MousePointer2,
-  Package,
   Palette,
   PanelLeftClose,
   Pencil,
@@ -42,10 +41,10 @@ import {
 import type { FileNode, ProjectPage, ProjectRecord } from '@shared/types'
 import { formatBytes } from '../lib/format'
 import { editorBuffer } from '../lib/editorBuffer'
-import { PARTS } from '../data/toolbox'
 import FileTree from './FileTree'
+import ToolboxPanel from './ToolboxPanel'
 
-export type SidebarTab = 'files' | 'layers' | 'pages' | 'assets' | 'versions' | 'design' | 'part'
+export type SidebarTab = 'files' | 'layers' | 'pages' | 'assets' | 'versions' | 'design' | 'toolbox'
 
 interface WorkspaceSidebarProps {
   project: ProjectRecord
@@ -71,6 +70,8 @@ interface WorkspaceSidebarProps {
   onShowToast: (kind: 'ok' | 'err' | 'info', text: string) => void
   isRunning?: boolean
   onRun?: () => void
+  /** Chuyển sang tab Xem trước để canvas nhận phần tử từ Hộp công cụ. */
+  onOpenPreview?: () => void
 }
 
 export function isDynamicRoute(page: ProjectPage): boolean {
@@ -253,9 +254,9 @@ export const WorkspaceSidebar = ({
   onShowToast,
   isRunning = false,
   onRun,
+  onOpenPreview,
 }: WorkspaceSidebarProps) => {
   const [layersSearch, setLayersSearch] = useState('')
-  const [partsSearch, setPartsSearch] = useState('')
   const [pagesSearch, setPagesSearch] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
 
@@ -265,7 +266,6 @@ export const WorkspaceSidebar = ({
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
   const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null)
   const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null)
-  const [selectedPartGroup, setSelectedPartGroup] = useState<string>('all')
 
   const [liveLayers, setLiveLayers] = useState<LayerNode[]>([])
   const [isLoadingLayers, setIsLoadingLayers] = useState(false)
@@ -391,19 +391,6 @@ export const WorkspaceSidebar = ({
       (l) => l.label.toLowerCase().includes(q) || l.tag.toLowerCase().includes(q) || l.tagName?.toLowerCase().includes(q)
     )
   }, [liveLayers, layersSearch])
-
-  /* ── Lọc linh kiện Part theo từ khoá và nhóm ── */
-  const filteredParts = useMemo(() => {
-    return PARTS.filter((p) => {
-      const matchSearch =
-        !partsSearch.trim() ||
-        p.name.toLowerCase().includes(partsSearch.toLowerCase()) ||
-        p.id.toLowerCase().includes(partsSearch.toLowerCase()) ||
-        p.tags.some((t) => t.toLowerCase().includes(partsSearch.toLowerCase()))
-      const matchGroup = selectedPartGroup === 'all' || p.groups.includes(selectedPartGroup)
-      return matchSearch && matchGroup
-    })
-  }, [partsSearch, selectedPartGroup])
 
   /* ── Cây phân cấp Route (1/ = Tầng 1, 2// = Tầng 2, ...) ── */
   const routeTree = useMemo(() => {
@@ -617,11 +604,11 @@ export const WorkspaceSidebar = ({
         </button>
 
         <button
-          className={`pm-ws-tab-btn ${activeTab === 'part' ? 'active' : ''}`}
-          onClick={() => onActiveTabChange('part')}
-          title="Thư viện linh kiện mẫu (Part Library)"
+          className={`pm-ws-tab-btn ${activeTab === 'toolbox' ? 'active' : ''}`}
+          onClick={() => onActiveTabChange('toolbox')}
+          title="Hộp công cụ — thêm/sửa/xoá phần tử (Ctrl+Alt+X)"
         >
-          <Package size={16} />
+          <Boxes size={16} />
         </button>
 
         <div className="pm-ws-activity-grow" />
@@ -1161,97 +1148,13 @@ export const WorkspaceSidebar = ({
           </>
         )}
 
-        {/* TAB 7: PART (Thư viện Linh kiện mẫu) */}
-        {activeTab === 'part' && (
-          <>
-            <div className="pm-ws-hd">
-              <span className="pm-ws-hd__title">
-                <Package size={13} /> Thư viện Linh kiện ({filteredParts.length})
-              </span>
-            </div>
-
-            <div className="pm-ws-filter" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div className="pm-searchbox" style={{ width: '100%' }}>
-                <Search size={12} />
-                <input
-                  value={partsSearch}
-                  placeholder="Tìm linh kiện (nút, bảng giá, card…)…"
-                  style={{ width: '100%' }}
-                  onChange={(e) => setPartsSearch(e.target.value)}
-                  onKeyDown={(e) => e.stopPropagation()}
-                />
-              </div>
-              <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2 }}>
-                {[
-                  { id: 'all', label: 'Tất cả' },
-                  { id: 'ui', label: 'UI' },
-                  { id: 'marketing', label: 'Marketing' },
-                  { id: 'layout', label: 'Layout' },
-                ].map((g) => (
-                  <button
-                    key={g.id}
-                    onClick={() => setSelectedPartGroup(g.id)}
-                    className={`pm-filter-pill ${selectedPartGroup === g.id ? 'active' : ''}`}
-                    style={{
-                      padding: '2px 8px',
-                      borderRadius: 12,
-                      fontSize: 10,
-                      border: '1px solid var(--line)',
-                      background: selectedPartGroup === g.id ? 'var(--panel-3)' : 'transparent',
-                      color: selectedPartGroup === g.id ? 'var(--text)' : 'var(--text-3)',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {g.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="pm-ws-bd">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {filteredParts.map((part) => (
-                  <div key={part.id} className="pm-part-card">
-                    <div className="pm-part-card__hd">
-                      <span className="pm-part-card__name">{part.name}</span>
-                      <span className="pm-part-pill">{part.version}</span>
-                    </div>
-                    <p className="pm-part-card__desc">
-                      {part.files.find((f) => f.name === 'prompt.txt')?.body ||
-                        part.tags.join(' • ')}
-                    </p>
-                    <div className="pm-part-card__actions">
-                      <button
-                        className="btn secondary"
-                        onClick={() =>
-                          copyToClipboard(
-                            part.html || part.css,
-                            `Đã sao chép mã nguồn của “${part.name}”!`,
-                          )
-                        }
-                        style={{ height: 25, fontSize: 11, padding: '0 8px', gap: 4 }}
-                      >
-                        <Copy size={11} /> Sao chép mã
-                      </button>
-                      <button
-                        className="btn ghost"
-                        onClick={() =>
-                          onShowToast(
-                            'info',
-                            `Tính năng kéo thả AST tự động cho “${part.name}” đang được hoàn thiện!`,
-                          )
-                        }
-                        style={{ height: 25, fontSize: 11, padding: '0 8px', gap: 4 }}
-                      >
-                        <Plus size={11} /> Chèn vào trang
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
+        {/* TAB 7: TOOLBOX (Hộp công cụ — Phần tử · Linh kiện · Của dự án) */}
+        {activeTab === 'toolbox' && (
+          <ToolboxPanel
+            projectPath={project.path}
+            onShowToast={onShowToast}
+            onNeedPreview={onOpenPreview}
+          />
         )}
       </div>
     </div>

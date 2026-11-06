@@ -11,7 +11,7 @@ import {
   Layers,
   Maximize2,
   Minimize2,
-  Package,
+  Boxes,
   Palette,
   X,
 } from 'lucide-react'
@@ -216,6 +216,14 @@ const WorkspaceView = ({
         return
       }
 
+      // Ctrl + Alt + X: Mở Hộp công cụ (Toolbox)
+      if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'x') {
+        e.preventDefault()
+        onSidebarTabChange?.('toolbox')
+        if (!isSidebarOpen) onToggleSidebar?.()
+        return
+      }
+
       // Ctrl + S: Lưu tất cả thay đổi RAM buffer vào tệp vật lý
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
@@ -298,6 +306,7 @@ const WorkspaceView = ({
                   onRefresh={onRefresh}
                   onOpenFolder={onOpenFolder}
                   activeTab={sidebarTab}
+                  onOpenPreview={() => onActiveTab('preview')}
                   onActiveTabChange={(tab) => {
                     if (sidebarTab === tab) {
                       onToggleSidebar?.()
@@ -389,14 +398,14 @@ const WorkspaceView = ({
                 <Palette size={16} />
               </button>
               <button
-                className={`pm-ws-tab-btn ${sidebarTab === 'part' ? 'active' : ''}`}
+                className={`pm-ws-tab-btn ${sidebarTab === 'toolbox' ? 'active' : ''}`}
                 onClick={() => {
-                  onSidebarTabChange?.('part')
+                  onSidebarTabChange?.('toolbox')
                   onToggleSidebar?.()
                 }}
-                title="Mở Thư viện linh kiện mẫu (Part Library)"
+                title="Mở Hộp công cụ (Ctrl+Alt+X)"
               >
-                <Package size={16} />
+                <Boxes size={16} />
               </button>
             </div>
           )

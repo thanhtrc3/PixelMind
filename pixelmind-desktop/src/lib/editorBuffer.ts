@@ -1,11 +1,31 @@
 import { api } from './bridge'
 
-export type ActionType = 'MOVE' | 'RESIZE' | 'TEXT' | 'STYLE' | 'LAYOUT'
+export type ActionType = 'MOVE' | 'RESIZE' | 'TEXT' | 'STYLE' | 'LAYOUT' | 'INSERT' | 'DELETE' | 'DUPLICATE' | 'ATTRS'
 
 export interface ElementSnapshot {
   styles: Record<string, string>
   text?: string
   rect?: { top: number; left: number; width: number; height: number }
+}
+
+/** Thông tin phản chiếu thao tác DOM thật trong iframe khi Undo/Redo. */
+export interface DomMutationRecord {
+  kind: 'insert' | 'delete' | 'duplicate' | 'attributes'
+  /** uid khung cha để chèn lại (Undo của DELETE) */
+  parentUid?: string
+  /** uid phần tử đích (cho ATTRS) */
+  targetUid?: string
+  /** Vị trí chèn trong khung cha */
+  index?: number
+  /** HTML gốc để chèn lại */
+  html?: string
+  /** uid của (các) phần tử vừa tạo — dùng để xoá khi Undo */
+  uids?: string[]
+  /** Thuộc tính trước/sau cho ATTRS */
+  attributesBefore?: Record<string, string | null>
+  attributesAfter?: Record<string, string | null>
+  textBefore?: string
+  textAfter?: string
 }
 
 export interface HistoryAction {
@@ -30,6 +50,12 @@ export interface HistoryAction {
   before: ElementSnapshot
   after: ElementSnapshot
   deltaStyles?: Record<string, string>
+  /** Thao tác DOM mới của Hộp công cụ */
+  dom?: DomMutationRecord
+  /** Toàn bộ nội dung tệp trước/sau — dùng để Undo/Redo tức thì */
+  fileBefore?: string
+  fileAfter?: string
+  projectPath?: string
 }
 
 export interface DirtyFileInfo {
@@ -74,6 +100,9 @@ class EditorBufferManager {
     this.dirtyFiles.clear()
     for (const act of this.undoStack) {
       if (!act.sourceLoc) continue
+      // Thao tác của Hộp công cụ ghi thẳng xuống tệp ngay khi áp dụng,
+      // không đi qua cơ chế gom style rồi syncCode.
+      if (act.dom) continue
       const existing = this.dirtyFiles.get(act.sourceLoc.filePath) || {
         filePath: act.sourceLoc.filePath,
         fullPath: act.sourceLoc.fullPath,
@@ -147,6 +176,18 @@ class EditorBufferManager {
 
     this.redoStack.push(action)
 
+    // Ghi lại toàn bộ tệp trước thay đổi (thao tác Hộp công cụ)
+    if (action.dom && action.sourceLoc && action.fileBefore !== undefined) {
+      void api.toolbox
+        .writeFile({
+          projectPath: action.projectPath,
+          fullPath: action.sourceLoc.fullPath,
+          text: action.fileBefore,
+          backup: true,
+        })
+        .catch(() => {})
+    }
+
     // Bắn thông điệp cho CanvasArea cập nhật lại DOM thật
     this.undoRedoHandlers.forEach((handler) => handler(action, true))
 
@@ -162,6 +203,18 @@ class EditorBufferManager {
     if (!action) return null
 
     this.undoStack.push(action)
+
+    // Ghi lại toàn bộ tệp sau thay đổi (thao tác Hộp công cụ)
+    if (action.dom && action.sourceLoc && action.fileAfter !== undefined) {
+      void api.toolbox
+        .writeFile({
+          projectPath: action.projectPath,
+          fullPath: action.sourceLoc.fullPath,
+          text: action.fileAfter,
+          backup: true,
+        })
+        .catch(() => {})
+    }
 
     // Bắn thông điệp cho CanvasArea cập nhật lại DOM thật
     this.undoRedoHandlers.forEach((handler) => handler(action, false))

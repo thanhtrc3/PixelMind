@@ -1,0 +1,919 @@
+/* ══════════════════════════════════════════════════════════════
+   HỘP CÔNG CỤ (TOOLBOX) — Tab mới trong Sidebar trái
+   Gồm: Phần tử (catalog) · Linh kiện mẫu · Của dự án
+   Kèm hộp thoại Diff mã nguồn và tab Thuộc tính của Inspector.
+   ══════════════════════════════════════════════════════════════ */
+
+.pm-toolbox {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--panel);
+}
+
+.pm-toolbox-kbd {
+  font-size: 9.5px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--text-3);
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-2);
+  white-space: nowrap;
+}
+
+/* ── Tabs con ── */
+.pm-toolbox-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.pm-toolbox-tabs button {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.pm-toolbox-tabs button em {
+  font-style: normal;
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--panel-3);
+  color: var(--text-3);
+}
+
+.pm-toolbox-tabs button:hover {
+  color: var(--text-2);
+}
+
+.pm-toolbox-tabs button.active {
+  color: var(--accent, #6d5df5);
+  border-bottom-color: var(--accent, #6d5df5);
+}
+
+.pm-toolbox-tabs button.active em {
+  background: color-mix(in srgb, var(--accent, #6d5df5) 20%, transparent);
+  color: var(--accent, #6d5df5);
+}
+
+/* ── Thân panel ── */
+.pm-toolbox-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Ô tìm kiếm ── */
+.pm-toolbox-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 8px 6px;
+  padding: 0 8px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 6px);
+  background: var(--panel-2);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.pm-toolbox-search:focus-within {
+  border-color: var(--accent, #6d5df5);
+}
+
+.pm-toolbox-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 11.5px;
+}
+
+.pm-toolbox-search input::placeholder {
+  color: var(--text-3);
+}
+
+.pm-toolbox-search__clear {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.pm-toolbox-search__clear:hover {
+  background: var(--panel-3);
+  color: var(--text);
+}
+
+/* ── Nhóm phần tử ── */
+.pm-toolbox-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 8px 8px;
+  flex-shrink: 0;
+}
+
+.pm-toolbox-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 23px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.pm-toolbox-group em {
+  font-style: normal;
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+.pm-toolbox-group:hover {
+  border-color: var(--line-2);
+  color: var(--text-2);
+}
+
+.pm-toolbox-group.active {
+  background: color-mix(in srgb, var(--accent, #6d5df5) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #6d5df5) 45%, transparent);
+  color: var(--accent, #6d5df5);
+}
+
+/* ── Visual Studio Tree Accordion (Chuẩn Ảnh 2) ── */
+.pm-toolbox-tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 0 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.pm-toolbox-accordion {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--line);
+}
+
+.pm-toolbox-accordion:last-child {
+  border-bottom: 0;
+}
+
+.pm-toolbox-accordion__hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, color 0.12s;
+}
+
+.pm-toolbox-accordion__hd:hover {
+  background: var(--panel-3);
+  color: #ffffff;
+}
+
+.pm-toolbox-accordion__arrow {
+  color: var(--text-3);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.pm-toolbox-accordion__arrow.collapsed {
+  transform: rotate(-90deg);
+}
+
+.pm-toolbox-accordion__title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+
+.pm-toolbox-accordion__count {
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--text-3);
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--panel-3);
+}
+
+.pm-toolbox-accordion__items {
+  display: flex;
+  flex-direction: column;
+  padding: 1px 0;
+  background: var(--panel);
+}
+
+/* ── Item hàng đơn chuẩn Visual Studio (Ảnh 2) ── */
+.pm-toolbox-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0 8px 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s, color 0.1s;
+}
+
+.pm-toolbox-item:hover {
+  background: color-mix(in srgb, var(--accent, #6366f1) 12%, var(--panel-3));
+  color: var(--text);
+}
+
+/* Thanh chỉ thị màu tím dọc ở cạnh trái theo đúng Ảnh 2 */
+.pm-toolbox-item::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.pm-toolbox-item:hover::before {
+  background: color-mix(in srgb, var(--accent, #6366f1) 60%, transparent);
+}
+
+.pm-toolbox-item.is-selected {
+  background: color-mix(in srgb, var(--accent, #6366f1) 20%, var(--panel-3));
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.pm-toolbox-item.is-selected::before {
+  background: var(--accent, #6366f1);
+}
+
+.pm-toolbox-item__icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  opacity: 0.85;
+}
+
+.pm-toolbox-item:hover .pm-toolbox-item__icon,
+.pm-toolbox-item.is-selected .pm-toolbox-item__icon {
+  color: var(--accent, #818cf8);
+  opacity: 1;
+}
+
+.pm-toolbox-item__name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.pm-toolbox-item__add {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+
+.pm-toolbox-item:hover .pm-toolbox-item__add {
+  opacity: 0.85;
+}
+
+.pm-toolbox-item__add:hover {
+  opacity: 1 !important;
+  background: var(--accent, #6366f1);
+  color: #fff;
+}
+
+/* ── Trạng thái rỗng ── */
+.pm-toolbox-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 28px 18px;
+  text-align: center;
+  color: var(--text-3);
+}
+
+.pm-toolbox-empty strong {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.pm-toolbox-empty span {
+  font-size: 10.5px;
+  line-height: 1.5;
+  max-width: 220px;
+}
+
+/* ── Linh kiện mẫu ── */
+.pm-toolbox-parts {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pm-toolbox-part {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 6px);
+  background: var(--panel-2);
+}
+
+.pm-toolbox-part.is-blocked {
+  opacity: 0.65;
+}
+
+.pm-toolbox-part__preview {
+  flex: none;
+  width: 62px;
+  height: 62px;
+  border-radius: 5px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-3);
+  color: var(--text-3);
+}
+
+.pm-toolbox-part__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pm-toolbox-part__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pm-toolbox-part__hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pm-toolbox-part__hd strong {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-toolbox-part__hd span {
+  font-size: 9px;
+  color: var(--text-3);
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--panel-3);
+}
+
+.pm-toolbox-part__body p {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-3);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pm-toolbox-part__block {
+  font-size: 9.5px;
+  color: #f59e0b;
+  font-style: normal;
+}
+
+.pm-toolbox-part__actions {
+  display: flex;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.pm-toolbox-part__actions .btn {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  gap: 4px;
+}
+
+/* ── Của dự án ── */
+.pm-toolbox-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 6px;
+  font-size: 9.5px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.pm-toolbox-meta b {
+  color: var(--text-2);
+}
+
+.pm-toolbox-sections {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pm-toolbox-section {
+  /* Không co lại theo chiều cao: nếu thiếu, các nhóm bị ép nhỏ và cắt cụt
+     danh sách (Component/Partial chỉ còn 1 dòng, Class CSS bị đè lên nhóm sau). */
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 6px);
+  overflow: hidden;
+  background: var(--panel-2);
+}
+
+.pm-toolbox-section__hd {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 0;
+  background: var(--panel-3);
+  color: var(--text-2);
+  cursor: pointer;
+  text-align: left;
+}
+
+.pm-toolbox-section__hd strong {
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.pm-toolbox-section__hd em {
+  font-style: normal;
+  font-size: 9px;
+  color: var(--text-3);
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.pm-toolbox-section__hint {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pm-toolbox-caret {
+  display: inline-block;
+  font-size: 9px;
+  color: var(--text-3);
+  transition: transform 0.15s;
+}
+
+.pm-toolbox-caret.open {
+  transform: rotate(90deg);
+}
+
+.pm-toolbox-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+}
+
+.pm-toolbox-project-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  cursor: grab;
+  transition: background 0.12s;
+}
+
+.pm-toolbox-project-item:hover {
+  background: var(--panel-3);
+}
+
+.pm-toolbox-project-item:active {
+  cursor: grabbing;
+}
+
+.pm-toolbox-project-item__kind {
+  flex: none;
+  font-size: 8.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent, #6d5df5) 16%, transparent);
+  color: var(--accent, #6d5df5);
+}
+
+.pm-toolbox-project-item__name {
+  flex: none;
+  max-width: 45%;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-toolbox-project-item__path {
+  flex: 1;
+  min-width: 0;
+  font-size: 9px;
+  color: var(--text-3);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   HỘP THOẠI DIFF MÃ NGUỒN
+   ══════════════════════════════════════════════════════════════ */
+
+.pm-diff-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent, #6d5df5) 18%, transparent);
+  color: var(--accent, #6d5df5);
+}
+
+.pm-diff {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  min-height: 220px;
+}
+
+.pm-diff__pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 6px);
+  overflow: hidden;
+  background: var(--panel-2);
+}
+
+.pm-diff__pane header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-3);
+}
+
+.pm-diff__pane header em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-3);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.pm-diff__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+
+.pm-diff__pane--new .pm-diff__dot {
+  background: #22c55e;
+}
+
+.pm-diff__pane pre {
+  margin: 0;
+  padding: 6px 0;
+  overflow: auto;
+  max-height: 52vh;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+
+.pm-diff__line {
+  display: flex;
+  gap: 8px;
+  padding: 0 8px;
+  white-space: pre;
+}
+
+.pm-diff__line:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.pm-diff__ln {
+  flex: none;
+  width: 26px;
+  text-align: right;
+  color: var(--text-3);
+  opacity: 0.65;
+  user-select: none;
+}
+
+.pm-diff__line code {
+  color: var(--text);
+  font-family: inherit;
+}
+
+.pm-diff__pane--old .pm-diff__line code {
+  color: #fca5a5;
+}
+
+.pm-diff__pane--new .pm-diff__line code {
+  color: #86efac;
+}
+
+.pm-diff-error {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--r-md, 6px);
+  background: rgba(239, 68, 68, 0.08);
+  color: #fca5a5;
+}
+
+.pm-diff-error strong {
+  display: block;
+  font-size: 12.5px;
+  color: #fecaca;
+  margin-bottom: 4px;
+}
+
+.pm-diff-error p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   TAB THUỘC TÍNH (INSPECTOR)
+   ══════════════════════════════════════════════════════════════ */
+
+.canvas__attrs-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.canvas__attrs-apply {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.canvas__attrs-hint {
+  display: block;
+  margin: 6px 0 0;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--text-3);
+  font-style: normal;
+}
+
+.canvas__attrs-quick {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.canvas__attrs-quick .btn {
+  justify-content: center;
+  font-size: 10.5px;
+  gap: 5px;
+}
+
+.canvas__attrs-danger {
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.canvas__attrs-danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.canvas__tool-btn--danger {
+  color: #f87171;
+}
+
+.canvas__tool-btn--danger:hover {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fca5a5;
+}
+
+/* ── Responsive: màn hình hẹp thì xếp diff theo cột ── */
+@media (max-width: 720px) {
+  .pm-diff {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CANVAS & TOOLBOX CONTEXT MENUS (Chuẩn Modern IDE)
+   ══════════════════════════════════════════════════════════════ */
+
+.pm-canvas-context-menu,
+.pm-toolbox-context-menu {
+  width: 220px;
+  background: var(--panel, #0f172a);
+  border: 1px solid var(--line, #334155);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  padding: 5px;
+  backdrop-filter: blur(12px);
+  animation: pm-menu-fade-in 120ms ease-out;
+  user-select: none;
+}
+
+@keyframes pm-menu-fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.pm-canvas-context-menu__hd,
+.pm-toolbox-context-menu__hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px 5px;
+  border-bottom: 1px solid var(--line, #334155);
+  margin-bottom: 4px;
+}
+
+.pm-canvas-context-menu__tag,
+.pm-toolbox-context-menu__tag {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent, #6d5df5);
+}
+
+.pm-canvas-context-menu__id {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-3, #94a3b8);
+}
+
+.pm-canvas-context-menu__item,
+.pm-toolbox-context-menu__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text, #f8fafc);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+
+.pm-canvas-context-menu__item:hover,
+.pm-toolbox-context-menu__item:hover {
+  background: color-mix(in srgb, var(--accent, #6d5df5) 20%, transparent);
+  color: #ffffff;
+}
+
+.pm-canvas-context-menu__item--danger {
+  color: #f87171;
+}
+
+.pm-canvas-context-menu__item--danger:hover {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+.pm-canvas-context-menu__divider,
+.pm-toolbox-context-menu__divider {
+  height: 1px;
+  background: var(--line, #334155);
+  margin: 4px 0;
+}

@@ -8,6 +8,7 @@ import './styles/desktop.css'
 import './styles/canvas.css'
 import './styles/topbar.css'
 import './styles/sidebar.css'
+import './styles/toolbox.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
