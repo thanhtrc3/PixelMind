@@ -1145,12 +1145,9 @@ function getInspectorScript(isActive: boolean) {
     }
 
     function hasToolboxDrag(dt) {
-      if (!dt) return false;
-      var types = dt.types || [];
-      for (var i = 0; i < types.length; i++) {
-        if (types[i] === 'application/x-pixelmind-toolbox') return true;
-      }
-      return false;
+      // Chromium thường ẩn các custom MIME type khi kéo qua biên giới iframe trong sự kiện dragover.
+      // Luôn trả về true để preventDefault() kích hoạt và cho phép thả phần tử chính xác vào DOM.
+      return true;
     }
 
     function dropElementAt(x, y) {

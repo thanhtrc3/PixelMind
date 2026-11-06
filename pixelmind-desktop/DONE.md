@@ -303,3 +303,16 @@ HIỆN TẠI (Chuẩn Modern Desktop App như VS Code / Figma / Cursor):
    - **Bộ Đệm Hoàn Tác RAM Toàn Năng (Undo/Redo Engine - Ctrl+Z / Ctrl+Y)**:
      - Quản lý các hành động `INSERT`, `DELETE`, `DUPLICATE`, `ATTRS` trong `editorBuffer`.
      - Khôi phục chính xác cả nội dung tệp mã nguồn lẫn trạng thái DOM trong iframe.
+
+
+20. **Tối Ưu Hóa Giao Diện Hộp Công Cụ Chuẩn VS2022 & Khắc Phục Lỗi Khóa File .NET**:
+    - **Khắc phục triệt để lỗi MSB3026 / MSB3027 (Khóa file `TrangWebBanHang.exe`)**:
+      - Đã chấm dứt tiến trình PID 17872 bị kẹt đang chiếm giữ tệp thực thi.
+      - Thêm hàm tự động `killProjectBinaries(projectPath)` trong `electron/main/runner.ts`, tự động quét qua `Win32_Process` và cưỡng chế giải phóng mọi tiến trình `.exe` con trong thư mục `bin`/`obj` của dự án trước mỗi lần `launch` và khi `stop`, ngăn ngừa tuyệt đối tình trạng lỗi build lock trong tương lai.
+    - **Thiết kế lại Danh mục Hộp công cụ theo chuẩn Visual Studio 2022**:
+      - Loại bỏ dòng chữ mô tả dài dòng làm phình to các thẻ công cụ.
+      - Tối ưu mỗi công cụ thành 1 hàng đơn gọn gàng (chiều cao 30px): bao gồm biểu tượng nhóm màu sắc (`Icon`) + Tên công cụ (`Name`) + nút chèn nhanh (`+`) khi rê chuột.
+      - Toàn bộ thông tin mô tả chi tiết, phím tắt (Enter/Double-click) và hướng dẫn kéo thả được chuyển vào `tooltip` hiển thị khi rê chuột qua.
+    - **Hoàn thiện Kéo - Thả (Drag & Drop) mượt mà vào Canvas**:
+      - Cho phép sự kiện `dragover` trên iframe kích hoạt `preventDefault()` vô điều kiện, vượt qua rào cản hạn chế MIME type giữa các frame của Chromium.
+      - Bổ sung bộ xử lý bắt sự kiện thả dự phòng trên khung Canvas wrapper, đảm bảo thả phần tử từ Toolbox vào trang luôn hoạt động chuẩn xác và phản hồi đường chỉ dẫn vị trí tức thì.

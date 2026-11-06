@@ -240,15 +240,12 @@ const ElementCatalogPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelPr
                     element,
                   })
                 }}
-                title={`${element.description}\n• Nhấp đúp hoặc Enter để chèn\n• Kéo vào canvas để chọn vị trí chèn\n• Chuột phải để mở menu thao tác.`}
+                title={`${element.name}: ${element.description}\n• Nhấp đúp hoặc Enter để chèn\n• Kéo vào canvas để chọn vị trí chèn\n• Chuột phải để mở menu thao tác.`}
               >
                 <span className={`pm-toolbox-card__icon pm-toolbox-card__icon--${element.group}`}>
-                  <Icon size={14} />
+                  <Icon size={13} />
                 </span>
-                <div className="pm-toolbox-card__text">
-                  <strong>{element.name}</strong>
-                  <span>{element.description}</span>
-                </div>
+                <span className="pm-toolbox-card__name">{element.name}</span>
                 <button
                   className="pm-toolbox-card__add"
                   title={`Chèn ${element.name} (Enter / Double-click)`}

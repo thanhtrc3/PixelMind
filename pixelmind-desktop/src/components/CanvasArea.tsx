@@ -2748,6 +2748,19 @@ const CanvasArea = ({
                   position: 'relative',
                   overflow: 'hidden',
                 }}
+                onDragOver={(e) => {
+                  if (toolboxDrag.current()) {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'copy'
+                  }
+                }}
+                onDrop={(e) => {
+                  const item = toolboxDrag.current()
+                  if (item) {
+                    e.preventDefault()
+                    void beginToolboxInsert(item, { placement: 'after' })
+                  }
+                }}
               >
                 {renderFrameContent()}
               </div>
@@ -2784,6 +2797,19 @@ const CanvasArea = ({
                     height: currentVp.h,
                     position: 'relative',
                     overflow: 'hidden',
+                  }}
+                  onDragOver={(e) => {
+                    if (toolboxDrag.current()) {
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = 'copy'
+                    }
+                  }}
+                  onDrop={(e) => {
+                    const item = toolboxDrag.current()
+                    if (item) {
+                      e.preventDefault()
+                      void beginToolboxInsert(item, { placement: 'after' })
+                    }
                   }}
                 >
                   {renderFrameContent()}

@@ -70,6 +70,16 @@ export function killPort(port: number): void {
   } catch {}
 }
 
+/** Quét và cưỡng chế tắt bất kỳ tiến trình binary nào (.exe trong bin/obj của dự án) đang bị kẹt gây khoá file (lỗi MSB3026 / MSB3027) */
+export function killProjectBinaries(projectPath: string): void {
+  if (!projectPath || process.platform !== 'win32') return
+  try {
+    const escaped = projectPath.replace(/'/g, "''").replace(/\\/g, '\\\\')
+    const psCmd = `Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like '${escaped}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
+    execSync(`powershell -NoProfile -Command "${psCmd}"`, { stdio: 'ignore', timeout: 3500 })
+  } catch {}
+}
+
 interface Entry {
   state: RunState
   child?: ChildProcess
@@ -300,6 +310,7 @@ export class RunnerManager {
   ): RunState {
     // Dọn dẹp dứt điểm toàn bộ tiến trình cũ đang chạy của dự án này (nếu có)
     this.stopOfProject(project.id)
+    killProjectBinaries(project.path)
 
     const id = randomUUID()
     const entry: Entry = {
@@ -498,6 +509,7 @@ export class RunnerManager {
       }
     }
     if (portToKill) killPort(portToKill)
+    if (entry.state.cwd) killProjectBinaries(entry.state.cwd)
 
     this.emitLog(runId, '[system] Đã dừng tiến trình và giải phóng cổng mạng thành công.\n', 'system')
     return true
