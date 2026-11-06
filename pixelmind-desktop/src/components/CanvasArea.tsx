@@ -343,6 +343,8 @@ const CanvasArea = ({
   const [mutationBusy, setMutationBusy] = useState(false)
   const [attrsDraft, setAttrsDraft] = useState({ id: '', className: '', text: '' })
   const toolboxRequestsRef = useRef<Map<string, (data: any) => void>>(new Map())
+  const isInsertingRef = useRef(false)
+  const lastInsertTimeRef = useRef(0)
   const [isDirtyBuffer, setIsDirtyBuffer] = useState(editorBuffer.isDirty())
   const initialTextRef = useRef<string>('')
   const currentRouteRef = useRef<string>('/')
@@ -703,6 +705,7 @@ const CanvasArea = ({
       } else if (e.data.type === 'PM_TOOLBOX_DROP') {
         const item = toolboxDrag.current()
         if (item) {
+          toolboxDrag.end()
           void beginToolboxInsert(item, {
             targetUid: e.data.payload?.targetUid,
             placement: e.data.payload?.placement,
@@ -1405,111 +1408,126 @@ const CanvasArea = ({
         return
       }
 
-      let info: RealElementInfo | null = selectedEl
-      const targetUid = target?.targetUid || selectedEl?.uid || 'pm_body'
-      const placement = target?.placement || (selectedEl ? 'after' : 'inside')
-
-      if (targetUid && targetUid !== info?.uid) {
-        const data = await sendToolboxMessage('PM_TOOLBOX_GET_INFO', { uid: targetUid })
-        if (data?.info) info = data.info as RealElementInfo
+      // Ngăn chặn các sự kiện chèn lặp lại (debounce 500ms)
+      const now = Date.now()
+      if (isInsertingRef.current || (now - lastInsertTimeRef.current < 500)) {
+        return
       }
+      isInsertingRef.current = true
+      lastInsertTimeRef.current = now
+      toolboxDrag.end()
 
-      // Tự động định vị tệp và dòng mã nguồn của phần tử mục tiêu
-      let resolvedFullPath = info?.uid && info.uid === selectedEl?.uid ? sourceLoc?.fullPath : undefined
-      let resolvedLineNumber = info?.uid && info.uid === selectedEl?.uid ? sourceLoc?.lineNumber : undefined
-
-      if (!resolvedFullPath && info && api?.inspect?.locateSource) {
-        try {
-          const loc = await api.inspect.locateSource({
-            projectPath,
-            textSnippet: info.textSnippet,
-            tagName: info.tagName,
-            className: info.className,
-            currentPath: info.currentPath || currentRouteRef.current,
-            id: info.id,
-            selector: info.selector,
-          })
-          if (loc?.fullPath) {
-            resolvedFullPath = loc.fullPath
-            resolvedLineNumber = loc.lineNumber
-          }
-        } catch {}
-      }
-
-      const targetObj = {
-        ...buildTarget(info, placement),
-        fullPath: resolvedFullPath,
-        lineNumber: resolvedLineNumber,
-      }
-
-      const domHtml = item.css
-        ? `${item.html}\n<style data-pm-toolbox>${item.css}</style>`
-        : item.html
-
-      // 1. Chèn ngay lập tức vào Live DOM trong iframe (hiển thị lập tức tại vị trí kéo thả, không cần tải lại)
-      const domData = await sendToolboxMessage('PM_TOOLBOX_INSERT', {
-        html: domHtml || '',
-        targetUid,
-        placement,
-      })
-      const r = domData?.result
-
-      // 2. Tự động ghi đồng bộ vào mã nguồn tệp tương ứng trên ổ đĩa
-      let writeResult: any = null
       try {
-        writeResult = await api.toolbox.mutate({
-          kind: 'insert',
-          projectPath,
-          target: targetObj,
-          html: item.html,
-          css: item.css,
-          dryRun: false,
-        })
-      } catch (err) {
-        console.warn('Lỗi ghi mã nguồn khi chèn công cụ:', err)
-      }
+        let info: RealElementInfo | null = selectedEl
+        const targetUid = target?.targetUid || selectedEl?.uid || 'pm_body'
+        const placement = target?.placement || (selectedEl ? 'after' : 'inside')
 
-      // 3. Đưa vào bộ đệm hoàn tác (Ctrl+Z / Ctrl+Y)
-      editorBuffer.pushAction({
-        type: 'INSERT',
-        description: `Chèn ${item.name}`,
-        target: {
-          tagName: targetObj.tagName || 'div',
-          id: targetObj.id,
-          className: targetObj.className,
-          domPath: targetObj.domPath,
-          uid: targetObj.uid,
-          selector: targetObj.selector,
-          textSnippet: targetObj.textSnippet,
-        },
-        sourceLoc: writeResult?.fullPath
-          ? {
-              filePath: writeResult.filePath || '',
-              fullPath: writeResult.fullPath,
-              lineNumber: writeResult.startLine || 1,
+        if (targetUid && targetUid !== info?.uid) {
+          const data = await sendToolboxMessage('PM_TOOLBOX_GET_INFO', { uid: targetUid })
+          if (data?.info) info = data.info as RealElementInfo
+        }
+
+        // Tự động định vị tệp và dòng mã nguồn của phần tử mục tiêu
+        let resolvedFullPath = info?.uid && info.uid === selectedEl?.uid ? sourceLoc?.fullPath : undefined
+        let resolvedLineNumber = info?.uid && info.uid === selectedEl?.uid ? sourceLoc?.lineNumber : undefined
+
+        if (!resolvedFullPath && info && api?.inspect?.locateSource) {
+          try {
+            const loc = await api.inspect.locateSource({
+              projectPath,
+              textSnippet: info.textSnippet,
+              tagName: info.tagName,
+              className: info.className,
+              currentPath: info.currentPath || currentRouteRef.current,
+              id: info.id,
+              selector: info.selector,
+            })
+            if (loc?.fullPath) {
+              resolvedFullPath = loc.fullPath
+              resolvedLineNumber = loc.lineNumber
             }
-          : (resolvedFullPath
-              ? {
-                  filePath: writeResult?.filePath || '',
-                  fullPath: resolvedFullPath,
-                  lineNumber: resolvedLineNumber || 1,
-                }
-              : undefined),
-        before: { styles: {} },
-        after: { styles: {} },
-        dom: {
-          kind: 'insert',
-          parentUid: r?.parentUid,
-          index: r?.index,
-          uids: r?.uids || [],
-          html: domHtml,
-        },
-        fileBefore: writeResult?.oldText,
-        fileAfter: writeResult?.newText,
-        projectPath,
-      })
+          } catch {}
+        }
 
-      showToast(`Đã chèn “${item.name}” vào trang (Ctrl+Z để hoàn tác)`, 'ok')
+        const targetObj = {
+          ...buildTarget(info, placement),
+          fullPath: resolvedFullPath,
+          lineNumber: resolvedLineNumber,
+        }
+
+        const domHtml = item.css
+          ? `${item.html}\n<style data-pm-toolbox>${item.css}</style>`
+          : item.html
+
+        // 1. Chèn ngay lập tức vào Live DOM trong iframe (hiển thị lập tức tại vị trí kéo thả, không cần tải lại)
+        const domData = await sendToolboxMessage('PM_TOOLBOX_INSERT', {
+          html: domHtml || '',
+          targetUid,
+          placement,
+        })
+        const r = domData?.result
+
+        // 2. Tự động ghi đồng bộ vào mã nguồn tệp tương ứng trên ổ đĩa
+        let writeResult: any = null
+        try {
+          writeResult = await api.toolbox.mutate({
+            kind: 'insert',
+            projectPath,
+            target: targetObj,
+            html: item.html,
+            css: item.css,
+            dryRun: false,
+          })
+        } catch (err) {
+          console.warn('Lỗi ghi mã nguồn khi chèn công cụ:', err)
+        }
+
+        // 3. Đưa vào bộ đệm hoàn tác (Ctrl+Z / Ctrl+Y)
+        editorBuffer.pushAction({
+          type: 'INSERT',
+          description: `Chèn ${item.name}`,
+          target: {
+            tagName: targetObj.tagName || 'div',
+            id: targetObj.id,
+            className: targetObj.className,
+            domPath: targetObj.domPath,
+            uid: targetObj.uid,
+            selector: targetObj.selector,
+            textSnippet: targetObj.textSnippet,
+          },
+          sourceLoc: writeResult?.fullPath
+            ? {
+                filePath: writeResult.filePath || '',
+                fullPath: writeResult.fullPath,
+                lineNumber: writeResult.startLine || 1,
+              }
+            : (resolvedFullPath
+                ? {
+                    filePath: writeResult?.filePath || '',
+                    fullPath: resolvedFullPath,
+                    lineNumber: resolvedLineNumber || 1,
+                  }
+                : undefined),
+          before: { styles: {} },
+          after: { styles: {} },
+          dom: {
+            kind: 'insert',
+            parentUid: r?.parentUid,
+            index: r?.index,
+            uids: r?.uids || [],
+            html: domHtml,
+          },
+          fileBefore: writeResult?.oldText,
+          fileAfter: writeResult?.newText,
+          projectPath,
+        })
+
+        showToast(`Đã chèn “${item.name}” vào trang (Ctrl+Z để hoàn tác)`, 'ok')
+      } finally {
+        window.setTimeout(() => {
+          isInsertingRef.current = false
+        }, 400)
+      }
     },
     [projectPath, selectedEl, sourceLoc, buildTarget, sendToolboxMessage, showToast],
   )
@@ -2819,13 +2837,6 @@ const CanvasArea = ({
                     e.dataTransfer.dropEffect = 'copy'
                   }
                 }}
-                onDrop={(e) => {
-                  const item = toolboxDrag.current()
-                  if (item) {
-                    e.preventDefault()
-                    void beginToolboxInsert(item, { placement: 'after' })
-                  }
-                }}
               >
                 {renderFrameContent()}
               </div>
@@ -2867,13 +2878,6 @@ const CanvasArea = ({
                     if (toolboxDrag.current()) {
                       e.preventDefault()
                       e.dataTransfer.dropEffect = 'copy'
-                    }
-                  }}
-                  onDrop={(e) => {
-                    const item = toolboxDrag.current()
-                    if (item) {
-                      e.preventDefault()
-                      void beginToolboxInsert(item, { placement: 'after' })
                     }
                   }}
                 >

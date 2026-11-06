@@ -805,6 +805,12 @@ function getInspectorScript(isActive: boolean) {
     if (document.documentElement) {
       document.documentElement.style.cursor = window.__PM_INSPECT_ACTIVE ? 'crosshair' : '';
     }
+    // Ngăn chặn việc gắn lặp lại hàng loạt event listeners (mouseover, drop, keydown, click...)
+    if (window.__PM_INSPECT_INITIALIZED) {
+      return;
+    }
+    window.__PM_INSPECT_INITIALIZED = true;
+
     if (window.__PM_INSPECT_CLEANUP) {
       try { window.__PM_INSPECT_CLEANUP(); } catch(e) {}
     }
