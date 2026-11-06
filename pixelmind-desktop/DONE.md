@@ -316,3 +316,18 @@ HIỆN TẠI (Chuẩn Modern Desktop App như VS Code / Figma / Cursor):
     - **Hoàn thiện Kéo - Thả (Drag & Drop) mượt mà vào Canvas**:
       - Cho phép sự kiện `dragover` trên iframe kích hoạt `preventDefault()` vô điều kiện, vượt qua rào cản hạn chế MIME type giữa các frame của Chromium.
       - Bổ sung bộ xử lý bắt sự kiện thả dự phòng trên khung Canvas wrapper, đảm bảo thả phần tử từ Toolbox vào trang luôn hoạt động chuẩn xác và phản hồi đường chỉ dẫn vị trí tức thì.
+
+21. **Khắc Phục Lỗi Chèn Sai Vị Trí, Cập Nhật Live DOM Tức Thì & Thiết Kế Toolbox Cây Accordion (Chuẩn VS Ảnh 2)**:
+    - **Sửa triệt để lỗi in chuỗi CSS thô lên đầu trang (Ảnh 1)**:
+      - Nguyên nhân: Trước đó khi không có thông tin tệp đích đầy đủ, thuật toán tìm fallback đã chọn nhầm tệp `Views/_ViewImports.cshtml`. Trong ASP.NET Core, mã HTML lọt vào `_ViewImports.cshtml` sẽ bị Razor đưa lên trước thẻ `<html>` của tất cả các trang, dẫn đến trình duyệt hiểu nhầm chuỗi style là text thuần.
+      - Giải pháp: Đã dọn dẹp sạch sẽ `_ViewImports.cshtml` và `Views/Home/Index.cshtml`. Đồng thời bổ sung bộ lọc `isIgnoredTemplateFile` loại trừ vĩnh viễn các tệp metadata hệ thống (`_ViewImports`, `_ViewStart`, `.bak`) khỏi danh sách tệp đích; bổ sung hàm nhận diện route `getRouteCandidates` tự động ánh xạ URL hiện tại (`/` -> `Views/Home/Index.cshtml`, `/Product` -> `Views/Product/Index.cshtml`) để chèn chính xác 100% vào đúng view đang mở.
+    - **Bỏ hộp thoại xác nhận khi kéo thả (Kéo là ăn ngay, không làm phiền người dùng)**:
+      - Loại bỏ hộp thoại pop-up diff khi kéo thả từ Toolbox vào trang: khi thả phần tử, công cụ sẽ chèn trực tiếp ngay lập tức vào Live DOM của trang và ghi ngầm vào mã nguồn.
+      - Toàn bộ thao tác đều được lưu vào bộ đệm `editorBuffer` giúp người dùng có thể bấm `Ctrl+Z` để hoàn tác tức thì.
+    - **Hiển thị trực tiếp vào trang ngay khi thả (Không cần tải lại ứng dụng)**:
+      - Khắc phục sự cố bóc tách payload giữa Electron iframe và renderer: cập nhật `insertHtmlNodes` nhận trực tiếp `html` và `targetUid`, tạo phần tử DOM thực tế và chèn ngay vị trí chỉ định (`before`, `after`, `inside`), tự động cuộn tới phần tử mới và chọn nó.
+    - **Thiết kế lại Toolbox dạng Cây Accordion chuẩn Visual Studio (Ảnh 2)**:
+      - Tái cấu trúc thành các nhóm Accordion có thể mở rộng / thu gọn: `Common Controls (Phổ biến)`, `Containers (Bố cục)`, `Typography`, `Buttons`, `Forms`, `Data`, `Navigation`, `Feedback`, `Marketing`, `Components (Tiện ích)`.
+      - Mục đầu tiên trong mỗi nhóm luôn là `Pointer` (Con trỏ chuột mặc định) với icon trỏ chuột chuẩn VS.
+      - Item được thiết kế thanh mảnh (cao 26px) với thanh chỉ thị màu tím (`|`) ở cạnh trái khi được chọn hoặc hover đúng hệt như Ảnh 2.
+      - Icon đường nét đơn sắc tinh tế theo chuẩn Visual Studio, kèm nút tìm kiếm và thu gọn/mở rộng tất cả.

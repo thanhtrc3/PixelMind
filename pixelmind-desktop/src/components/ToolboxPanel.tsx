@@ -3,35 +3,43 @@ import {
   AlertCircle,
   ArrowDownToLine,
   ArrowRightToLine,
-  ArrowUpDown,
+  Bell,
   Box,
   Boxes,
+  CheckSquare,
+  ChevronDown,
+  CircleDot,
+  Columns,
   Compass,
   Copy,
+  FormInput,
   Image as ImageIcon,
+  Layers,
   LayoutGrid,
   Loader2,
+  Menu,
   MoreHorizontal,
   MousePointer2,
   Package,
+  Percent,
   Plus,
   RefreshCw,
+  Rows,
   Search,
   Sliders,
   Sparkles,
+  Square,
   Table,
   Type,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { InsertPlacement, ProjectComponent, ProjectScanResult, ToolboxGroupId } from '@shared/toolbox'
-import { TOOLBOX_GROUPS } from '@shared/toolbox'
 import { api } from '../lib/bridge'
 import { PARTS, matchesQuery } from '../data/toolbox'
 import type { Part } from '../data/toolbox'
 import {
   TOOLBOX_ELEMENTS,
   TOOLBOX_ELEMENT_COUNT,
-  groupCounts,
 } from '../data/toolboxCatalog'
 import type { ToolboxElement } from '@shared/toolbox'
 import { requestToolboxInsert, toolboxDrag } from '../lib/toolboxBridge'
@@ -59,6 +67,58 @@ const GROUP_ICONS: Record<ToolboxGroupId, LucideIcon> = {
   parts: Package,
   project: Boxes,
 }
+
+function getControlIcon(element: ToolboxElement): LucideIcon {
+  const id = element.id.toLowerCase()
+  if (id.includes('button') || id.startsWith('btn')) return Square
+  if (id.includes('checkbox')) return CheckSquare
+  if (id.includes('radio')) return CircleDot
+  if (id.includes('select') || id.includes('combobox')) return Menu
+  if (id.includes('input') || id.includes('textbox')) return FormInput
+  if (id.includes('h1') || id.includes('h2') || id.includes('h3') || id.includes('heading')) return Type
+  if (id.includes('paragraph') || id.includes('text') || id.includes('lead') || id.includes('small')) return Type
+  if (id.includes('link')) return Compass
+  if (id.includes('table')) return Table
+  if (id.includes('image') || id.includes('img') || id.includes('picture')) return ImageIcon
+  if (id.includes('card')) return LayoutGrid
+  if (id.includes('container') || id.includes('section')) return Box
+  if (id.includes('div')) return Layers
+  if (id.includes('grid') || id.includes('row')) return Columns
+  if (id.includes('column') || id.includes('stack')) return Rows
+  if (id.includes('alert') || id.includes('badge')) return AlertCircle
+  if (id.includes('progress')) return Percent
+  if (id.includes('modal') || id.includes('toast')) return Bell
+  if (id.includes('hero') || id.includes('cta')) return Sparkles
+  if (id.includes('nav') || id.includes('menu') || id.includes('tabs')) return Compass
+  return GROUP_ICONS[element.group] || Box
+}
+
+const COMMON_CONTROL_IDS = [
+  'button-primary',
+  'form-input',
+  'form-checkbox',
+  'form-select',
+  'text-h1',
+  'text-paragraph',
+  'layout-container',
+  'layout-section',
+  'data-card',
+  'nav-link',
+  'utility-image',
+]
+
+const VS_SECTIONS: { id: string; label: string; groupKey?: ToolboxGroupId }[] = [
+  { id: 'common', label: 'Common Controls' },
+  { id: 'layout', label: 'Containers (Bố cục & Khung)', groupKey: 'layout' },
+  { id: 'typography', label: 'Typography (Văn bản & Nhãn)', groupKey: 'typography' },
+  { id: 'buttons', label: 'Buttons (Nút & Hành động)', groupKey: 'buttons' },
+  { id: 'forms', label: 'Forms (Biểu mẫu & Ô nhập)', groupKey: 'forms' },
+  { id: 'data', label: 'Data (Dữ liệu & Thẻ)', groupKey: 'data' },
+  { id: 'navigation', label: 'Navigation (Điều hướng & Menu)', groupKey: 'navigation' },
+  { id: 'feedback', label: 'Feedback (Phản hồi & Cảnh báo)', groupKey: 'feedback' },
+  { id: 'marketing', label: 'Marketing (Hero & Tiếp thị)', groupKey: 'marketing' },
+  { id: 'utility', label: 'Components (Tiện ích & Media)', groupKey: 'utility' },
+]
 
 function startDrag(event: React.DragEvent, item: ToolboxDragItem) {
   toolboxDrag.start(item)
@@ -105,14 +165,19 @@ function projectToDragItem(component: ProjectComponent): ToolboxDragItem {
   }
 }
 
-/* ─────────────────────── Tab: Phần tử ─────────────────────── */
+/* ─────────────────────── Tab: Phần tử (Visual Studio Tree Accordion) ─────────────────────── */
 
 const ElementCatalogPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelProps, 'onShowToast' | 'onNeedPreview'>) => {
   const [query, setQuery] = useState('')
-  const [group, setGroup] = useState<ToolboxGroupId | 'all'>('all')
-  const [sortAlpha, setSortAlpha] = useState(false)
+  const [selectedTool, setSelectedTool] = useState<string>('pointer')
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = { common: true, layout: true }
+    VS_SECTIONS.forEach((s) => {
+      init[s.id] = true
+    })
+    return init
+  })
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; element: ToolboxElement } | null>(null)
-  const counts = useMemo(() => groupCounts(), [])
 
   useEffect(() => {
     const dismiss = () => setContextMenu(null)
@@ -120,26 +185,54 @@ const ElementCatalogPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelPr
     return () => window.removeEventListener('click', dismiss)
   }, [])
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    const list = TOOLBOX_ELEMENTS.filter((element) => {
-      if (group !== 'all' && element.group !== group) return false
-      if (!needle) return true
-      return [element.name, element.description, ...element.tags]
-        .join(' ')
-        .toLowerCase()
-        .includes(needle)
+  const toggleSection = (sectionId: string) => {
+    setOpenSections((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }))
+  }
+
+  const toggleAll = () => {
+    const allOpen = Object.values(openSections).every(Boolean)
+    const next: Record<string, boolean> = {}
+    VS_SECTIONS.forEach((s) => {
+      next[s.id] = !allOpen
     })
-    if (sortAlpha) {
-      return [...list].sort((a, b) => a.name.localeCompare(b.name, 'vi'))
+    setOpenSections(next)
+  }
+
+  const filteredItems = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return (elements: ToolboxElement[]) => {
+      if (!needle) return elements
+      return elements.filter((element) =>
+        [element.name, element.description, ...element.tags].join(' ').toLowerCase().includes(needle),
+      )
     }
-    return list
-  }, [query, group, sortAlpha])
+  }, [query])
+
+  const sectionData = useMemo(() => {
+    return VS_SECTIONS.map((sec) => {
+      let elements: ToolboxElement[] = []
+      if (sec.id === 'common') {
+        const set = new Set(COMMON_CONTROL_IDS)
+        elements = TOOLBOX_ELEMENTS.filter((e) => set.has(e.id))
+      } else if (sec.groupKey) {
+        elements = TOOLBOX_ELEMENTS.filter((e) => e.group === sec.groupKey)
+      }
+      const matched = filteredItems(elements)
+      return {
+        ...sec,
+        elements: matched,
+      }
+    })
+  }, [filteredItems])
+
+  const totalMatches = useMemo(() => {
+    return sectionData.reduce((acc, s) => acc + s.elements.length, 0)
+  }, [sectionData])
 
   const insert = (element: ToolboxElement, placement?: InsertPlacement) => {
     onNeedPreview?.()
     requestToolboxInsert({ item: elementToDragItem(element), placement })
-    onShowToast('info', `Đã gửi “${element.name}” tới canvas.`)
+    onShowToast('info', `Đang chèn “${element.name}”…`)
   }
 
   const copyHtml = (element: ToolboxElement) => {
@@ -162,7 +255,7 @@ const ElementCatalogPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelPr
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => event.stopPropagation()}
-          placeholder="Tìm phần tử: nút, card, bảng, hero…"
+          placeholder="Tìm công cụ (Button, TextBox, Container…)"
         />
         {query && (
           <button className="pm-toolbox-search__clear" onClick={() => setQuery('')} title="Xoá tìm kiếm">
@@ -170,97 +263,115 @@ const ElementCatalogPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelPr
           </button>
         )}
         <button
-          className={`pm-toolbox-search__clear ${sortAlpha ? 'active' : ''}`}
-          style={{ width: 'auto', padding: '0 4px', fontSize: 10, fontWeight: sortAlpha ? 700 : 400, color: sortAlpha ? 'var(--accent, #6d5df5)' : undefined }}
-          onClick={() => setSortAlpha((v) => !v)}
-          title={sortAlpha ? 'Đang xếp A-Z (bấm để xếp theo nhóm)' : 'Bấm để xếp theo thứ tự chữ cái A-Z'}
+          className="pm-toolbox-search__clear"
+          style={{ width: 'auto', padding: '0 4px', fontSize: 10, color: 'var(--text-3)' }}
+          onClick={toggleAll}
+          title="Mở rộng / Thu gọn tất cả nhóm"
         >
-          <ArrowUpDown size={11} />
+          <ChevronDown size={11} />
         </button>
       </div>
 
-      <div className="pm-toolbox-groups">
-        <button
-          className={`pm-toolbox-group ${group === 'all' ? 'active' : ''}`}
-          onClick={() => setGroup('all')}
-        >
-          <Boxes size={12} />
-          Tất cả
-          <em>{TOOLBOX_ELEMENT_COUNT}</em>
-        </button>
-        {TOOLBOX_GROUPS.filter((item) => item.id !== 'parts' && item.id !== 'project').map((item) => {
-          const Icon = GROUP_ICONS[item.id]
+      <div className="pm-toolbox-tree">
+        {sectionData.map((sec) => {
+          if (query.trim() && sec.elements.length === 0) return null
+          const isOpen = query.trim() ? true : !!openSections[sec.id]
+
           return (
-            <button
-              key={item.id}
-              className={`pm-toolbox-group ${group === item.id ? 'active' : ''}`}
-              onClick={() => setGroup(item.id)}
-              title={item.description}
-            >
-              <Icon size={12} />
-              {item.label}
-              <em>{counts[item.id] ?? 0}</em>
-            </button>
+            <div key={sec.id} className="pm-toolbox-accordion">
+              <div
+                className="pm-toolbox-accordion__hd"
+                onClick={() => toggleSection(sec.id)}
+                title={`${sec.label} (${sec.elements.length} mục)`}
+              >
+                <ChevronDown
+                  size={12}
+                  className={`pm-toolbox-accordion__arrow ${isOpen ? '' : 'collapsed'}`}
+                />
+                <span className="pm-toolbox-accordion__title">{sec.label}</span>
+                <span className="pm-toolbox-accordion__count">{sec.elements.length}</span>
+              </div>
+
+              {isOpen && (
+                <div className="pm-toolbox-accordion__items">
+                  {/* Mục 1: Pointer (Con trỏ) chuẩn Visual Studio 2022 */}
+                  <div
+                    className={`pm-toolbox-item ${selectedTool === `pointer_${sec.id}` || (selectedTool === 'pointer' && sec.id === 'common') ? 'is-selected' : ''}`}
+                    onClick={() => setSelectedTool(`pointer_${sec.id}`)}
+                    title="Pointer: Con trỏ chọn phần tử mặc định"
+                  >
+                    <span className="pm-toolbox-item__icon">
+                      <MousePointer2 size={13} />
+                    </span>
+                    <span className="pm-toolbox-item__name">Pointer</span>
+                  </div>
+
+                  {sec.elements.map((element) => {
+                    const Icon = getControlIcon(element)
+                    const isSelected = selectedTool === element.id
+
+                    return (
+                      <div
+                        key={element.id}
+                        className={`pm-toolbox-item ${isSelected ? 'is-selected' : ''}`}
+                        tabIndex={0}
+                        draggable
+                        onDragStart={(event) => {
+                          setSelectedTool(element.id)
+                          startDrag(event, elementToDragItem(element))
+                        }}
+                        onDragEnd={endDrag}
+                        onClick={() => setSelectedTool(element.id)}
+                        onDoubleClick={() => insert(element)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            insert(element)
+                          }
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setSelectedTool(element.id)
+                          setContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            element,
+                          })
+                        }}
+                        title={`${element.name}: ${element.description}\n• Nhấp đúp hoặc Enter để chèn trực tiếp\n• Kéo vào trang để chọn vị trí chèn\n• Chuột phải để mở menu thao tác.`}
+                      >
+                        <span className={`pm-toolbox-item__icon pm-toolbox-item__icon--${element.group}`}>
+                          <Icon size={13} />
+                        </span>
+                        <span className="pm-toolbox-item__name">{element.name}</span>
+                        <button
+                          className="pm-toolbox-item__add"
+                          title={`Chèn ${element.name} (Enter / Double-click)`}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            insert(element)
+                          }}
+                        >
+                          <Plus size={11} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           )
         })}
-      </div>
 
-      {filtered.length === 0 ? (
-        <div className="pm-toolbox-empty">
-          <Search size={20} />
-          <strong>Không tìm thấy phần tử phù hợp</strong>
-          <span>Thử từ khoá khác hoặc chọn nhóm “Tất cả”.</span>
-        </div>
-      ) : (
-        <div className="pm-toolbox-grid">
-          {filtered.map((element) => {
-            const Icon = GROUP_ICONS[element.group]
-            return (
-              <div
-                key={element.id}
-                className="pm-toolbox-card"
-                tabIndex={0}
-                draggable
-                onDragStart={(event) => startDrag(event, elementToDragItem(element))}
-                onDragEnd={endDrag}
-                onClick={() => insert(element)}
-                onDoubleClick={() => insert(element)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    insert(element)
-                  }
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setContextMenu({
-                    x: e.clientX,
-                    y: e.clientY,
-                    element,
-                  })
-                }}
-                title={`${element.name}: ${element.description}\n• Nhấp đúp hoặc Enter để chèn\n• Kéo vào canvas để chọn vị trí chèn\n• Chuột phải để mở menu thao tác.`}
-              >
-                <span className={`pm-toolbox-card__icon pm-toolbox-card__icon--${element.group}`}>
-                  <Icon size={13} />
-                </span>
-                <span className="pm-toolbox-card__name">{element.name}</span>
-                <button
-                  className="pm-toolbox-card__add"
-                  title={`Chèn ${element.name} (Enter / Double-click)`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    insert(element)
-                  }}
-                >
-                  <Plus size={12} />
-                </button>
-              </div>
-            )
-          })}
-        </div>
-      )}
+        {query.trim() && totalMatches === 0 && (
+          <div className="pm-toolbox-empty">
+            <Search size={20} />
+            <strong>Không tìm thấy công cụ phù hợp</strong>
+            <span>Thử từ khoá khác như button, card, header, input…</span>
+          </div>
+        )}
+      </div>
 
       {/* Menu chuột phải trên phần tử Toolbox */}
       {contextMenu && (

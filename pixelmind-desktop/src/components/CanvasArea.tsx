@@ -1364,7 +1364,7 @@ const CanvasArea = ({
         const requestId = `tb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
         toolboxRequestsRef.current.set(requestId, resolve)
         try {
-          win.postMessage({ type, requestId, ...payload }, '*')
+          win.postMessage({ type, requestId, payload, ...payload }, '*')
         } catch {
           toolboxRequestsRef.current.delete(requestId)
           resolve(null)
@@ -1414,39 +1414,104 @@ const CanvasArea = ({
         if (data?.info) info = data.info as RealElementInfo
       }
 
-      const payload: ToolboxMutationPayload = {
-        kind: 'insert',
-        projectPath,
-        target: buildTarget(info, placement),
-        html: item.html,
-        css: item.css,
-        dryRun: true,
+      // Tự động định vị tệp và dòng mã nguồn của phần tử mục tiêu
+      let resolvedFullPath = info?.uid && info.uid === selectedEl?.uid ? sourceLoc?.fullPath : undefined
+      let resolvedLineNumber = info?.uid && info.uid === selectedEl?.uid ? sourceLoc?.lineNumber : undefined
+
+      if (!resolvedFullPath && info && api?.inspect?.locateSource) {
+        try {
+          const loc = await api.inspect.locateSource({
+            projectPath,
+            textSnippet: info.textSnippet,
+            tagName: info.tagName,
+            className: info.className,
+            currentPath: info.currentPath || currentRouteRef.current,
+            id: info.id,
+            selector: info.selector,
+          })
+          if (loc?.fullPath) {
+            resolvedFullPath = loc.fullPath
+            resolvedLineNumber = loc.lineNumber
+          }
+        } catch {}
       }
 
-      try {
-        const preview = await api.toolbox.mutate(payload)
-        if (!preview.success) {
-          showToast(preview.error || 'Không thể chèn phần tử.', 'err')
-          return
-        }
-        const domHtml = item.css
-          ? `${item.html}\n<style data-pm-toolbox>${item.css}</style>`
-          : item.html
-        setPendingMutation({
-          payload,
-          preview,
-          title: `Chèn “${item.name}”`,
-          subtitle: 'Xem trước thay đổi trong mã nguồn trước khi ghi.',
-          mode: 'insert',
-          domHtml,
-          targetUid,
-          placement,
-        })
-      } catch {
-        showToast('Không thể tạo bản xem trước.', 'err')
+      const targetObj = {
+        ...buildTarget(info, placement),
+        fullPath: resolvedFullPath,
+        lineNumber: resolvedLineNumber,
       }
+
+      const domHtml = item.css
+        ? `${item.html}\n<style data-pm-toolbox>${item.css}</style>`
+        : item.html
+
+      // 1. Chèn ngay lập tức vào Live DOM trong iframe (hiển thị lập tức tại vị trí kéo thả, không cần tải lại)
+      const domData = await sendToolboxMessage('PM_TOOLBOX_INSERT', {
+        html: domHtml || '',
+        targetUid,
+        placement,
+      })
+      const r = domData?.result
+
+      // 2. Tự động ghi đồng bộ vào mã nguồn tệp tương ứng trên ổ đĩa
+      let writeResult: any = null
+      try {
+        writeResult = await api.toolbox.mutate({
+          kind: 'insert',
+          projectPath,
+          target: targetObj,
+          html: item.html,
+          css: item.css,
+          dryRun: false,
+        })
+      } catch (err) {
+        console.warn('Lỗi ghi mã nguồn khi chèn công cụ:', err)
+      }
+
+      // 3. Đưa vào bộ đệm hoàn tác (Ctrl+Z / Ctrl+Y)
+      editorBuffer.pushAction({
+        type: 'INSERT',
+        description: `Chèn ${item.name}`,
+        target: {
+          tagName: targetObj.tagName || 'div',
+          id: targetObj.id,
+          className: targetObj.className,
+          domPath: targetObj.domPath,
+          uid: targetObj.uid,
+          selector: targetObj.selector,
+          textSnippet: targetObj.textSnippet,
+        },
+        sourceLoc: writeResult?.fullPath
+          ? {
+              filePath: writeResult.filePath || '',
+              fullPath: writeResult.fullPath,
+              lineNumber: writeResult.startLine || 1,
+            }
+          : (resolvedFullPath
+              ? {
+                  filePath: writeResult?.filePath || '',
+                  fullPath: resolvedFullPath,
+                  lineNumber: resolvedLineNumber || 1,
+                }
+              : undefined),
+        before: { styles: {} },
+        after: { styles: {} },
+        dom: {
+          kind: 'insert',
+          parentUid: r?.parentUid,
+          index: r?.index,
+          uids: r?.uids || [],
+          html: domHtml,
+        },
+        fileBefore: writeResult?.oldText,
+        fileAfter: writeResult?.newText,
+        projectPath,
+      })
+
+      showToast(`Đã chèn “${item.name}” vào trang (Ctrl+Z để hoàn tác)`, 'ok')
     },
-    [projectPath, selectedEl, buildTarget, sendToolboxMessage, showToast],
+    [projectPath, selectedEl, sourceLoc, buildTarget, sendToolboxMessage, showToast],
   )
 
   const beginToolboxDelete = useCallback(async () => {

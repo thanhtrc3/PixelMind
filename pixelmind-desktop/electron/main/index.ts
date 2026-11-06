@@ -1055,13 +1055,17 @@ function getInspectorScript(isActive: boolean) {
 
     function insertHtmlNodes(html, targetUid, placement) {
       var target = targetUid ? document.querySelector('[data-pm-uid="' + targetUid + '"]') : null;
-      if (!target) target = document.body;
+      var isRoot = !target || target === document.body || target === document.documentElement;
       var wrapper = document.createElement('div');
       wrapper.innerHTML = html;
       var nodes = Array.prototype.slice.call(wrapper.childNodes);
       var parent = target;
       var reference = null;
-      if (placement === 'before') {
+
+      if (isRoot) {
+        parent = document.body || document.documentElement;
+        reference = placement === 'before' ? parent.firstChild : null;
+      } else if (placement === 'before') {
         parent = target.parentNode || document.body;
         reference = target;
       } else if (placement === 'inside') {
@@ -1071,6 +1075,7 @@ function getInspectorScript(isActive: boolean) {
         parent = target.parentNode || document.body;
         reference = target.nextSibling;
       }
+
       var index = Array.prototype.indexOf.call(parent.childNodes, reference);
       if (index < 0) index = parent.childNodes.length;
       var uids = [];
@@ -1524,13 +1529,27 @@ function getInspectorScript(isActive: boolean) {
           }, '*');
         }
       } else if (e.data.type === 'PM_TOOLBOX_INSERT') {
-        var insertPayload = e.data.payload || {};
+        var insertPayload = e.data.payload || e.data || {};
+        var insertHtml = insertPayload.html || e.data.html || '';
+        var insertTargetUid = insertPayload.targetUid || e.data.targetUid;
+        var insertPlacement = insertPayload.placement || e.data.placement || 'after';
         var insertResult = insertHtmlNodes(
-          insertPayload.html || '',
-          insertPayload.targetUid,
-          insertPayload.placement || 'after'
+          insertHtml,
+          insertTargetUid,
+          insertPlacement
         );
         sendDomTree();
+        if (insertResult && insertResult.uids && insertResult.uids[0]) {
+          var firstNew = document.querySelector('[data-pm-uid="' + insertResult.uids[0] + '"]');
+          if (firstNew) {
+            lastSelected = firstNew;
+            try { firstNew.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch(err) {}
+            window.parent.postMessage({
+              type: 'PM_SELECT_ELEMENT',
+              payload: extractElementInfo(firstNew)
+            }, '*');
+          }
+        }
         window.parent.postMessage({
           type: 'PM_TOOLBOX_DOM_RESULT',
           requestId: e.data.requestId,

@@ -365,12 +365,57 @@ const ENTRY_CANDIDATES = [
   'resources/views/welcome.blade.php',
 ]
 
+function isIgnoredTemplateFile(fullPath: string): boolean {
+  const base = basename(fullPath).toLowerCase()
+  if (base.startsWith('_viewimports') || base.startsWith('_viewstart') || base.endsWith('.bak')) return true
+  return false
+}
+
+function getRouteCandidates(currentPath?: string): string[] {
+  if (!currentPath) return []
+  const clean = currentPath.split('?')[0].replace(/^\/+|\/+$/g, '')
+  if (!clean || clean === 'home') {
+    return [
+      'Views/Home/Index.cshtml',
+      'Pages/Index.cshtml',
+      'index.html',
+      'public/index.html',
+      'src/App.tsx',
+      'src/App.jsx',
+      'src/App.vue',
+      'src/app.vue',
+      'src/App.svelte',
+    ]
+  }
+  const parts = clean.split('/')
+  const list: string[] = []
+  if (parts.length === 1) {
+    const name = parts[0]
+    const cap = name.charAt(0).toUpperCase() + name.slice(1)
+    list.push(`Views/${cap}/Index.cshtml`)
+    list.push(`Views/Home/${cap}.cshtml`)
+    list.push(`Pages/${cap}/Index.cshtml`)
+    list.push(`Pages/${cap}.cshtml`)
+    list.push(`src/pages/${cap}.tsx`)
+    list.push(`src/pages/${name}.tsx`)
+    list.push(`src/pages/${cap}.vue`)
+    list.push(`src/pages/${name}.vue`)
+  } else if (parts.length === 2) {
+    const c1 = parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
+    const c2 = parts[1].charAt(0).toUpperCase() + parts[1].slice(1)
+    list.push(`Views/${c1}/${c2}.cshtml`)
+    list.push(`Pages/${c1}/${c2}.cshtml`)
+    list.push(`src/pages/${c1}/${c2}.tsx`)
+  }
+  return list
+}
+
 async function resolveSourceFile(
   projectPath: string,
   target: ElementMutationTarget,
   kind: string,
 ): Promise<{ fullPath: string; content: string; range: ElementRangeInfo | null } | null> {
-  if (target.fullPath && isInsideProject(projectPath, target.fullPath)) {
+  if (target.fullPath && isInsideProject(projectPath, target.fullPath) && !isIgnoredTemplateFile(target.fullPath)) {
     try {
       const content = await fs.readFile(target.fullPath, 'utf8')
       const best = findBestCandidate(content, target)
@@ -386,20 +431,34 @@ async function resolveSourceFile(
     }
   }
 
+  // 1. Thử các tệp theo route hiện tại của trang
+  const routeCandidates = getRouteCandidates(target.currentPath)
+  for (const rel of routeCandidates) {
+    const fullPath = join(projectPath, rel)
+    try {
+      const content = await fs.readFile(fullPath, 'utf8')
+      const best = findBestCandidate(content, target)
+      if (best) return { fullPath, content, range: best.candidate.range }
+      if (kind === 'insert' && !target.tagName) return { fullPath, content, range: null }
+    } catch {}
+  }
+
+  // 2. Thử các điểm vào chuẩn (Entry Candidates)
   for (const rel of ENTRY_CANDIDATES) {
     const fullPath = join(projectPath, rel)
     try {
       const content = await fs.readFile(fullPath, 'utf8')
       const best = findBestCandidate(content, target)
       if (best) return { fullPath, content, range: best.candidate.range }
-      if (kind === 'insert') return { fullPath, content, range: null }
+      if (kind === 'insert' && !target.tagName && routeCandidates.length === 0) return { fullPath, content, range: null }
     } catch {
       // thử tệp tiếp theo
     }
   }
 
+  // 3. Quét các tệp mã nguồn hợp lệ trong dự án (loại trừ các file hệ thống/metadata)
   const files = await walkFiles(projectPath, 900)
-  const codeFiles = files.filter((file) => CODE_EXT.has(extname(file).toLowerCase()))
+  const codeFiles = files.filter((file) => CODE_EXT.has(extname(file).toLowerCase()) && !isIgnoredTemplateFile(file))
   let bestFile: { fullPath: string; content: string; range: ElementRangeInfo; score: number } | null = null
 
   for (const fullPath of codeFiles) {
@@ -420,7 +479,16 @@ async function resolveSourceFile(
   }
 
   if (kind === 'insert') {
-    const htmlFile = codeFiles.find((file) => /\.(html?|php|cshtml|razor)$/i.test(file))
+    // Ưu tiên tệp theo route hiện tại
+    for (const rel of routeCandidates) {
+      const fullPath = join(projectPath, rel)
+      if (codeFiles.includes(fullPath)) {
+        try {
+          return { fullPath, content: await fs.readFile(fullPath, 'utf8'), range: null }
+        } catch {}
+      }
+    }
+    const htmlFile = codeFiles.find((file) => /\.(html?|php|cshtml|razor)$/i.test(file) && !basename(file).startsWith('_'))
     if (htmlFile) {
       return { fullPath: htmlFile, content: await fs.readFile(htmlFile, 'utf8'), range: null }
     }
