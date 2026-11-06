@@ -260,3 +260,19 @@ HIỆN TẠI (Chuẩn Modern Desktop App như VS Code / Figma / Cursor):
      - Thay thế icon thẻ mã `</>` (`Code2`) trước đây bằng biểu tượng cây bút chì tô đặc `PencilFillIcon` nghiêng 45 độ chuẩn xác theo Ảnh 2 (`bi-pencil-fill`).
      - Tích hợp nét vẽ tinh xảo với ngòi bút chì, thân bút có khía phân đoạn và phần tẩy trên đỉnh.
      - Đồng bộ màu sắc tự động với trạng thái kích hoạt (màu trắng khi đang bật soi, màu chữ hệ thống khi tắt).
+
+18. **Đồng Bộ Toàn Bộ Dự Án Từ Nhánh `update/Truong` Về Nhánh `main` (Multi-Page Canvas, Live Wire Connections, Hierarchy Layout & Viewport Camera Sync)**:
+   - **Kết quả đồng bộ**:
+     - Kéo và áp dụng toàn vẹn 13 commit tính năng mới nhất từ `origin/update/Truong` (từ commit `480c355` đến `b001893`) vào thẳng nhánh `main`.
+     - Giá trị so sánh `git diff main update/Truong` = **0 khác biệt** (2 nhánh hoàn toàn đồng nhất 100% code).
+     - Nhánh làm việc hiện tại đang hoạt động: **`main`**.
+   - **Các tính năng và cải tiến mới đã có trên `main`**:
+     1. **Không gian Đa màn hình liên kết (Multi-Page Canvas)**: Thay thế Sitemap cũ bằng không gian vô hạn, hiển thị các cửa sổ trang web độc lập song song có thể tương tác trực tiếp.
+     2. **Dây nối liên kết thời gian thực (Live SVG Connection Wires)**: Dây nối thông minh từ chính xác từng nút bấm/link trên trang gốc sang cửa sổ đích; tự cập nhật toạ độ khi cuộn trang, đổi sang màu đỏ cảnh báo khi nút bị khuất, có điểm ghim (pin) nổi trên bề mặt.
+     3. **Tự động sắp xếp cụm & cây phân cấp (Cluster Grid & Parent-Child Hierarchy)**: Tự động sắp xếp layout cửa sổ theo quan hệ cha - con và theo vòng đa tầng, loại bỏ hoàn toàn hiện tượng cửa sổ đè lên nhau (100% không chồng đè).
+     4. **Đồng bộ góc nhìn Camera (Viewport Camera Sync)**: Khi bấm vào nút hoặc chọn trang, camera tự động di chuyển và zoom mượt đến đúng vị trí trang tương ứng.
+     5. **Chống cướp sự kiện & Chống Drop Navigation Chromium**: Ngăn tuyệt đối việc kéo thả URL/file làm mất giao diện chính của Electron, xử lý triệt để sự kiện nhả chuột khi kéo Canvas qua iframe.
+     6. **Xử lý Redirect Auth & Route Mapping Preview**: Tránh bị lặp hoặc sai lệch giao diện khi xem trước các trang có chuyển hướng xác thực.
+   - **Kiểm tra chất lượng mã nguồn**:
+     - `npm run typecheck`: Hoàn thành không có bất kì lỗi kiểu nào (0 error).
+     - `npm run build`: Đóng gói Electron Main, Preload và Renderer hoàn tất thành công 100%.
