@@ -367,7 +367,14 @@ const ENTRY_CANDIDATES = [
 
 function isIgnoredTemplateFile(fullPath: string): boolean {
   const base = basename(fullPath).toLowerCase()
-  if (base.startsWith('_viewimports') || base.startsWith('_viewstart') || base.endsWith('.bak')) return true
+  if (
+    base.startsWith('_viewimports') ||
+    base.startsWith('_viewstart') ||
+    base.startsWith('_validationscriptspartial') ||
+    base.endsWith('.bak')
+  ) {
+    return true
+  }
   return false
 }
 
@@ -433,14 +440,22 @@ async function resolveSourceFile(
 
   // 1. Thử các tệp theo route hiện tại của trang
   const routeCandidates = getRouteCandidates(target.currentPath)
+  let firstExistingRouteFile: { fullPath: string; content: string } | null = null
   for (const rel of routeCandidates) {
     const fullPath = join(projectPath, rel)
     try {
       const content = await fs.readFile(fullPath, 'utf8')
+      if (!firstExistingRouteFile) firstExistingRouteFile = { fullPath, content }
       const best = findBestCandidate(content, target)
       if (best) return { fullPath, content, range: best.candidate.range }
-      if (kind === 'insert' && !target.tagName) return { fullPath, content, range: null }
     } catch {}
+  }
+
+  // Nếu là thao tác chèn (insert) và trang hiện tại đã xác định được tệp mã nguồn tương ứng:
+  // BẮT BUỘC chèn vào tệp của trang hiện tại (chèn vào container hoặc cuối file).
+  // Tuyệt đối KHÔNG ĐƯỢC quét sang các trang khác (như Product/Add.cshtml)!
+  if (kind === 'insert' && firstExistingRouteFile) {
+    return { fullPath: firstExistingRouteFile.fullPath, content: firstExistingRouteFile.content, range: null }
   }
 
   // 2. Thử các điểm vào chuẩn (Entry Candidates)

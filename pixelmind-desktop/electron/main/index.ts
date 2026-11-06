@@ -2061,6 +2061,16 @@ async function scanProjectForSource(
           const relPath = full.replace(rootDir, '').replace(/^[\\/]/, '').replace(/\\/g, '/')
           const lowerRel = relPath.toLowerCase()
 
+          // Bỏ qua các tệp import / directive / layout wrapper hệ thống
+          if (
+            lowerRel.includes('_viewimports') ||
+            lowerRel.includes('_viewstart') ||
+            lowerRel.includes('_validationscriptspartial') ||
+            lowerRel.endsWith('.bak')
+          ) {
+            continue
+          }
+
           // 1. Điểm tương thích Route / Đường dẫn tệp
           let routeScore = 0
           if (routeTokens.length > 0) {
