@@ -1713,8 +1713,13 @@ function getInspectorScript(isActive: boolean) {
         var dragUid = e.data.uid;
         var dragEl = dragUid ? document.querySelector('[data-pm-uid="' + dragUid + '"]') : null;
         if (!dragEl) return;
+        var dragStyle = window.getComputedStyle(dragEl);
+        if (dragStyle.position === 'absolute' || dragStyle.position === 'fixed') return;
 
         var oldParent = dragEl.parentElement;
+        if (!oldParent) return;
+        var oldParentUid = ensureUid(oldParent);
+        var oldIndex = Array.prototype.indexOf.call(oldParent.childNodes, dragEl);
         var prevVis = dragEl.style.visibility;
         dragEl.style.visibility = 'hidden';
         var dropTarget = document.elementFromPoint(e.data.x, e.data.y);
@@ -1770,19 +1775,35 @@ function getInspectorScript(isActive: boolean) {
           if (dragEl.style.position === 'relative') {
             dragEl.style.removeProperty('position');
           }
+          var checkParent = dragEl.parentElement;
+          var checkParentUid = checkParent ? ensureUid(checkParent) : null;
+          var checkIndex = checkParent ? Array.prototype.indexOf.call(checkParent.childNodes, dragEl) : -1;
+          if (oldParentUid === checkParentUid && oldIndex === checkIndex) {
+            reparented = false;
+          }
         }
 
         sendDomTree();
         var finalInfo = extractElementInfo(dragEl);
+        lastSelected = dragEl;
         window.parent.postMessage({
           type: 'PM_SELECT_ELEMENT',
           payload: finalInfo
         }, '*');
 
         if (reparented) {
+          var finalParent = dragEl.parentElement;
+          var finalNewParentUid = finalParent ? ensureUid(finalParent) : null;
+          var finalNewIndex = finalParent ? Array.prototype.indexOf.call(finalParent.childNodes, dragEl) : -1;
           window.parent.postMessage({
             type: 'PM_REPARENT_NOTIFY',
-            message: 'Đã chuyển <' + dragEl.tagName.toLowerCase() + '> vào <' + newParentTag + '>, phân cấp phần tử đã cập nhật!'
+            message: 'Đã chuyển <' + dragEl.tagName.toLowerCase() + '> vào <' + newParentTag + '>, phân cấp phần tử đã cập nhật!',
+            uid: dragUid,
+            tagName: dragEl.tagName,
+            oldParentUid: oldParentUid,
+            oldIndex: oldIndex,
+            newParentUid: finalNewParentUid,
+            newIndex: finalNewIndex
           }, '*');
         }
       } else if (e.data.type === 'PM_TOOLBOX_INSERT') {
@@ -1872,6 +1893,51 @@ function getInspectorScript(isActive: boolean) {
           type: 'PM_TOOLBOX_DOM_RESULT',
           requestId: e.data.requestId,
           action: 'dom-remove'
+        }, '*');
+      } else if (e.data.type === 'PM_TOOLBOX_DOM_MOVE') {
+        var moveUid = e.data.uid;
+        var moveEl = moveUid ? document.querySelector('[data-pm-uid="' + moveUid + '"]') : null;
+        var targetParentUid = e.data.parentUid;
+        var targetParent = null;
+        if (targetParentUid) {
+          targetParent = document.querySelector('[data-pm-uid="' + targetParentUid + '"]');
+          if (!targetParent && (targetParentUid === 'pm_body' || (document.body && targetParentUid === document.body.getAttribute('data-pm-uid')))) {
+            targetParent = document.body;
+          }
+        } else {
+          targetParent = document.body;
+        }
+        var targetIndex = typeof e.data.index === 'number' ? e.data.index : -1;
+        var moveSuccess = false;
+        if (moveEl && targetParent && moveEl !== targetParent && !moveEl.contains(targetParent)) {
+          try {
+            var siblings = Array.prototype.filter.call(targetParent.childNodes, function(n) { return n !== moveEl; });
+            var targetRef = (targetIndex >= 0 && targetIndex < siblings.length) ? siblings[targetIndex] : null;
+            targetParent.insertBefore(moveEl, targetRef);
+            moveEl.style.removeProperty('top');
+            moveEl.style.removeProperty('left');
+            moveEl.style.removeProperty('right');
+            moveEl.style.removeProperty('bottom');
+            if (moveEl.style.position === 'relative') {
+              moveEl.style.removeProperty('position');
+            }
+            moveSuccess = true;
+            sendDomTree();
+            var updatedInfo = extractElementInfo(moveEl);
+            lastSelected = moveEl;
+            window.parent.postMessage({
+              type: 'PM_SELECT_ELEMENT',
+              payload: updatedInfo
+            }, '*');
+          } catch (err) {
+            console.error('[PM_TOOLBOX_DOM_MOVE] Error moving node:', err);
+          }
+        }
+        window.parent.postMessage({
+          type: 'PM_TOOLBOX_DOM_RESULT',
+          requestId: e.data.requestId,
+          action: 'dom-move',
+          result: { success: moveSuccess }
         }, '*');
       } else if (e.data.type === 'PM_TOOLBOX_GET_INFO') {
         var infoEl = e.data.uid ? document.querySelector('[data-pm-uid="' + e.data.uid + '"]') : document.body;

@@ -731,7 +731,46 @@ const CanvasArea = ({
       } else if (e.data.type === 'PM_DROP_TARGET_HOVER') {
         setDropTargetHover(e.data.payload || null)
       } else if (e.data.type === 'PM_REPARENT_NOTIFY') {
-        showToast(e.data.message || 'Đã cập nhật phân cấp phần tử!')
+        const { uid, tagName, oldParentUid, oldIndex, newParentUid, newIndex, message } = e.data
+        showToast(message || 'Đã cập nhật phân cấp phần tử!')
+        if (uid && oldParentUid && newParentUid && typeof oldIndex === 'number' && typeof newIndex === 'number') {
+          editorBuffer.pushAction({
+            type: 'MOVE',
+            description: `Chuyển vị trí <${(tagName || selectedEl?.tagName || 'element').toLowerCase()}>`,
+            target: {
+              tagName: tagName || selectedEl?.tagName || 'div',
+              id: selectedEl?.id,
+              className: selectedEl?.className,
+              domPath: selectedEl?.domPath,
+              uid: uid,
+              selector: selectedEl?.selector,
+              textSnippet: selectedEl?.textSnippet,
+            },
+            sourceLoc: sourceLoc
+              ? {
+                  filePath: sourceLoc.filePath,
+                  fullPath: sourceLoc.fullPath,
+                  lineNumber: sourceLoc.lineNumber,
+                }
+              : undefined,
+            before: {
+              styles: {},
+            },
+            after: {
+              styles: {},
+            },
+            dom: {
+              kind: 'move',
+              targetUid: uid,
+              parentUid: newParentUid,
+              index: newIndex,
+              oldParentUid,
+              oldIndex,
+            },
+            projectPath,
+            docEpoch: docEpochRef.current,
+          })
+        }
       } else if (e.data.type === 'PM_HOVER_ELEMENT') {
         setHoverEl(e.data.payload)
       } else if (e.data.type === 'PM_SELECT_ELEMENT') {
@@ -916,6 +955,16 @@ const CanvasArea = ({
             attributes: isUndo ? dom.attributesBefore : dom.attributesAfter,
             text: isUndo ? dom.textBefore : dom.textAfter,
           })
+        } else if (dom.kind === 'move') {
+          const targetParentUid = isUndo ? dom.oldParentUid : dom.parentUid
+          const targetIndex = isUndo ? dom.oldIndex : dom.index
+          if (targetParentUid !== undefined && typeof targetIndex === 'number') {
+            void sendToolboxMessage('PM_TOOLBOX_DOM_MOVE', {
+              uid: dom.targetUid || action.target.uid,
+              parentUid: targetParentUid,
+              index: targetIndex,
+            })
+          }
         }
         showToast(isUndo ? `↶ Hoàn tác: ${action.description}` : `↷ Làm lại: ${action.description}`)
         return
@@ -1335,9 +1384,9 @@ const CanvasArea = ({
       const curPos = selectedEl.computedStyles?.position
       const isAbsolute = curPos === 'absolute' || curPos === 'fixed'
 
-      // Thả chuột: Thực hiện di chuyển cấu trúc DOM (Reparenting / Reorder vào vị trí mới)
+      // Thả chuột: Thực hiện di chuyển cấu trúc DOM (Reparenting / Reorder vào vị trí mới) cho phần tử trong luồng tự nhiên
       const iframe = iframeRef.current
-      if (iframe?.contentWindow) {
+      if (iframe?.contentWindow && !isAbsolute) {
         const iframeRect = iframe.getBoundingClientRect()
         const scale = zoom / 100
         const x = (e.clientX - iframeRect.left) / scale

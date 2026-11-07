@@ -10,13 +10,17 @@ export interface ElementSnapshot {
 
 /** Thông tin phản chiếu thao tác DOM thật trong iframe khi Undo/Redo. */
 export interface DomMutationRecord {
-  kind: 'insert' | 'delete' | 'duplicate' | 'attributes' | 'delete-batch'
-  /** uid khung cha để chèn lại (Undo của DELETE) */
+  kind: 'insert' | 'delete' | 'duplicate' | 'attributes' | 'delete-batch' | 'move'
+  /** uid khung cha để chèn lại (Undo của DELETE hoặc MOVE) */
   parentUid?: string
-  /** uid phần tử đích (cho ATTRS) */
+  /** uid khung cha cũ (cho MOVE) */
+  oldParentUid?: string
+  /** uid phần tử đích (cho ATTRS hoặc MOVE) */
   targetUid?: string
   /** Vị trí chèn trong khung cha */
   index?: number
+  /** Vị trí cũ trong khung cha cũ (cho MOVE) */
+  oldIndex?: number
   /** HTML gốc để chèn lại */
   html?: string
   /** uid của (các) phần tử vừa tạo — dùng để xoá khi Undo */
