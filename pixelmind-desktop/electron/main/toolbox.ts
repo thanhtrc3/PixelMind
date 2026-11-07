@@ -764,8 +764,120 @@ function mutateAttributes(
 
 /* ─────────────────────── API chính ─────────────────────── */
 
+/**
+ * Xoá nhiều phần tử trong cùng một tệp nguồn bằng MỘT lần ghi.
+ *
+ * Mỗi lần ghi tệp có thể khiến dev server (dotnet watch, vite…) hot-reload
+ * iframe. Nếu xoá từng phần tử một, iframe sẽ reload giữa chừng làm mất
+ * `data-pm-uid` và khiến các bước sau xoá sai chỗ. Vì vậy toàn bộ vùng cần
+ * xoá được dò trên cùng một snapshot nội dung rồi splice từ cuối lên đầu.
+ */
+async function runToolboxDeleteBatch(payload: ToolboxMutationPayload): Promise<MutationPreview> {
+  const projectPath = payload.projectPath
+  const targets = (payload.targets || []).filter(
+    (target) =>
+      target &&
+      Boolean(target.tagName || target.selector || target.id || target.className || target.textSnippet),
+  )
+  if (targets.length === 0) {
+    return { success: false, error: 'Không có phần tử nào để xoá.' }
+  }
+
+  // Ưu tiên tuyệt đối tệp đã được renderer dò sẵn: cả nhóm phần tử đều thuộc
+  // tệp này, không được quét sang tệp khác vì có thể xoá nhầm phần tử tương tự.
+  const preferredPath = targets[0].fullPath
+  let resolved: { fullPath: string; content: string } | null = null
+  if (preferredPath && isInsideProject(projectPath, preferredPath) && !isIgnoredTemplateFile(preferredPath)) {
+    try {
+      resolved = { fullPath: preferredPath, content: await fs.readFile(preferredPath, 'utf8') }
+    } catch {
+      // Tệp đã dò không đọc được — thử dò lại bên dưới.
+    }
+  }
+  if (!resolved) {
+    const fallback = await resolveSourceFile(projectPath, targets[0], 'delete')
+    if (!fallback) {
+      return { success: false, error: 'Không dò được phần tử nào trong mã nguồn.' }
+    }
+    resolved = { fullPath: fallback.fullPath, content: fallback.content }
+  }
+
+  const { fullPath, content } = resolved
+  const candidates = collectCandidates(content)
+  const usedOffsets = new Set<number>()
+  const ranges: ElementRangeInfo[] = []
+  for (const target of targets) {
+    let best: { range: ElementRangeInfo; score: number } | null = null
+    for (const candidate of candidates) {
+      if (usedOffsets.has(candidate.range.startOffset)) continue
+      const score = scoreCandidate(content, candidate, target)
+      if (score < 0) continue
+      if (!best || score > best.score) best = { range: candidate.range, score }
+    }
+    if (!best) continue
+    const minScore = target.tagName ? 8 : 1
+    if (best.score < minScore) continue
+    usedOffsets.add(best.range.startOffset)
+    ranges.push(best.range)
+  }
+
+  if (ranges.length === 0) {
+    return { success: false, error: 'Không dò được phần tử nào trong mã nguồn.' }
+  }
+
+  // Loại các vùng nằm lồng trong vùng khác để không xoá chồng.
+  const outermost = ranges.filter(
+    (range) =>
+      !ranges.some(
+        (other) =>
+          other !== range &&
+          other.startOffset <= range.startOffset &&
+          other.endOffset >= range.endOffset,
+      ),
+  )
+  ranges.length = 0
+  ranges.push(...outermost)
+
+  // Splice từ cuối lên đầu để offset của các vùng phía trước không bị lệch.
+  const ordered = ranges.slice().sort((a, b) => b.startOffset - a.startOffset)
+  let text = content
+  for (const range of ordered) {
+    const start = lineStartAt(text, range.startOffset)
+    const endLine = lineEndAt(text, Math.max(0, Math.min(text.length, range.endOffset - 1)))
+    const end = endLine < text.length ? endLine + 1 : endLine
+    text = text.slice(0, start) + text.slice(end)
+  }
+
+  const firstOffset = ranges.reduce((min, range) => Math.min(min, range.startOffset), ranges[0].startOffset)
+  const firstRange = ranges.reduce((acc, range) => (range.startOffset < acc.startOffset ? range : acc), ranges[0])
+  const preview = buildPreview(fullPath, projectPath, content, text, firstOffset, firstOffset, firstOffset, firstRange)
+  preview.matchedCount = ranges.length
+
+  if (payload.dryRun) {
+    preview.newText = undefined
+    return preview
+  }
+
+  try {
+    await backupFile(projectPath, fullPath)
+    await fs.writeFile(fullPath, text, 'utf8')
+  } catch (error) {
+    return {
+      success: false,
+      error: `Không ghi được tệp ${basename(fullPath)}: ${(error as Error).message}`,
+    }
+  }
+
+  return preview
+}
+
 export async function runToolboxMutation(payload: ToolboxMutationPayload): Promise<MutationPreview> {
   if (!payload.projectPath) return { success: false, error: 'Thiếu đường dẫn dự án.' }
+  // Xoá gộp: dò toàn bộ phần tử trên cùng một nội dung tệp rồi chỉ ghi tệp một lần.
+  // Nhờ vậy iframe không bị hot-reload giữa chừng và các vị trí dò không bị lệch.
+  if (payload.kind === 'delete-batch') {
+    return runToolboxDeleteBatch(payload)
+  }
   const target = payload.target || {}
   const resolved = await resolveSourceFile(payload.projectPath, target, payload.kind)
   if (!resolved) {

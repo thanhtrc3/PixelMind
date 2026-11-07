@@ -219,15 +219,19 @@ export interface MutationPreview {
   startLine?: number
   endLine?: number
   element?: ElementRangeInfo | null
+  /** Số phần tử khớp được trong tệp nguồn (dùng cho xoá gộp nhiều phần tử). */
+  matchedCount?: number
 }
 
-export type ToolboxMutationKind = 'insert' | 'delete' | 'duplicate' | 'attributes'
+export type ToolboxMutationKind = 'insert' | 'delete' | 'duplicate' | 'attributes' | 'delete-batch'
 
 export interface ToolboxMutationPayload {
   kind: ToolboxMutationKind
   projectPath: string
   projectFramework?: string
   target?: ElementMutationTarget
+  /** Nhiều phần tử đích cho thao tác xoá gộp (kind = 'delete-batch'). */
+  targets?: ElementMutationTarget[]
   html?: string
   css?: string
   attributes?: Record<string, string | null>

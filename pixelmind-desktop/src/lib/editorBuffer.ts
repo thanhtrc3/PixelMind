@@ -10,7 +10,7 @@ export interface ElementSnapshot {
 
 /** Thông tin phản chiếu thao tác DOM thật trong iframe khi Undo/Redo. */
 export interface DomMutationRecord {
-  kind: 'insert' | 'delete' | 'duplicate' | 'attributes'
+  kind: 'insert' | 'delete' | 'duplicate' | 'attributes' | 'delete-batch'
   /** uid khung cha để chèn lại (Undo của DELETE) */
   parentUid?: string
   /** uid phần tử đích (cho ATTRS) */
@@ -26,6 +26,24 @@ export interface DomMutationRecord {
   attributesAfter?: Record<string, string | null>
   textBefore?: string
   textAfter?: string
+  /** Danh sách phần tử bị xoá trong một lần xoá nhiều (delete-batch). */
+  records?: Array<{
+    parentUid: string
+    index: number
+    html: string
+    uid: string
+  }>
+}
+
+/** Một tệp mã nguồn cần ghi lại when Undo/Redo một thao tác gộp nhiều phần tử. */
+export interface FileEditRecord {
+  filePath?: string
+  fullPath: string
+  lineNumber?: number
+  /** Toàn bộ nội dung tệp trước khi thao tác. */
+  before: string
+  /** Toàn bộ nội dung tệp sau khi thao tác. */
+  after: string
 }
 
 export interface HistoryAction {
@@ -55,7 +73,15 @@ export interface HistoryAction {
   /** Toàn bộ nội dung tệp trước/sau — dùng để Undo/Redo tức thì */
   fileBefore?: string
   fileAfter?: string
+  /** Nhiều tệp cùng lúc (thao tác gộp: xoá/dán nhiều phần tử) */
+  fileEdits?: FileEditRecord[]
   projectPath?: string
+  /**
+   * Thế hệ tài liệu (document epoch) tại thời điểm thao tác được ghi.
+   * Khi iframe hot-reload/điều hướng, epoch đổi và DOM đã phản chiếu mã nguồn —
+   * lúc đó không được chèn/xoá DOM thủ công nữa để tránh nhân đôi phần tử.
+   */
+  docEpoch?: number
 }
 
 export interface DirtyFileInfo {
@@ -77,6 +103,16 @@ class EditorBufferManager {
   private dirtyFiles = new Map<string, DirtyFileInfo>()
   private listeners: Set<BufferListener> = new Set()
   private undoRedoHandlers: Set<UndoRedoHandler> = new Set()
+  /** Thế hệ tài liệu hiện tại của canvas (tăng mỗi khi iframe tải lại). */
+  private documentEpoch = 0
+
+  setDocumentEpoch(epoch: number) {
+    this.documentEpoch = epoch
+  }
+
+  getDocumentEpoch(): number {
+    return this.documentEpoch
+  }
 
   subscribe(listener: BufferListener) {
     this.listeners.add(listener)
@@ -138,6 +174,7 @@ class EditorBufferManager {
       ...action,
       id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       timestamp: Date.now(),
+      docEpoch: action.docEpoch ?? this.documentEpoch,
     }
 
     this.undoStack.push(fullAction)
@@ -177,7 +214,18 @@ class EditorBufferManager {
     this.redoStack.push(action)
 
     // Ghi lại toàn bộ tệp trước thay đổi (thao tác Hộp công cụ)
-    if (action.dom && action.sourceLoc && action.fileBefore !== undefined) {
+    if (action.dom && action.fileEdits && action.fileEdits.length > 0) {
+      for (const edit of action.fileEdits) {
+        void api.toolbox
+          .writeFile({
+            projectPath: action.projectPath,
+            fullPath: edit.fullPath,
+            text: edit.before,
+            backup: true,
+          })
+          .catch(() => {})
+      }
+    } else if (action.dom && action.sourceLoc && action.fileBefore !== undefined) {
       void api.toolbox
         .writeFile({
           projectPath: action.projectPath,
@@ -205,7 +253,18 @@ class EditorBufferManager {
     this.undoStack.push(action)
 
     // Ghi lại toàn bộ tệp sau thay đổi (thao tác Hộp công cụ)
-    if (action.dom && action.sourceLoc && action.fileAfter !== undefined) {
+    if (action.dom && action.fileEdits && action.fileEdits.length > 0) {
+      for (const edit of action.fileEdits) {
+        void api.toolbox
+          .writeFile({
+            projectPath: action.projectPath,
+            fullPath: edit.fullPath,
+            text: edit.after,
+            backup: true,
+          })
+          .catch(() => {})
+      }
+    } else if (action.dom && action.sourceLoc && action.fileAfter !== undefined) {
       void api.toolbox
         .writeFile({
           projectPath: action.projectPath,
