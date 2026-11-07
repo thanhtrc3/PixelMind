@@ -1,5 +1,5 @@
 import { api } from '../lib/bridge'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import {
   AlertCircle,
   AlertTriangle,
@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  ClipboardPaste,
   Code2,
   Copy,
   ExternalLink,
@@ -55,11 +56,13 @@ import DesignTokensDialog from './DesignTokensDialog'
 import MutationDiffDialog from './MutationDiffDialog'
 import type { DesignTokens, ProjectPage } from '@shared/types'
 import type {
+  ElementMutationTarget,
   InsertPlacement,
   MutationPreview,
   ToolboxMutationPayload,
 } from '@shared/toolbox'
 import { editorBuffer, type ActionType, type DomMutationRecord, type ElementSnapshot } from '../lib/editorBuffer'
+import { elementClipboard } from '../lib/elementClipboard'
 import { onToolboxInsert, takePendingToolboxInsert, toolboxDrag } from '../lib/toolboxBridge'
 import type { ToolboxDragItem } from '../lib/toolboxBridge'
 import { PencilFillIcon } from './PanelIcons'
@@ -292,11 +295,29 @@ const CanvasArea = ({
   const stageRef = useRef<HTMLDivElement>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [iframeKey, setIframeKey] = useState(0)
+  // Nhận diện tài liệu của iframe. Mỗi lần trang được tải lại (điều hướng hoặc
+  // hot-reload), script inspector sinh docId mới → tăng epoch. Epoch được lưu
+  // cùng mỗi HistoryAction để biết có còn được phép sửa DOM thủ công hay không.
+  const docIdRef = useRef<string | null>(null)
+  const docEpochRef = useRef(0)
+  // Lần load đầu tiên của iframe không phải là reload. Các lần sau (hot-reload,
+  // bấm Thử lại, điều hướng cứng) đều làm uid cũ mất hiệu lực.
+  const iframeLoadedOnceRef = useRef(false)
 
   // ─── STATE SOI PHẦN TỬ THẬT (VISUAL INSPECTOR) ───
   const [isInspectMode, setIsInspectMode] = useState(false)
   const [hoverEl, setHoverEl] = useState<HoverElementInfo | null>(null)
   const [selectedEl, setSelectedEl] = useState<RealElementInfo | null>(null)
+  // Nhiều phần tử được chọn cùng lúc (Shift + Click hoặc kéo vùng chọn trên canvas)
+  const [multiSelection, setMultiSelection] = useState<RealElementInfo[]>([])
+  const multiSelectionRef = useRef<RealElementInfo[]>([])
+  multiSelectionRef.current = multiSelection
+  // Cầu nối để các listener (bàn phím / postMessage) luôn gọi được handler mới nhất
+  const canvasActionsRef = useRef<{
+    copy: () => void
+    paste: () => void
+    deleteSelection: () => void
+  }>({ copy: () => {}, paste: () => {}, deleteSelection: () => {} })
   const [resizingEl, setResizingEl] = useState<ResizingState | null>(null)
   const [inspectorWidth, setInspectorWidth] = useState(320)
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
@@ -352,6 +373,18 @@ const CanvasArea = ({
   const [isPageFlowOpen, setIsPageFlowOpen] = useState(false)
   const [projectTokens, setProjectTokens] = useState<DesignTokens | null>(null)
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false)
+
+  const safeCanvasUrl = useMemo(() => {
+    if (!url) return ''
+    try {
+      const sanitized = url.replace(/\[/g, '%5B').replace(/\]/g, '%5D').replace(/\{/g, '%7B').replace(/\}/g, '%7D')
+      const parsed = new URL(sanitized)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return sanitized
+      return url
+    } catch {
+      return url
+    }
+  }, [url])
 
   // ─── TỰ ĐỘNG THỬ LẠI KẾT NỐI MÁY CHỦ (HEALTH CHECK & AUTO-RETRY) ───
   const [isServerReady, setIsServerReady] = useState(false)
@@ -425,6 +458,8 @@ const CanvasArea = ({
     beforeStyles: Record<string, string>
     beforeRect?: { top: number; left: number; width: number; height: number }
     beforeText?: string
+    oldParentUid?: string
+    oldIndex?: number
   }>({ startX: 0, startY: 0, initialLeft: 0, initialTop: 0, beforeStyles: {} })
 
   const resizeStartRef = useRef<{
@@ -536,11 +571,25 @@ const CanvasArea = ({
           }
           return
         }
+        if (e.key === 'c' || e.key === 'C') {
+          if ((selectedEl || multiSelection.length > 0) && !hasDialog) {
+            e.preventDefault()
+            canvasActionsRef.current.copy()
+          }
+          return
+        }
+        if (e.key === 'v' || e.key === 'V') {
+          if (isInspectMode && !hasDialog && !pendingMutation) {
+            e.preventDefault()
+            canvasActionsRef.current.paste()
+          }
+          return
+        }
       }
 
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEl && !pendingMutation && !hasDialog) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedEl || multiSelection.length > 0) && !pendingMutation && !hasDialog) {
         e.preventDefault()
-        void beginToolboxDelete()
+        canvasActionsRef.current.deleteSelection()
         return
       }
 
@@ -563,6 +612,8 @@ const CanvasArea = ({
         if (!next) {
           setSelectedEl(null)
           setHoverEl(null)
+          setMultiSelection([])
+          iframeRef.current?.contentWindow?.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
         }
         showToast(
           next ? 'Đã bật chế độ Soi phần tử' : 'Đã tắt chế độ Soi phần tử',
@@ -570,8 +621,10 @@ const CanvasArea = ({
           next ? 'Phím I' : undefined,
         )
       } else if (e.key === 'Escape') {
-        if (selectedEl) {
+        if (selectedEl || multiSelection.length > 0) {
           setSelectedEl(null)
+          setMultiSelection([])
+          iframeRef.current?.contentWindow?.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
         } else if (isInspectMode) {
           setIsInspectMode(false)
           setHoverEl(null)
@@ -595,7 +648,7 @@ const CanvasArea = ({
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [isInspectMode, selectedEl, zoomToFit, showToast, sourceLoc?.fullPath, projectPath, pendingMutation])
+  }, [isInspectMode, selectedEl, multiSelection.length, zoomToFit, showToast, sourceLoc?.fullPath, projectPath, pendingMutation])
 
   // Xử lý zoom bằng bánh lăn chuột (Ctrl + Wheel)
   const handleWheel = (e: React.WheelEvent) => {
@@ -641,9 +694,29 @@ const CanvasArea = ({
       if (!e.data || typeof e.data !== 'object') return
 
       if (e.data.type === 'PM_LOCATION_CHANGE') {
-        const { pathname, href } = e.data.payload || {}
+        const { pathname, href, docId } = e.data.payload || {}
+        // Phát hiện iframe được tải lại (hot-reload của dev server hoặc điều hướng cứng).
+        // Khi tài liệu đổi, mọi uid cũ không còn giá trị → tăng epoch để vô hiệu
+        // hoá các thao tác DOM thủ công khi Undo/Redo.
+        if (typeof docId === 'string' && docId && docId !== docIdRef.current) {
+          const isReload = docIdRef.current !== null
+          docIdRef.current = docId
+          if (isReload) {
+            docEpochRef.current += 1
+            editorBuffer.setDocumentEpoch(docEpochRef.current)
+            setSelectedEl(null)
+            setMultiSelection([])
+          }
+        }
+        const previousRoute = currentRouteRef.current
         if (pathname) {
           currentRouteRef.current = pathname
+        }
+        // Chuyển trang: vùng chọn của trang cũ không còn ý nghĩa
+        if (pathname && pathname !== previousRoute) {
+          setSelectedEl(null)
+          setMultiSelection([])
+          iframeRef.current?.contentWindow?.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
         }
         if (href) {
           setCurrentLiveUrl(href)
@@ -660,12 +733,81 @@ const CanvasArea = ({
       } else if (e.data.type === 'PM_DROP_TARGET_HOVER') {
         setDropTargetHover(e.data.payload || null)
       } else if (e.data.type === 'PM_REPARENT_NOTIFY') {
-        showToast(e.data.message || 'Đã cập nhật phân cấp phần tử!')
+        const payload = e.data || {}
+        showToast(payload.message || 'Đã cập nhật phân cấp phần tử!')
+        const targetUid = payload.uid || selectedEl?.uid
+        let oldParentUid = payload.oldParentUid || moveStartRef.current?.oldParentUid || selectedEl?.parent?.uid || ''
+        let oldIndex = typeof payload.oldIndex === 'number' && payload.oldIndex >= 0
+          ? payload.oldIndex
+          : (moveStartRef.current?.oldIndex ?? -1)
+        let newParentUid = payload.newParentUid || ''
+        let newIndex = typeof payload.newIndex === 'number' ? payload.newIndex : -1
+
+        try {
+          const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+          if (doc && targetUid) {
+            const el = doc.querySelector(`[data-pm-uid="${targetUid}"]`)
+            if (el && el.parentElement) {
+              if (!el.parentElement.getAttribute('data-pm-uid')) {
+                el.parentElement.setAttribute('data-pm-uid', 'pm_' + Math.random().toString(36).slice(2, 9))
+              }
+              if (!newParentUid) {
+                newParentUid = el.parentElement.getAttribute('data-pm-uid') || ''
+              }
+              if (newIndex < 0) {
+                newIndex = Array.prototype.indexOf.call(el.parentElement.childNodes, el)
+              }
+            }
+          }
+        } catch { }
+
+        if (targetUid) {
+          editorBuffer.pushAction({
+            type: 'MOVE',
+            description: `Chuyển vị trí <${(payload.tagName || selectedEl?.tagName || 'element').toLowerCase()}>`,
+            target: {
+              tagName: payload.tagName || selectedEl?.tagName || 'div',
+              id: selectedEl?.id,
+              className: selectedEl?.className,
+              domPath: selectedEl?.domPath,
+              uid: targetUid,
+              selector: selectedEl?.selector,
+              textSnippet: selectedEl?.textSnippet,
+            },
+            sourceLoc: sourceLoc
+              ? {
+                  filePath: sourceLoc.filePath,
+                  fullPath: sourceLoc.fullPath,
+                  lineNumber: sourceLoc.lineNumber,
+                }
+              : undefined,
+            before: {
+              styles: {},
+            },
+            after: {
+              styles: {},
+            },
+            dom: {
+              kind: 'move',
+              targetUid: targetUid,
+              parentUid: newParentUid,
+              index: newIndex,
+              oldParentUid,
+              oldIndex,
+            },
+            projectPath,
+            docEpoch: docEpochRef.current,
+          })
+        }
       } else if (e.data.type === 'PM_HOVER_ELEMENT') {
         setHoverEl(e.data.payload)
       } else if (e.data.type === 'PM_SELECT_ELEMENT') {
         if (e.data.payload) {
           const payload = e.data.payload as RealElementInfo
+          // Click chọn một phần tử: xoá vùng chọn nhiều trước đó
+          if (e.data.source === 'click') {
+            setMultiSelection([])
+          }
           setSelectedEl(payload)
           setHoverEl(null)
           if (!isInspectMode) {
@@ -681,6 +823,26 @@ const CanvasArea = ({
             })
           }
         }
+      } else if (e.data.type === 'PM_SELECTION_CHANGED') {
+        const payload = e.data.payload || {}
+        const items = Array.isArray(payload.items) ? (payload.items as RealElementInfo[]) : []
+        setMultiSelection(items)
+        setHoverEl(null)
+        if (payload.primary) {
+          const primary = payload.primary as RealElementInfo
+          setSelectedEl(primary)
+          if (primary.currentPath) {
+            currentRouteRef.current = primary.currentPath
+          }
+          if (!originalStyles) {
+            setOriginalStyles({
+              text: primary.textSnippet,
+              styles: { ...primary.computedStyles },
+            })
+          }
+        } else if (items.length === 0) {
+          setSelectedEl(null)
+        }
       } else if (e.data.type === 'PM_KEYBOARD_SHORTCUT') {
         const { key, shiftKey, ctrlKey } = e.data.payload || {}
         if (key === 's') {
@@ -690,9 +852,13 @@ const CanvasArea = ({
         } else if (key === 'y' || (key === 'z' && shiftKey)) {
           if (editorBuffer.canRedo()) editorBuffer.redo()
         } else if (key === 'delete' || key === 'backspace') {
-          void beginToolboxDelete()
+          canvasActionsRef.current.deleteSelection()
         } else if (key === 'd' && ctrlKey) {
           void beginToolboxDuplicate()
+        } else if (key === 'c' && ctrlKey) {
+          canvasActionsRef.current.copy()
+        } else if (key === 'v' && ctrlKey) {
+          canvasActionsRef.current.paste()
         }
       } else if (e.data.type === 'PM_TOOLBOX_DOM_RESULT') {
         const resolver = toolboxRequestsRef.current.get(e.data.requestId)
@@ -744,6 +910,9 @@ const CanvasArea = ({
         '*'
       )
     }
+    if (!isInspectMode) {
+      setMultiSelection([])
+    }
   }, [isInspectMode])
 
   // Reset modified styles khi chọn phần tử khác
@@ -762,6 +931,12 @@ const CanvasArea = ({
   // Đăng ký bộ xử lý phản chiếu Undo/Redo lên DOM thật trong iframe
   useEffect(() => {
     const unsub = editorBuffer.onApplyHistory((action, isUndo) => {
+      // Nếu iframe đã tải lại kể từ lúc thao tác được ghi (hot-reload của dev server),
+      // DOM hiện tại đã được render lại từ mã nguồn. Chèn/xoá DOM thủ công lúc này sẽ
+      // tạo phần tử trùng lặp chồng lên nhau. Chỉ cần phần ghi tệp ở editorBuffer là đủ.
+      if (action.dom && action.docEpoch !== undefined && action.docEpoch !== docEpochRef.current) {
+        return
+      }
       // ── Thao tác Hộp công cụ: phản chiếu bằng DOM op thay vì style delta ──
       if (action.dom) {
         const dom = action.dom
@@ -787,12 +962,82 @@ const CanvasArea = ({
           } else {
             void sendToolboxMessage('PM_TOOLBOX_DOM_REMOVE', { uids: dom.uids || [] })
           }
+        } else if (dom.kind === 'delete-batch') {
+          if (isUndo) {
+            const records = (dom.records || []).slice().sort((a, b) => a.index - b.index)
+            void (async () => {
+              for (const record of records) {
+                await sendToolboxMessage('PM_TOOLBOX_DOM_INSERT', {
+                  parentUid: record.parentUid,
+                  index: record.index,
+                  html: record.html,
+                })
+              }
+            })()
+          } else {
+            void sendToolboxMessage('PM_TOOLBOX_DOM_REMOVE', { uids: dom.uids || [] })
+          }
         } else if (dom.kind === 'attributes') {
           void sendToolboxMessage('PM_TOOLBOX_DOM_ATTRS', {
             uid: dom.targetUid,
             attributes: isUndo ? dom.attributesBefore : dom.attributesAfter,
             text: isUndo ? dom.textBefore : dom.textAfter,
           })
+        } else if (dom.kind === 'move') {
+          const targetUid = dom.targetUid || action.target.uid
+          const targetParentUid = isUndo ? dom.oldParentUid : dom.parentUid
+          const targetIndex = isUndo ? dom.oldIndex : dom.index
+
+          // 1. Khôi phục trực tiếp trên DOM của iframe (hoạt động tức thì mà không phụ thuộc phiên bản script backend)
+          try {
+            const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+            if (doc && targetUid) {
+              const moveEl = doc.querySelector(`[data-pm-uid="${targetUid}"]`) as HTMLElement | null
+              let targetParent: Element | null = null
+              if (targetParentUid) {
+                targetParent = doc.querySelector(`[data-pm-uid="${targetParentUid}"]`)
+                if (!targetParent && (targetParentUid === 'pm_body' || (doc.body && targetParentUid === doc.body.getAttribute('data-pm-uid')))) {
+                  targetParent = doc.body
+                }
+              } else {
+                targetParent = doc.body
+              }
+
+              if (moveEl && targetParent && moveEl !== targetParent && !moveEl.contains(targetParent)) {
+                const siblings = Array.prototype.filter.call(targetParent.childNodes, (n: ChildNode) => n !== moveEl)
+                const targetRef = (typeof targetIndex === 'number' && targetIndex >= 0 && targetIndex < siblings.length)
+                  ? siblings[targetIndex]
+                  : null
+                targetParent.insertBefore(moveEl, targetRef)
+                moveEl.style.removeProperty('top')
+                moveEl.style.removeProperty('left')
+                moveEl.style.removeProperty('right')
+                moveEl.style.removeProperty('bottom')
+                if (moveEl.style.position === 'relative') {
+                  moveEl.style.removeProperty('position')
+                }
+              }
+            }
+          } catch (err) {
+            console.error('[Undo/Redo MOVE] Error reverting DOM node:', err)
+          }
+
+          // 2. Gửi lệnh hoàn tác/làm lại qua giao tiếp postMessage
+          if (targetParentUid !== undefined && typeof targetIndex === 'number') {
+            void sendToolboxMessage('PM_TOOLBOX_DOM_MOVE', {
+              uid: targetUid,
+              parentUid: targetParentUid,
+              index: targetIndex,
+            })
+          }
+
+          // 3. Làm mới cây phân cấp phần tử và cập nhật viền chọn
+          if (iframeRef.current?.contentWindow) {
+            iframeRef.current.contentWindow.postMessage({ type: 'PM_GET_DOM_TREE' }, '*')
+            if (targetUid) {
+              iframeRef.current.contentWindow.postMessage({ type: 'PM_SELECT_BY_UID', uid: targetUid }, '*')
+            }
+          }
         }
         showToast(isUndo ? `↶ Hoàn tác: ${action.description}` : `↷ Làm lại: ${action.description}`)
         return
@@ -1145,6 +1390,22 @@ const CanvasArea = ({
     const curLeft = parseInt(selectedEl.computedStyles.left || '0') || 0
     const curTop = parseInt(selectedEl.computedStyles.top || '0') || 0
 
+    let domOldParentUid = selectedEl.parent?.uid || ''
+    let domOldIndex = -1
+    try {
+      const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+      if (doc && selectedEl.uid) {
+        const el = doc.querySelector(`[data-pm-uid="${selectedEl.uid}"]`)
+        if (el && el.parentElement) {
+          if (!el.parentElement.getAttribute('data-pm-uid')) {
+            el.parentElement.setAttribute('data-pm-uid', 'pm_' + Math.random().toString(36).slice(2, 9))
+          }
+          domOldParentUid = el.parentElement.getAttribute('data-pm-uid') || domOldParentUid
+          domOldIndex = Array.prototype.indexOf.call(el.parentElement.childNodes, el)
+        }
+      }
+    } catch { }
+
     moveStartRef.current = {
       startX: e.clientX,
       startY: e.clientY,
@@ -1153,6 +1414,8 @@ const CanvasArea = ({
       beforeStyles: { ...selectedEl.computedStyles },
       beforeRect: { ...selectedEl.rect },
       beforeText: selectedEl.textSnippet,
+      oldParentUid: domOldParentUid,
+      oldIndex: domOldIndex,
     }
   }
 
@@ -1165,22 +1428,27 @@ const CanvasArea = ({
       const dx = (e.clientX - moveStartRef.current.startX) / scale
       const dy = (e.clientY - moveStartRef.current.startY) / scale
 
-      const nextLeft = Math.round(moveStartRef.current.initialLeft + dx)
-      const nextTop = Math.round(moveStartRef.current.initialTop + dy)
       const curPos = selectedEl?.computedStyles?.position
-      const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+      const isAbsolute = curPos === 'absolute' || curPos === 'fixed'
 
-      handleApplyLiveChange(
-        {
-          position: targetPos,
-          left: `${nextLeft}px`,
-          top: `${nextTop}px`,
-        },
-        undefined,
-        { skipHistory: true }
-      )
+      // Chỉ cập nhật toạ độ left/top đối với phần tử định vị tuyệt đối (absolute/fixed).
+      // Với phần tử trong luồng tự nhiên (form, flex, grid), không ép position: relative và toạ độ âm
+      // để tránh phá vỡ bố cục gốc của trang.
+      if (isAbsolute) {
+        const nextLeft = Math.round(moveStartRef.current.initialLeft + dx)
+        const nextTop = Math.round(moveStartRef.current.initialTop + dy)
+        handleApplyLiveChange(
+          {
+            position: curPos,
+            left: `${nextLeft}px`,
+            top: `${nextTop}px`,
+          },
+          undefined,
+          { skipHistory: true }
+        )
+      }
 
-      // Gửi tọa độ tới iframe để dò tìm vùng chứa đích (Drop Target Zone)
+      // Gửi tọa độ tới iframe để dò tìm vùng chứa đích (Drop Target Zone / Reorder)
       const iframe = iframeRef.current
       if (iframe?.contentWindow) {
         const iframeRect = iframe.getBoundingClientRect()
@@ -1204,9 +1472,12 @@ const CanvasArea = ({
       const initial = moveStartRef.current
       if (!selectedEl) return
 
-      // Thả chuột: Thực hiện di chuyển cấu trúc DOM (Reparenting vào container mới)
+      const curPos = selectedEl.computedStyles?.position
+      const isAbsolute = curPos === 'absolute' || curPos === 'fixed'
+
+      // Thả chuột: Thực hiện di chuyển cấu trúc DOM (Reparenting / Reorder vào vị trí mới) cho phần tử trong luồng tự nhiên
       const iframe = iframeRef.current
-      if (iframe?.contentWindow) {
+      if (iframe?.contentWindow && !isAbsolute) {
         const iframeRect = iframe.getBoundingClientRect()
         const scale = zoom / 100
         const x = (e.clientX - iframeRect.left) / scale
@@ -1222,52 +1493,53 @@ const CanvasArea = ({
         )
       }
 
-      const curLeft = parseInt(selectedEl.computedStyles.left || '0') || 0
-      const curTop = parseInt(selectedEl.computedStyles.top || '0') || 0
-      const curPos = selectedEl.computedStyles.position
-      const targetPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+      // Chỉ ghi toạ độ di chuyển vào mã nguồn khi phần tử vốn là định vị tuyệt đối.
+      if (isAbsolute) {
+        const curLeft = parseInt(selectedEl.computedStyles.left || '0') || 0
+        const curTop = parseInt(selectedEl.computedStyles.top || '0') || 0
 
-      if (curLeft !== initial.initialLeft || curTop !== initial.initialTop) {
-        editorBuffer.pushAction({
-          type: 'MOVE',
-          description: `Di chuyển <${selectedEl.tagName.toLowerCase()}>`,
-          target: {
-            tagName: selectedEl.tagName,
-            id: selectedEl.id,
-            className: selectedEl.className,
-            domPath: selectedEl.domPath,
-            uid: selectedEl.uid,
-            selector: selectedEl.selector,
-            textSnippet: selectedEl.textSnippet,
-          },
-          sourceLoc: sourceLoc
-            ? {
-              filePath: sourceLoc.filePath,
-              fullPath: sourceLoc.fullPath,
-              lineNumber: sourceLoc.lineNumber,
-            }
-            : undefined,
-          before: {
-            styles: initial.beforeStyles,
-            text: initial.beforeText,
-            rect: initial.beforeRect,
-          },
-          after: {
-            styles: {
-              ...selectedEl.computedStyles,
+        if (curLeft !== initial.initialLeft || curTop !== initial.initialTop) {
+          editorBuffer.pushAction({
+            type: 'MOVE',
+            description: `Di chuyển <${selectedEl.tagName.toLowerCase()}>`,
+            target: {
+              tagName: selectedEl.tagName,
+              id: selectedEl.id,
+              className: selectedEl.className,
+              domPath: selectedEl.domPath,
+              uid: selectedEl.uid,
+              selector: selectedEl.selector,
+              textSnippet: selectedEl.textSnippet,
+            },
+            sourceLoc: sourceLoc
+              ? {
+                  filePath: sourceLoc.filePath,
+                  fullPath: sourceLoc.fullPath,
+                  lineNumber: sourceLoc.lineNumber,
+                }
+              : undefined,
+            before: {
+              styles: initial.beforeStyles,
+              text: initial.beforeText,
+              rect: initial.beforeRect,
+            },
+            after: {
+              styles: {
+                ...selectedEl.computedStyles,
+                left: `${curLeft}px`,
+                top: `${curTop}px`,
+                position: curPos,
+              },
+              text: selectedEl.textSnippet,
+              rect: { ...selectedEl.rect },
+            },
+            deltaStyles: {
               left: `${curLeft}px`,
               top: `${curTop}px`,
-              position: targetPos,
+              position: curPos,
             },
-            text: selectedEl.textSnippet,
-            rect: { ...selectedEl.rect },
-          },
-          deltaStyles: {
-            left: `${curLeft}px`,
-            top: `${curTop}px`,
-            position: targetPos,
-          },
-        })
+          })
+        }
       }
     }
 
@@ -1459,6 +1731,8 @@ const CanvasArea = ({
           ? `${item.html}\n<style data-pm-toolbox>${item.css}</style>`
           : item.html
 
+        const startEpoch = docEpochRef.current
+
         // 1. Chèn ngay lập tức vào Live DOM trong iframe (hiển thị lập tức tại vị trí kéo thả, không cần tải lại)
         const domData = await sendToolboxMessage('PM_TOOLBOX_INSERT', {
           html: domHtml || '',
@@ -1520,6 +1794,7 @@ const CanvasArea = ({
           fileBefore: writeResult?.oldText,
           fileAfter: writeResult?.newText,
           projectPath,
+          docEpoch: startEpoch,
         })
 
         showToast(`Đã chèn “${item.name}” vào trang (Ctrl+Z để hoàn tác)`, 'ok')
@@ -1561,6 +1836,392 @@ const CanvasArea = ({
       showToast('Không thể tạo bản xem trước.', 'err')
     }
   }, [projectPath, selectedEl, sourceLoc, buildTarget, showToast])
+
+  // ─── SAO CHÉP / DÁN PHẦN TỬ (HOẠT ĐỘNG XUYÊN TRANG) ───
+  const copySelection = useCallback(() => {
+    const list = multiSelection.length > 0 ? multiSelection : selectedEl ? [selectedEl] : []
+    if (list.length === 0) {
+      showToast('Hãy chọn ít nhất một phần tử trên canvas trước khi sao chép.', 'info')
+      return
+    }
+
+    const parts: string[] = []
+    for (const info of list) {
+      const html = (info.outerHTML || '')
+        // Bỏ các thuộc tính đánh dấu nội bộ để bản sao sạch khi dán sang trang khác
+        .replace(/\sdata-pm-(?:uid|multi)(?:="[^"]*")?/g, '')
+        .trim()
+      if (html) parts.push(html)
+    }
+    if (parts.length === 0) {
+      showToast('Không lấy được mã HTML của phần tử đã chọn.', 'warn')
+      return
+    }
+
+    const html = parts.join('\n')
+    elementClipboard.set({
+      html,
+      count: parts.length,
+      sourceRoute: currentRouteRef.current,
+      tags: list.map((info) => info.tagName),
+    })
+    // Đồng thời đưa vào clipboard hệ thống để có thể dán ra ngoài ứng dụng
+    try {
+      Promise.resolve(navigator.clipboard?.writeText(html)).catch(() => {})
+    } catch {
+      /* Clipboard hệ thống có thể bị từ chối quyền — bỏ qua */
+    }
+    showToast(
+      `Đã sao chép ${parts.length} phần tử. Chuyển sang trang khác rồi nhấn Ctrl+V để dán.`,
+      'ok',
+      'Ctrl+C',
+    )
+  }, [multiSelection, selectedEl, showToast])
+
+  const pasteSelection = useCallback(async () => {
+    const clip = elementClipboard.get()
+    if (!clip || !clip.html.trim()) {
+      showToast('Bộ nhớ tạm đang trống — hãy chọn phần tử và nhấn Ctrl+C trước.', 'info')
+      return
+    }
+    if (isInsertingRef.current) return
+    if (!iframeRef.current?.contentWindow) {
+      showToast('Canvas chưa sẵn sàng để dán. Hãy chờ trang tải xong.', 'warn')
+      return
+    }
+
+    isInsertingRef.current = true
+    const now = Date.now()
+    lastInsertTimeRef.current = now
+    try {
+      const info = selectedEl
+      const placement: InsertPlacement = info ? 'after' : 'inside'
+      const domTargetUid = info?.uid || 'pm_body'
+      const domHtml = clip.html
+
+      // Tự dò tệp mã nguồn của phần tử đích (nếu có) để ghi đúng chỗ
+      let resolvedFullPath: string | undefined
+      let resolvedLineNumber: number | undefined
+      if (projectPath && info && info.uid === selectedEl?.uid && sourceLoc?.fullPath) {
+        resolvedFullPath = sourceLoc.fullPath
+        resolvedLineNumber = sourceLoc.lineNumber
+      }
+      if (!resolvedFullPath && projectPath && info && api?.inspect?.locateSource) {
+        try {
+          const loc = await api.inspect.locateSource({
+            projectPath,
+            textSnippet: info.textSnippet,
+            tagName: info.tagName,
+            className: info.className,
+            currentPath: info.currentPath || currentRouteRef.current,
+            id: info.id,
+            selector: info.selector,
+          })
+          if (loc?.fullPath) {
+            resolvedFullPath = loc.fullPath
+            resolvedLineNumber = loc.lineNumber
+          }
+        } catch {}
+      }
+
+      const targetObj = {
+        ...buildTarget(info, placement),
+        fullPath: resolvedFullPath,
+        lineNumber: resolvedLineNumber,
+      }
+
+      const startEpoch = docEpochRef.current
+
+      // 1. Chèn vào DOM thật trong iframe TRƯỚC khi ghi tệp. Nếu ghi tệp trước,
+      //    dev server có thể hot-reload và render sẵn phần tử mới, khiến lần chèn
+      //    thủ công ngay sau đó tạo ra bản sao trùng lặp.
+      const domData = await sendToolboxMessage('PM_TOOLBOX_INSERT', {
+        html: domHtml,
+        targetUid: domTargetUid,
+        placement,
+      })
+      const r = domData?.result
+      if (!r) {
+        showToast('Không dán được phần tử vào canvas.', 'err')
+        return
+      }
+
+      // 2. Ghi vào mã nguồn của trang hiện tại (một lần ghi duy nhất)
+      let writeResult: Awaited<ReturnType<typeof api.toolbox.mutate>> | null = null
+      if (projectPath) {
+        try {
+          writeResult = await api.toolbox.mutate({
+            kind: 'insert',
+            projectPath,
+            target: targetObj,
+            html: domHtml,
+            dryRun: false,
+          })
+          if (!writeResult.success) {
+            showToast(writeResult.error || 'Không ghi được mã nguồn, chỉ dán trên canvas.', 'warn')
+          }
+        } catch (err) {
+          console.warn('Lỗi ghi mã nguồn khi dán phần tử:', err)
+        }
+      }
+
+      // 3. Đưa vào bộ đệm hoàn tác (Ctrl+Z / Ctrl+Y)
+      editorBuffer.pushAction({
+        type: 'INSERT',
+        description: clip.count > 1 ? `Dán ${clip.count} phần tử` : 'Dán phần tử',
+        target: {
+          tagName: targetObj.tagName || 'div',
+          id: targetObj.id,
+          className: targetObj.className,
+          domPath: targetObj.domPath,
+          uid: targetObj.uid,
+          selector: targetObj.selector,
+          textSnippet: targetObj.textSnippet,
+        },
+        sourceLoc: writeResult?.fullPath
+          ? {
+              filePath: writeResult.filePath || '',
+              fullPath: writeResult.fullPath,
+              lineNumber: writeResult.startLine || 1,
+            }
+          : resolvedFullPath
+            ? {
+                filePath: '',
+                fullPath: resolvedFullPath,
+                lineNumber: resolvedLineNumber || 1,
+              }
+            : undefined,
+        before: { styles: {} },
+        after: { styles: {} },
+        dom: {
+          kind: 'insert',
+          parentUid: r.parentUid,
+          index: r.index,
+          uids: r.uids || [],
+          html: domHtml,
+        },
+        fileBefore: writeResult?.oldText,
+        fileAfter: writeResult?.newText,
+        projectPath,
+        docEpoch: startEpoch,
+      })
+
+      if (r.uids?.[0]) {
+        iframeRef.current?.contentWindow?.postMessage({ type: 'PM_SELECT_BY_UID', uid: r.uids[0] }, '*')
+      }
+      setMultiSelection([])
+
+      const crossPage = Boolean(clip.sourceRoute && clip.sourceRoute !== currentRouteRef.current)
+      showToast(
+        `Đã dán ${clip.count} phần tử${crossPage ? ' sang trang này' : ''} (Ctrl+Z để hoàn tác).`,
+        'ok',
+        'Ctrl+V',
+      )
+    } finally {
+      window.setTimeout(() => {
+        isInsertingRef.current = false
+      }, 400)
+    }
+  }, [
+    projectPath,
+    selectedEl,
+    sourceLoc,
+    buildTarget,
+    sendToolboxMessage,
+    showToast,
+  ])
+
+  // ─── XOÁ NHIỀU PHẦN TỬ ĐANG CHỌN (MỘT LẦN HOÀN TÁC) ───
+  const beginDeleteSelection = useCallback(async () => {
+    const list = multiSelection.length > 0 ? multiSelection : selectedEl ? [selectedEl] : []
+    if (list.length === 0) {
+      showToast('Chọn một hoặc nhiều phần tử trên canvas trước.', 'info')
+      return
+    }
+    // Một phần tử + có dự án: giữ nguyên luồng xem diff & xác nhận như cũ
+    if (list.length === 1 && selectedEl && list[0].uid === selectedEl.uid && projectPath) {
+      void beginToolboxDelete()
+      return
+    }
+    if (pendingMutation) return
+    if (mutationBusy) return
+
+    // Epoch tại thời điểm bắt đầu: các dom record bên dưới thuộc về tài liệu này.
+    const startEpoch = docEpochRef.current
+
+    setMutationBusy(true)
+    const domRecords: Array<{ parentUid: string; index: number; html: string; uid: string }> = []
+    const fileEdits = new Map<
+      string,
+      { filePath?: string; fullPath: string; lineNumber?: number; before: string; after: string }
+    >()
+    let sourceFailures = 0
+
+    try {
+      // 1) Xoá DOM TRƯỚC khi ghi tệp. Nếu ghi tệp trước, dev server có thể
+      //    hot-reload iframe giữa chừng và làm mất data-pm-uid của các bước sau.
+      //    Thứ tự ngược tài liệu giúp index chèn lại khi Undo luôn ổn định.
+      for (let i = list.length - 1; i >= 0; i--) {
+        const info = list[i]
+        if (!info.uid) continue
+        const data = await sendToolboxMessage('PM_TOOLBOX_DELETE', { uid: info.uid })
+        const result = data?.result
+        if (result) {
+          domRecords.push({
+            parentUid: result.parentUid,
+            index: result.index,
+            html: result.html,
+            uid: info.uid,
+          })
+        }
+      }
+
+      // 2) Dò tệp nguồn cho từng phần tử rồi gom theo tệp. Mỗi tệp chỉ bị ghi
+      //    MỘT lần bằng delete-batch để tránh hot-reload giữa các lần xoá.
+      if (projectPath) {
+        const groups = new Map<string, ElementMutationTarget[]>()
+        for (const info of list) {
+          let fullPath: string | undefined
+          let lineNumber: number | undefined
+          if (api?.inspect?.locateSource) {
+            try {
+              const loc = await api.inspect.locateSource({
+                projectPath,
+                textSnippet: info.textSnippet,
+                tagName: info.tagName,
+                className: info.className,
+                currentPath: info.currentPath || currentRouteRef.current,
+                id: info.id,
+                selector: info.selector,
+              })
+              if (loc?.fullPath) {
+                fullPath = loc.fullPath
+                lineNumber = loc.lineNumber
+              }
+            } catch {
+              /* dò thất bại — tính vào sourceFailures bên dưới */
+            }
+          }
+          if (!fullPath) {
+            sourceFailures++
+            continue
+          }
+          const target: ElementMutationTarget = {
+            uid: info.uid,
+            tagName: info.tagName,
+            id: info.id,
+            className: info.className,
+            textSnippet: info.textSnippet,
+            domPath: info.domPath,
+            selector: info.selector,
+            currentPath: info.currentPath || currentRouteRef.current,
+            fullPath,
+            lineNumber,
+          }
+          const group = groups.get(fullPath) || []
+          group.push(target)
+          groups.set(fullPath, group)
+        }
+
+        for (const [fullPath, targets] of groups) {
+          try {
+            const res = await api.toolbox.mutate({
+              kind: 'delete-batch',
+              projectPath,
+              targets,
+              dryRun: false,
+            })
+            if (res.success && typeof res.oldText === 'string' && typeof res.newText === 'string') {
+              fileEdits.set(res.fullPath || fullPath, {
+                filePath: res.filePath,
+                fullPath: res.fullPath || fullPath,
+                lineNumber: res.startLine,
+                before: res.oldText,
+                after: res.newText,
+              })
+              const matched = res.matchedCount ?? targets.length
+              sourceFailures += Math.max(0, targets.length - matched)
+            } else {
+              sourceFailures += targets.length
+            }
+          } catch {
+            sourceFailures += targets.length
+          }
+        }
+      }
+
+      if (domRecords.length > 0 || fileEdits.size > 0) {
+        domRecords.sort((a, b) => a.index - b.index)
+        const editList = Array.from(fileEdits.values())
+        const firstEdit = editList[0]
+        const first = list[0]
+        editorBuffer.pushAction({
+          type: 'DELETE',
+          description: `Xoá ${domRecords.length || list.length} phần tử`,
+          target: {
+            tagName: first.tagName,
+            id: first.id,
+            className: first.className,
+            domPath: first.domPath,
+            uid: first.uid,
+            selector: first.selector,
+            textSnippet: first.textSnippet,
+          },
+          sourceLoc: firstEdit
+            ? {
+                filePath: firstEdit.filePath || '',
+                fullPath: firstEdit.fullPath,
+                lineNumber: firstEdit.lineNumber || 1,
+              }
+            : undefined,
+          before: { styles: {} },
+          after: { styles: {} },
+          dom: {
+            kind: 'delete-batch',
+            uids: domRecords.map((record) => record.uid).filter(Boolean),
+            records: domRecords,
+          },
+          fileEdits: editList,
+          projectPath,
+          docEpoch: startEpoch,
+        })
+      }
+
+      setMultiSelection([])
+      setSelectedEl(null)
+      iframeRef.current?.contentWindow?.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
+
+      if (domRecords.length === 0 && fileEdits.size === 0) {
+        showToast('Không xoá được phần tử nào trên canvas.', 'err')
+      } else if (!projectPath) {
+        showToast(`Đã xoá ${domRecords.length} phần tử trên canvas (chưa gắn dự án nên không ghi mã nguồn).`, 'warn')
+      } else if (sourceFailures > 0) {
+        showToast(
+          `Đã xoá ${domRecords.length} phần tử trên canvas; ${sourceFailures} phần tử chưa dò được mã nguồn.`,
+          'warn',
+        )
+      } else {
+        showToast(`Đã xoá ${domRecords.length} phần tử khỏi trang và mã nguồn (Ctrl+Z để hoàn tác).`, 'ok')
+      }
+    } finally {
+      setMutationBusy(false)
+    }
+  }, [
+    multiSelection,
+    selectedEl,
+    projectPath,
+    pendingMutation,
+    mutationBusy,
+    sendToolboxMessage,
+    showToast,
+    beginToolboxDelete,
+  ])
+
+  canvasActionsRef.current = {
+    copy: copySelection,
+    paste: pasteSelection,
+    deleteSelection: beginDeleteSelection,
+  }
 
   const beginToolboxDuplicate = useCallback(async () => {
     if (!projectPath || !selectedEl) {
@@ -1656,6 +2317,7 @@ const CanvasArea = ({
   const applyPendingMutation = useCallback(async () => {
     if (!pendingMutation) return
     setMutationBusy(true)
+    const startEpoch = docEpochRef.current
     try {
       const {
         payload,
@@ -1772,6 +2434,7 @@ const CanvasArea = ({
         fileBefore: preview.oldText,
         fileAfter: result.newText,
         projectPath,
+        docEpoch: startEpoch,
       })
 
       setPendingMutation(null)
@@ -1795,6 +2458,7 @@ const CanvasArea = ({
   const applyPreviewOnlyMutation = useCallback(async () => {
     if (!pendingMutation) return
     setMutationBusy(true)
+    const startEpoch = docEpochRef.current
     try {
       const {
         payload,
@@ -1895,6 +2559,7 @@ const CanvasArea = ({
         after: { styles: {}, text: textAfter },
         dom,
         projectPath,
+        docEpoch: startEpoch,
       })
 
       setPendingMutation(null)
@@ -2470,7 +3135,7 @@ const CanvasArea = ({
                   <iframe
                     ref={iframeRef}
                     key={iframeKey}
-                    src={url}
+                    src={safeCanvasUrl || url}
                     className="canvas__iframe"
                     title={projectName}
                     style={{
@@ -2482,6 +3147,15 @@ const CanvasArea = ({
                       pointerEvents: isPanActive || isPanning ? 'none' : 'auto',
                     }}
                     onLoad={() => {
+                      if (iframeLoadedOnceRef.current) {
+                        // Iframe vừa tải lại tài liệu → uid cũ không còn giá trị.
+                        docEpochRef.current += 1
+                        editorBuffer.setDocumentEpoch(docEpochRef.current)
+                        setSelectedEl(null)
+                        setMultiSelection([])
+                      } else {
+                        iframeLoadedOnceRef.current = true
+                      }
                       try {
                         const win = iframeRef.current?.contentWindow
                         if (win && win.localStorage) {
@@ -2647,6 +3321,7 @@ const CanvasArea = ({
                 if (!next) {
                   setSelectedEl(null)
                   setHoverEl(null)
+                  setMultiSelection([])
                 }
                 showToast(
                   next ? 'Đã bật chế độ Soi phần tử' : 'Đã tắt chế độ Soi phần tử',
@@ -2806,6 +3481,8 @@ const CanvasArea = ({
           onClick={() => {
             if (!isPanActive) {
               setSelectedEl(null)
+              setMultiSelection([])
+              iframeRef.current?.contentWindow?.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
             }
           }}
         >
@@ -2887,8 +3564,75 @@ const CanvasArea = ({
             </div>
           )}
 
+          {isInspectMode && multiSelection.length > 1 && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 12,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 60,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '7px 10px',
+                borderRadius: 10,
+                background: 'rgba(15, 23, 42, 0.94)',
+                border: '1px solid #6d5df5',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                backdropFilter: 'blur(8px)',
+                color: '#e2e8f0',
+                fontSize: 11.5,
+                whiteSpace: 'nowrap',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, color: '#c4b5fd' }}>
+                <Layers size={13} />
+                Đang chọn {multiSelection.length} phần tử
+              </span>
+              <span style={{ width: 1, height: 16, background: 'rgba(148,163,184,0.35)' }} />
+              <button
+                className="btn secondary"
+                style={{ height: 24, fontSize: 11, padding: '0 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                onClick={copySelection}
+                title="Sao chép các phần tử đang chọn (Ctrl+C)"
+              >
+                <Copy size={11} /> Sao chép
+              </button>
+              <button
+                className="btn secondary"
+                style={{ height: 24, fontSize: 11, padding: '0 8px' }}
+                onClick={() => void pasteSelection()}
+                title="Dán phần tử vào trang hiện tại (Ctrl+V)"
+              >
+                Dán
+              </button>
+              <button
+                className="btn secondary canvas__attrs-danger"
+                style={{ height: 24, fontSize: 11, padding: '0 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                onClick={() => void beginDeleteSelection()}
+                title="Xoá tất cả phần tử đang chọn (Delete) — có thể hoàn tác bằng Ctrl+Z"
+              >
+                <Trash2 size={11} /> Xoá
+              </button>
+              <button
+                className="canvas__tool-btn"
+                style={{ width: 24, height: 24 }}
+                title="Bỏ chọn nhiều phần tử (Esc)"
+                onClick={() => {
+                  setMultiSelection([])
+                  setSelectedEl(null)
+                  iframeRef.current?.contentWindow?.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
+                }}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
+
           <div className="canvas__hint">
-            <span>▷ Soi phần tử (Phím I) · Kéo để pan (H hoặc Space) · Ctrl + lăn chuột để zoom · F để vừa khung</span>
+            <span>▷ Soi phần tử (I) · Kéo vùng để chọn nhiều · Shift + Click để cộng/trừ · Ctrl+C / Ctrl+V sao chép-dán · F vừa khung</span>
           </div>
         </div>
 
@@ -2925,6 +3669,22 @@ const CanvasArea = ({
                     <>
                       <span>{selectedEl.tagName.toUpperCase()}</span>
                       {selectedEl.id && <code>#{selectedEl.id}</code>}
+                      {multiSelection.length > 1 && (
+                        <span
+                          style={{
+                            marginLeft: 6,
+                            padding: '1px 7px',
+                            borderRadius: 999,
+                            background: 'rgba(109,93,245,0.18)',
+                            border: '1px solid rgba(109,93,245,0.45)',
+                            color: '#c4b5fd',
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                          }}
+                        >
+                          +{multiSelection.length - 1}
+                        </span>
+                      )}
                     </>
                   ) : (
                     <span>Chế độ Soi phần tử</span>
@@ -2950,8 +3710,12 @@ const CanvasArea = ({
                   </button>
                   <button
                     className="canvas__tool-btn canvas__tool-btn--danger"
-                    title="Xoá phần tử (Delete)"
-                    onClick={() => void beginToolboxDelete()}
+                    title={
+                      multiSelection.length > 1
+                        ? `Xoá ${multiSelection.length} phần tử đang chọn (Delete) — hoàn tác bằng Ctrl+Z`
+                        : 'Xoá phần tử (Delete) — hoàn tác bằng Ctrl+Z'
+                    }
+                    onClick={() => void beginDeleteSelection()}
                   >
                     <Trash2 size={13} />
                   </button>
@@ -2965,6 +3729,8 @@ const CanvasArea = ({
                   setIsInspectMode(false)
                   setSelectedEl(null)
                   setHoverEl(null)
+                  setMultiSelection([])
+                  iframeRef.current?.contentWindow?.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
                   showToast('Đã tắt chế độ Soi phần tử', 'info')
                 }}
               >
@@ -4684,8 +5450,23 @@ const CanvasArea = ({
                           <button className="btn secondary" onClick={() => void beginToolboxDuplicate()}>
                             <Copy size={12} /> Nhân bản (Ctrl+D)
                           </button>
-                          <button className="btn secondary canvas__attrs-danger" onClick={() => void beginToolboxDelete()}>
-                            <Trash2 size={12} /> Xoá (Delete)
+                          <button
+                            className="btn secondary"
+                            onClick={copySelection}
+                            title="Sao chép phần tử đang chọn để dán sang trang khác (Ctrl+C)"
+                          >
+                            <Copy size={12} /> Sao chép (Ctrl+C)
+                          </button>
+                          <button
+                            className="btn secondary"
+                            onClick={() => void pasteSelection()}
+                            title="Dán phần tử từ bộ nhớ tạm vào trang hiện tại (Ctrl+V)"
+                          >
+                            <ClipboardPaste size={12} /> Dán (Ctrl+V)
+                          </button>
+                          <button className="btn secondary canvas__attrs-danger" onClick={() => void beginDeleteSelection()}>
+                            <Trash2 size={12} />{' '}
+                            {multiSelection.length > 1 ? `Xoá ${multiSelection.length} phần tử (Delete)` : 'Xoá (Delete)'}
                           </button>
                         </div>
                         <p className="canvas__attrs-hint">
@@ -4867,12 +5648,39 @@ const CanvasArea = ({
           <button
             className="pm-canvas-context-menu__item pm-canvas-context-menu__item--danger"
             onClick={() => {
-              void beginToolboxDelete()
+              void beginDeleteSelection()
               setCanvasContextMenu(null)
             }}
           >
             <Trash2 size={13} />
-            <span>Xoá phần tử (Delete)</span>
+            <span>
+              Xoá {multiSelection.length > 1 ? `${multiSelection.length} phần tử` : 'phần tử'} (Delete)
+            </span>
+          </button>
+
+          <div className="pm-canvas-context-menu__divider" />
+
+          <button
+            className="pm-canvas-context-menu__item"
+            onClick={() => {
+              copySelection()
+              setCanvasContextMenu(null)
+            }}
+          >
+            <Copy size={13} />
+            <span>Sao chép phần tử (Ctrl+C)</span>
+          </button>
+
+          <button
+            className="pm-canvas-context-menu__item"
+            onClick={() => {
+              void pasteSelection()
+              setCanvasContextMenu(null)
+            }}
+            disabled={!elementClipboard.has()}
+          >
+            <Copy size={13} />
+            <span>Dán phần tử (Ctrl+V)</span>
           </button>
 
           <div className="pm-canvas-context-menu__divider" />

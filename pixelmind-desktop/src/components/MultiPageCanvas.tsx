@@ -48,6 +48,8 @@ interface CanvasWin {
 }
 
 interface DetectedAnchor {
+  key: string // Khoá duy nhất của từng thành phần liên kết (dùng cho id dây nối)
+  childId: string // Trang đích mà nút bấm này dẫn tới
   parentId: string // ID của cửa sổ chứa nút bấm (cha)
   x: number // Tọa độ trong khung nhìn iframe (0..WINDOW_WIDTH)
   y: number // Tọa độ trong khung nhìn iframe (0..WINDOW_HEIGHT - 34)
@@ -224,11 +226,42 @@ const normalizeRoute = (route: string) => {
   return value.length > 1 ? value.replace(/\/+$/, '') : '/'
 }
 
-const joinPreviewUrl = (base: string, route: string) => {
-  const cleanBase = (base || '').replace(/\/+$/, '')
-  const cleanRoute = (route || '/').startsWith('/') ? route : `/${route}`
-  const sep = cleanRoute.includes('?') ? '&' : '?'
-  return `${cleanBase}${cleanRoute === '/' ? '/' : cleanRoute}${sep}preview=true`
+/** Chuẩn hoá route để các mục trang cùng một đích chỉ chiếm một cửa sổ trên bản đồ. */
+const canonicalPageKey = (route: string) => {
+  const clean = normalizeRoute((route || '/').split('?')[0].split('#')[0]).toLowerCase() || '/'
+  return clean.replace(/^\/account\//, '/identity/account/')
+}
+
+/** Bỏ các mục trang trùng đích (khác hoa/thường, tham số truy vấn, dấu / cuối, tiền tố Identity). */
+const dedupePages = (pages: ProjectPage[]): ProjectPage[] => {
+  const seen = new Set<string>()
+  const result: ProjectPage[] = []
+  for (const page of pages) {
+    const key = canonicalPageKey(page.route)
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(page)
+  }
+  return result
+}
+
+/** Số nút bấm tối đa được vẽ dây cho mỗi trang đích (tránh bản đồ rối khi trang có nhiều link). */
+const MAX_ANCHORS_PER_TARGET = 6
+
+const joinPreviewUrl = (base: string, route: string): string | null => {
+  try {
+    if (!base) return null
+    const cleanBase = base.replace(/\/+$/, '')
+    const cleanRoute = (route || '/').startsWith('/') ? route : `/${route}`
+    const sep = cleanRoute.includes('?') ? '&' : '?'
+    const raw = `${cleanBase}${cleanRoute === '/' ? '/' : cleanRoute}${sep}preview=true`
+    const sanitized = raw.replace(/\[/g, '%5B').replace(/\]/g, '%5D').replace(/\{/g, '%7B').replace(/\}/g, '%7D')
+    const parsed = new URL(sanitized)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+    return sanitized
+  } catch {
+    return null
+  }
 }
 
 const getGroupInfo = (route: string) => {
@@ -622,7 +655,7 @@ function computeClusterLayout(homeWin: CanvasWin, otherPages: ProjectPage[]): Ca
 function computeRingsLayout(
   homeWin: CanvasWin,
   otherPages: ProjectPage[],
-  anchorsMap?: Record<string, DetectedAnchor>
+  anchorsMap?: Record<string, DetectedAnchor[]>
 ): CanvasWin[] {
   if (otherPages.length === 0) return [homeWin]
 
@@ -669,7 +702,7 @@ function computeRingsLayout(
 
   // 2. Tầng 1: Đặt trên Vòng quỹ đạo 1 theo góc nút bấm trên Trang chủ
   const level1WithAngle = level1.map((win) => {
-    const anchor = anchorsMap?.[win.id]
+    const anchor = anchorsMap?.[win.id]?.[0]
     let btnX: number
     let btnY: number
     if (anchor) {
@@ -746,15 +779,15 @@ export default function MultiPageCanvas({
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('cluster')
 
   // Quét tọa độ chính xác của nút bấm trên từng trang cha
-  const [detectedAnchors, setDetectedAnchors] = useState<Record<string, DetectedAnchor>>({})
-  const matchedElementsRef = useRef<Map<string, { parentId: string; el: HTMLElement }>>(new Map())
+  const [detectedAnchors, setDetectedAnchors] = useState<Record<string, DetectedAnchor[]>>({})
+  const matchedElementsRef = useRef<Map<string, { childId: string; parentId: string; el: HTMLElement }>>(new Map())
   const [isFlying, setIsFlying] = useState(false)
   const [flyingToWin, setFlyingToWin] = useState<CanvasWin | null>(null)
 
   // Khởi tạo cửa sổ ĐỒNG BỘ ngay từ đầu (mọi cửa sổ đều to bằng kích thước trang chủ)
   const [windows, setWindows] = useState<CanvasWin[]>(() => {
     const homePage = pages.find((p) => normalizeRoute(p.route) === '/')
-    const otherPages = pages.filter((p) => normalizeRoute(p.route) !== '/')
+    const otherPages = dedupePages(pages).filter((p) => normalizeRoute(p.route) !== '/')
 
     const homeWin: CanvasWin = {
       id: homePage ? `win:${homePage.id}` : 'win:home',
@@ -1082,9 +1115,9 @@ export default function MultiPageCanvas({
     const iframeH = WINDOW_HEIGHT - 34 // 566px
     const iframeW = WINDOW_WIDTH // 960px
 
-    const nextAnchors: Record<string, DetectedAnchor> = {}
+    const flatAnchors: Record<string, DetectedAnchor> = {}
 
-    matchedElementsRef.current.forEach(({ parentId, el }, childId) => {
+    matchedElementsRef.current.forEach(({ parentId, el, childId }, key) => {
       if (!el.isConnected) return
       const parentIframe = iframeRefs.current.get(parentId)
       if (!parentIframe) return
@@ -1128,7 +1161,9 @@ export default function MultiPageCanvas({
         clampedY = Math.max(10, Math.min(iframeH - 10, centerY))
       }
 
-      nextAnchors[childId] = {
+      flatAnchors[key] = {
+        key,
+        childId,
         parentId,
         x: Math.round(clampedX),
         y: Math.round(clampedY),
@@ -1141,7 +1176,11 @@ export default function MultiPageCanvas({
       }
     })
 
-    setDetectedAnchors(nextAnchors)
+    const grouped: Record<string, DetectedAnchor[]> = {}
+    Object.values(flatAnchors).forEach((anchor) => {
+      ;(grouped[anchor.childId] ??= []).push(anchor)
+    })
+    setDetectedAnchors(grouped)
   }, [])
 
   // Thiết lập bắt click & quét vị trí nút bấm trong iframe của từng trang cha
@@ -1459,14 +1498,19 @@ export default function MultiPageCanvas({
           }
 
           const claimedElements = new Set<HTMLElement>()
-          const claimedChildren = new Set<string>()
+          const anchorsByChild = new Map<string, number>()
 
           for (const match of matchScores) {
-            if (!claimedChildren.has(match.childId) && !claimedElements.has(match.el)) {
-              claimedChildren.add(match.childId)
-              claimedElements.add(match.el)
-              matchedElementsRef.current.set(match.childId, { parentId: win.id, el: match.el })
-            }
+            if (claimedElements.has(match.el)) continue
+            const used = anchorsByChild.get(match.childId) ?? 0
+            if (used >= MAX_ANCHORS_PER_TARGET) continue
+            anchorsByChild.set(match.childId, used + 1)
+            claimedElements.add(match.el)
+            matchedElementsRef.current.set(`${match.childId}#${used}`, {
+              childId: match.childId,
+              parentId: win.id,
+              el: match.el,
+            })
           }
 
           recomputeAnchors()
@@ -1496,7 +1540,7 @@ export default function MultiPageCanvas({
     (mode: LayoutMode) => {
       setLayoutMode(mode)
       const homePage = pages.find((p) => normalizeRoute(p.route) === '/')
-      const otherPages = pages.filter((p) => normalizeRoute(p.route) !== '/')
+      const otherPages = dedupePages(pages).filter((p) => normalizeRoute(p.route) !== '/')
 
       const homeWin: CanvasWin = {
         id: homePage ? `win:${homePage.id}` : 'win:home',
@@ -1532,7 +1576,7 @@ export default function MultiPageCanvas({
   const pageIdsRef = useRef(pages.map((p) => p.id).join('|'))
   useEffect(() => {
     const homePage = pages.find((p) => normalizeRoute(p.route) === '/')
-    const otherPages = pages.filter((p) => normalizeRoute(p.route) !== '/')
+    const otherPages = dedupePages(pages).filter((p) => normalizeRoute(p.route) !== '/')
 
     const homeWin: CanvasWin = {
       id: homePage ? `win:${homePage.id}` : 'win:home',
@@ -1767,35 +1811,46 @@ export default function MultiPageCanvas({
   // ─── TÍNH TOÁN DÂY NỐI TỪ NÚT BẤM TRÊN TRANG CHA TỚI TỪNG TRANG CON ───
   const homeWin = windows.find((w) => w.isHome) || windows[0]
 
+  const anchorIndex = useMemo(() => {
+    const map: Record<string, DetectedAnchor> = {}
+    Object.values(detectedAnchors).forEach((list) => {
+      list.forEach((anchor) => {
+        map[anchor.key] = anchor
+      })
+    })
+    return map
+  }, [detectedAnchors])
+
   const wires = useMemo<Wire[]>(() => {
     const list: Wire[] = []
 
     // Dây tự động: chỉ hiển thị khi quét được nút bấm thật trên trang cha.
     windows.forEach((childWin) => {
       if (childWin.isHome) return
-      const anchor = detectedAnchors[childWin.id]
-      if (!anchor) return
-      const parentWin = windows.find((w) => w.id === anchor.parentId)
-      if (!parentWin) return
+      const anchors = detectedAnchors[childWin.id] ?? []
+      anchors.forEach((anchor) => {
+        const parentWin = windows.find((w) => w.id === anchor.parentId)
+        if (!parentWin) return
 
-      const autoId = `wire-${childWin.id}`
-      if (hiddenWireIds.has(autoId)) return
+        const autoId = `wire-${anchor.key}`
+        if (hiddenWireIds.has(autoId)) return
 
-      const shape = computeWireShape(parentWin, childWin, anchor)
-      if (!shape) return
-      list.push({
-        ...shape,
-        id: autoId,
-        satId: childWin.id,
-        hasAnchor: true,
-        label: childWin.title,
-        anchorKey: childWin.id,
-        source: {
-          text: anchor.text,
-          tagName: anchor.tagName,
-          className: anchor.className,
-          elementId: anchor.elementId,
-        },
+        const shape = computeWireShape(parentWin, childWin, anchor)
+        if (!shape) return
+        list.push({
+          ...shape,
+          id: autoId,
+          satId: childWin.id,
+          hasAnchor: true,
+          label: childWin.title,
+          anchorKey: anchor.key,
+          source: {
+            text: anchor.text,
+            tagName: anchor.tagName,
+            className: anchor.className,
+            elementId: anchor.elementId,
+          },
+        })
       })
     })
 
@@ -1805,11 +1860,13 @@ export default function MultiPageCanvas({
       const targetWin = windows.find((w) => w.id === mw.targetId)
       if (!parentWin || !targetWin || targetWin.isHome) return
 
-      const tracked = mw.anchorKey ? detectedAnchors[mw.anchorKey] : undefined
+      const tracked = mw.anchorKey ? anchorIndex[mw.anchorKey] : undefined
       const anchor: DetectedAnchor =
         tracked && tracked.parentId === mw.parentId
           ? tracked
           : {
+              key: mw.anchorKey ?? mw.id,
+              childId: targetWin.id,
               parentId: mw.parentId,
               x: mw.sourceX,
               y: mw.sourceY,
@@ -1834,7 +1891,7 @@ export default function MultiPageCanvas({
     })
 
     return list
-  }, [windows, detectedAnchors, manualWires, hiddenWireIds])
+  }, [windows, detectedAnchors, anchorIndex, manualWires, hiddenWireIds])
 
   wiresRef.current = wires
 

@@ -262,25 +262,42 @@ function createWindow() {
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    // Không đẩy ra trình duyệt ngoài nếu là url nội bộ hoặc dev server localhost
-    if (url.includes('localhost') || url.includes('127.0.0.1')) {
-      return { action: 'allow' }
-    }
-    if (/^https?:/i.test(url)) void shell.openExternal(url)
+    try {
+      if (!url || typeof url !== 'string') return { action: 'deny' }
+      // Không đẩy ra trình duyệt ngoài nếu là url nội bộ hoặc dev server localhost
+      if (url.includes('localhost') || url.includes('127.0.0.1')) {
+        return { action: 'allow' }
+      }
+      if (/^https?:/i.test(url)) {
+        const parsed = new URL(url)
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          void shell.openExternal(url).catch(() => {})
+        }
+      }
+    } catch {}
     return { action: 'deny' }
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    const current = mainWindow?.webContents.getURL() ?? ''
-    // Chỉ cho phép Vite HMR dev server của chính ứng dụng desktop
-    const rendererUrl = process.env['ELECTRON_RENDERER_URL']
-    if (isDev && rendererUrl && url.startsWith(rendererUrl)) {
-      return
-    }
-    // Ngăn chặn tuyệt đối mainWindow bị điều hướng khi người dùng kéo thả hoặc drop URL vào cửa sổ chính
-    if (url !== current) {
+    try {
+      const current = mainWindow?.webContents.getURL() ?? ''
+      // Chỉ cho phép Vite HMR dev server của chính ứng dụng desktop
+      const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+      if (isDev && rendererUrl && url.startsWith(rendererUrl)) {
+        return
+      }
+      // Ngăn chặn tuyệt đối mainWindow bị điều hướng khi người dùng kéo thả hoặc drop URL vào cửa sổ chính
+      if (url !== current) {
+        event.preventDefault()
+        if (/^https?:/i.test(url)) {
+          const parsed = new URL(url)
+          if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            void shell.openExternal(url).catch(() => {})
+          }
+        }
+      }
+    } catch {
       event.preventDefault()
-      if (/^https?:/i.test(url)) void shell.openExternal(url)
     }
   })
 
@@ -755,7 +772,14 @@ ipcMain.handle('run:stop-all', async () => {
 })
 
 ipcMain.handle('shell:external', async (_e, url: string) => {
-  if (/^https?:/i.test(url)) await shell.openExternal(url)
+  if (url && typeof url === 'string' && /^https?:/i.test(url)) {
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        await shell.openExternal(url)
+      }
+    } catch {}
+  }
   return true
 })
 
@@ -811,6 +835,10 @@ function getInspectorScript(isActive: boolean) {
     }
     window.__PM_INSPECT_INITIALIZED = true;
 
+    // Mỗi tài liệu (lần tải trang) có một docId riêng. Renderer dùng docId để
+    // phát hiện iframe vừa hot-reload và tránh áp dụng lại thao tác DOM khi Undo.
+    window.__PM_DOC_ID = window.__PM_DOC_ID || ('pmdoc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8));
+
     if (window.__PM_INSPECT_CLEANUP) {
       try { window.__PM_INSPECT_CLEANUP(); } catch(e) {}
     }
@@ -851,6 +879,185 @@ function getInspectorScript(isActive: boolean) {
     }
 
     var lastSelected = null;
+
+    /* ── CHỌN NHIỀU PHẦN TỬ (MARQUEE + SHIFT + CLICK) ── */
+    var multiSelected = [];
+    var suppressClickOnce = false;
+    var marqueeState = null;
+
+    function ensureMultiStyle() {
+      if (document.getElementById('__pm_multi_style') || !document.head) return;
+      var st = document.createElement('style');
+      st.id = '__pm_multi_style';
+      st.textContent =
+        '[data-pm-multi]{outline:2px solid #6d5df5 !important;outline-offset:-2px !important;}' +
+        '[data-pm-marquee]{position:fixed;z-index:2147483000;border:1.5px solid #6d5df5;' +
+        'background:rgba(109,93,245,0.12);border-radius:2px;pointer-events:none;}';
+      document.head.appendChild(st);
+    }
+    ensureMultiStyle();
+
+    function sortDomOrder(els) {
+      return els.slice().sort(function(a, b) {
+        if (a === b) return 0;
+        var pos = a.compareDocumentPosition(b);
+        if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+        if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+        return 0;
+      });
+    }
+
+    function pruneNested(els) {
+      var unique = [];
+      for (var i = 0; i < els.length; i++) {
+        if (els[i] && unique.indexOf(els[i]) === -1) unique.push(els[i]);
+      }
+      return unique.filter(function(el) {
+        return !unique.some(function(other) {
+          return other !== el && other.contains(el);
+        });
+      });
+    }
+
+    function postMultiSelection(primaryEl) {
+      var items = [];
+      for (var i = 0; i < multiSelected.length; i++) {
+        if (!multiSelected[i].isConnected) continue;
+        items.push(extractElementInfo(multiSelected[i]));
+      }
+      var primary = null;
+      if (primaryEl && primaryEl.isConnected && multiSelected.indexOf(primaryEl) !== -1) {
+        primary = extractElementInfo(primaryEl);
+      } else if (items.length > 0) {
+        primary = items[items.length - 1];
+      }
+      window.parent.postMessage({
+        type: 'PM_SELECTION_CHANGED',
+        payload: {
+          count: items.length,
+          items: items,
+          primary: primary
+        }
+      }, '*');
+    }
+
+    function setMultiSelected(els, silent, primaryEl) {
+      for (var i = 0; i < multiSelected.length; i++) {
+        var old = multiSelected[i];
+        if (old && old.removeAttribute) old.removeAttribute('data-pm-multi');
+      }
+      multiSelected = pruneNested(sortDomOrder(els || []));
+      ensureMultiStyle();
+      for (var j = 0; j < multiSelected.length; j++) {
+        try { multiSelected[j].setAttribute('data-pm-multi', '1'); } catch(err) {}
+      }
+      if (!silent) postMultiSelection(primaryEl);
+      return multiSelected;
+    }
+
+    function rectIntersects(rect, box) {
+      if (rect.width < 1 || rect.height < 1) return false;
+      return rect.left < box.right && rect.right > box.left && rect.top < box.bottom && rect.bottom > box.top;
+    }
+
+    function collectMarqueeHits(box) {
+      var hits = [];
+      if (!document.body) return hits;
+      var nodes = document.body.querySelectorAll('*');
+      for (var i = 0; i < nodes.length; i++) {
+        var el = nodes[i];
+        if (el === document.body || el === document.documentElement) continue;
+        var tag = el.tagName;
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'LINK' || tag === 'META' || tag === 'NOSCRIPT' || tag === 'BR' || tag === 'TEMPLATE') continue;
+        if (el.hasAttribute('data-pm-marquee') || el.id === '__pm_multi_style') continue;
+        var cs = window.getComputedStyle(el);
+        if (cs.visibility === 'hidden' || cs.display === 'none' || cs.opacity === '0') continue;
+        var rect = el.getBoundingClientRect();
+        if (rectIntersects(rect, box)) hits.push(el);
+      }
+      return hits;
+    }
+
+    document.addEventListener('mousedown', function(e) {
+      if (!window.__PM_INSPECT_ACTIVE || e.button !== 0) return;
+      suppressClickOnce = false;
+      marqueeState = { sx: e.clientX, sy: e.clientY, active: false, boxEl: null };
+    }, true);
+
+    document.addEventListener('mousemove', function(e) {
+      if (!marqueeState) return;
+      var dx = e.clientX - marqueeState.sx;
+      var dy = e.clientY - marqueeState.sy;
+      if (!marqueeState.active) {
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        marqueeState.active = true;
+        var boxEl = document.createElement('div');
+        boxEl.setAttribute('data-pm-marquee', '1');
+        (document.body || document.documentElement).appendChild(boxEl);
+        marqueeState.boxEl = boxEl;
+      }
+      if (e.preventDefault) e.preventDefault();
+      var b = marqueeState.boxEl;
+      if (!b) return;
+      b.style.left = Math.min(marqueeState.sx, e.clientX) + 'px';
+      b.style.top = Math.min(marqueeState.sy, e.clientY) + 'px';
+      b.style.width = Math.abs(e.clientX - marqueeState.sx) + 'px';
+      b.style.height = Math.abs(e.clientY - marqueeState.sy) + 'px';
+    }, true);
+
+    document.addEventListener('mouseup', function(e) {
+      if (!marqueeState) return;
+      var state = marqueeState;
+      marqueeState = null;
+      if (!state.active) return;
+      suppressClickOnce = true;
+      if (e.preventDefault) e.preventDefault();
+      if (e.stopPropagation) e.stopPropagation();
+      if (state.boxEl && state.boxEl.parentNode) state.boxEl.parentNode.removeChild(state.boxEl);
+
+      var box = {
+        left: Math.min(state.sx, e.clientX),
+        top: Math.min(state.sy, e.clientY),
+        right: Math.max(state.sx, e.clientX),
+        bottom: Math.max(state.sy, e.clientY)
+      };
+      var hits = collectMarqueeHits(box);
+      if (hits.length === 0) {
+        setMultiSelected([], false, null);
+        return;
+      }
+
+      // Ưu tiên các phần tử nằm trọn trong vùng kéo, rồi chỉ giữ phần tử
+      // ngoài cùng (cha chưa nằm trọn trong vùng) để tránh chọn cả cây con.
+      var fully = hits.filter(function(el) {
+        var r = el.getBoundingClientRect();
+        return r.left >= box.left - 1 && r.top >= box.top - 1 && r.right <= box.right + 1 && r.bottom <= box.bottom + 1;
+      });
+
+      var picked = [];
+      if (fully.length > 0) {
+        for (var f = 0; f < fully.length; f++) {
+          var parentEl = fully[f].parentElement;
+          if (!parentEl || fully.indexOf(parentEl) === -1) picked.push(fully[f]);
+        }
+      }
+
+      // Vùng kéo quá nhỏ/không bao trọn phần tử nào: chọn phần tử ở tâm vùng kéo.
+      if (picked.length === 0) {
+        var centerEl = document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2);
+        if (centerEl && centerEl !== document.body && centerEl !== document.documentElement && !centerEl.hasAttribute('data-pm-marquee')) {
+          picked = [centerEl];
+        }
+      }
+      if (picked.length === 0) picked = hits;
+
+      var next = setMultiSelected(picked, false, null);
+      if (next.length > 0) lastSelected = next[next.length - 1];
+    }, true);
+
+    document.addEventListener('dragstart', function(e) {
+      if (window.__PM_INSPECT_ACTIVE) e.preventDefault();
+    }, true);
 
     function getUniqueSelector(el) {
       if (!el || el === document.body || el === document.documentElement) return '';
@@ -898,6 +1105,9 @@ function getInspectorScript(isActive: boolean) {
       var style = window.getComputedStyle(el);
       var isLeaf = el.children.length === 0;
       var rawText = isLeaf ? (el.innerText || el.textContent || '').trim() : '';
+      if (!rawText && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) {
+        rawText = el.getAttribute('placeholder') || el.getAttribute('name') || el.getAttribute('type') || el.value || '';
+      }
       var snippet = rawText.length > 60 ? rawText.slice(0, 60) + '…' : rawText;
 
       return {
@@ -1096,8 +1306,18 @@ function getInspectorScript(isActive: boolean) {
     }
 
     function insertHtmlAtIndex(html, parentUid, index) {
-      var parent = parentUid ? document.querySelector('[data-pm-uid="' + parentUid + '"]') : document.body;
-      if (!parent) parent = document.body;
+      var parent = null;
+      if (parentUid) {
+        parent = document.querySelector('[data-pm-uid="' + parentUid + '"]');
+        if (!parent && parentUid === 'pm_body') parent = document.body;
+      } else {
+        parent = document.body;
+      }
+      // Không tìm thấy khung cha (uid đã cũ vì trang đã được tải lại).
+      // Tuyệt đối không chèn vào body để tránh tạo bản sao trùng lặp của cả khối UI.
+      if (!parent) {
+        return { uids: [], parentUid: parentUid, index: index, missingParent: true };
+      }
       var wrapper = document.createElement('div');
       wrapper.innerHTML = html;
       var nodes = Array.prototype.slice.call(wrapper.childNodes);
@@ -1117,7 +1337,8 @@ function getInspectorScript(isActive: boolean) {
       var parent = el.parentElement;
       if (!parent) return null;
       var index = Array.prototype.indexOf.call(parent.childNodes, el);
-      var html = el.outerHTML;
+      // Không lưu lại dấu chọn nhiều vào HTML để tránh viền tím khi hoàn tác
+      var html = el.outerHTML.replace(/\sdata-pm-multi(?:="[^"]*")?/g, '');
       var parentUid = ensureUid(parent);
       parent.removeChild(el);
       return { parentUid: parentUid, index: index, html: html };
@@ -1202,12 +1423,32 @@ function getInspectorScript(isActive: boolean) {
 
     window.addEventListener('click', function(e) {
       if (!window.__PM_INSPECT_ACTIVE) return;
+      if (suppressClickOnce) {
+        suppressClickOnce = false;
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
 
       var target = e.target;
       if (!target || target === document.body || target === document.documentElement) return;
+
+      // Shift + Click: cộng/trừ phần tử khỏi vùng chọn nhiều
+      if (e.shiftKey) {
+        if (multiSelected.indexOf(target) !== -1) {
+          setMultiSelected(multiSelected.filter(function(el) { return el !== target; }), false, target);
+        } else {
+          setMultiSelected(multiSelected.concat([target]), false, target);
+        }
+        lastSelected = target;
+        return;
+      }
+
+      setMultiSelected([], true);
       lastSelected = target;
       if (!target.__PM_ORIGINAL) {
         target.__PM_ORIGINAL = {
@@ -1219,6 +1460,7 @@ function getInspectorScript(isActive: boolean) {
       var info = extractElementInfo(target);
       window.parent.postMessage({
         type: 'PM_SELECT_ELEMENT',
+        source: 'click',
         payload: info
       }, '*');
     }, true);
@@ -1248,6 +1490,15 @@ function getInspectorScript(isActive: boolean) {
         if (document.documentElement) {
           document.documentElement.style.cursor = window.__PM_INSPECT_ACTIVE ? 'crosshair' : '';
         }
+        if (!window.__PM_INSPECT_ACTIVE) {
+          marqueeState = null;
+          setMultiSelected([], true);
+        } else {
+          ensureMultiStyle();
+        }
+      } else if (e.data.type === 'PM_CLEAR_MULTI_SELECTION') {
+        setMultiSelected([], true);
+        if (!e.data.keepLastSelected) lastSelected = null;
       } else if (e.data.type === 'PM_RESET_ORIGINAL' && lastSelected) {
         if (lastSelected.__PM_ORIGINAL) {
           lastSelected.style.cssText = lastSelected.__PM_ORIGINAL.cssText;
@@ -1462,8 +1713,13 @@ function getInspectorScript(isActive: boolean) {
         var dragUid = e.data.uid;
         var dragEl = dragUid ? document.querySelector('[data-pm-uid="' + dragUid + '"]') : null;
         if (!dragEl) return;
+        var dragStyle = window.getComputedStyle(dragEl);
+        if (dragStyle.position === 'absolute' || dragStyle.position === 'fixed') return;
 
         var oldParent = dragEl.parentElement;
+        if (!oldParent) return;
+        var oldParentUid = ensureUid(oldParent);
+        var oldIndex = Array.prototype.indexOf.call(oldParent.childNodes, dragEl);
         var prevVis = dragEl.style.visibility;
         dragEl.style.visibility = 'hidden';
         var dropTarget = document.elementFromPoint(e.data.x, e.data.y);
@@ -1519,19 +1775,35 @@ function getInspectorScript(isActive: boolean) {
           if (dragEl.style.position === 'relative') {
             dragEl.style.removeProperty('position');
           }
+          var checkParent = dragEl.parentElement;
+          var checkParentUid = checkParent ? ensureUid(checkParent) : null;
+          var checkIndex = checkParent ? Array.prototype.indexOf.call(checkParent.childNodes, dragEl) : -1;
+          if (oldParentUid === checkParentUid && oldIndex === checkIndex) {
+            reparented = false;
+          }
         }
 
         sendDomTree();
         var finalInfo = extractElementInfo(dragEl);
+        lastSelected = dragEl;
         window.parent.postMessage({
           type: 'PM_SELECT_ELEMENT',
           payload: finalInfo
         }, '*');
 
         if (reparented) {
+          var finalParent = dragEl.parentElement;
+          var finalNewParentUid = finalParent ? ensureUid(finalParent) : null;
+          var finalNewIndex = finalParent ? Array.prototype.indexOf.call(finalParent.childNodes, dragEl) : -1;
           window.parent.postMessage({
             type: 'PM_REPARENT_NOTIFY',
-            message: 'Đã chuyển <' + dragEl.tagName.toLowerCase() + '> vào <' + newParentTag + '>, phân cấp phần tử đã cập nhật!'
+            message: 'Đã chuyển <' + dragEl.tagName.toLowerCase() + '> vào <' + newParentTag + '>, phân cấp phần tử đã cập nhật!',
+            uid: dragUid,
+            tagName: dragEl.tagName,
+            oldParentUid: oldParentUid,
+            oldIndex: oldIndex,
+            newParentUid: finalNewParentUid,
+            newIndex: finalNewIndex
           }, '*');
         }
       } else if (e.data.type === 'PM_TOOLBOX_INSERT') {
@@ -1621,6 +1893,51 @@ function getInspectorScript(isActive: boolean) {
           type: 'PM_TOOLBOX_DOM_RESULT',
           requestId: e.data.requestId,
           action: 'dom-remove'
+        }, '*');
+      } else if (e.data.type === 'PM_TOOLBOX_DOM_MOVE') {
+        var moveUid = e.data.uid;
+        var moveEl = moveUid ? document.querySelector('[data-pm-uid="' + moveUid + '"]') : null;
+        var targetParentUid = e.data.parentUid;
+        var targetParent = null;
+        if (targetParentUid) {
+          targetParent = document.querySelector('[data-pm-uid="' + targetParentUid + '"]');
+          if (!targetParent && (targetParentUid === 'pm_body' || (document.body && targetParentUid === document.body.getAttribute('data-pm-uid')))) {
+            targetParent = document.body;
+          }
+        } else {
+          targetParent = document.body;
+        }
+        var targetIndex = typeof e.data.index === 'number' ? e.data.index : -1;
+        var moveSuccess = false;
+        if (moveEl && targetParent && moveEl !== targetParent && !moveEl.contains(targetParent)) {
+          try {
+            var siblings = Array.prototype.filter.call(targetParent.childNodes, function(n) { return n !== moveEl; });
+            var targetRef = (targetIndex >= 0 && targetIndex < siblings.length) ? siblings[targetIndex] : null;
+            targetParent.insertBefore(moveEl, targetRef);
+            moveEl.style.removeProperty('top');
+            moveEl.style.removeProperty('left');
+            moveEl.style.removeProperty('right');
+            moveEl.style.removeProperty('bottom');
+            if (moveEl.style.position === 'relative') {
+              moveEl.style.removeProperty('position');
+            }
+            moveSuccess = true;
+            sendDomTree();
+            var updatedInfo = extractElementInfo(moveEl);
+            lastSelected = moveEl;
+            window.parent.postMessage({
+              type: 'PM_SELECT_ELEMENT',
+              payload: updatedInfo
+            }, '*');
+          } catch (err) {
+            console.error('[PM_TOOLBOX_DOM_MOVE] Error moving node:', err);
+          }
+        }
+        window.parent.postMessage({
+          type: 'PM_TOOLBOX_DOM_RESULT',
+          requestId: e.data.requestId,
+          action: 'dom-move',
+          result: { success: moveSuccess }
         }, '*');
       } else if (e.data.type === 'PM_TOOLBOX_GET_INFO') {
         var infoEl = e.data.uid ? document.querySelector('[data-pm-uid="' + e.data.uid + '"]') : document.body;
@@ -1815,11 +2132,14 @@ function getInspectorScript(isActive: boolean) {
       var isY = e.key === 'y' || e.key === 'Y';
       var isS = e.key === 's' || e.key === 'S';
       var isD = e.key === 'd' || e.key === 'D';
+      var isC = e.key === 'c' || e.key === 'C';
+      var isV = e.key === 'v' || e.key === 'V';
       var isDelete = e.key === 'Delete' || e.key === 'Backspace';
       var target = e.target;
       var isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       if (isInput) return;
-      if ((e.ctrlKey || e.metaKey) && (isZ || isY || isS || isD)) {
+      var clipboardShortcut = (isC || isV) && window.__PM_INSPECT_ACTIVE;
+      if ((e.ctrlKey || e.metaKey) && (isZ || isY || isS || isD || clipboardShortcut)) {
         e.preventDefault();
         window.parent.postMessage({
           type: 'PM_KEYBOARD_SHORTCUT',
@@ -1839,6 +2159,8 @@ function getInspectorScript(isActive: boolean) {
             shiftKey: e.shiftKey
           }
         }, '*');
+      } else if (e.key === 'Escape' && window.__PM_INSPECT_ACTIVE && multiSelected.length > 0) {
+        setMultiSelected([], false, null);
       }
     });
 
@@ -1852,7 +2174,8 @@ function getInspectorScript(isActive: boolean) {
             pathname: path,
             href: href,
             search: window.location.search || '',
-            title: document.title || ''
+            title: document.title || '',
+            docId: window.__PM_DOC_ID || ''
           }
         }, '*');
       } catch(e) {}
