@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ExternalLink,
   Globe2,
@@ -37,6 +37,20 @@ const PreviewPane = ({
 }: PreviewPaneProps) => {
   const [draft, setDraft] = useState(url ?? '')
   const [reloadKey, setReloadKey] = useState(0)
+
+  const targetUrl = draft || url || ''
+  const safeTargetUrl = useMemo(() => {
+    if (!targetUrl) return ''
+    try {
+      const withProto = /^https?:\/\//i.test(targetUrl) ? targetUrl : `http://${targetUrl}`
+      const sanitized = withProto.replace(/\[/g, '%5B').replace(/\]/g, '%5D').replace(/\{/g, '%7B').replace(/\}/g, '%7D')
+      const parsed = new URL(sanitized)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return sanitized
+      return targetUrl
+    } catch {
+      return targetUrl
+    }
+  }, [targetUrl])
 
   useEffect(() => {
     if (url) setDraft(url)
@@ -87,7 +101,7 @@ const PreviewPane = ({
 
       <div className="pm-preview__frame">
         {url ? (
-          <iframe key={reloadKey} src={draft || url} title="Xem trước dự án" allow="clipboard-read; clipboard-write" />
+          <iframe key={reloadKey} src={safeTargetUrl || url} title="Xem trước dự án" allow="clipboard-read; clipboard-write" />
         ) : error ? (
           /* Giao diện báo lỗi trực quan ngay giữa khung xem trước */
           <div style={{ height: '100%', display: 'grid', placeItems: 'center', padding: 20 }}>

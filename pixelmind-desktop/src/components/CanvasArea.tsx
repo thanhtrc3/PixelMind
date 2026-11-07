@@ -1,5 +1,5 @@
 import { api } from '../lib/bridge'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import {
   AlertCircle,
   AlertTriangle,
@@ -352,6 +352,18 @@ const CanvasArea = ({
   const [isPageFlowOpen, setIsPageFlowOpen] = useState(false)
   const [projectTokens, setProjectTokens] = useState<DesignTokens | null>(null)
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false)
+
+  const safeCanvasUrl = useMemo(() => {
+    if (!url) return ''
+    try {
+      const sanitized = url.replace(/\[/g, '%5B').replace(/\]/g, '%5D').replace(/\{/g, '%7B').replace(/\}/g, '%7D')
+      const parsed = new URL(sanitized)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return sanitized
+      return url
+    } catch {
+      return url
+    }
+  }, [url])
 
   // ─── TỰ ĐỘNG THỬ LẠI KẾT NỐI MÁY CHỦ (HEALTH CHECK & AUTO-RETRY) ───
   const [isServerReady, setIsServerReady] = useState(false)
@@ -2470,7 +2482,7 @@ const CanvasArea = ({
                   <iframe
                     ref={iframeRef}
                     key={iframeKey}
-                    src={url}
+                    src={safeCanvasUrl || url}
                     className="canvas__iframe"
                     title={projectName}
                     style={{

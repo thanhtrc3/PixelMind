@@ -262,25 +262,42 @@ function createWindow() {
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    // Không đẩy ra trình duyệt ngoài nếu là url nội bộ hoặc dev server localhost
-    if (url.includes('localhost') || url.includes('127.0.0.1')) {
-      return { action: 'allow' }
-    }
-    if (/^https?:/i.test(url)) void shell.openExternal(url)
+    try {
+      if (!url || typeof url !== 'string') return { action: 'deny' }
+      // Không đẩy ra trình duyệt ngoài nếu là url nội bộ hoặc dev server localhost
+      if (url.includes('localhost') || url.includes('127.0.0.1')) {
+        return { action: 'allow' }
+      }
+      if (/^https?:/i.test(url)) {
+        const parsed = new URL(url)
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          void shell.openExternal(url).catch(() => {})
+        }
+      }
+    } catch {}
     return { action: 'deny' }
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    const current = mainWindow?.webContents.getURL() ?? ''
-    // Chỉ cho phép Vite HMR dev server của chính ứng dụng desktop
-    const rendererUrl = process.env['ELECTRON_RENDERER_URL']
-    if (isDev && rendererUrl && url.startsWith(rendererUrl)) {
-      return
-    }
-    // Ngăn chặn tuyệt đối mainWindow bị điều hướng khi người dùng kéo thả hoặc drop URL vào cửa sổ chính
-    if (url !== current) {
+    try {
+      const current = mainWindow?.webContents.getURL() ?? ''
+      // Chỉ cho phép Vite HMR dev server của chính ứng dụng desktop
+      const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+      if (isDev && rendererUrl && url.startsWith(rendererUrl)) {
+        return
+      }
+      // Ngăn chặn tuyệt đối mainWindow bị điều hướng khi người dùng kéo thả hoặc drop URL vào cửa sổ chính
+      if (url !== current) {
+        event.preventDefault()
+        if (/^https?:/i.test(url)) {
+          const parsed = new URL(url)
+          if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            void shell.openExternal(url).catch(() => {})
+          }
+        }
+      }
+    } catch {
       event.preventDefault()
-      if (/^https?:/i.test(url)) void shell.openExternal(url)
     }
   })
 
@@ -755,7 +772,14 @@ ipcMain.handle('run:stop-all', async () => {
 })
 
 ipcMain.handle('shell:external', async (_e, url: string) => {
-  if (/^https?:/i.test(url)) await shell.openExternal(url)
+  if (url && typeof url === 'string' && /^https?:/i.test(url)) {
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        await shell.openExternal(url)
+      }
+    } catch {}
+  }
   return true
 })
 
