@@ -458,6 +458,8 @@ const CanvasArea = ({
     beforeStyles: Record<string, string>
     beforeRect?: { top: number; left: number; width: number; height: number }
     beforeText?: string
+    oldParentUid?: string
+    oldIndex?: number
   }>({ startX: 0, startY: 0, initialLeft: 0, initialTop: 0, beforeStyles: {} })
 
   const resizeStartRef = useRef<{
@@ -731,18 +733,44 @@ const CanvasArea = ({
       } else if (e.data.type === 'PM_DROP_TARGET_HOVER') {
         setDropTargetHover(e.data.payload || null)
       } else if (e.data.type === 'PM_REPARENT_NOTIFY') {
-        const { uid, tagName, oldParentUid, oldIndex, newParentUid, newIndex, message } = e.data
-        showToast(message || 'Đã cập nhật phân cấp phần tử!')
-        if (uid && oldParentUid && newParentUid && typeof oldIndex === 'number' && typeof newIndex === 'number') {
+        const payload = e.data || {}
+        showToast(payload.message || 'Đã cập nhật phân cấp phần tử!')
+        const targetUid = payload.uid || selectedEl?.uid
+        let oldParentUid = payload.oldParentUid || moveStartRef.current?.oldParentUid || selectedEl?.parent?.uid || ''
+        let oldIndex = typeof payload.oldIndex === 'number' && payload.oldIndex >= 0
+          ? payload.oldIndex
+          : (moveStartRef.current?.oldIndex ?? -1)
+        let newParentUid = payload.newParentUid || ''
+        let newIndex = typeof payload.newIndex === 'number' ? payload.newIndex : -1
+
+        try {
+          const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+          if (doc && targetUid) {
+            const el = doc.querySelector(`[data-pm-uid="${targetUid}"]`)
+            if (el && el.parentElement) {
+              if (!el.parentElement.getAttribute('data-pm-uid')) {
+                el.parentElement.setAttribute('data-pm-uid', 'pm_' + Math.random().toString(36).slice(2, 9))
+              }
+              if (!newParentUid) {
+                newParentUid = el.parentElement.getAttribute('data-pm-uid') || ''
+              }
+              if (newIndex < 0) {
+                newIndex = Array.prototype.indexOf.call(el.parentElement.childNodes, el)
+              }
+            }
+          }
+        } catch { }
+
+        if (targetUid) {
           editorBuffer.pushAction({
             type: 'MOVE',
-            description: `Chuyển vị trí <${(tagName || selectedEl?.tagName || 'element').toLowerCase()}>`,
+            description: `Chuyển vị trí <${(payload.tagName || selectedEl?.tagName || 'element').toLowerCase()}>`,
             target: {
-              tagName: tagName || selectedEl?.tagName || 'div',
+              tagName: payload.tagName || selectedEl?.tagName || 'div',
               id: selectedEl?.id,
               className: selectedEl?.className,
               domPath: selectedEl?.domPath,
-              uid: uid,
+              uid: targetUid,
               selector: selectedEl?.selector,
               textSnippet: selectedEl?.textSnippet,
             },
@@ -761,7 +789,7 @@ const CanvasArea = ({
             },
             dom: {
               kind: 'move',
-              targetUid: uid,
+              targetUid: targetUid,
               parentUid: newParentUid,
               index: newIndex,
               oldParentUid,
@@ -956,14 +984,59 @@ const CanvasArea = ({
             text: isUndo ? dom.textBefore : dom.textAfter,
           })
         } else if (dom.kind === 'move') {
+          const targetUid = dom.targetUid || action.target.uid
           const targetParentUid = isUndo ? dom.oldParentUid : dom.parentUid
           const targetIndex = isUndo ? dom.oldIndex : dom.index
+
+          // 1. Khôi phục trực tiếp trên DOM của iframe (hoạt động tức thì mà không phụ thuộc phiên bản script backend)
+          try {
+            const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+            if (doc && targetUid) {
+              const moveEl = doc.querySelector(`[data-pm-uid="${targetUid}"]`) as HTMLElement | null
+              let targetParent: Element | null = null
+              if (targetParentUid) {
+                targetParent = doc.querySelector(`[data-pm-uid="${targetParentUid}"]`)
+                if (!targetParent && (targetParentUid === 'pm_body' || (doc.body && targetParentUid === doc.body.getAttribute('data-pm-uid')))) {
+                  targetParent = doc.body
+                }
+              } else {
+                targetParent = doc.body
+              }
+
+              if (moveEl && targetParent && moveEl !== targetParent && !moveEl.contains(targetParent)) {
+                const siblings = Array.prototype.filter.call(targetParent.childNodes, (n: ChildNode) => n !== moveEl)
+                const targetRef = (typeof targetIndex === 'number' && targetIndex >= 0 && targetIndex < siblings.length)
+                  ? siblings[targetIndex]
+                  : null
+                targetParent.insertBefore(moveEl, targetRef)
+                moveEl.style.removeProperty('top')
+                moveEl.style.removeProperty('left')
+                moveEl.style.removeProperty('right')
+                moveEl.style.removeProperty('bottom')
+                if (moveEl.style.position === 'relative') {
+                  moveEl.style.removeProperty('position')
+                }
+              }
+            }
+          } catch (err) {
+            console.error('[Undo/Redo MOVE] Error reverting DOM node:', err)
+          }
+
+          // 2. Gửi lệnh hoàn tác/làm lại qua giao tiếp postMessage
           if (targetParentUid !== undefined && typeof targetIndex === 'number') {
             void sendToolboxMessage('PM_TOOLBOX_DOM_MOVE', {
-              uid: dom.targetUid || action.target.uid,
+              uid: targetUid,
               parentUid: targetParentUid,
               index: targetIndex,
             })
+          }
+
+          // 3. Làm mới cây phân cấp phần tử và cập nhật viền chọn
+          if (iframeRef.current?.contentWindow) {
+            iframeRef.current.contentWindow.postMessage({ type: 'PM_GET_DOM_TREE' }, '*')
+            if (targetUid) {
+              iframeRef.current.contentWindow.postMessage({ type: 'PM_SELECT_BY_UID', uid: targetUid }, '*')
+            }
           }
         }
         showToast(isUndo ? `↶ Hoàn tác: ${action.description}` : `↷ Làm lại: ${action.description}`)
@@ -1317,6 +1390,22 @@ const CanvasArea = ({
     const curLeft = parseInt(selectedEl.computedStyles.left || '0') || 0
     const curTop = parseInt(selectedEl.computedStyles.top || '0') || 0
 
+    let domOldParentUid = selectedEl.parent?.uid || ''
+    let domOldIndex = -1
+    try {
+      const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+      if (doc && selectedEl.uid) {
+        const el = doc.querySelector(`[data-pm-uid="${selectedEl.uid}"]`)
+        if (el && el.parentElement) {
+          if (!el.parentElement.getAttribute('data-pm-uid')) {
+            el.parentElement.setAttribute('data-pm-uid', 'pm_' + Math.random().toString(36).slice(2, 9))
+          }
+          domOldParentUid = el.parentElement.getAttribute('data-pm-uid') || domOldParentUid
+          domOldIndex = Array.prototype.indexOf.call(el.parentElement.childNodes, el)
+        }
+      }
+    } catch { }
+
     moveStartRef.current = {
       startX: e.clientX,
       startY: e.clientY,
@@ -1325,6 +1414,8 @@ const CanvasArea = ({
       beforeStyles: { ...selectedEl.computedStyles },
       beforeRect: { ...selectedEl.rect },
       beforeText: selectedEl.textSnippet,
+      oldParentUid: domOldParentUid,
+      oldIndex: domOldIndex,
     }
   }
 
