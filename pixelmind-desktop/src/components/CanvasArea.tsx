@@ -67,6 +67,8 @@ import { onToolboxInsert, takePendingToolboxInsert, toolboxDrag } from '../lib/t
 import type { ToolboxDragItem } from '../lib/toolboxBridge'
 import { PencilFillIcon } from './PanelIcons'
 import MultiPageCanvas from './MultiPageCanvas'
+import AISidecar from './AISidecar'
+import type { AiSelectedElement } from '../lib/aiMock'
 
 export type CanvasMode = 'reference' | 'live' | 'compare' | 'overlay' | 'diff'
 export type ViewportKey = 'responsive' | 'mobile' | 'tablet' | 'desktop' | 'wide'
@@ -230,6 +232,10 @@ interface CanvasAreaProps {
   pages?: ProjectPage[]
   currentRoute?: string | null
   onOpenPage?: (route: string) => void
+  /** Mở bảng Trợ lý AI đầy đủ từ sidecar. */
+  onOpenAIPanel?: () => void
+  /** Báo phần tử đang chọn ra ngoài (để panel AI dùng làm ngữ cảnh). */
+  onSelectionChange?: (selection: AiSelectedElement | null) => void
 }
 
 const COLOR_SWATCHES = [
@@ -275,6 +281,8 @@ const CanvasArea = ({
   pages = [],
   currentRoute,
   onOpenPage,
+  onOpenAIPanel,
+  onSelectionChange,
 }: CanvasAreaProps) => {
 
   const [currentLiveUrl, setCurrentLiveUrl] = useState<string | null>(url ?? null)
@@ -294,6 +302,9 @@ const CanvasArea = ({
   const spacePressedRef = useRef(false)
   const stageRef = useRef<HTMLDivElement>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [stageSize, setStageSize] = useState({ w: 0, h: 0 })
+  // Ẩn gợi ý sidecar cho đúng phần tử người dùng đã đóng (đổi phần tử sẽ hiện lại).
+  const [sidecarHiddenFor, setSidecarHiddenFor] = useState<string | null>(null)
   const [iframeKey, setIframeKey] = useState(0)
   // Nhận diện tài liệu của iframe. Mỗi lần trang được tải lại (điều hướng hoặc
   // hot-reload), script inspector sinh docId mới → tăng epoch. Epoch được lưu
@@ -512,6 +523,70 @@ const CanvasArea = ({
   )
 
   const currentVp = VIEWPORTS.find((v) => v.key === viewport) ?? VIEWPORTS[0]
+
+  // Theo dõi kích thước stage để đặt sidecar AI đúng toạ độ.
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el) return
+    const update = () => setStageSize({ w: el.clientWidth, h: el.clientHeight })
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  // Báo ngữ cảnh phần tử đang chọn ra ngoài cho AI Panel.
+  useEffect(() => {
+    if (!onSelectionChange) return
+    if (!selectedEl) {
+      onSelectionChange(null)
+      return
+    }
+    onSelectionChange({
+      tag: selectedEl.tagName,
+      id: selectedEl.id || undefined,
+      className: selectedEl.className || undefined,
+      text: selectedEl.textSnippet || undefined,
+      filePath: sourceLoc?.fullPath || sourceLoc?.filePath,
+      lineNumber: sourceLoc?.lineNumber,
+    })
+  }, [selectedEl, sourceLoc, onSelectionChange])
+
+  const sidecarKey = selectedEl
+    ? selectedEl.uid ||
+      selectedEl.selector ||
+      `${selectedEl.tagName}:${Math.round(selectedEl.rect.top)}:${Math.round(selectedEl.rect.left)}`
+    : null
+
+  // Bỏ chọn → lần chọn sau sẽ hiện lại gợi ý sidecar.
+  useEffect(() => {
+    if (!selectedEl) setSidecarHiddenFor(null)
+  }, [selectedEl])
+
+  // Toạ độ stage-local cho sidecar (không đặt bên trong iframe để tránh xung đột CSS).
+  const sidecarPos = useMemo(() => {
+    if (!selectedEl || stageSize.w === 0) return null
+    const scale = viewport === 'responsive' ? 1 : zoom / 100
+    let baseX = 0
+    let baseY = 0
+    if (viewport !== 'responsive') {
+      const wrapH = currentVp.h + 38 // frame bar 30 + gap 8
+      baseX = stageSize.w / 2 + pan.x - (currentVp.w * scale) / 2
+      baseY = stageSize.h / 2 + pan.y - (wrapH * scale) / 2 + 38 * scale
+    }
+    const ex = baseX + selectedEl.rect.left * scale
+    const ey = baseY + selectedEl.rect.top * scale
+    const ew = selectedEl.rect.width * scale
+    const W = 300
+    const H = 250
+    let x = ex + ew + 14
+    if (x + W > stageSize.w - 10) x = ex - W - 14
+    if (x < 10) x = 10
+    let y = ey
+    if (y + H > stageSize.h - 10) y = stageSize.h - H - 10
+    if (y < 10) y = 10
+    return { x, y }
+  }, [selectedEl, stageSize, viewport, currentVp, zoom, pan])
 
   // Zoom to Fit (F)
   const zoomToFit = useCallback(() => {
@@ -3634,6 +3709,21 @@ const CanvasArea = ({
           <div className="canvas__hint">
             <span>▷ Soi phần tử (I) · Kéo vùng để chọn nhiều · Shift + Click để cộng/trừ · Ctrl+C / Ctrl+V sao chép-dán · F vừa khung</span>
           </div>
+
+          {isInspectMode && selectedEl && sidecarPos && sidecarKey !== sidecarHiddenFor && (
+            <AISidecar
+              key={sidecarKey}
+              x={sidecarPos.x}
+              y={sidecarPos.y}
+              label={`${selectedEl.tagName}${selectedEl.id ? `#${selectedEl.id}` : ''}`}
+              detail={`${Math.round(selectedEl.rect.width)} × ${Math.round(selectedEl.rect.height)}${
+                sourceLoc ? ` · ${sourceLoc.filePath}:${sourceLoc.lineNumber}` : ''
+              }`}
+              onClose={() => setSidecarHiddenFor(sidecarKey)}
+              onOpenPanel={() => onOpenAIPanel?.()}
+              onShowToast={(kind, text) => showToast(text, kind)}
+            />
+          )}
         </div>
 
         {/* ═══════════════════════════════════════════════

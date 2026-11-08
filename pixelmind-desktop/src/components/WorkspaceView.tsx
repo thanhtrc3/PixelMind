@@ -33,6 +33,8 @@ import FileViewer from './FileViewer'
 import CanvasArea from './CanvasArea'
 import LogPanel from './LogPanel'
 import RunSidebar from './RunSidebar'
+import AIPanel from './AIPanel'
+import type { AiSelectedElement } from '../lib/aiMock'
 
 interface WorkspaceViewProps {
   project: ProjectRecord | null
@@ -94,6 +96,10 @@ interface WorkspaceViewProps {
   onUrlChange?: (url: string, pathname: string) => void
   onOpenTokens?: () => void
   onShowToast?: (kind: 'ok' | 'err' | 'info', text: string) => void
+  aiPanelOpen?: boolean
+  onToggleAIPanel?: () => void
+  onOpenDesign?: () => void
+  onOpenTheme?: () => void
 }
 
 const WorkspaceView = ({
@@ -155,6 +161,10 @@ const WorkspaceView = ({
   onUrlChange,
   onOpenTokens,
   onShowToast,
+  aiPanelOpen = false,
+  onToggleAIPanel,
+  onOpenDesign,
+  onOpenTheme,
 }: WorkspaceViewProps) => {
   const parsedError = useMemo(() => parseRunError(logs, run), [logs, run])
   /* App có thể đã nắn chỉnh route ASP.NET Core; ưu tiên URL đó. */
@@ -165,6 +175,7 @@ const WorkspaceView = ({
   // Chế độ tập trung toàn màn hình Canvas (ẩn cả cây tệp và sidebar)
   const [focusCanvas, setFocusCanvas] = useState(false)
   const [isBufferDirty, setIsBufferDirty] = useState(editorBuffer.isDirty())
+  const [aiSelection, setAiSelection] = useState<AiSelectedElement | null>(null)
 
   // Đăng ký lắng nghe thay đổi của EditorBuffer (RAM Model chuẩn VS 2022)
   useEffect(() => {
@@ -178,6 +189,13 @@ const WorkspaceView = ({
     const handleGlobalShortcuts = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+
+      // Ctrl + Shift + A: Bật / Tắt Trợ lý AI
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault()
+        onToggleAIPanel?.()
+        return
+      }
 
       // Ctrl + B: Bật / Tắt Sidebar Trái
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b' && !e.altKey && !e.shiftKey) {
@@ -255,7 +273,7 @@ const WorkspaceView = ({
 
     window.addEventListener('keydown', handleGlobalShortcuts)
     return () => window.removeEventListener('keydown', handleGlobalShortcuts)
-  }, [isSidebarOpen, onToggleSidebar, onSidebarTabChange])
+  }, [isSidebarOpen, onToggleSidebar, onSidebarTabChange, onToggleAIPanel])
 
   // Lắng nghe phím Escape để thoát chế độ Focus Canvas
   useEffect(() => {
@@ -495,6 +513,8 @@ const WorkspaceView = ({
                       pages={project.meta.pages}
                       currentRoute={currentRoute ?? null}
                       onOpenPage={onOpenPage}
+                      onOpenAIPanel={onToggleAIPanel}
+                      onSelectionChange={setAiSelection}
                     />
                   ) : (
                     <FileViewer
@@ -596,6 +616,18 @@ const WorkspaceView = ({
           </>
         )}
       </Group>
+
+      {aiPanelOpen && onToggleAIPanel && onShowToast && (
+        <AIPanel
+          open={aiPanelOpen}
+          onClose={onToggleAIPanel}
+          projectName={project.name}
+          selected={aiSelection}
+          onOpenDesign={() => onOpenDesign?.()}
+          onOpenTheme={() => onOpenTheme?.()}
+          onShowToast={onShowToast}
+        />
+      )}
     </div>
   )
 }

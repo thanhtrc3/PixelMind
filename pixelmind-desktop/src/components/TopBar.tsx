@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Save,
   Settings as SettingsIcon,
+  Sparkles,
   Square,
   Undo2,
 } from 'lucide-react'
@@ -38,6 +39,8 @@ interface TopBarProps {
   onToggleBottomPanel?: () => void
   isRightPanelOpen?: boolean
   onToggleRightPanel?: () => void
+  aiOpen?: boolean
+  onToggleAI?: () => void
 }
 
 const TopBar = ({
@@ -59,6 +62,8 @@ const TopBar = ({
   onToggleBottomPanel,
   isRightPanelOpen,
   onToggleRightPanel,
+  aiOpen,
+  onToggleAI,
 }: TopBarProps) => {
   const [canUndo, setCanUndo] = useState(editorBuffer.canUndo())
   const [canRedo, setCanRedo] = useState(editorBuffer.canRedo())
@@ -226,6 +231,17 @@ const TopBar = ({
 
       {/* ── Cụm nút bên phải ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+        {/* Nút Trợ lý AI */}
+        {project && onToggleAI && (
+          <button
+            className={`pm-ibtn ${aiOpen ? 'on' : ''}`}
+            onClick={onToggleAI}
+            title="Trợ lý AI (Ctrl+Shift+A)"
+          >
+            <Sparkles size={14} />
+          </button>
+        )}
+
         {/* Nút Design Tokens */}
         {project && onTokens && (
           <button
