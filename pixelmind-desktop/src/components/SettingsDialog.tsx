@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Check,
@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   Palette,
   Pipette,
+  Plug,
   RotateCcw,
   Search,
   Settings as SettingsIcon,
@@ -19,8 +20,11 @@ import {
   Terminal,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react'
 import type { AppInfo, Settings } from '@shared/types'
+import type { AiStatus, AiTestResult } from '@shared/ai'
+import { api } from '../lib/bridge'
 import Modal from './Modal'
 
 interface SettingsDialogProps {
@@ -29,6 +33,8 @@ interface SettingsDialogProps {
   storePath: string
   projectCount: number
   isDesktop: boolean
+  /** Dự án đang mở — dùng để đọc .env của dự án và kiểm tra kết nối. */
+  projectPath?: string
   onUpdate: (patch: Partial<Settings>) => void
   onResetSettings: () => void
   onResetAllData?: () => void
@@ -37,13 +43,14 @@ interface SettingsDialogProps {
   onClose: () => void
 }
 
-type TabId = 'general' | 'appearance' | 'canvas' | 'run' | 'data' | 'about'
+type TabId = 'general' | 'appearance' | 'canvas' | 'run' | 'ai' | 'data' | 'about'
 
 const TABS: Array<{ id: TabId; label: string; icon: typeof SettingsIcon }> = [
   { id: 'general', label: 'Chung', icon: SlidersHorizontal },
   { id: 'appearance', label: 'Giao diện', icon: Palette },
   { id: 'canvas', label: 'Canvas & Soi', icon: LayoutGrid },
   { id: 'run', label: 'Chạy & xem trước', icon: Terminal },
+  { id: 'ai', label: 'Trợ lý AI', icon: Sparkles },
   { id: 'data', label: 'Dữ liệu', icon: Database },
   { id: 'about', label: 'Giới thiệu & Phím tắt', icon: Info },
 ]
@@ -116,6 +123,7 @@ const SettingsDialog = ({
   storePath,
   projectCount,
   isDesktop,
+  projectPath,
   onUpdate,
   onResetSettings,
   onResetAllData,
@@ -127,7 +135,57 @@ const SettingsDialog = ({
   const [copiedStorePath, setCopiedStorePath] = useState(false)
   const [showDangerConfirm, setShowDangerConfirm] = useState(false)
   const [shortcutFilter, setShortcutFilter] = useState('')
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null)
+  const [aiTesting, setAiTesting] = useState(false)
+  const [aiTest, setAiTest] = useState<AiTestResult | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (tab !== 'ai') return
+    let alive = true
+    void api.ai
+      .status(projectPath)
+      .then((next) => {
+        if (alive) setAiStatus(next)
+      })
+      .catch(() => {
+        if (alive) setAiStatus(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [tab, projectPath])
+
+  const runAiTest = async () => {
+    setAiTesting(true)
+    setAiTest(null)
+    try {
+      const [result, nextStatus] = await Promise.all([
+        api.ai.test(projectPath),
+        api.ai.status(projectPath).catch(() => null),
+      ])
+      setAiTest(result)
+      if (nextStatus) setAiStatus(nextStatus)
+    } catch (error) {
+      setAiTest({
+        ok: false,
+        message: error instanceof Error ? error.message : 'Không kiểm tra được kết nối.',
+        latencyMs: 0,
+      })
+    } finally {
+      setAiTesting(false)
+    }
+  }
+
+  const setProvider = (provider: 'openai' | 'ollama') => {
+    const defaults =
+      provider === 'ollama'
+        ? { aiBaseUrl: 'http://localhost:11434/v1', aiModel: 'qwen2.5-coder' }
+        : { aiBaseUrl: 'https://api.openai.com/v1', aiModel: 'gpt-4o-mini' }
+    onUpdate({ aiProvider: provider, ...defaults })
+    setAiTest(null)
+    void api.ai.status(projectPath).then(setAiStatus).catch(() => undefined)
+  }
 
   const toggle = (key: keyof Settings) => {
     onUpdate({ [key]: !settings[key] } as Partial<Settings>)
@@ -649,6 +707,212 @@ const SettingsDialog = ({
                   PixelMind tự động nhận diện trình quản lý gói phù hợp với dự án (npm, pnpm, yarn, bun, dotnet, composer, python, maven). Khi bạn thoát dự án hoặc đóng ứng dụng, cơ chế tiêu diệt tiến trình cấp hệ điều hành (killPort) sẽ giải phóng hoàn toàn cổng mạng để không bị lỗi xung đột cổng.
                 </p>
               </div>
+            </>
+          )}
+
+          {/* ═══════════════════════════════════════════════
+              TAB 5: TRỢ LÝ AI (AI GATEWAY)
+              ═══════════════════════════════════════════════ */}
+          {tab === 'ai' && (
+            <>
+              <h3>Trợ lý AI &amp; AI Gateway</h3>
+              <p className="pm-desc">
+                PixelMind dùng giao thức OpenAI-compatible cho cả API cloud và Ollama local. Khoá API
+                chỉ được đọc trong main process từ biến môi trường hoặc tệp <code>.env</code> — không
+                lưu vào cài đặt và không bao giờ gửi xuống giao diện.
+              </p>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Nhà cung cấp</b>
+                  <span>Chuyển provider sẽ đặt lại Base URL và model mặc định tương ứng.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <div className="pm-segmented">
+                    <button
+                      className={(settings.aiProvider ?? 'openai') === 'openai' ? 'on' : ''}
+                      onClick={() => setProvider('openai')}
+                    >
+                      OpenAI-compatible
+                    </button>
+                    <button
+                      className={settings.aiProvider === 'ollama' ? 'on' : ''}
+                      onClick={() => setProvider('ollama')}
+                    >
+                      Ollama Local
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Base URL</b>
+                  <span>Thường kết thúc bằng <code>/v1</code>. Ví dụ Ollama: http://localhost:11434/v1</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <input
+                    className="pm-input mono"
+                    style={{ width: 280 }}
+                    value={settings.aiBaseUrl ?? 'https://api.openai.com/v1'}
+                    placeholder="https://api.openai.com/v1"
+                    onChange={(e) => {
+                      onUpdate({ aiBaseUrl: e.target.value })
+                      setAiTest(null)
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Model</b>
+                  <span>Tên model gửi tới endpoint Chat Completions.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <input
+                    className="pm-input mono"
+                    style={{ width: 220 }}
+                    value={settings.aiModel ?? 'gpt-4o-mini'}
+                    placeholder="gpt-4o-mini"
+                    onChange={(e) => {
+                      onUpdate({ aiModel: e.target.value })
+                      setAiTest(null)
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Temperature</b>
+                  <span>0 = ổn định, 2 = sáng tạo. Nên dùng 0.1–0.3 cho sửa mã nguồn.</span>
+                </div>
+                <div className="pm-setting__ctrl" style={{ gap: 8 }}>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={settings.aiTemperature ?? 0.2}
+                    onChange={(e) => onUpdate({ aiTemperature: Number(e.target.value) })}
+                    style={{ accentColor: 'var(--accent)', width: 110 }}
+                  />
+                  <span className="pm-range-val">{(settings.aiTemperature ?? 0.2).toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Max tokens</b>
+                  <span>Giới hạn độ dài phản hồi của model (256–32768).</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <input
+                    className="pm-input"
+                    type="number"
+                    min={256}
+                    max={32768}
+                    step={128}
+                    style={{ width: 120 }}
+                    value={settings.aiMaxTokens ?? 2048}
+                    onChange={(e) => onUpdate({ aiMaxTokens: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+
+              <div className="pm-guide__card" style={{ marginTop: 14 }}>
+                <b style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Plug size={13} color="var(--accent)" /> Trạng thái khoá API
+                </b>
+                <p style={{ margin: '6px 0 0', lineHeight: 1.6 }}>
+                  {aiStatus?.key.present ? (
+                    <>
+                      Đã tìm thấy khoá <code>{aiStatus.key.masked}</code> từ{' '}
+                      <b>
+                        {aiStatus.key.source === 'process-env'
+                          ? 'biến môi trường'
+                          : aiStatus.key.source === 'user-data-env'
+                            ? 'pixelmind.env (userData)'
+                            : '.env của dự án'}
+                      </b>
+                      .
+                      {aiStatus.key.envFile && (
+                        <>
+                          <br />
+                          <span className="mono" style={{ fontSize: 10, color: 'var(--text-3)' }}>
+                            {aiStatus.key.envFile}
+                          </span>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      Chưa có khoá. Đặt <code>PIXELMIND_AI_KEY</code> trong biến môi trường, hoặc tạo
+                      tệp <code>pixelmind.env</code> trong thư mục dữ liệu ứng dụng, hoặc <code>.env</code>{' '}
+                      của dự án (chỉ dùng khi chạy với dự án đang mở).
+                    </>
+                  )}
+                </p>
+                <p style={{ margin: '6px 0 0', lineHeight: 1.6, color: 'var(--text-3)', fontSize: 11 }}>
+                  Thứ tự ưu tiên: biến môi trường → pixelmind.env → .env của dự án. Khoá không được
+                  ghi vào pixelmind-store.json.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+                <button className="btn primary" onClick={() => void runAiTest()} disabled={aiTesting}>
+                  {aiTesting ? <RotateCcw size={12} className="pm-spin" /> : <Plug size={12} />}
+                  {aiTesting ? 'Đang kiểm tra…' : 'Kiểm tra kết nối'}
+                </button>
+                {aiTest && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: aiTest.ok ? '#10b981' : '#ef4444',
+                    }}
+                  >
+                    {aiTest.ok ? <Check size={12} /> : <X size={12} />}
+                    {aiTest.ok ? 'OK' : 'Fail'} · {aiTest.latencyMs}ms
+                  </span>
+                )}
+              </div>
+
+              {aiTest && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: '8px 10px',
+                    borderRadius: 8,
+                    fontSize: 11,
+                    lineHeight: 1.6,
+                    border: `1px solid ${aiTest.ok ? 'rgba(16,185,129,.35)' : 'rgba(239,68,68,.35)'}`,
+                    background: aiTest.ok ? 'rgba(16,185,129,.08)' : 'rgba(239,68,68,.08)',
+                  }}
+                >
+                  {aiTest.message}
+                  {aiTest.models && aiTest.models.length > 0 && (
+                    <div style={{ marginTop: 4, color: 'var(--text-3)' }}>
+                      Model khả dụng: {aiTest.models.slice(0, 8).join(', ')}
+                      {aiTest.models.length > 8 ? '…' : ''}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {aiStatus && !aiStatus.configured && (
+                <div
+                  className="pm-console-warn"
+                  style={{ marginTop: 10, display: 'flex', gap: 6, alignItems: 'flex-start' }}
+                >
+                  <AlertTriangle size={12} />
+                  <span>{aiStatus.error ?? 'AI Gateway chưa sẵn sàng.'}</span>
+                </div>
+              )}
             </>
           )}
 

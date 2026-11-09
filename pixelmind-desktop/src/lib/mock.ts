@@ -8,6 +8,15 @@ import type {
   RunState,
   Settings,
 } from '@shared/types'
+import type {
+  AiChange,
+  AiChatEvent,
+  AiChatStartRequest,
+  AiContextRequest,
+  AiProposeChangeRequest,
+  AiToolCallRequest,
+} from '@shared/ai'
+import { estimateTokens } from '@shared/ai'
 import { DEFAULT_SETTINGS } from '@shared/types'
 
 /* Bản giả lập dùng khi mở giao diện bằng trình duyệt (không có Electron).
@@ -229,6 +238,9 @@ export function createBrowserMock(): PixelMindApi {
   const stateListeners = new Set<(state: RunState) => void>()
   let currentRun: RunState | null = null
   const timers: number[] = []
+  const aiEventListeners = new Set<(event: AiChatEvent) => void>()
+  const aiChanges: AiChange[] = []
+  const emitAi = (event: AiChatEvent) => aiEventListeners.forEach((cb) => cb(event))
 
   const emitLog = (stream: RunLog['stream'], text: string) => {
     if (!currentRun) return
@@ -598,12 +610,172 @@ export function createBrowserMock(): PixelMindApi {
         }
       },
     },
+    ai: {
+      async status() {
+        return {
+          provider: 'openai' as const,
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-4o-mini',
+          temperature: 0.2,
+          maxTokens: 2048,
+          configured: false,
+          key: { present: false, source: 'none' as const, masked: '' },
+          error: 'Bản xem trước trên trình duyệt không thể đọc biến môi trường. Hãy chạy bản desktop.',
+        }
+      },
+      async models() {
+        return []
+      },
+      async test() {
+        return {
+          ok: false,
+          message: 'Bản trình duyệt không kết nối được AI. Hãy chạy PixelMind Desktop.',
+          latencyMs: 0,
+          error: 'browser-mock',
+        }
+      },
+      async chat(request: AiChatStartRequest) {
+        const id = `mock-chat-${Date.now()}`
+        const reply =
+          'Đây là phản hồi mô phỏng trên trình duyệt. Bản desktop sẽ gọi AI thật qua gateway và hiển thị diff thật để bạn duyệt.'
+        emitAi({ type: 'start', id, at: Date.now() })
+        const chunks = reply.split(' ')
+        chunks.forEach((word, index) => {
+          timers.push(
+            window.setTimeout(
+              () => emitAi({ type: 'delta', id, text: index === 0 ? word : ` ${word}` }),
+              120 * (index + 1),
+            ),
+          )
+        })
+        timers.push(
+          window.setTimeout(() => emitAi({ type: 'done', id, at: Date.now() }), 120 * (chunks.length + 1)),
+        )
+        void request
+        return { id }
+      },
+      async cancel() {
+        return true
+      },
+      onChatEvent(cb: (event: AiChatEvent) => void) {
+        aiEventListeners.add(cb)
+        return () => aiEventListeners.delete(cb)
+      },
+      chats: {
+        async history() {
+          return []
+        },
+        async clear() {
+          return true
+        },
+      },
+      async context(request: AiContextRequest) {
+        const pack = {
+          version: 1 as const,
+          createdAt: Date.now(),
+          mode: 'selection' as const,
+          project: {
+            id: request.projectId,
+            name: request.projectName,
+            path: request.projectPath,
+            route: request.route,
+          },
+          selection: request.selection
+            ? {
+                tag: request.selection.tag,
+                id: request.selection.id,
+                className: request.selection.className,
+                text: request.selection.text,
+              }
+            : undefined,
+        }
+        const json = JSON.stringify(pack, null, 2)
+        return {
+          pack,
+          json,
+          tokens: estimateTokens(json),
+          budget: request.tokenBudget ?? 6000,
+          dropped: [],
+          notes: ['Bản trình duyệt chỉ mô phỏng gói ngữ cảnh — bản desktop đọc tệp thật.'],
+        }
+      },
+      changes: {
+        async list(projectId: string) {
+          return aiChanges.filter((change) => change.projectId === projectId)
+        },
+        async propose(request: AiProposeChangeRequest) {
+          const change: AiChange = {
+            id: `mock-chg-${Date.now()}`,
+            projectId: request.projectId,
+            file: request.file,
+            fullPath: `${request.projectPath}/${request.file}`,
+            summary: request.summary,
+            added: request.content.split('\n').length,
+            removed: 1,
+            status: 'pending',
+            diff: [
+              { kind: 'hunk', text: '@@ -1,1 +1,1 @@' },
+              { kind: 'del', text: '// nội dung cũ (mô phỏng)' },
+              ...request.content
+                .split('\n')
+                .slice(0, 20)
+                .map((line) => ({ kind: 'add' as const, text: line })),
+            ],
+            createdAt: Date.now(),
+            task: request.task,
+          }
+          aiChanges.unshift(change)
+          return change
+        },
+        async accept(projectId: string, changeId: string) {
+          const target = aiChanges.find((change) => change.id === changeId)
+          if (target) {
+            target.status = 'accepted'
+            target.appliedAt = Date.now()
+          }
+          return aiChanges.filter((change) => change.projectId === projectId)
+        },
+        async reject(projectId: string, changeId: string) {
+          const target = aiChanges.find((change) => change.id === changeId)
+          if (target) target.status = 'rejected'
+          return aiChanges.filter((change) => change.projectId === projectId)
+        },
+        async undo(projectId: string, changeId: string) {
+          const target = aiChanges.find((change) => change.id === changeId)
+          if (target) {
+            target.status = 'undone'
+            target.undoneAt = Date.now()
+          }
+          return aiChanges.filter((change) => change.projectId === projectId)
+        },
+      },
+      tools: {
+        async list() {
+          return [
+            { name: 'read_file' as const, description: 'Đọc tệp', risk: 'read' as const, requiresApproval: false, parameters: {} },
+            { name: 'search_project' as const, description: 'Tìm trong dự án', risk: 'read' as const, requiresApproval: false, parameters: {} },
+            { name: 'apply_patch' as const, description: 'Đề xuất sửa tệp', risk: 'write' as const, requiresApproval: true, parameters: {} },
+            { name: 'run_build' as const, description: 'Chạy build', risk: 'exec' as const, requiresApproval: true, parameters: {} },
+            { name: 'sync_nav' as const, description: 'Nối điều hướng', risk: 'write' as const, requiresApproval: true, parameters: {} },
+          ]
+        },
+        async run(request: AiToolCallRequest) {
+          return {
+            ok: true,
+            tool: request.tool,
+            output: 'Tool mô phỏng trên trình duyệt — không thực thi thật.',
+          }
+        },
+        async logs() {
+          return []
+        },
+      },
+    },
     system: {
       async openExternal(url) {
         window.open(url, '_blank', 'noopener')
         return true
-      },
-      onMenuAction() {
+      },      onMenuAction() {
         return () => undefined
       },
       async popupMenu() {

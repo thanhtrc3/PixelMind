@@ -19,6 +19,7 @@ import type {
   ToolboxWritePayload,
   ToolboxWriteResult,
 } from './toolbox'
+import type { AiApi } from './ai'
 
 /** Hợp đồng API mà preload (Electron) và bản giả lập trên trình duyệt cùng cài đặt. */
 export interface PixelMindApi {
@@ -132,6 +133,7 @@ export interface PixelMindApi {
     /** Quét component / partial / class / asset / route của dự án. */
     scan(projectPath: string): Promise<ProjectScanResult>
   }
+  ai: AiApi
   window?: {
     minimize: () => Promise<void>
     maximize: () => Promise<void>

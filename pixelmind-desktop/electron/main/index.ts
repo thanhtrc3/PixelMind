@@ -27,6 +27,16 @@ import {
 } from './projects'
 import { RunnerManager } from './runner'
 import { runToolboxMutation, scanProjectToolbox, writeToolboxFile } from './toolbox'
+import { cancelChat, clearChatHistory, getChatHistory, getStatus, listModels, startChat, testConnection } from './ai'
+import { buildContextPack } from './aiContext'
+import { acceptChange, listChanges, proposeChange, rejectChange, undoChange } from './aiApply'
+import { listToolLogs, runTool, TOOL_SCHEMAS } from './aiTools'
+import type {
+  AiChatStartRequest,
+  AiContextRequest,
+  AiProposeChangeRequest,
+  AiToolCallRequest,
+} from '../../shared/ai'
 
 // Tắt Same-Origin Policy & Site Isolation cho iframe trong Electron
 app.commandLine.appendSwitch('disable-web-security')
@@ -2527,6 +2537,88 @@ ipcMain.handle('toolbox:scan', async (_e, projectPath: string) => {
     }
   }
 })
+
+/* ───────────────────────── IPC: AI ───────────────────────── */
+
+ipcMain.handle('ai:status', async (_e, projectPath?: string) => {
+  try {
+    return await getStatus(projectPath)
+  } catch (error) {
+    return {
+      provider: 'openai',
+      baseUrl: '',
+      model: '',
+      temperature: 0.2,
+      maxTokens: 2048,
+      configured: false,
+      key: { present: false, source: 'none', masked: '' },
+      error: (error as Error).message,
+    }
+  }
+})
+
+ipcMain.handle('ai:models', async (_e, projectPath?: string) => {
+  try {
+    return await listModels(projectPath)
+  } catch {
+    return []
+  }
+})
+
+ipcMain.handle('ai:test', async (_e, projectPath?: string) => {
+  try {
+    return await testConnection(projectPath)
+  } catch (error) {
+    return {
+      ok: false,
+      message: (error as Error).message,
+      latencyMs: 0,
+      error: (error as Error).message,
+    }
+  }
+})
+
+ipcMain.handle('ai:chat:start', async (event, request: AiChatStartRequest) => {
+  return startChat(request, (chatEvent) => {
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('ai:chat:event', chatEvent)
+    }
+  })
+})
+
+ipcMain.handle('ai:cancel', async (_e, id: string) => cancelChat(id))
+
+ipcMain.handle('ai:chats:history', async (_e, projectId: string) => getChatHistory(projectId))
+
+ipcMain.handle('ai:chats:clear', async (_e, projectId: string) => clearChatHistory(projectId))
+
+ipcMain.handle('ai:context', async (_e, request: AiContextRequest) => {
+  return buildContextPack(request)
+})
+
+ipcMain.handle('ai:changes:list', async (_e, projectId: string) => listChanges(projectId))
+
+ipcMain.handle('ai:changes:propose', async (_e, request: AiProposeChangeRequest) => {
+  return proposeChange(request)
+})
+
+ipcMain.handle('ai:changes:accept', async (_e, projectId: string, changeId: string) => {
+  return acceptChange(projectId, changeId)
+})
+
+ipcMain.handle('ai:changes:reject', async (_e, projectId: string, changeId: string) => {
+  return rejectChange(projectId, changeId)
+})
+
+ipcMain.handle('ai:changes:undo', async (_e, projectId: string, changeId: string) => {
+  return undoChange(projectId, changeId)
+})
+
+ipcMain.handle('ai:tools:list', async () => TOOL_SCHEMAS)
+
+ipcMain.handle('ai:tools:run', async (_e, request: AiToolCallRequest) => runTool(request))
+
+ipcMain.handle('ai:tools:logs', async (_e, projectId?: string) => listToolLogs(projectId))
 
 function camelToKebabCase(str: string): string {
   return str.replace(/([a-z0-9]|(?=[A-Z]))([A-Z])/g, '$1-$2').toLowerCase()

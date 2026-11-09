@@ -9,6 +9,7 @@ import './styles/canvas.css'
 import './styles/topbar.css'
 import './styles/sidebar.css'
 import './styles/toolbox.css'
+import './styles/ai.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

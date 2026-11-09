@@ -18,10 +18,12 @@ import {
   RefreshCw,
   Settings as SettingsIcon,
   ShieldAlert,
+  Sparkles,
   Square,
   SunMoon,
   Trash2,
   TriangleAlert,
+  Wand2,
   Zap,
 } from 'lucide-react'
 import { DEFAULT_SETTINGS } from '@shared/types'
@@ -59,6 +61,8 @@ import Modal from './components/Modal'
 import ToastStack from './components/ToastStack'
 import type { ToastMessage } from './components/ToastStack'
 import DiagnosisDialog from './components/DiagnosisDialog'
+import AIDesignImportDialog from './components/AIDesignImportDialog'
+import AIThemeDialog from './components/AIThemeDialog'
 
 const EMPTY_STORE: StoreData = {
   settings: { ...DEFAULT_SETTINGS },
@@ -109,6 +113,10 @@ const App = () => {
 
   const [dialog, setDialog] = useState<DialogId | null>(null)
   const [diagnosisOpen, setDiagnosisOpen] = useState(false)
+  const [aiPanelOpen, setAiPanelOpen] = useState(false)
+  const [canvasReloadToken, setCanvasReloadToken] = useState(0)
+  const [designOpen, setDesignOpen] = useState(false)
+  const [themeOpen, setThemeOpen] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [addPageOpen, setAddPageOpen] = useState(false)
   const [pageToEdit, setPageToEdit] = useState<ProjectPage | null>(null)
@@ -1194,6 +1202,32 @@ const App = () => {
         run: () => setDialog('tokens'),
       },
       {
+        id: 'ai-panel',
+        label: 'Mở Trợ lý AI',
+        hint: 'Chat · ngữ cảnh · duyệt diff · tự sửa lỗi',
+        icon: Sparkles,
+        keys: 'Ctrl Shift A',
+        disabled: !project,
+        run: () => {
+          setView('workspace')
+          setAiPanelOpen(true)
+        },
+      },
+      {
+        id: 'ai-design',
+        label: 'Chuyển thiết kế thành mã (AI)',
+        icon: Wand2,
+        disabled: !project,
+        run: () => setDesignOpen(true),
+      },
+      {
+        id: 'ai-theme',
+        label: 'Tạo theme & nội dung bằng AI',
+        icon: Palette,
+        disabled: !project,
+        run: () => setThemeOpen(true),
+      },
+      {
         id: 'guide',
         label: 'Mở hướng dẫn sử dụng',
         icon: BookOpen,
@@ -1276,6 +1310,11 @@ const App = () => {
         onToggleBottomPanel={() => setIsBottomPanelOpen((v) => !v)}
         isRightPanelOpen={isRightPanelOpen}
         onToggleRightPanel={() => setIsRightPanelOpen((v) => !v)}
+        aiOpen={aiPanelOpen}
+        onToggleAI={() => {
+          if (view !== 'workspace') setView('workspace')
+          setAiPanelOpen((v) => !v)
+        }}
       />
 
       <div className="pm-body">
@@ -1385,6 +1424,15 @@ const App = () => {
               onUrlChange={handleUrlChange}
               onOpenTokens={() => setDialog('tokens')}
               onShowToast={showToast}
+              aiPanelOpen={aiPanelOpen}
+              onToggleAIPanel={() => setAiPanelOpen((v) => !v)}
+              onOpenDesign={() => setDesignOpen(true)}
+              onOpenTheme={() => setThemeOpen(true)}
+              canvasReloadToken={canvasReloadToken}
+              onAIApplied={() => {
+                setCanvasReloadToken((value) => value + 1)
+                void refreshProject()
+              }}
             />
           )}
         </main>
@@ -1406,6 +1454,7 @@ const App = () => {
           storePath={storePath}
           projectCount={storeData.projects.length}
           isDesktop={isDesktop}
+          projectPath={project?.path}
           onUpdate={(patch) => void updateSettings(patch)}
           onResetSettings={resetSettingsOnly}
           onResetAllData={() => {
@@ -1483,6 +1532,23 @@ const App = () => {
       )}
 
       {dialog === 'palette' && <CommandPalette commands={commands} onClose={() => setDialog(null)} />}
+
+      {designOpen && (
+        <AIDesignImportDialog
+          onClose={() => setDesignOpen(false)}
+          onShowToast={showToast}
+          projectName={project?.name}
+          pageRoutes={project?.meta.pages.map((page) => page.route)}
+        />
+      )}
+
+      {themeOpen && (
+        <AIThemeDialog
+          onClose={() => setThemeOpen(false)}
+          onShowToast={showToast}
+          projectName={project?.name}
+        />
+      )}
 
       {pendingDelete && (
         <Modal
