@@ -626,44 +626,51 @@ async function listFiles(dir: string, exts: string[], depth = 2, prefix = ''): P
 
 export async function detectPages(dir: string): Promise<ProjectPage[]> {
   const pages: ProjectPage[] = []
-  const push = (route: string, title: string) => {
-    if (pages.some((page) => page.route === route)) return
+  const push = (route: string, title: string, filePath?: string) => {
+    const cleanRoute = route.replace(/\/+/g, '/')
+    if (pages.some((page) => page.route === cleanRoute)) return
     pages.push({
       id: randomUUID(),
-      route,
+      route: cleanRoute,
       title,
       mockup: false,
       software: '—',
       frame: '—',
+      filePath,
     })
   }
+  const joinRel = (base: string, file: string) => (base ? `${base}/${file}` : file)
 
   /* Next.js App Router: tệp page.tsx trong thư mục app */
-  const appFiles = [
-    ...(await listFiles(join(dir, 'app'), ['.tsx', '.jsx'], 4)),
-    ...(await listFiles(join(dir, 'src', 'app'), ['.tsx', '.jsx'], 4)),
-  ].filter((file) => /(^|\/)page\.(tsx|jsx)$/.test(file))
+  for (const base of ['src/app', 'app']) {
+    if (!(await isDirectory(join(dir, base)))) continue
+    const appFiles = (
+      await listFiles(join(dir, base), ['.tsx', '.jsx'], 4)
+    ).filter((file) => /(^|\/)page\.(tsx|jsx)$/.test(file))
 
-  for (const file of appFiles) {
-    const folder = file.replace(/\/?page\.(tsx|jsx)$/, '').replace(/^app\/?/, '')
-    const route = folder ? `/${folder.replace(/\/\([^)]*\)/g, '')}` : '/'
-    push(route.replace(/\/+/g, '/'), titleFromName(folder.split('/').pop() || 'Trang chủ'))
+    for (const file of appFiles) {
+      const folder = file.replace(/\/?page\.(tsx|jsx)$/, '').replace(/^app\/?/, '')
+      const route = folder ? `/${folder.replace(/\/\([^)]*\)/g, '')}` : '/'
+      push(route, titleFromName(folder.split('/').pop() || 'Trang chủ'), joinRel(base, file))
+    }
   }
 
   /* Next.js Pages Router hoặc cấu trúc src/pages quen thuộc */
-  const pageFiles = [
-    ...(await listFiles(join(dir, 'pages'), ['.tsx', '.jsx'], 3)),
-    ...(await listFiles(join(dir, 'src', 'pages'), ['.tsx', '.jsx'], 3)),
-  ].filter((file) => !/(^|\/)_/.test(file))
+  for (const base of ['src/pages', 'pages']) {
+    if (!(await isDirectory(join(dir, base)))) continue
+    const pageFiles = (
+      await listFiles(join(dir, base), ['.tsx', '.jsx'], 3)
+    ).filter((file) => !/(^|\/)_/.test(file))
 
-  for (const file of pageFiles) {
-    const name = file.split('/').pop() ?? file
-    const folder = file.replace(/\/?[^/]+$/, '')
-    const route =
-      folder === '' || folder === 'src/pages' || folder === 'pages'
-        ? routeFromName(name)
-        : `/${folder.replace(/^(src\/)?pages\/?/, '')}/${routeFromName(name).replace(/^\//, '')}`
-    push(route.replace(/\/+/g, '/'), titleFromName(name))
+    for (const file of pageFiles) {
+      const name = file.split('/').pop() ?? file
+      const folder = file.replace(/\/?[^/]+$/, '')
+      const route =
+        folder === ''
+          ? routeFromName(name)
+          : `/${folder}/${routeFromName(name).replace(/^\//, '')}`
+      push(route, titleFromName(name), joinRel(base, file))
+    }
   }
 
   /* ASP.NET Core Views / Razor Pages:
@@ -704,7 +711,7 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
       const [, area, controller, action] = areaViewsMatch
       const route = action.toLowerCase() === 'index' ? `/${area}/${controller}` : `/${area}/${controller}/${action}`
       if (!title) title = `${titleFromName(area)}: ${titleFromName(controller)} - ${titleFromName(action)}`
-      push(route, title)
+      push(route, title, rel)
       continue
     }
 
@@ -715,7 +722,7 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
       const cleanPath = rawPath.replace(/\/Index$/i, '')
       const route = cleanPath ? `/${area}/${cleanPath}` : `/${area}`
       if (!title) title = titleFromName(filename.replace(/\.cshtml$/i, ''))
-      push(route, title)
+      push(route, title, rel)
       continue
     }
 
@@ -743,7 +750,7 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
       if (!title) {
         title = controller.toLowerCase() === 'home' ? titleFromName(action) : `${titleFromName(controller)} - ${titleFromName(action)}`
       }
-      push(route, title)
+      push(route, title, rel)
       continue
     }
 
@@ -754,7 +761,7 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
       const clean = rawRoute.replace(/\/Index$/i, '') || '/'
       const route = clean.startsWith('/') ? clean : `/${clean}`
       if (!title) title = titleFromName(filename.replace(/\.cshtml$/i, ''))
-      push(route, title)
+      push(route, title, rel)
       continue
     }
   }
@@ -771,7 +778,7 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
         const route = pageMatch[1]
         const titleMatch = content.match(/<PageTitle>([^<]+)<\/PageTitle>/i)
         const title = titleMatch ? titleMatch[1].trim() : titleFromName(filename)
-        push(route, title)
+        push(route, title, rel)
       }
     } catch {
       /* bỏ qua */
@@ -779,38 +786,44 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
   }
 
   // Vue / Nuxt pages (pages/**/*.vue, src/pages/**/*.vue)
-  const vueFiles = [
-    ...(await listFiles(join(dir, 'pages'), ['.vue'], 3)),
-    ...(await listFiles(join(dir, 'src', 'pages'), ['.vue'], 3)),
-  ].filter((f) => !/(^|\/)_/.test(f))
-  for (const rel of vueFiles) {
-    const name = rel.replace(/\.vue$/i, '')
-    const clean = name.replace(/index$/i, '')
-    const route = clean ? (clean.startsWith('/') ? clean : `/${clean}`) : '/'
-    push(route.replace(/\/+/g, '/'), titleFromName(name.split('/').pop() || name))
+  for (const base of ['pages', 'src/pages']) {
+    if (!(await isDirectory(join(dir, base)))) continue
+    const vueFiles = (
+      await listFiles(join(dir, base), ['.vue'], 3)
+    ).filter((f) => !/(^|\/)_/.test(f))
+    for (const file of vueFiles) {
+      const name = file.replace(/\.vue$/i, '')
+      const clean = name.replace(/index$/i, '')
+      const route = clean ? (clean.startsWith('/') ? clean : `/${clean}`) : '/'
+      push(route, titleFromName(name.split('/').pop() || name), joinRel(base, file))
+    }
   }
 
   // SvelteKit (+page.svelte)
-  const svelteFiles = [
-    ...(await listFiles(join(dir, 'src', 'routes'), ['.svelte'], 4)),
-    ...(await listFiles(join(dir, 'routes'), ['.svelte'], 4)),
-  ].filter((f) => f.endsWith('+page.svelte'))
-  for (const rel of svelteFiles) {
-    const folder = rel.replace(/\/?\+page\.svelte$/, '')
-    const route = folder ? (folder.startsWith('/') ? folder : `/${folder}`) : '/'
-    push(route.replace(/\/+/g, '/'), titleFromName(folder.split('/').pop() || 'Trang chủ'))
+  for (const base of ['src/routes', 'routes']) {
+    if (!(await isDirectory(join(dir, base)))) continue
+    const svelteFiles = (
+      await listFiles(join(dir, base), ['.svelte'], 4)
+    ).filter((f) => f.endsWith('+page.svelte'))
+    for (const file of svelteFiles) {
+      const folder = file.replace(/\/?\+page\.svelte$/, '')
+      const route = folder ? (folder.startsWith('/') ? folder : `/${folder}`) : '/'
+      push(route, titleFromName(folder.split('/').pop() || 'Trang chủ'), joinRel(base, file))
+    }
   }
 
   // Astro (src/pages/**/*.astro, pages/**/*.astro)
-  const astroFiles = [
-    ...(await listFiles(join(dir, 'src', 'pages'), ['.astro'], 3)),
-    ...(await listFiles(join(dir, 'pages'), ['.astro'], 3)),
-  ].filter((f) => !/(^|\/)_/.test(f))
-  for (const rel of astroFiles) {
-    const name = rel.replace(/\.astro$/i, '')
-    const clean = name.replace(/index$/i, '')
-    const route = clean ? (clean.startsWith('/') ? clean : `/${clean}`) : '/'
-    push(route.replace(/\/+/g, '/'), titleFromName(name.split('/').pop() || name))
+  for (const base of ['src/pages', 'pages']) {
+    if (!(await isDirectory(join(dir, base)))) continue
+    const astroFiles = (
+      await listFiles(join(dir, base), ['.astro'], 3)
+    ).filter((f) => !/(^|\/)_/.test(f))
+    for (const file of astroFiles) {
+      const name = file.replace(/\.astro$/i, '')
+      const clean = name.replace(/index$/i, '')
+      const route = clean ? (clean.startsWith('/') ? clean : `/${clean}`) : '/'
+      push(route, titleFromName(name.split('/').pop() || name), joinRel(base, file))
+    }
   }
 
   // Laravel Blade (resources/views/**/*.blade.php)
@@ -819,7 +832,7 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
     const name = rel.replace(/\.blade\.php$/i, '')
     if (name.startsWith('_') || name.startsWith('layouts/') || name.startsWith('components/')) continue
     const route = name.toLowerCase() === 'welcome' || name.toLowerCase() === 'index' ? '/' : `/${name}`
-    push(route, titleFromName(name.split('/').pop() || name))
+    push(route, titleFromName(name.split('/').pop() || name), `resources/views/${rel}`)
   }
 
   // Django / Flask templates (templates/**/*.html)
@@ -828,35 +841,56 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
     const name = rel.replace(/\.(html|htm)$/i, '')
     if (name.startsWith('_') || name.startsWith('base')) continue
     const route = name.toLowerCase() === 'index' || name.toLowerCase() === 'home' ? '/' : `/${name}`
-    push(route, titleFromName(name.split('/').pop() || name))
+    push(route, titleFromName(name.split('/').pop() || name), `templates/${rel}`)
   }
 
   // Root & public static HTML files (*.html, *.htm)
-  const staticHtml = [
-    ...(await listFiles(dir, ['.html', '.htm'], 1)),
-    ...(await listFiles(join(dir, 'public'), ['.html', '.htm'], 2)),
+  const staticGroups: Array<{ base: string; files: string[] }> = [
+    { base: '', files: await listFiles(dir, ['.html', '.htm'], 0) },
+    {
+      base: '',
+      files: (await listFiles(dir, ['.html', '.htm'], 1)).filter(
+        (file) => /(^|\/)index\.(html|htm)$/i.test(file) && !/^(public|wwwroot)\//i.test(file),
+      ),
+    },
+    { base: 'public', files: await listFiles(join(dir, 'public'), ['.html', '.htm'], 2) },
   ]
-  for (const rel of staticHtml) {
-    const filename = rel.split('/').pop() ?? rel
-    const name = filename.replace(/\.(html|htm)$/i, '')
-    const route = name.toLowerCase() === 'index' ? '/' : `/${filename}`
-    let title = ''
-    try {
-      const c = await fs.readFile(join(dir, rel), 'utf8')
-      const match = c.match(/<title>([^<]+)<\/title>/i)
-      if (match) title = match[1].trim()
-    } catch {
-      /* bỏ qua */
+  for (const group of staticGroups) {
+    for (const file of group.files) {
+      const clean = file.replace(/\.(html|htm)$/i, '')
+      const filename = clean.split('/').pop() ?? clean
+      const dirPart = clean.split('/').slice(0, -1).join('/')
+      const route =
+        filename.toLowerCase() === 'index'
+          ? dirPart
+            ? `/${dirPart}`
+            : '/'
+          : `/${clean}`
+      let title = ''
+      try {
+        const c = await fs.readFile(join(dir, group.base, file), 'utf8')
+        const match = c.match(/<title>([^<]+)<\/title>/i)
+        if (match) title = match[1].trim()
+      } catch {
+        /* bỏ qua */
+      }
+      push(route, title || titleFromName(filename), joinRel(group.base, file))
     }
-    push(route, title || titleFromName(name))
   }
 
   /* wwwroot/*.html */
   const wwwrootHtml = await listFiles(join(dir, 'wwwroot'), ['.html', '.htm'], 3)
   for (const rel of wwwrootHtml) {
     const name = rel.replace(/\.(html|htm)$/i, '')
-    const route = name === 'index' ? '/' : `/${name}`
-    push(route, titleFromName(name))
+    const fileName = name.split('/').pop() ?? name
+    const dirPart = name.split('/').slice(0, -1).join('/')
+    const route =
+      fileName.toLowerCase() === 'index'
+        ? dirPart
+          ? `/${dirPart}`
+          : '/'
+        : `/${name}`
+    push(route, titleFromName(fileName), `wwwroot/${rel}`)
   }
 
   if (!pages.length) {
@@ -864,7 +898,7 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
       .access(join(dir, 'index.html'))
       .then(() => true)
       .catch(() => false)
-    if (hasIndex) push('/', 'Trang chủ')
+    if (hasIndex) push('/', 'Trang chủ', 'index.html')
   }
 
   return pages.slice(0, 60)

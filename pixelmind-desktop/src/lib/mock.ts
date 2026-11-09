@@ -357,6 +357,53 @@ export function createBrowserMock(): PixelMindApi {
         writeProjects(projects)
         return projects.find((p) => p.id === projectId) ?? null
       },
+      async duplicatePage(projectId, pageId, payload) {
+        const source = readProjects()
+          .find((p) => p.id === projectId)
+          ?.meta.pages.find((item) => item.id === pageId)
+        if (!source) return null
+        const duplicated = {
+          ...source,
+          id: `p-${Date.now()}`,
+          route: payload.route,
+          title: payload.title,
+          filePath: undefined,
+          sampleParams: source.sampleParams ? [...source.sampleParams] : undefined,
+        }
+        const projects = readProjects().map((p) =>
+          p.id === projectId
+            ? {
+                ...p,
+                meta: {
+                  ...p.meta,
+                  pages: [...p.meta.pages, duplicated],
+                  activity: [
+                    {
+                      id: `a-${Date.now()}`,
+                      at: Date.now(),
+                      actor: 'bạn',
+                      action: `Nhân bản trang ${source.route} → ${payload.route}`,
+                      kind: 'người' as const,
+                      status: 'ok' as const,
+                    },
+                    ...p.meta.activity,
+                  ],
+                },
+              }
+            : p,
+        )
+        writeProjects(projects)
+        return projects.find((p) => p.id === projectId) ?? null
+      },
+      async pageFilePreview() {
+        return {
+          supported: false,
+          label: 'Bản xem trước trình duyệt',
+          relativePath: '',
+          exists: false,
+          reason: 'Chế độ xem trước trên trình duyệt không đọc/ghi được tệp. Hãy dùng bản desktop để tạo tệp route.',
+        }
+      },
       async updatePage(projectId, page) {
         const projects = readProjects().map((p) =>
           p.id === projectId
@@ -403,8 +450,7 @@ export function createBrowserMock(): PixelMindApi {
         )
         writeProjects(projects)
         return projects.find((p) => p.id === projectId) ?? null
-      },
-      async setCommand(projectId, command) {
+      },      async setCommand(projectId, command) {
         const projects = readProjects().map((p) =>
           p.id === projectId ? { ...p, meta: { ...p.meta, customCommand: command.trim() } } : p,
         )
@@ -449,6 +495,29 @@ export function createBrowserMock(): PixelMindApi {
       },
       async special() {
         return 'Chỉ khả dụng trên bản desktop'
+      },
+      async createFile() {
+        return true
+      },
+      async createDir() {
+        return true
+      },
+      async rename() {
+        return true
+      },
+      async trash() {
+        return true
+      },
+    },
+    assets: {
+      async add() {
+        return { canceled: true, added: [] as Array<{ source: string; destination: string; copied: boolean }> }
+      },
+      async remove() {
+        return { success: false, error: 'Chỉ khả dụng trên bản desktop' }
+      },
+      async restore() {
+        return { success: false, error: 'Chỉ khả dụng trên bản desktop' }
       },
     },
     run: {

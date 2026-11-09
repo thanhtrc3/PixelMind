@@ -23,7 +23,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useState } from 'react'
-import type { ProjectDiagnosis, ProjectRecord, ProjectStat, RunState } from '@shared/types'
+import type { ProjectDiagnosis, ProjectPage, ProjectRecord, ProjectStat, RunState } from '@shared/types'
 import { formatTime, scriptLabel } from '../lib/format'
 
 interface ProjectDetailProps {
@@ -40,7 +40,7 @@ interface ProjectDetailProps {
   onOpenPage?: (route: string) => void
   onRefresh: () => void
   onAddPage: () => void
-  onRemovePage: (pageId: string) => void
+  onRemovePage: (page: ProjectPage) => void
   onReveal: () => void
   onOpenLog: () => void
   onOpenExternal: (url: string) => void
@@ -354,7 +354,7 @@ const ProjectDetail = ({
                       title="Xoá trang khỏi danh sách"
                       onClick={(event) => {
                         event.stopPropagation()
-                        onRemovePage(page.id)
+                        onRemovePage(page)
                       }}
                     >
                       <Trash2 size={12} />

@@ -179,6 +179,13 @@
   color: var(--accent-text);
   border-color: var(--accent-line);
 }
+.pm-ibtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+  color: var(--text-3);
+  border-color: transparent;
+}
 
 .pm-runbtn {
   display: inline-flex;
@@ -836,6 +843,58 @@ body:has([data-separator='active']) * {
   max-height: 70vh;
   border-radius: 6px;
   box-shadow: var(--shadow-md);
+}
+
+/* ── Code Editor trực tiếp trong FileViewer ── */
+.pm-editor {
+  display: flex;
+  flex: 1;
+  min-height: 100%;
+  position: relative;
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.pm-editor__gutters {
+  width: 48px;
+  padding: 12px 10px 40px 0;
+  text-align: right;
+  color: var(--text-faint, #64748b);
+  border-right: 1px solid var(--line, #334155);
+  user-select: none;
+  background: var(--bg-inset, #0b1120);
+  flex-shrink: 0;
+}
+
+.pm-editor__textarea {
+  flex: 1;
+  width: 100%;
+  min-height: 100%;
+  padding: 12px 16px 40px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text, #f8fafc);
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre;
+  tab-size: 2;
+  resize: none;
+  overflow: auto;
+}
+
+.pm-viewer__dirty-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.15);
+  padding: 2px 7px;
+  border-radius: 4px;
 }
 
 /* ── Xem trước ───────────────────────────────────────────── */
@@ -1598,6 +1657,10 @@ body:has([data-separator='active']) * {
 .pm-switch.on::after {
   left: 18px;
   background: #fff;
+}
+.pm-switch:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .pm-swatches {

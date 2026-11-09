@@ -28,7 +28,7 @@ import type {
 } from '@shared/types'
 import { parseRunError } from '../lib/errorParser'
 import { editorBuffer } from '../lib/editorBuffer'
-import WorkspaceSidebar, { type SidebarTab } from './WorkspaceSidebar'
+import WorkspaceSidebar, { type ReferenceAsset, type SidebarTab } from './WorkspaceSidebar'
 import FileViewer from './FileViewer'
 import CanvasArea from './CanvasArea'
 import LogPanel from './LogPanel'
@@ -91,6 +91,7 @@ interface WorkspaceViewProps {
   onAddPage?: () => void
   onEditPage?: (page: ProjectPage) => void
   onDeletePage?: (page: ProjectPage) => void
+  onDuplicatePage?: (page: ProjectPage) => void
   onOpenParamChooser?: (page: ProjectPage) => void
   currentRoute?: string
   onUrlChange?: (url: string, pathname: string) => void
@@ -179,6 +180,7 @@ const WorkspaceView = ({
   onAddPage,
   onEditPage,
   onDeletePage,
+  onDuplicatePage,
   onOpenParamChooser,
   currentRoute,
   onUrlChange,
@@ -201,6 +203,12 @@ const WorkspaceView = ({
   const [focusCanvas, setFocusCanvas] = useState(false)
   const [isBufferDirty, setIsBufferDirty] = useState(editorBuffer.isDirty())
   const [aiSelection, setAiSelection] = useState<AiSelectedElement | null>(null)
+  const [referenceAsset, setReferenceAsset] = useState<ReferenceAsset | null>(null)
+
+  // Đổi dự án thì bỏ ảnh mẫu cũ để tránh hiển thị nhầm ảnh của dự án trước.
+  useEffect(() => {
+    setReferenceAsset(null)
+  }, [project?.id])
 
   // Đăng ký lắng nghe thay đổi của EditorBuffer (RAM Model chuẩn VS 2022)
   useEffect(() => {
@@ -362,6 +370,7 @@ const WorkspaceView = ({
                   onAddPage={onAddPage ?? (() => {})}
                   onEditPage={onEditPage}
                   onDeletePage={onDeletePage}
+                  onDuplicatePage={onDuplicatePage}
                   onOpenParamChooser={onOpenParamChooser}
                   currentRoute={currentRoute}
                   onOpenTokens={onOpenTokens ?? (() => {})}
@@ -369,6 +378,9 @@ const WorkspaceView = ({
                   onShowToast={onShowToast ?? (() => {})}
                   isRunning={run?.status === 'running' || run?.status === 'starting'}
                   onRun={onRun}
+                  referenceAssetPath={referenceAsset?.path ?? null}
+                  onSelectReference={setReferenceAsset}
+                  onClearReference={() => setReferenceAsset(null)}
                 />
               </Panel>
               <Separator className="pm-resize" />
@@ -541,6 +553,12 @@ const WorkspaceView = ({
                       onOpenAIPanel={onToggleAIPanel}
                       onSelectionChange={setAiSelection}
                       reloadToken={canvasReloadToken}
+                      referenceAsset={referenceAsset}
+                      onClearReference={() => setReferenceAsset(null)}
+                      onOpenAssets={() => {
+                        onSidebarTabChange?.('assets')
+                        if (!isSidebarOpen) onToggleSidebar?.()
+                      }}
                     />
                   ) : (
                     <FileViewer
@@ -548,6 +566,7 @@ const WorkspaceView = ({
                       loading={fileLoading}
                       onOpenExternal={onOpenFileExternal}
                       onShowInFolder={onShowInFolder}
+                      onShowToast={onShowToast}
                     />
                   )}
                 </div>

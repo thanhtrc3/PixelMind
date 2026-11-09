@@ -5,6 +5,7 @@ import type {
   DesignTokens,
   FileContent,
   FileNode,
+  PageFilePreview,
   ProjectDiagnosis,
   ProjectPage,
   ProjectRecord,
@@ -53,12 +54,28 @@ const api: PixelMindApi = {
     remove: (id: string): Promise<ProjectRecord[]> => ipcRenderer.invoke('project:remove', id),
     favorite: (id: string): Promise<ProjectRecord[]> => ipcRenderer.invoke('project:favorite', id),
     refresh: (id: string): Promise<ProjectRecord | null> => ipcRenderer.invoke('project:refresh', id),
-    addPage: (projectId: string, page: Omit<ProjectPage, 'id'>): Promise<ProjectRecord | null> =>
-      ipcRenderer.invoke('project:add-page', projectId, page),
+    addPage: (
+      projectId: string,
+      page: Omit<ProjectPage, 'id'>,
+      options?: { createFile?: boolean },
+    ): Promise<ProjectRecord | null> =>
+      ipcRenderer.invoke('project:add-page', projectId, page, options),
     updatePage: (projectId: string, page: ProjectPage): Promise<ProjectRecord | null> =>
       ipcRenderer.invoke('project:update-page', projectId, page),
-    removePage: (projectId: string, pageId: string): Promise<ProjectRecord | null> =>
-      ipcRenderer.invoke('project:remove-page', projectId, pageId),
+    removePage: (
+      projectId: string,
+      pageId: string,
+      options?: { deleteFile?: boolean },
+    ): Promise<ProjectRecord | null> =>
+      ipcRenderer.invoke('project:remove-page', projectId, pageId, options),
+    duplicatePage: (
+      projectId: string,
+      pageId: string,
+      payload: { route: string; title: string; copyFile?: boolean },
+    ): Promise<ProjectRecord | null> =>
+      ipcRenderer.invoke('project:duplicate-page', projectId, pageId, payload),
+    pageFilePreview: (projectId: string, route: string): Promise<PageFilePreview> =>
+      ipcRenderer.invoke('project:page-file-preview', projectId, route),
     diagnose: (idOrPath: string): Promise<ProjectDiagnosis> =>
       ipcRenderer.invoke('project:diagnose', idOrPath),
     gitInit: (projectId: string): Promise<boolean> => ipcRenderer.invoke('project:git-init', projectId),
@@ -82,6 +99,31 @@ const api: PixelMindApi = {
     exists: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:exists', path),
     special: (kind: 'userData' | 'home' | 'documents' | 'desktop'): Promise<string> =>
       ipcRenderer.invoke('fs:special', kind),
+    createFile: (path: string, initialContent = ''): Promise<boolean> =>
+      ipcRenderer.invoke('fs:create-file', path, initialContent),
+    createDir: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:create-dir', path),
+    rename: (oldPath: string, newPath: string): Promise<boolean> =>
+      ipcRenderer.invoke('fs:rename', oldPath, newPath),
+    trash: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:trash', path),
+  },
+
+  assets: {
+    add: (
+      projectPath: string,
+    ): Promise<{
+      canceled: boolean
+      added: Array<{ source: string; destination: string; copied: boolean }>
+      error?: string
+    }> => ipcRenderer.invoke('assets:add', projectPath),
+    remove: (
+      path: string,
+    ): Promise<{ success: boolean; backupPath?: string; error?: string }> =>
+      ipcRenderer.invoke('assets:remove', path),
+    restore: (
+      backupPath: string,
+      destination: string,
+    ): Promise<{ success: boolean; path?: string; error?: string }> =>
+      ipcRenderer.invoke('assets:restore', backupPath, destination),
   },
 
   run: {

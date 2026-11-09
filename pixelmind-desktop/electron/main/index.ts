@@ -1,8 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell } from 'electron'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, extname, join, resolve, sep } from 'node:path'
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import type { MenuItemConstructorOptions } from 'electron'
+import type { MenuItemConstructorOptions, OpenDialogOptions } from 'electron'
 import type { DesignTokens, ProjectPage, ProjectRecord, Settings, StoreData } from '../../shared/types'
 import type { ToolboxMutationPayload, ToolboxWritePayload } from '../../shared/toolbox'
 import {
@@ -26,6 +26,13 @@ import {
   writeFileContent,
 } from './projects'
 import { RunnerManager } from './runner'
+import {
+  copyPageFile,
+  normalizePageRoute,
+  resolvePageTarget,
+  scaffoldPageFile,
+  trashPageFile,
+} from './pages'
 import { runToolboxMutation, scanProjectToolbox, writeToolboxFile } from './toolbox'
 import { cancelChat, clearChatHistory, getChatHistory, getStatus, listModels, startChat, testConnection } from './ai'
 import { buildContextPack } from './aiContext'
@@ -44,6 +51,31 @@ app.commandLine.appendSwitch('disable-site-isolation-trials')
 app.commandLine.appendSwitch('disable-features', 'IsolateOrigins,site-per-process')
 
 const isDev = !app.isPackaged
+
+const ASSET_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']
+const ASSET_EXTENSION_SET = new Set(ASSET_EXTENSIONS)
+
+/** Thư mục lưu bản sao lưu ảnh đã xoá, phục vụ Undo/Redo trong tab Assets. */
+function assetBackupDir(): string {
+  // Dùng thư mục tạm: lịch sử undo chỉ tồn tại trong phiên, không cần lưu lâu dài.
+  return join(app.getPath('temp'), 'pixelmind-asset-backups')
+}
+
+/** Tìm tên tệp chưa tồn tại trong thư mục (thêm hậu tố -1, -2…). */
+async function uniqueFilePath(dir: string, fileName: string): Promise<string> {
+  const extension = extname(fileName)
+  const stem = fileName.slice(0, fileName.length - extension.length) || fileName
+  let suffix = 0
+  for (;;) {
+    const candidate = suffix === 0 ? join(dir, fileName) : join(dir, `${stem}-${suffix}${extension}`)
+    try {
+      await fs.access(candidate)
+      suffix += 1
+    } catch {
+      return candidate
+    }
+  }
+}
 
 let mainWindow: BrowserWindow | null = null
 
@@ -404,16 +436,35 @@ async function mergeDetected(project: ProjectRecord, fresh: ProjectRecord): Prom
       pages: (() => {
         if (!fresh.meta.pages.length) return project.meta.pages
         const isDotnet = project.framework?.includes('ASP.NET') || fresh.framework?.includes('ASP.NET') || fresh.packageManager === 'dotnet'
-        const userAdded = project.meta.pages.filter((p) => p.mockup)
+        const normalizeRel = (value?: string) => (value ?? '').replace(/\\/g, '/').toLowerCase()
         const updated = fresh.meta.pages.map((fp) => {
           const matched = project.meta.pages.find((p) => {
+            if (p.filePath && fp.filePath && normalizeRel(p.filePath) === normalizeRel(fp.filePath)) {
+              return true
+            }
             let pRoute = p.route
             if (isDotnet && pRoute.startsWith('/account/')) pRoute = `/Identity/Account/${pRoute.slice(9)}`
             return pRoute.toLowerCase() === fp.route.toLowerCase() || p.title.toLowerCase() === fp.title.toLowerCase()
           })
-          return matched ? { ...fp, id: matched.id, mockup: matched.mockup, software: matched.software, frame: matched.frame } : fp
+          if (!matched) return fp
+          /* Giữ metadata người dùng đã chỉnh, nhưng route/tệp luôn lấy theo lần quét mới. */
+          return {
+            ...fp,
+            id: matched.id,
+            title: matched.title || fp.title,
+            mockup: matched.mockup,
+            software: matched.software,
+            frame: matched.frame,
+            navLinkSelector: matched.navLinkSelector,
+            sampleParams: matched.sampleParams,
+            filePath: fp.filePath ?? matched.filePath,
+          }
         })
-        const extras = userAdded.filter((u) => !updated.some((p) => p.route.toLowerCase() === u.route.toLowerCase()))
+        /* Giữ các trang thủ công (không gắn với tệp thật). Trang đã có tệp mà không còn
+           được quét thấy nghĩa là tệp đã bị xoá/đổi tên → loại khỏi danh sách. */
+        const extras = project.meta.pages.filter(
+          (p) => !p.filePath && !updated.some((u) => u.route.toLowerCase() === p.route.toLowerCase()),
+        )
         return [...updated, ...extras]
       })(),
       customCommand: project.meta.customCommand || fresh.meta.customCommand,
@@ -513,37 +564,80 @@ ipcMain.handle('project:refresh', async (_e, id: string): Promise<ProjectRecord 
   return updated
 })
 
-ipcMain.handle('project:add-page', async (_e, id: string, page: Omit<ProjectPage, 'id'>) => {
-  const updated = await patchProject(id, (project) => ({
-    ...project,
-    meta: {
-      ...project.meta,
-      pages: [...project.meta.pages, { ...page, id: randomUUID() }],
-    },
-  }))
-  if (updated) {
-    await appendActivity(id, {
-      actor: 'bạn',
-      action: `Thêm trang ${page.route} — ${page.title}`,
-      kind: 'người',
-      status: 'ok',
-    })
-  }
-  return updated
-})
+ipcMain.handle(
+  'project:add-page',
+  async (
+    _e,
+    id: string,
+    page: Omit<ProjectPage, 'id'>,
+    options?: { createFile?: boolean },
+  ) => {
+    const store = await readStore()
+    const project = store.projects.find((p) => p.id === id)
+    if (!project) return null
+
+    const route = normalizePageRoute(page.route)
+    let filePath: string | undefined
+    if (options?.createFile) {
+      const target = await resolvePageTarget(project.path, route)
+      if (!target.supported) {
+        throw new Error(target.reason ?? 'Không hỗ trợ tạo tệp route cho dự án này.')
+      }
+      if (target.exists) {
+        throw new Error(`Tệp ${target.relativePath} đã tồn tại. Hãy chọn route khác.`)
+      }
+      const created = await scaffoldPageFile(target, page.title)
+      filePath = created.relativePath
+    }
+
+    const newPage: ProjectPage = { ...page, route, id: randomUUID(), filePath }
+    const updated = await patchProject(id, (current) => ({
+      ...current,
+      meta: { ...current.meta, pages: [...current.meta.pages, newPage] },
+    }))
+    if (updated) {
+      await appendActivity(id, {
+        actor: 'bạn',
+        action: filePath
+          ? `Thêm trang ${route} — ${page.title} (tạo tệp ${filePath})`
+          : `Thêm trang ${route} — ${page.title}`,
+        kind: 'người',
+        status: 'ok',
+      })
+    }
+    return updated
+  },
+)
 
 ipcMain.handle('project:update-page', async (_e, id: string, page: ProjectPage) => {
-  const updated = await patchProject(id, (project) => ({
-    ...project,
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  const current = project?.meta.pages.find((p) => p.id === page.id)
+  if (!project || !current) return null
+
+  const route = normalizePageRoute(page.route)
+  if (current.filePath && normalizePageRoute(current.route) !== route) {
+    throw new Error(
+      `Trang này gắn với tệp ${current.filePath}. Hãy đổi tên/thư mục trong tab Files thay vì sửa route tại đây.`,
+    )
+  }
+  const nextPage: ProjectPage = {
+    ...page,
+    route,
+    filePath: current.filePath ?? page.filePath,
+  }
+
+  const updated = await patchProject(id, (target) => ({
+    ...target,
     meta: {
-      ...project.meta,
-      pages: project.meta.pages.map((p) => (p.id === page.id ? page : p)),
+      ...target.meta,
+      pages: target.meta.pages.map((p) => (p.id === nextPage.id ? nextPage : p)),
     },
   }))
   if (updated) {
     await appendActivity(id, {
       actor: 'bạn',
-      action: `Cập nhật trang ${page.route} — ${page.title}`,
+      action: `Cập nhật trang ${route} — ${page.title}`,
       kind: 'người',
       status: 'ok',
     })
@@ -551,23 +645,121 @@ ipcMain.handle('project:update-page', async (_e, id: string, page: ProjectPage) 
   return updated
 })
 
-ipcMain.handle('project:remove-page', async (_e, id: string, pageId: string) => {
-  const removed = await readStore().then((store) =>
-    store.projects.find((p) => p.id === id)?.meta.pages.find((page) => page.id === pageId),
-  )
-  const updated = await patchProject(id, (project) => ({
-    ...project,
-    meta: { ...project.meta, pages: project.meta.pages.filter((page) => page.id !== pageId) },
-  }))
-  if (updated && removed) {
-    await appendActivity(id, {
-      actor: 'bạn',
-      action: `Xoá trang ${removed.route} khỏi danh sách`,
-      kind: 'người',
-      status: 'warn',
-    })
+ipcMain.handle(
+  'project:remove-page',
+  async (_e, id: string, pageId: string, options?: { deleteFile?: boolean }) => {
+    const store = await readStore()
+    const project = store.projects.find((p) => p.id === id)
+    const removed = project?.meta.pages.find((page) => page.id === pageId)
+    if (!project || !removed) return null
+
+    let trashed = false
+    if (options?.deleteFile && removed.filePath) {
+      trashed = await trashPageFile(project.path, removed.filePath)
+    }
+
+    const updated = await patchProject(id, (current) => ({
+      ...current,
+      meta: {
+        ...current.meta,
+        pages: current.meta.pages.filter((page) => page.id !== pageId),
+      },
+    }))
+    if (updated) {
+      await appendActivity(id, {
+        actor: 'bạn',
+        action: trashed
+          ? `Xoá trang ${removed.route} và chuyển tệp ${removed.filePath} vào Thùng rác`
+          : `Xoá trang ${removed.route} khỏi danh sách`,
+        kind: 'người',
+        status: 'warn',
+      })
+    }
+    return updated
+  },
+)
+
+ipcMain.handle(
+  'project:duplicate-page',
+  async (
+    _e,
+    id: string,
+    pageId: string,
+    payload: { route: string; title: string; copyFile?: boolean },
+  ) => {
+    const store = await readStore()
+    const project = store.projects.find((p) => p.id === id)
+    const source = project?.meta.pages.find((page) => page.id === pageId)
+    if (!project || !source) return null
+
+    const route = normalizePageRoute(payload.route || `${source.route}-copy`)
+    const title = payload.title.trim() || `${source.title} (bản sao)`
+    if (
+      project.meta.pages.some(
+        (page) => normalizePageRoute(page.route).toLowerCase() === route.toLowerCase(),
+      )
+    ) {
+      throw new Error(`Route ${route} đã có trong danh sách trang.`)
+    }
+
+    let filePath: string | undefined
+    if (payload.copyFile && source.filePath) {
+      const target = await resolvePageTarget(project.path, route)
+      if (!target.supported) {
+        throw new Error(target.reason ?? 'Không hỗ trợ tạo tệp route cho dự án này.')
+      }
+      if (target.exists) {
+        throw new Error(`Tệp ${target.relativePath} đã tồn tại. Hãy chọn route khác.`)
+      }
+      const copied = await copyPageFile(project.path, source.filePath, target)
+      filePath = copied.relativePath
+    }
+
+    const newPage: ProjectPage = {
+      ...source,
+      id: randomUUID(),
+      route,
+      title,
+      filePath,
+      sampleParams: source.sampleParams ? [...source.sampleParams] : undefined,
+    }
+    const updated = await patchProject(id, (current) => ({
+      ...current,
+      meta: { ...current.meta, pages: [...current.meta.pages, newPage] },
+    }))
+    if (updated) {
+      await appendActivity(id, {
+        actor: 'bạn',
+        action: filePath
+          ? `Nhân bản trang ${source.route} → ${route} (tạo tệp ${filePath})`
+          : `Nhân bản trang ${source.route} → ${route} (chỉ metadata)`,
+        kind: 'người',
+        status: 'ok',
+      })
+    }
+    return updated
+  },
+)
+
+ipcMain.handle('project:page-file-preview', async (_e, id: string, route: string) => {
+  const project = (await readStore()).projects.find((p) => p.id === id)
+  if (!project) {
+    return {
+      supported: false,
+      label: '',
+      relativePath: '',
+      exists: false,
+      reason: 'Không tìm thấy dự án.',
+    }
   }
-  return updated
+  const target = await resolvePageTarget(project.path, route)
+  return {
+    supported: target.supported,
+    label: target.label,
+    relativePath: target.relativePath,
+    exists: target.exists,
+    reason: target.reason,
+  }
 })
 
 ipcMain.handle('project:diagnose', async (_e, idOrPath: string) => {
@@ -700,6 +892,126 @@ ipcMain.handle('fs:special', async (_e, kind: 'userData' | 'home' | 'documents' 
   if (kind === 'home') return app.getPath('home')
   if (kind === 'documents') return app.getPath('documents')
   return app.getPath('desktop')
+})
+
+ipcMain.handle('fs:create-file', async (_e, target: string, initialContent = '') => {
+  await fs.mkdir(dirname(target), { recursive: true })
+  await fs.writeFile(target, initialContent, { encoding: 'utf8', flag: 'wx' })
+  return true
+})
+
+ipcMain.handle('fs:create-dir', async (_e, target: string) => {
+  await fs.mkdir(target, { recursive: true })
+  return true
+})
+
+ipcMain.handle('fs:rename', async (_e, oldPath: string, newPath: string) => {
+  await fs.rename(oldPath, newPath)
+  return true
+})
+
+ipcMain.handle('fs:trash', async (_e, target: string) => {
+  await shell.trashItem(target)
+  return true
+})
+
+/* ───────────────────────── IPC: tài nguyên ảnh ───────────────────────── */
+
+ipcMain.handle('assets:add', async (_e, projectPath: string) => {
+  try {
+    const options: OpenDialogOptions = {
+      title: 'Chọn ảnh để thêm vào dự án',
+      buttonLabel: 'Thêm ảnh',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Hình ảnh', extensions: ASSET_EXTENSIONS }],
+    }
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options)
+    if (result.canceled || result.filePaths.length === 0) {
+      return { canceled: true, added: [] as Array<{ source: string; destination: string; copied: boolean }> }
+    }
+
+    const targetDir = join(projectPath, 'assets')
+    await fs.mkdir(targetDir, { recursive: true })
+
+    const added: Array<{ source: string; destination: string; copied: boolean }> = []
+    for (const source of result.filePaths) {
+      const sourceName = basename(source)
+
+      // Ảnh đã nằm sẵn trong thư mục assets/ của dự án: không copy, không ghi vào lịch sử undo.
+      if (resolve(join(targetDir, sourceName)) === resolve(source)) {
+        added.push({ source, destination: source, copied: false })
+        continue
+      }
+
+      const destination = await uniqueFilePath(targetDir, sourceName)
+      await fs.copyFile(source, destination)
+      added.push({ source, destination, copied: true })
+    }
+
+    return { canceled: false, added }
+  } catch (error) {
+    return {
+      canceled: false,
+      added: [] as Array<{ source: string; destination: string; copied: boolean }>,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+})
+
+ipcMain.handle('assets:remove', async (_e, target: string) => {
+  try {
+    const extension = extname(target).replace(/^\./, '').toLowerCase()
+    if (!ASSET_EXTENSION_SET.has(extension)) {
+      return { success: false, error: 'Chỉ có thể xoá tệp ảnh.' }
+    }
+    const stat = await fs.stat(target)
+    if (!stat.isFile()) {
+      return { success: false, error: 'Chỉ có thể xoá tệp ảnh.' }
+    }
+
+    // Giữ một bản sao lưu trước khi đưa vào Thùng rác để có thể hoàn tác.
+    const backupDir = assetBackupDir()
+    await fs.mkdir(backupDir, { recursive: true })
+    const backupPath = await uniqueFilePath(backupDir, `${Date.now()}-${basename(target)}`)
+    await fs.copyFile(target, backupPath)
+
+    await shell.trashItem(target)
+    return { success: true, backupPath }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
+ipcMain.handle('assets:restore', async (_e, backupPath: string, destination: string) => {
+  try {
+    const backupRoot = resolve(assetBackupDir())
+    const resolvedBackup = resolve(backupPath)
+    if (!resolvedBackup.startsWith(`${backupRoot}${sep}`)) {
+      return { success: false, error: 'Đường dẫn sao lưu không hợp lệ.' }
+    }
+
+    const stat = await fs.stat(resolvedBackup)
+    if (!stat.isFile()) {
+      return { success: false, error: 'Bản sao lưu không tồn tại.' }
+    }
+
+    // Nếu vị trí cũ đã có tệp khác, khôi phục với tên mới để không ghi đè.
+    let finalDestination = destination
+    try {
+      await fs.access(finalDestination)
+      finalDestination = await uniqueFilePath(dirname(destination), basename(destination))
+    } catch {
+      /* Vị trí cũ đang trống: dùng đúng đường dẫn ban đầu. */
+    }
+
+    await fs.mkdir(dirname(finalDestination), { recursive: true })
+    await fs.copyFile(resolvedBackup, finalDestination)
+    return { success: true, path: finalDestination }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
 })
 
 /* ───────────────────────── IPC: chạy dự án ───────────────────────── */

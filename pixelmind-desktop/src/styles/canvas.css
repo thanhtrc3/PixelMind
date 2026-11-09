@@ -1760,3 +1760,74 @@
   background: rgba(245, 158, 11, 0.15);
   color: #f59e0b;
 }
+
+/* ═══════════════════════════════════════════════════
+   CHẾ ĐỘ XEM ẢNH MẪU (REFERENCE VIEW)
+   ═══════════════════════════════════════════════════ */
+.canvas__reference-view {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  background: #0b0c10;
+}
+
+.canvas__reference-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.canvas__reference-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 300px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.canvas__reference-meta {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.canvas__reference-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  cursor: grab;
+  background-color: #0b0c10;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.canvas__reference-canvas.is-dragging {
+  cursor: grabbing;
+}
+
+.canvas__reference-img {
+  max-width: none;
+  max-height: none;
+  transform-origin: center center;
+  user-select: none;
+  pointer-events: none;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  background: #fff;
+}
+

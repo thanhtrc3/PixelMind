@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { FilePlus2, Image as ImageIcon, Link, Hash, Pencil, Folder, FileText, ChevronRight, CornerDownLeft } from 'lucide-react'
-import type { ProjectPage } from '@shared/types'
+import { FilePlus2, Image as ImageIcon, Link, Hash, Pencil, Folder, FileText, ChevronRight, CornerDownLeft, FileCode2 } from 'lucide-react'
+import type { PageFilePreview, ProjectPage } from '@shared/types'
+import { api } from '../lib/bridge'
 import Modal from './Modal'
 
 interface AddPageDialogProps {
   projectName: string
+  projectId?: string
   pageToEdit?: ProjectPage | null
   existingPages?: ProjectPage[]
-  onAdd: (page: Omit<ProjectPage, 'id'>) => void
+  onAdd: (page: Omit<ProjectPage, 'id'>, options?: { createFile?: boolean }) => void
   onUpdate?: (page: ProjectPage) => void
   onClose: () => void
 }
@@ -139,6 +141,7 @@ function computeSuggestions(input: string, pages: ProjectPage[]): RouteSuggestio
 
 const AddPageDialog = ({
   projectName,
+  projectId,
   pageToEdit,
   existingPages = [],
   onAdd,
@@ -155,6 +158,47 @@ const AddPageDialog = ({
   const [software, setSoftware] = useState(pageToEdit?.software || 'Figma')
   const [frame, setFrame] = useState(pageToEdit?.frame || '1440×900')
   const [error, setError] = useState('')
+
+  // Tạo tệp route thật trên đĩa
+  const [createFile, setCreateFile] = useState(true)
+  const [filePreview, setFilePreview] = useState<PageFilePreview | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+
+  const canCreateFile = Boolean(!isEditing && filePreview?.supported && !filePreview.exists)
+  const willCreateFile = !isEditing && createFile && canCreateFile
+
+  // Dò framework + đường dẫn tệp sẽ tạo khi route thay đổi
+  useEffect(() => {
+    if (isEditing || !projectId) {
+      setFilePreview(null)
+      setPreviewLoading(false)
+      return
+    }
+    const clean = route.trim()
+    if (!clean) {
+      setFilePreview(null)
+      return
+    }
+    let cancelled = false
+    setPreviewLoading(true)
+    const timer = window.setTimeout(() => {
+      void api.projects
+        .pageFilePreview(projectId, clean)
+        .then((preview) => {
+          if (!cancelled) setFilePreview(preview)
+        })
+        .catch(() => {
+          if (!cancelled) setFilePreview(null)
+        })
+        .finally(() => {
+          if (!cancelled) setPreviewLoading(false)
+        })
+    }, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [route, projectId, isEditing])
 
   // Autocomplete state
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
@@ -268,15 +312,18 @@ const AddPageDialog = ({
         sampleParams: parsedParams.length > 0 ? parsedParams : undefined,
       })
     } else {
-      onAdd({
-        route: normalized,
-        title: cleanTitle,
-        mockup,
-        software: mockup ? software : '—',
-        frame: mockup ? frame : '—',
-        navLinkSelector: navLinkSelector.trim() || undefined,
-        sampleParams: parsedParams.length > 0 ? parsedParams : undefined,
-      })
+      onAdd(
+        {
+          route: normalized,
+          title: cleanTitle,
+          mockup,
+          software: mockup ? software : '—',
+          frame: mockup ? frame : '—',
+          navLinkSelector: navLinkSelector.trim() || undefined,
+          sampleParams: parsedParams.length > 0 ? parsedParams : undefined,
+        },
+        { createFile: willCreateFile },
+      )
     }
   }
 
@@ -294,7 +341,15 @@ const AddPageDialog = ({
       footer={
         <>
           <span className="grow">
-            {error ? <span style={{ color: 'var(--color-error-text)' }}>{error}</span> : 'Không tạo tệp mới trên đĩa.'}
+            {error ? (
+              <span style={{ color: 'var(--color-error-text)' }}>{error}</span>
+            ) : isEditing ? (
+              'Chỉ cập nhật metadata, không đổi tệp route.'
+            ) : willCreateFile ? (
+              `Sẽ tạo tệp ${filePreview?.relativePath ?? ''}.`
+            ) : (
+              'Chỉ lưu metadata, không tạo tệp mới trên đĩa.'
+            )}
           </span>
           <button className="btn" onClick={onClose}>
             Huỷ
@@ -451,6 +506,49 @@ const AddPageDialog = ({
             }}
           />
         </div>
+
+        {/* Tạo tệp route thật trên đĩa (chỉ khi thêm mới) */}
+        {!isEditing && (
+          <>
+            <div className="pm-setting" style={{ paddingTop: 4 }}>
+              <div className="pm-setting__txt">
+                <b>Tạo tệp route trên đĩa</b>
+                <span>Tạo tệp mới theo quy ước framework để route chạy được ngay.</span>
+              </div>
+              <div className="pm-setting__ctrl">
+                <button
+                  type="button"
+                  className={`pm-switch ${willCreateFile ? 'on' : ''}`}
+                  disabled={!canCreateFile}
+                  onClick={() => setCreateFile((value) => !value)}
+                  aria-label="Tạo tệp route trên đĩa"
+                />
+              </div>
+            </div>
+
+            <div className="pm-note" style={{ margin: 0 }}>
+              <FileCode2 size={13} style={{ flexShrink: 0 }} />
+              <span>
+                {previewLoading ? (
+                  'Đang kiểm tra đường dẫn tệp...'
+                ) : filePreview ? (
+                  filePreview.supported ? (
+                    <>
+                      <b>{filePreview.label}</b>
+                      {' · '}
+                      <span className="mono">{filePreview.relativePath}</span>
+                      {filePreview.exists ? ' — tệp đã tồn tại, chỉ lưu metadata.' : null}
+                    </>
+                  ) : (
+                    <>{filePreview.reason || 'Không thể tạo tệp route tự động cho dự án này.'}</>
+                  )
+                ) : (
+                  'Nhập route để xem tệp sẽ được tạo ở đâu.'
+                )}
+              </span>
+            </div>
+          </>
+        )}
 
         {/* Nơi liên kết đến thành phần giao diện trong dự án đang chạy */}
         <div className="pm-field">

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import {
   ArrowDown,
   ArrowLeft,
@@ -6,12 +6,16 @@ import {
   ArrowUp,
   Box,
   Boxes,
+  Check,
   ChevronDown,
+  Copy,
   ExternalLink,
   FileCode2,
+  FilePlus2,
   FileText,
   Folder,
   FolderOpen,
+  FolderPlus,
   FolderTree,
   GitBranch,
   Hash,
@@ -29,6 +33,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Redo2,
   RotateCcw,
   Search,
   Sliders,
@@ -36,15 +41,48 @@ import {
   Table,
   Trash2,
   Type,
+  Undo2,
   X,
 } from 'lucide-react'
-import type { FileNode, ProjectPage, ProjectRecord } from '@shared/types'
+import type { FileContent, FileNode, ProjectPage, ProjectRecord } from '@shared/types'
 import { formatBytes } from '../lib/format'
 import { editorBuffer } from '../lib/editorBuffer'
+import { api } from '../lib/bridge'
 import FileTree from './FileTree'
+import FileActionDialog from './FileActionDialog'
 import ToolboxPanel from './ToolboxPanel'
 
 export type SidebarTab = 'files' | 'layers' | 'pages' | 'assets' | 'versions' | 'design' | 'toolbox'
+
+/** Ảnh mẫu đã chọn trong tab Assets để truyền sang Canvas. */
+export interface ReferenceAsset {
+  name: string
+  path: string
+  size: number
+  dataUrl: string
+}
+
+/** Chuyển nội dung tệp ảnh thành data URL (hỗ trợ cả SVG dạng văn bản). */
+function fileToDataUrl(file: FileContent, name: string): string | null {
+  if (file.dataUrl) return file.dataUrl
+  if (/\.svg$/i.test(name) && file.text) {
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(file.text)}`
+  }
+  return null
+}
+
+/* ── Lịch sử thao tác ảnh trong tab Assets (phiên làm việc hiện tại) ── */
+interface AssetHistoryItem {
+  source?: string
+  destination: string
+  backupPath?: string
+}
+
+type AssetHistoryEntry =
+  | { kind: 'add'; label: string; items: AssetHistoryItem[] }
+  | { kind: 'remove'; label: string; path: string; backupPath: string }
+
+const MAX_ASSET_HISTORY = 20
 
 interface WorkspaceSidebarProps {
   project: ProjectRecord
@@ -63,6 +101,7 @@ interface WorkspaceSidebarProps {
   onAddPage: () => void
   onEditPage?: (page: ProjectPage) => void
   onDeletePage?: (page: ProjectPage) => void
+  onDuplicatePage?: (page: ProjectPage) => void
   onOpenParamChooser?: (page: ProjectPage) => void
   currentRoute?: string
   onOpenTokens: () => void
@@ -72,6 +111,12 @@ interface WorkspaceSidebarProps {
   onRun?: () => void
   /** Chuyển sang tab Xem trước để canvas nhận phần tử từ Hộp công cụ. */
   onOpenPreview?: () => void
+  /** Đường dẫn ảnh mẫu đang được chọn (để làm nổi bật card tương ứng). */
+  referenceAssetPath?: string | null
+  /** Chọn một ảnh làm ảnh mẫu và truyền state sang Canvas. */
+  onSelectReference?: (asset: ReferenceAsset) => void
+  /** Bỏ ảnh mẫu đang chọn. */
+  onClearReference?: () => void
 }
 
 export function isDynamicRoute(page: ProjectPage): boolean {
@@ -247,6 +292,7 @@ export const WorkspaceSidebar = ({
   onAddPage,
   onEditPage,
   onDeletePage,
+  onDuplicatePage,
   onOpenParamChooser,
   currentRoute,
   onOpenTokens,
@@ -255,10 +301,14 @@ export const WorkspaceSidebar = ({
   isRunning = false,
   onRun,
   onOpenPreview,
+  referenceAssetPath = null,
+  onSelectReference,
+  onClearReference,
 }: WorkspaceSidebarProps) => {
   const [layersSearch, setLayersSearch] = useState('')
   const [pagesSearch, setPagesSearch] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+  const [fileHeaderDialog, setFileHeaderDialog] = useState<'new-file' | 'new-folder' | null>(null)
 
   const togglePageGroup = (groupKey: string) => {
     setCollapsedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }))
@@ -382,6 +432,263 @@ export const WorkspaceSidebar = ({
     traverse(tree)
     return list
   }, [tree])
+
+  /* ── Thumbnail thật: đọc tối đa 3 ảnh song song, cache theo đường dẫn ── */
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({})
+  const thumbnailsRef = useRef<Record<string, string>>({})
+  const thumbGenerationRef = useRef(0)
+
+  /* ── Undo/Redo cho thao tác Thêm/Xoá ảnh (chỉ trong phiên hiện tại) ── */
+  const [undoStack, setUndoStack] = useState<AssetHistoryEntry[]>([])
+  const [redoStack, setRedoStack] = useState<AssetHistoryEntry[]>([])
+  const [historyBusy, setHistoryBusy] = useState(false)
+
+  // Đổi dự án thì bỏ lịch sử để tránh hoàn tác nhầm sang tệp của dự án khác.
+  useEffect(() => {
+    setUndoStack([])
+    setRedoStack([])
+    setHistoryBusy(false)
+  }, [project.id])
+
+  const pushAssetHistory = (entry: AssetHistoryEntry) => {
+    setUndoStack((prev) => [...prev.slice(-(MAX_ASSET_HISTORY - 1)), entry])
+    setRedoStack([])
+  }
+
+  useEffect(() => {
+    if (activeTab !== 'assets') return
+    const generation = ++thumbGenerationRef.current
+    const pending = assets.filter((asset) => !thumbnailsRef.current[asset.path])
+    if (pending.length === 0) return
+
+    const queue = [...pending]
+    const loadOne = async () => {
+      while (queue.length > 0) {
+        const asset = queue.shift()
+        if (!asset) return
+        try {
+          const file = await api.fs.read(asset.path)
+          const dataUrl = fileToDataUrl(file, asset.name)
+          if (!dataUrl) continue
+          thumbnailsRef.current[asset.path] = dataUrl
+          if (thumbGenerationRef.current === generation) {
+            setThumbnails((prev) => (prev[asset.path] ? prev : { ...prev, [asset.path]: dataUrl }))
+          }
+        } catch {
+          /* Ảnh lỗi hoặc quá lớn: giữ fallback icon, không chặn các ảnh khác. */
+        }
+      }
+    }
+
+    const workers = Array.from({ length: Math.min(3, queue.length) }, () => loadOne())
+    void Promise.all(workers)
+    return () => {
+      if (thumbGenerationRef.current === generation) thumbGenerationRef.current += 1
+    }
+  }, [activeTab, assets])
+
+  const handleRefreshAssets = () => {
+    thumbGenerationRef.current += 1
+    thumbnailsRef.current = {}
+    setThumbnails({})
+    onRefresh()
+  }
+
+  const handleSelectAsset = async (asset: { name: string; path: string; size?: number }) => {
+    const cached = thumbnailsRef.current[asset.path] ?? thumbnails[asset.path]
+    if (cached) {
+      onSelectReference?.({ name: asset.name, path: asset.path, size: asset.size ?? 0, dataUrl: cached })
+      onOpenPreview?.()
+      return
+    }
+    try {
+      const file = await api.fs.read(asset.path)
+      const dataUrl = fileToDataUrl(file, asset.name)
+      if (!dataUrl) {
+        onShowToast('err', `Không đọc được ảnh “${asset.name}” (có thể lớn hơn 8MB).`)
+        return
+      }
+      thumbnailsRef.current[asset.path] = dataUrl
+      setThumbnails((prev) => ({ ...prev, [asset.path]: dataUrl }))
+      onSelectReference?.({ name: asset.name, path: asset.path, size: asset.size ?? 0, dataUrl })
+      onOpenPreview?.()
+    } catch {
+      onShowToast('err', `Không đọc được ảnh “${asset.name}”.`)
+    }
+  }
+
+  const handleAddImages = async () => {
+    try {
+      const result = await api.assets.add(project.path)
+      if (result.canceled) return
+      if (result.error) {
+        onShowToast('err', `Không thêm được ảnh: ${result.error}`)
+        return
+      }
+      const copied = result.added.filter((item) => item.copied)
+      if (result.added.length === 0) return
+      if (copied.length === 0) {
+        onShowToast('info', 'Ảnh đã có sẵn trong thư mục assets/ của dự án.')
+        handleRefreshAssets()
+        return
+      }
+      pushAssetHistory({
+        kind: 'add',
+        label:
+          copied.length === 1
+            ? `thêm “${copied[0].destination.split(/[\\/]/).pop() ?? 'ảnh'}”`
+            : `thêm ${copied.length} ảnh`,
+        items: copied.map((item) => ({ source: item.source, destination: item.destination })),
+      })
+      onShowToast('ok', `Đã thêm ${copied.length} ảnh vào thư mục assets/ của dự án.`)
+      handleRefreshAssets()
+    } catch {
+      onShowToast('err', 'Không thêm được ảnh vào dự án.')
+    }
+  }
+
+  const handleDeleteImage = async (asset: { name: string; path: string }) => {
+    const confirmed = window.confirm(`Chuyển ảnh “${asset.name}” vào Thùng rác?`)
+    if (!confirmed) return
+    try {
+      const result = await api.assets.remove(asset.path)
+      if (!result.success) {
+        onShowToast('err', `Không xoá được ảnh: ${result.error ?? 'lỗi không xác định'}`)
+        return
+      }
+      delete thumbnailsRef.current[asset.path]
+      setThumbnails((prev) => {
+        if (!prev[asset.path]) return prev
+        const next = { ...prev }
+        delete next[asset.path]
+        return next
+      })
+      if (referenceAssetPath === asset.path) onClearReference?.()
+      pushAssetHistory({
+        kind: 'remove',
+        label: `xoá “${asset.name}”`,
+        path: asset.path,
+        backupPath: result.backupPath ?? '',
+      })
+      onShowToast('ok', `Đã chuyển “${asset.name}” vào Thùng rác.`)
+      onRefresh()
+    } catch {
+      onShowToast('err', `Không xoá được ảnh “${asset.name}”.`)
+    }
+  }
+
+  /* ── Hoàn tác: thêm ảnh → đưa ảnh vào Thùng rác; xoá ảnh → khôi phục từ bản sao lưu ── */
+  const handleUndoAsset = async () => {
+    if (historyBusy) return
+    const entry = undoStack[undoStack.length - 1]
+    if (!entry) return
+    setHistoryBusy(true)
+    try {
+      if (entry.kind === 'add') {
+        const redoItems: AssetHistoryItem[] = []
+        for (const item of entry.items) {
+          const result = await api.assets.remove(item.destination)
+          if (result.success && result.backupPath) {
+            redoItems.push({ ...item, backupPath: result.backupPath })
+          }
+        }
+        if (redoItems.length === 0) {
+          throw new Error('Không thể hoàn tác thao tác thêm ảnh.')
+        }
+        if (referenceAssetPath && entry.items.some((item) => item.destination === referenceAssetPath)) {
+          onClearReference?.()
+        }
+        setUndoStack((prev) => prev.slice(0, -1))
+        setRedoStack((prev) => [...prev, { ...entry, items: redoItems }])
+        onShowToast(
+          redoItems.length === entry.items.length ? 'ok' : 'err',
+          redoItems.length === entry.items.length
+            ? `Đã hoàn tác thao tác ${entry.label}.`
+            : `Chỉ hoàn tác được ${redoItems.length}/${entry.items.length} ảnh đã thêm.`,
+        )
+      } else {
+        if (!entry.backupPath) throw new Error('Không tìm thấy bản sao lưu của ảnh.')
+        const result = await api.assets.restore(entry.backupPath, entry.path)
+        if (!result.success) throw new Error(result.error ?? 'Không thể khôi phục ảnh.')
+        setUndoStack((prev) => prev.slice(0, -1))
+        setRedoStack((prev) => [...prev, { ...entry, path: result.path ?? entry.path }])
+        onShowToast('ok', `Đã hoàn tác thao tác ${entry.label}.`)
+      }
+      handleRefreshAssets()
+    } catch (error) {
+      onShowToast('err', error instanceof Error ? error.message : 'Không thể hoàn tác.')
+    } finally {
+      setHistoryBusy(false)
+    }
+  }
+
+  /* ── Làm lại: thêm ảnh → khôi phục ảnh đã hoàn tác; xoá ảnh → đưa vào Thùng rác lần nữa ── */
+  const handleRedoAsset = async () => {
+    if (historyBusy) return
+    const entry = redoStack[redoStack.length - 1]
+    if (!entry) return
+    setHistoryBusy(true)
+    try {
+      if (entry.kind === 'add') {
+        const undoItems: AssetHistoryItem[] = []
+        for (const item of entry.items) {
+          if (!item.backupPath) continue
+          const result = await api.assets.restore(item.backupPath, item.destination)
+          if (result.success) {
+            undoItems.push({ ...item, destination: result.path ?? item.destination })
+          }
+        }
+        if (undoItems.length === 0) {
+          throw new Error('Không thể làm lại thao tác thêm ảnh.')
+        }
+        setRedoStack((prev) => prev.slice(0, -1))
+        setUndoStack((prev) => [...prev, { ...entry, items: undoItems }])
+        onShowToast(
+          undoItems.length === entry.items.length ? 'ok' : 'err',
+          undoItems.length === entry.items.length
+            ? `Đã làm lại thao tác ${entry.label}.`
+            : `Chỉ làm lại được ${undoItems.length}/${entry.items.length} ảnh.`,
+        )
+      } else {
+        const result = await api.assets.remove(entry.path)
+        if (!result.success || !result.backupPath) {
+          throw new Error(result.error ?? 'Không thể xoá lại ảnh.')
+        }
+        if (referenceAssetPath === entry.path) onClearReference?.()
+        setRedoStack((prev) => prev.slice(0, -1))
+        setUndoStack((prev) => [...prev, { ...entry, backupPath: result.backupPath! }])
+        onShowToast('ok', `Đã làm lại thao tác ${entry.label}.`)
+      }
+      handleRefreshAssets()
+    } catch (error) {
+      onShowToast('err', error instanceof Error ? error.message : 'Không thể làm lại.')
+    } finally {
+      setHistoryBusy(false)
+    }
+  }
+
+  /* ── Ctrl+Z / Ctrl+Y khi đang thao tác trong panel Assets ── */
+  const handleAssetsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (activeTab !== 'assets' || historyBusy) return
+    if (!event.ctrlKey && !event.metaKey) return
+    const target = event.target as HTMLElement | null
+    if (
+      target &&
+      (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)
+    ) {
+      return
+    }
+    const key = event.key.toLowerCase()
+    if (key === 'z' && !event.shiftKey && undoStack.length > 0) {
+      event.preventDefault()
+      event.stopPropagation()
+      void handleUndoAsset()
+    } else if ((key === 'y' || (key === 'z' && event.shiftKey)) && redoStack.length > 0) {
+      event.preventDefault()
+      event.stopPropagation()
+      void handleRedoAsset()
+    }
+  }
 
   /* ── Lọc Layers theo từ khoá ── */
   const filteredLayers = useMemo(() => {
@@ -508,6 +815,18 @@ export const WorkspaceSidebar = ({
                   <Hash size={12} />
                 </button>
               )}
+              {onDuplicatePage && (
+                <button
+                  className="pm-page-card__btn"
+                  title="Nhân bản trang này (route mới / sao chép tệp)"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDuplicatePage(page)
+                  }}
+                >
+                  <Copy size={11} />
+                </button>
+              )}
               {onEditPage && (
                 <button
                   className="pm-page-card__btn"
@@ -523,7 +842,7 @@ export const WorkspaceSidebar = ({
               {onDeletePage && (
                 <button
                   className="pm-page-card__btn danger"
-                  title="Xoá trang này khỏi danh sách"
+                  title={page.filePath ? 'Xoá trang (có tuỳ chọn chuyển tệp vào Thùng rác)' : 'Xoá trang khỏi danh sách'}
                   onClick={(e) => {
                     e.stopPropagation()
                     onDeletePage(page)
@@ -552,7 +871,11 @@ export const WorkspaceSidebar = ({
   }
 
   return (
-    <div className="pm-ws-sidebar">
+    <div
+      className="pm-ws-sidebar"
+      tabIndex={-1}
+      onKeyDown={handleAssetsKeyDown}
+    >
       {/* ── 1. Activity Bar (Dải Icon 7 Tab bên lề trái) ── */}
       <div className="pm-ws-activity-bar" aria-label="Thanh công cụ bên">
         <button
@@ -633,6 +956,20 @@ export const WorkspaceSidebar = ({
                 <FolderTree size={13} /> Tệp mã nguồn
               </span>
               <div className="pm-ws-hd__actions">
+                <button
+                  className="pm-ibtn"
+                  onClick={() => setFileHeaderDialog('new-file')}
+                  title="Tạo tệp mới ở thư mục gốc"
+                >
+                  <FilePlus2 size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  onClick={() => setFileHeaderDialog('new-folder')}
+                  title="Tạo thư mục mới ở thư mục gốc"
+                >
+                  <FolderPlus size={12} />
+                </button>
                 <button className="pm-ibtn" onClick={onRefresh} title="Tải lại cây tệp (Ctrl+R)">
                   <RefreshCw size={12} />
                 </button>
@@ -667,9 +1004,22 @@ export const WorkspaceSidebar = ({
                   selectedPath={selectedPath}
                   query={query}
                   onSelect={onSelectFile}
+                  onRefresh={onRefresh}
+                  onShowToast={onShowToast}
                 />
               )}
             </div>
+
+            {fileHeaderDialog && (
+              <FileActionDialog
+                action={fileHeaderDialog}
+                targetNode={null}
+                rootPath={project.path}
+                onClose={() => setFileHeaderDialog(null)}
+                onSuccess={(msg) => onShowToast('ok', msg)}
+                onRefresh={onRefresh}
+              />
+            )}
           </>
         )}
 
@@ -958,7 +1308,40 @@ export const WorkspaceSidebar = ({
               <div className="pm-ws-hd__actions">
                 <button
                   className="pm-ibtn"
-                  onClick={onRefresh}
+                  onClick={() => void handleUndoAsset()}
+                  disabled={undoStack.length === 0 || historyBusy}
+                  title={
+                    undoStack.length > 0
+                      ? `Hoàn tác ${undoStack[undoStack.length - 1].label} (Ctrl+Z)`
+                      : 'Không có thao tác nào để hoàn tác'
+                  }
+                >
+                  <Undo2 size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  onClick={() => void handleRedoAsset()}
+                  disabled={redoStack.length === 0 || historyBusy}
+                  title={
+                    redoStack.length > 0
+                      ? `Làm lại ${redoStack[redoStack.length - 1].label} (Ctrl+Y)`
+                      : 'Không có thao tác nào để làm lại'
+                  }
+                >
+                  <Redo2 size={12} />
+                </button>
+                {referenceAssetPath && onClearReference && (
+                  <button
+                    className="pm-ibtn"
+                    onClick={onClearReference}
+                    title="Bỏ ảnh mẫu đang chọn"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+                <button
+                  className="pm-ibtn"
+                  onClick={handleRefreshAssets}
                   title="Quét lại tài nguyên"
                 >
                   <RefreshCw size={12} />
@@ -967,38 +1350,75 @@ export const WorkspaceSidebar = ({
             </div>
 
             <div className="pm-ws-bd">
+              {referenceAssetPath && (
+                <div className="pm-asset-active-hint">
+                  <Check size={12} />
+                  <span>Đang dùng ảnh mẫu. Bấm Ảnh mẫu trên Canvas để xem.</span>
+                </div>
+              )}
+              <div className="pm-asset-toolbar">
+                <button
+                  className="pm-asset-add"
+                  onClick={() => void handleAddImages()}
+                  title="Chọn ảnh từ máy tính để copy vào thư mục assets/ của dự án"
+                >
+                  <Plus size={13} />
+                  <span>Thêm ảnh từ máy tính</span>
+                </button>
+              </div>
               {assets.length === 0 ? (
                 <div className="pm-empty" style={{ padding: '24px 12px', border: 0 }}>
                   <ImageIcon size={22} className="pm-muted" />
                   <p style={{ fontSize: 11.5, marginTop: 6 }}>
-                    Chưa tìm thấy tệp ảnh nào (.png, .svg, .jpg) trong dự án.
+                    Chưa có ảnh nào trong dự án.
                   </p>
                   <p className="pm-muted" style={{ fontSize: 10.5 }}>
-                    Lưu ảnh thiết kế vào thư mục dự án để dùng làm ảnh mẫu đối chiếu.
+                    Bấm “Thêm ảnh từ máy tính” để thêm ảnh vào thư mục assets/ và dùng làm ảnh mẫu.
                   </p>
                 </div>
               ) : (
                 <div className="pm-assets-grid">
-                  {assets.map((ast) => (
-                    <div
-                      key={ast.path}
-                      className="pm-asset-card"
-                      onClick={() =>
-                        onShowToast('ok', `Đã chọn ảnh “${ast.name}” làm mẫu đối chiếu!`)
-                      }
-                      title={`Tệp: ${ast.name}\nKích thước: ${ast.size ? formatBytes(ast.size) : 'n/a'}`}
-                    >
-                      <div className="pm-asset-thumb">
-                        <ImageIcon size={20} className="pm-muted" />
+                  {assets.map((ast) => {
+                    const thumb = thumbnails[ast.path]
+                    const isActive = referenceAssetPath === ast.path
+                    return (
+                      <div
+                        key={ast.path}
+                        className={`pm-asset-card ${isActive ? 'active' : ''}`}
+                        onClick={() => void handleSelectAsset(ast)}
+                        title={`Tệp: ${ast.path}\nKích thước: ${ast.size ? formatBytes(ast.size) : 'n/a'}`}
+                      >
+                        <div className="pm-asset-thumb">
+                          {thumb ? (
+                            <img src={thumb} alt={ast.name} loading="lazy" draggable={false} />
+                          ) : (
+                            <ImageIcon size={20} className="pm-muted" />
+                          )}
+                          <button
+                            className="pm-asset-delete"
+                            title={`Xoá “${ast.name}” (chuyển vào Thùng rác)`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void handleDeleteImage(ast)
+                            }}
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                          {isActive && (
+                            <span className="pm-asset-check" title="Ảnh mẫu đang chọn">
+                              <Check size={10} />
+                            </span>
+                          )}
+                        </div>
+                        <div className="pm-asset-info">
+                          <span className="pm-asset-name">{ast.name}</span>
+                          <span className="pm-asset-size">
+                            {ast.size ? formatBytes(ast.size) : 'image'}
+                          </span>
+                        </div>
                       </div>
-                      <div className="pm-asset-info">
-                        <span className="pm-asset-name">{ast.name}</span>
-                        <span className="pm-asset-size">
-                          {ast.size ? formatBytes(ast.size) : 'image'}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>

@@ -50,6 +50,8 @@ import ProjectView from './components/ProjectView'
 import ProjectDetail from './components/ProjectDetail'
 import AddPageDialog from './components/AddPageDialog'
 import PageParamDialog from './components/PageParamDialog'
+import DeletePageDialog from './components/DeletePageDialog'
+import DuplicatePageDialog from './components/DuplicatePageDialog'
 import WorkspaceView from './components/WorkspaceView'
 import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
@@ -120,6 +122,9 @@ const App = () => {
   const [installing, setInstalling] = useState(false)
   const [addPageOpen, setAddPageOpen] = useState(false)
   const [pageToEdit, setPageToEdit] = useState<ProjectPage | null>(null)
+  const [pageToDelete, setPageToDelete] = useState<ProjectPage | null>(null)
+  const [pageToDuplicate, setPageToDuplicate] = useState<ProjectPage | null>(null)
+  const [pageBusy, setPageBusy] = useState(false)
   const [paramChooserPage, setParamChooserPage] = useState<ProjectPage | null>(null)
   const [pendingDelete, setPendingDelete] = useState<ProjectRecord | null>(null)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
@@ -402,29 +407,87 @@ const App = () => {
     }))
   }
 
-  const addPage = async (page: Omit<ProjectPage, 'id'>) => {
+  const addPage = async (page: Omit<ProjectPage, 'id'>, options?: { createFile?: boolean }) => {
     if (!project) return
+    setPageBusy(true)
     try {
-      const updated = await api.projects.addPage(project.id, page)
+      const updated = await api.projects.addPage(project.id, page, options)
       mergeProject(updated)
       /* Đọc lại để lấy dòng nhật ký vừa được main process ghi thêm */
       await refreshStoreProjects()
+      const target = updated ?? project
+      await loadTree(target)
       setAddPageOpen(false)
-      showToast('ok', `Đã thêm trang ${page.route}.`)
+      const created = updated?.meta.pages.find(
+        (item) => item.route === page.route && item.title === page.title,
+      )
+      showToast(
+        'ok',
+        created?.filePath
+          ? `Đã thêm trang ${page.route} và tạo tệp ${created.filePath}.`
+          : `Đã thêm trang ${page.route}.`,
+      )
     } catch (error) {
       showToast('err', `Không thêm được trang: ${errorMessage(error)}`)
+    } finally {
+      setPageBusy(false)
     }
   }
 
-  const removePage = async (pageId: string) => {
+  const removePage = async (
+    page: ProjectPage,
+    options?: { deleteFile?: boolean },
+  ) => {
     if (!project) return
+    setPageBusy(true)
     try {
-      const updated = await api.projects.removePage(project.id, pageId)
+      const updated = await api.projects.removePage(project.id, page.id, options)
       mergeProject(updated)
       await refreshStoreProjects()
-      showToast('ok', 'Đã xoá trang khỏi danh sách.')
+      const target = updated ?? project
+      if (options?.deleteFile && page.filePath) {
+        await loadTree(target)
+      }
+      setPageToDelete(null)
+      showToast(
+        'ok',
+        options?.deleteFile && page.filePath
+          ? `Đã xoá trang ${page.route} và chuyển tệp ${page.filePath} vào Thùng rác.`
+          : `Đã xoá trang ${page.route} khỏi danh sách.`,
+      )
     } catch (error) {
       showToast('err', `Không xoá được trang: ${errorMessage(error)}`)
+    } finally {
+      setPageBusy(false)
+    }
+  }
+
+  const duplicatePage = async (
+    page: ProjectPage,
+    payload: { route: string; title: string; copyFile?: boolean },
+  ) => {
+    if (!project) return
+    setPageBusy(true)
+    try {
+      const updated = await api.projects.duplicatePage(project.id, page.id, payload)
+      mergeProject(updated)
+      await refreshStoreProjects()
+      const target = updated ?? project
+      if (payload.copyFile) {
+        await loadTree(target)
+      }
+      setPageToDuplicate(null)
+      const created = updated?.meta.pages.find((item) => item.route === payload.route)
+      showToast(
+        'ok',
+        created?.filePath
+          ? `Đã nhân bản trang ${page.route} → ${payload.route} kèm tệp ${created.filePath}.`
+          : `Đã nhân bản trang ${page.route} → ${payload.route}.`,
+      )
+    } catch (error) {
+      showToast('err', `Không nhân bản được trang: ${errorMessage(error)}`)
+    } finally {
+      setPageBusy(false)
     }
   }
 
@@ -444,15 +507,16 @@ const App = () => {
 
   const handleDeletePage = (page: ProjectPage) => {
     if (!project) return
-    const ok = window.confirm(`Bạn có chắc muốn xoá trang "${page.title}" (${page.route}) khỏi danh sách dự án?`)
-    if (ok) {
-      void removePage(page.id)
-    }
+    setPageToDelete(page)
   }
 
   const handleEditPage = (page: ProjectPage) => {
     setPageToEdit(page)
     setAddPageOpen(true)
+  }
+
+  const handleDuplicatePage = (page: ProjectPage) => {
+    setPageToDuplicate(page)
   }
 
   const handleUrlChange = (newUrl: string, pathname: string) => {
@@ -1349,7 +1413,7 @@ const App = () => {
                 setPageToEdit(null)
                 setAddPageOpen(true)
               }}
-              onRemovePage={(pageId) => void removePage(pageId)}
+              onRemovePage={(page) => handleDeletePage(page)}
               onReveal={() => void api.fs.openPath(project.path)}
               onOpenLog={() => {
                 setView('workspace')
@@ -1419,6 +1483,7 @@ const App = () => {
               }}
               onEditPage={handleEditPage}
               onDeletePage={handleDeletePage}
+              onDuplicatePage={handleDuplicatePage}
               onOpenParamChooser={(p) => setParamChooserPage(p)}
               currentRoute={targetRoute}
               onUrlChange={handleUrlChange}
@@ -1508,13 +1573,38 @@ const App = () => {
       {addPageOpen && project && (
         <AddPageDialog
           projectName={project.name}
+          projectId={project.id}
           pageToEdit={pageToEdit}
           existingPages={project.meta.pages}
-          onAdd={(page) => void addPage(page)}
+          onAdd={(page, options) => void addPage(page, options)}
           onUpdate={(page) => void updatePage(page)}
           onClose={() => {
             setAddPageOpen(false)
             setPageToEdit(null)
+          }}
+        />
+      )}
+
+      {pageToDelete && project && (
+        <DeletePageDialog
+          page={pageToDelete}
+          busy={pageBusy}
+          onConfirm={(options) => void removePage(pageToDelete, options)}
+          onClose={() => {
+            if (!pageBusy) setPageToDelete(null)
+          }}
+        />
+      )}
+
+      {pageToDuplicate && project && (
+        <DuplicatePageDialog
+          projectId={project.id}
+          page={pageToDuplicate}
+          existingPages={project.meta.pages}
+          busy={pageBusy}
+          onConfirm={(payload) => void duplicatePage(pageToDuplicate, payload)}
+          onClose={() => {
+            if (!pageBusy) setPageToDuplicate(null)
           }}
         />
       )}

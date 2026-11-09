@@ -22,6 +22,7 @@ import {
   Globe,
   Hand,
   Hash,
+  Image as ImageIcon,
   Info,
   Layers,
   Maximize2,
@@ -51,6 +52,7 @@ import {
   Strikethrough as StrikethroughIcon,
 } from 'lucide-react'
 import type { ParsedError } from '../lib/errorParser'
+import { formatBytes } from '../lib/format'
 import VisualErrorCard from './VisualErrorCard'
 import DesignTokensDialog from './DesignTokensDialog'
 import MutationDiffDialog from './MutationDiffDialog'
@@ -67,6 +69,7 @@ import { onToolboxInsert, takePendingToolboxInsert, toolboxDrag } from '../lib/t
 import type { ToolboxDragItem } from '../lib/toolboxBridge'
 import { PencilFillIcon } from './PanelIcons'
 import MultiPageCanvas from './MultiPageCanvas'
+import type { ReferenceAsset } from './WorkspaceSidebar'
 import AISidecar from './AISidecar'
 import type { AiSelectedElement } from '../lib/aiMock'
 
@@ -238,6 +241,12 @@ interface CanvasAreaProps {
   onSelectionChange?: (selection: AiSelectedElement | null) => void
   /** Tăng giá trị này để buộc iframe tải lại sau khi AI áp dụng thay đổi. */
   reloadToken?: number
+  /** Ảnh mẫu đang chọn từ tab Assets (để xem trong chế độ Ảnh mẫu). */
+  referenceAsset?: ReferenceAsset | null
+  /** Bỏ ảnh mẫu đang chọn. */
+  onClearReference?: () => void
+  /** Mở tab Assets khi chưa có ảnh mẫu nào được chọn. */
+  onOpenAssets?: () => void
 }
 
 const COLOR_SWATCHES = [
@@ -286,6 +295,9 @@ const CanvasArea = ({
   onOpenAIPanel,
   onSelectionChange,
   reloadToken = 0,
+  referenceAsset = null,
+  onClearReference,
+  onOpenAssets,
 }: CanvasAreaProps) => {
 
   const [currentLiveUrl, setCurrentLiveUrl] = useState<string | null>(url ?? null)
@@ -395,6 +407,83 @@ const CanvasArea = ({
   const [isPageFlowOpen, setIsPageFlowOpen] = useState(false)
   const [projectTokens, setProjectTokens] = useState<DesignTokens | null>(null)
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false)
+
+  // ─── CHẾ ĐỘ XEM ẢNH MẪU (REFERENCE VIEW) ───
+  const [showReference, setShowReference] = useState(false)
+  const [referenceZoom, setReferenceZoom] = useState(100)
+  const [referencePan, setReferencePan] = useState({ x: 0, y: 0 })
+  const [referenceSize, setReferenceSize] = useState<{ w: number; h: number } | null>(null)
+  const [isReferenceDragging, setIsReferenceDragging] = useState(false)
+  const referenceCanvasRef = useRef<HTMLDivElement>(null)
+  const referenceDragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
+
+  useEffect(() => {
+    if (!referenceAsset) {
+      setShowReference(false)
+      return
+    }
+    setShowReference(true)
+    setReferenceSize(null)
+    setReferenceZoom(100)
+    setReferencePan({ x: 0, y: 0 })
+  }, [referenceAsset])
+
+  useEffect(() => {
+    if (!showReference) return
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowReference(false)
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [showReference])
+
+  const fitReference = (size = referenceSize) => {
+    const container = referenceCanvasRef.current
+    if (!size || !container) {
+      setReferenceZoom(100)
+      setReferencePan({ x: 0, y: 0 })
+      return
+    }
+    const padding = 48
+    const scale = Math.min(
+      (container.clientWidth - padding) / size.w,
+      (container.clientHeight - padding) / size.h,
+      1,
+    )
+    setReferenceZoom(Math.max(10, Math.round(scale * 100)))
+    setReferencePan({ x: 0, y: 0 })
+  }
+
+  const handleReferenceWheel = (e: React.WheelEvent) => {
+    e.stopPropagation()
+    setReferenceZoom((z) => Math.min(400, Math.max(10, z + (e.deltaY < 0 ? 10 : -10))))
+  }
+
+  const handleReferenceMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    referenceDragRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      panX: referencePan.x,
+      panY: referencePan.y,
+    }
+    setIsReferenceDragging(true)
+  }
+
+  const handleReferenceMouseMove = (e: React.MouseEvent) => {
+    const start = referenceDragRef.current
+    if (!start) return
+    setReferencePan({
+      x: start.panX + (e.clientX - start.x),
+      y: start.panY + (e.clientY - start.y),
+    })
+  }
+
+  const endReferenceDrag = () => {
+    referenceDragRef.current = null
+    setIsReferenceDragging(false)
+  }
 
   const safeCanvasUrl = useMemo(() => {
     if (!url) return ''
@@ -2854,6 +2943,106 @@ const CanvasArea = ({
 
   const modifiedCount = Object.keys(modifiedStyles).length + (selectedEl && originalStyles && selectedEl.textSnippet !== originalStyles.text ? 1 : 0)
 
+  const renderReferenceView = () => {
+    if (!referenceAsset) return null
+    return (
+      <div
+        className="canvas__reference-view"
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="canvas__reference-bar">
+          <span className="canvas__reference-name" title={referenceAsset.path}>
+            <ImageIcon size={12} /> {referenceAsset.name}
+          </span>
+          <span className="canvas__reference-meta">
+            {referenceSize ? `${referenceSize.w} × ${referenceSize.h}` : 'Đang đọc ảnh…'}
+            {referenceAsset.size > 0 ? ` · ${formatBytes(referenceAsset.size)}` : ''}
+          </span>
+          <span className="canvas__tools-spacer" />
+          <button
+            className="canvas__tool-btn"
+            title="Thu nhỏ ảnh mẫu"
+            onClick={() => setReferenceZoom((z) => Math.max(10, z - 10))}
+          >
+            <ZoomOut size={13} />
+          </button>
+          <span className="canvas__zoom-badge">{referenceZoom}%</span>
+          <button
+            className="canvas__tool-btn"
+            title="Phóng to ảnh mẫu"
+            onClick={() => setReferenceZoom((z) => Math.min(400, z + 10))}
+          >
+            <ZoomIn size={13} />
+          </button>
+          <button
+            className="canvas__tool-btn"
+            title="Kích thước gốc 1:1"
+            style={{ fontSize: 10, fontWeight: 700, width: 'auto', padding: '0 5px' }}
+            onClick={() => {
+              setReferenceZoom(100)
+              setReferencePan({ x: 0, y: 0 })
+            }}
+          >
+            1:1
+          </button>
+          <button
+            className="canvas__tool-btn"
+            title="Vừa khung nhìn"
+            onClick={() => fitReference()}
+          >
+            <Maximize2 size={13} />
+          </button>
+          <button
+            className="canvas__tool-btn"
+            title="Quay lại giao diện Live (Esc)"
+            onClick={() => setShowReference(false)}
+          >
+            <Monitor size={13} />
+          </button>
+          <button
+            className="canvas__tool-btn canvas__tool-btn--danger"
+            title="Bỏ ảnh mẫu"
+            onClick={() => {
+              setShowReference(false)
+              onClearReference?.()
+            }}
+          >
+            <X size={13} />
+          </button>
+        </div>
+
+        <div
+          ref={referenceCanvasRef}
+          className={`canvas__reference-canvas ${isReferenceDragging ? 'is-dragging' : ''}`}
+          onWheel={handleReferenceWheel}
+          onMouseDown={handleReferenceMouseDown}
+          onMouseMove={handleReferenceMouseMove}
+          onMouseUp={endReferenceDrag}
+          onMouseLeave={endReferenceDrag}
+        >
+          <img
+            src={referenceAsset.dataUrl}
+            alt={referenceAsset.name}
+            className="canvas__reference-img"
+            draggable={false}
+            style={{
+              transform: `translate(${referencePan.x}px, ${referencePan.y}px) scale(${referenceZoom / 100})`,
+            }}
+            onLoad={(event) => {
+              const size = {
+                w: event.currentTarget.naturalWidth,
+                h: event.currentTarget.naturalHeight,
+              }
+              setReferenceSize(size)
+              fitReference(size)
+            }}
+          />
+        </div>
+      </div>
+    )
+  }
+
   const renderFrameContent = () => (
     <>
 
@@ -3483,6 +3672,30 @@ const CanvasArea = ({
           {/* Nhóm 3: Tiện ích Tokens & Tải lại */}
           <div className="canvas__seg">
             <button
+              className={`canvas__tool-btn ${showReference ? 'active' : ''}`}
+              style={{ width: 'auto', padding: '0 8px', gap: 4, display: 'inline-flex' }}
+              title={
+                referenceAsset
+                  ? showReference
+                    ? 'Quay lại giao diện Live'
+                    : `Xem ảnh mẫu: ${referenceAsset.name}`
+                  : 'Chọn ảnh mẫu trong tab Assets'
+              }
+              onClick={() => {
+                if (!referenceAsset) {
+                  onOpenAssets?.()
+                  return
+                }
+                setShowReference((open) => !open)
+              }}
+            >
+              <ImageIcon
+                size={13}
+                style={{ color: referenceAsset ? 'var(--accent, #6d5df5)' : undefined }}
+              />
+              <span style={{ fontSize: 11, fontWeight: 600 }}>Ảnh mẫu</span>
+            </button>
+            <button
               className="canvas__tool-btn"
               style={{ width: 'auto', padding: '0 8px', gap: 4, display: 'inline-flex' }}
               title="Hệ thống thiết kế (Design Tokens & Theme Manager)"
@@ -3652,6 +3865,9 @@ const CanvasArea = ({
               </div>
             </div>
           )}
+
+          {/* Lớp xem ảnh mẫu phủ kín stage nhưng KHÔNG unmount iframe Live bên dưới. */}
+          {showReference && referenceAsset && renderReferenceView()}
 
           {isInspectMode && multiSelection.length > 1 && (
             <div

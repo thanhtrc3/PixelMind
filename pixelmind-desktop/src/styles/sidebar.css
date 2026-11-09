@@ -13,6 +13,10 @@
   position: relative;
 }
 
+.pm-ws-sidebar:focus {
+  outline: none;
+}
+
 /* ── Activity Bar (Thanh icon bên lề trái) ── */
 .pm-ws-activity-bar {
   width: 44px;
@@ -462,6 +466,97 @@
   color: var(--text-3);
 }
 
+.pm-asset-toolbar {
+  display: flex;
+  margin-bottom: 8px;
+}
+
+.pm-asset-add {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px dashed var(--line-2, var(--line));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.pm-asset-add:hover {
+  border-color: var(--accent-line, var(--accent));
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.pm-asset-delete {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.pm-asset-card:hover .pm-asset-delete,
+.pm-asset-delete:focus-visible {
+  opacity: 1;
+}
+
+.pm-asset-delete:hover {
+  background: #ef4444;
+}
+
+.pm-asset-card.active {
+  border-color: var(--accent-line, var(--accent));
+  box-shadow: 0 0 0 1px var(--accent-line, var(--accent));
+  background: var(--panel-3);
+}
+
+.pm-asset-check {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.pm-asset-active-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-line, var(--accent));
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
 /* ══════════════════════════════════════════════════════════════
    4. VERSIONS TAB (Lịch sử & Checkpoints)
    ══════════════════════════════════════════════════════════════ */
@@ -625,4 +720,65 @@
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-2);
 }
+
+/* ── File Tree Context Menu (Phong cách IDE / VS Code) ── */
+.pm-file-context-menu {
+  position: fixed;
+  z-index: 99999;
+  min-width: 220px;
+  background: var(--panel, #0f172a);
+  border: 1px solid var(--line, #334155);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  padding: 5px;
+  backdrop-filter: blur(12px);
+  user-select: none;
+  animation: pm-menu-fade-in 110ms ease-out;
+}
+
+.pm-file-context-menu__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text, #f8fafc);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+
+.pm-file-context-menu__item:hover {
+  background: color-mix(in srgb, var(--accent, #6d5df5) 20%, transparent);
+  color: #ffffff;
+}
+
+.pm-file-context-menu__item--danger {
+  color: #f87171;
+}
+
+.pm-file-context-menu__item--danger:hover {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+.pm-file-context-menu__divider {
+  height: 1px;
+  background: var(--line, #334155);
+  margin: 4px 0;
+}
+
+.pm-file-context-menu__shortcut {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-3, #94a3b8);
+  font-family: var(--font-mono, monospace);
+  padding-left: 12px;
+}
+
 

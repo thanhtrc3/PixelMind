@@ -107,6 +107,21 @@ export interface ProjectPage {
   navLinkSelector?: string
   /** Danh sách tham số mẫu / ID mẫu cho các trang chi tiết/động (ví dụ: ['1', '2', '3']) */
   sampleParams?: string[]
+  /** Đường dẫn tệp route thật, tương đối so với thư mục dự án (dùng '/' phân cách). */
+  filePath?: string
+}
+
+/** Kết quả dò tệp route sẽ tạo cho một trang. */
+export interface PageFilePreview {
+  supported: boolean
+  /** Nhãn framework hiển thị cho người dùng, ví dụ "Next.js App Router". */
+  label: string
+  /** Đường dẫn tương đối trong dự án (dùng '/' phân cách). */
+  relativePath: string
+  /** Tệp đã tồn tại trên đĩa hay chưa. */
+  exists: boolean
+  /** Lý do không hỗ trợ hoặc không thể tạo tệp. */
+  reason?: string
 }
 
 export type VersionStatus = 'ok' | 'review' | 'error'

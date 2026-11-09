@@ -7,6 +7,7 @@ import type {
   ProjectPage,
   ProjectRecord,
   ProjectStat,
+  PageFilePreview,
   RunLog,
   RunState,
   Settings,
@@ -40,9 +41,24 @@ export interface PixelMindApi {
     remove(id: string): Promise<ProjectRecord[]>
     favorite(id: string): Promise<ProjectRecord[]>
     refresh(id: string): Promise<ProjectRecord | null>
-    addPage(projectId: string, page: Omit<ProjectPage, 'id'>): Promise<ProjectRecord | null>
+    addPage(
+      projectId: string,
+      page: Omit<ProjectPage, 'id'>,
+      options?: { createFile?: boolean },
+    ): Promise<ProjectRecord | null>
     updatePage(projectId: string, page: ProjectPage): Promise<ProjectRecord | null>
-    removePage(projectId: string, pageId: string): Promise<ProjectRecord | null>
+    removePage(
+      projectId: string,
+      pageId: string,
+      options?: { deleteFile?: boolean },
+    ): Promise<ProjectRecord | null>
+    duplicatePage(
+      projectId: string,
+      pageId: string,
+      payload: { route: string; title: string; copyFile?: boolean },
+    ): Promise<ProjectRecord | null>
+    /** Dò xem route sẽ tạo tệp ở đâu, có hỗ trợ không và có trùng tệp không. */
+    pageFilePreview(projectId: string, route: string): Promise<PageFilePreview>
     diagnose(idOrPath: string): Promise<ProjectDiagnosis>
     gitInit(projectId: string): Promise<boolean>
     createIndexHtml(projectId: string): Promise<boolean>
@@ -59,6 +75,25 @@ export interface PixelMindApi {
     openPath(path: string): Promise<string | null>
     exists(path: string): Promise<boolean>
     special(kind: 'userData' | 'home' | 'documents' | 'desktop'): Promise<string>
+    createFile(path: string, initialContent?: string): Promise<boolean>
+    createDir(path: string): Promise<boolean>
+    rename(oldPath: string, newPath: string): Promise<boolean>
+    trash(path: string): Promise<boolean>
+  }
+  assets: {
+    /** Mở hộp thoại chọn ảnh và copy vào thư mục assets/ của dự án. */
+    add(projectPath: string): Promise<{
+      canceled: boolean
+      added: Array<{ source: string; destination: string; copied: boolean }>
+      error?: string
+    }>
+    /** Chuyển một tệp ảnh vào Thùng rác, giữ bản sao lưu để hoàn tác. */
+    remove(path: string): Promise<{ success: boolean; backupPath?: string; error?: string }>
+    /** Khôi phục tệp từ bản sao lưu về đường dẫn cũ (dùng cho Undo/Redo). */
+    restore(
+      backupPath: string,
+      destination: string,
+    ): Promise<{ success: boolean; path?: string; error?: string }>
   }
   run: {
     start(projectId: string, script: string): Promise<RunState>
