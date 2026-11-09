@@ -100,6 +100,29 @@ interface WorkspaceViewProps {
   onToggleAIPanel?: () => void
   onOpenDesign?: () => void
   onOpenTheme?: () => void
+  canvasReloadToken?: number
+  onAIApplied?: () => void
+}
+
+const DEFAULT_AI_PANEL_WIDTH = 400
+
+/** Đọc độ rộng Trợ lý AI đã lưu; không dùng state để tránh re-render khi đang kéo. */
+const savedAiPanelWidth = (): number => {
+  try {
+    const saved = Number(window.localStorage.getItem('pm.aiPanelSize'))
+    if (Number.isFinite(saved) && saved >= 220 && saved <= 860) return saved
+  } catch {}
+  return DEFAULT_AI_PANEL_WIDTH
+}
+
+/** Lưu độ rộng panel kế bên thanh kéo (không gây re-render). */
+const rememberAiPanelWidth = (panel: Element | null | undefined): void => {
+  if (!panel) return
+  const width = Math.round(panel.getBoundingClientRect().width)
+  if (width < 180) return
+  try {
+    window.localStorage.setItem('pm.aiPanelSize', String(width))
+  } catch {}
 }
 
 const WorkspaceView = ({
@@ -165,6 +188,8 @@ const WorkspaceView = ({
   onToggleAIPanel,
   onOpenDesign,
   onOpenTheme,
+  canvasReloadToken = 0,
+  onAIApplied,
 }: WorkspaceViewProps) => {
   const parsedError = useMemo(() => parseRunError(logs, run), [logs, run])
   /* App có thể đã nắn chỉnh route ASP.NET Core; ưu tiên URL đó. */
@@ -312,7 +337,7 @@ const WorkspaceView = ({
         {!focusCanvas && (
           isSidebarOpen ? (
             <>
-              <Panel defaultSize="320px" minSize="260px" maxSize="520px" collapsible>
+              <Panel defaultSize="320px" minSize="220px" maxSize="520px" collapsible>
                 <WorkspaceSidebar
                   project={project}
                   tree={tree}
@@ -430,7 +455,7 @@ const WorkspaceView = ({
         )}
 
         {/* ── Nội dung chính ── */}
-        <Panel minSize="34%">
+        <Panel minSize="15%">
           <div className="pm-panel">
             {/* Thanh Tabs */}
             <div className="pm-tabs">
@@ -515,6 +540,7 @@ const WorkspaceView = ({
                       onOpenPage={onOpenPage}
                       onOpenAIPanel={onToggleAIPanel}
                       onSelectionChange={setAiSelection}
+                      reloadToken={canvasReloadToken}
                     />
                   ) : (
                     <FileViewer
@@ -581,8 +607,8 @@ const WorkspaceView = ({
           </div>
         </Panel>
 
-        {/* ── RunSidebar (Ẩn khi ở chế độ Focus Canvas hoặc khi đóng Right Panel) ── */}
-        {!focusCanvas && isRightPanelOpen && (
+        {/* ── RunSidebar (ẩn khi AI mở để nhường cột phải cho Trợ lý AI) ── */}
+        {!focusCanvas && isRightPanelOpen && !aiPanelOpen && (
           <>
             <Separator className="pm-resize" />
             <Panel defaultSize="300px" minSize="264px" maxSize="460px" collapsible>
@@ -615,19 +641,59 @@ const WorkspaceView = ({
             </Panel>
           </>
         )}
-      </Group>
 
-      {aiPanelOpen && onToggleAIPanel && onShowToast && (
-        <AIPanel
-          open={aiPanelOpen}
-          onClose={onToggleAIPanel}
-          projectName={project.name}
-          selected={aiSelection}
-          onOpenDesign={() => onOpenDesign?.()}
-          onOpenTheme={() => onOpenTheme?.()}
-          onShowToast={onShowToast}
-        />
-      )}
+        {/* ── Trợ lý AI: dock thật vào layout, không đè lên nội dung ── */}
+        {!focusCanvas && aiPanelOpen && onToggleAIPanel && onShowToast && (
+          <>
+            <Separator
+              className="pm-resize pm-resize-ai"
+              title="Kéo để thay đổi độ rộng Trợ lý AI"
+              onPointerUp={(event) =>
+                rememberAiPanelWidth(event.currentTarget.nextElementSibling)
+              }
+              onKeyUp={(event) => {
+                if (event.key.startsWith('Arrow')) {
+                  rememberAiPanelWidth(event.currentTarget.nextElementSibling)
+                }
+              }}
+            />
+            <Panel
+              defaultSize={`${savedAiPanelWidth()}px`}
+              minSize="220px"
+              maxSize="860px"
+            >
+              <AIPanel
+                open={aiPanelOpen}
+                onClose={onToggleAIPanel}
+                projectId={project.id}
+                projectPath={project.path}
+                projectName={project.name}
+                route={currentRoute}
+                selected={aiSelection}
+                errorLog={
+                  parsedError
+                    ? [
+                        parsedError.title,
+                        parsedError.summary,
+                        parsedError.file
+                          ? `${parsedError.file}${parsedError.line ? `:${parsedError.line}` : ''}`
+                          : '',
+                        parsedError.recommendation,
+                      ]
+                        .filter(Boolean)
+                        .join('\n')
+                    : ''
+                }
+                onOpenDesign={() => onOpenDesign?.()}
+                onOpenTheme={() => onOpenTheme?.()}
+                onOpenSettings={onSettings}
+                onApplied={onAIApplied}
+                onShowToast={onShowToast}
+              />
+            </Panel>
+          </>
+        )}
+      </Group>
     </div>
   )
 }

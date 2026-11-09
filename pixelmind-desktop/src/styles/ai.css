@@ -1,33 +1,69 @@
 /* ═══════════════════════════════════════════════════════════════
-   TRỢ LÝ AI — giao diện mô phỏng (chưa kết nối backend AI)
+   TRỢ LÝ AI — panel dock phải, chat/diff/ngữ cảnh nối backend thật
    ═══════════════════════════════════════════════════════════════ */
 
 .pm-workspace {
   position: relative;
+  min-width: 0;
 }
 
-/* ── Bảng điều khiển AI (dock phải, overlay) ─────────────────── */
+/* ── Bảng điều khiển AI (dock phải, nằm trong layout) ─────────── */
 .pm-ai-panel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 400px;
-  max-width: 100%;
-  z-index: 60;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  z-index: 1;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: var(--panel);
   border-left: 1px solid var(--line-2);
-  box-shadow: -18px 0 48px rgba(0, 0, 0, 0.45);
-  animation: pm-ai-slide 200ms var(--ease-out);
 }
 
-@keyframes pm-ai-slide {
-  from {
-    transform: translateX(16px);
-    opacity: 0;
-  }
+/* Tay kéo rộng/thu hẹp Trợ lý AI */
+.pm-resize.pm-resize-ai {
+  width: 5px !important;
+  background: var(--line);
+  position: relative !important;
+  cursor: col-resize !important;
+  z-index: 20 !important;
+  user-select: none !important;
+  touch-action: none !important;
+}
+.pm-resize.pm-resize-ai::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+  z-index: 21;
+  cursor: col-resize;
+}
+.pm-resize-ai::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 38px;
+  transform: translate(-50%, -50%);
+  border-radius: 2px;
+  background: var(--text-3);
+  opacity: 0.45;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.pm-resize-ai:hover::before,
+.pm-resize-ai[data-separator="active"]::before,
+.pm-resize-ai[data-resize-handle-active]::before {
+  opacity: 1;
+  background: #fff;
+}
+.pm-resize.pm-resize-ai:hover,
+.pm-resize.pm-resize-ai[data-separator="active"] {
+  background: var(--accent, #6d5df5) !important;
 }
 
 .pm-ai-panel__hd {
@@ -251,6 +287,28 @@
 .pm-ai-preview-note svg {
   color: var(--ok, #31c07a);
   flex: none;
+}
+.pm-ai-preview-note.is-ok {
+  color: var(--text-2);
+}
+.pm-ai-preview-note.is-ok svg {
+  color: var(--ok, #31c07a);
+}
+.pm-ai-context-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--warn, #e2b13c);
+  background: rgba(226, 177, 60, 0.08);
+  border: 1px solid rgba(226, 177, 60, 0.18);
+}
+.pm-ai-context-note svg {
+  flex: none;
+  margin-top: 1px;
 }
 
 .pm-ai-panel__body {
@@ -487,6 +545,11 @@
 .pm-ai-status.is-failed {
   color: var(--err, #ff9d8b);
   background: rgba(240, 85, 63, 0.13);
+}
+.pm-ai-status.is-undone {
+  color: var(--text-3);
+  background: var(--panel-3);
+  text-decoration: line-through;
 }
 .pm-ai-status.is-running {
   color: var(--accent-text);
@@ -1843,9 +1906,6 @@
 }
 
 @media (max-width: 900px) {
-  .pm-ai-panel {
-    width: min(400px, 100%);
-  }
   .pm-ai-design__side,
   .pm-ai-theme__side {
     width: 264px;

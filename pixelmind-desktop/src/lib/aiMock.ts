@@ -3,6 +3,8 @@
 export type AiBridgeKind = 'api' | 'ide' | 'cli' | 'ollama'
 export type AiChangeStatus = 'pending' | 'accepted' | 'rejected'
 export type AiStepStatus = 'done' | 'running' | 'pending' | 'failed'
+import type { AiSelection } from '@shared/ai'
+
 export type AiMessageRole = 'user' | 'assistant' | 'system'
 export type AiTab = 'chat' | 'tasks' | 'changes' | 'context' | 'errors'
 
@@ -94,14 +96,7 @@ export interface AiDesignSection {
 }
 
 /** Phần tử đang được chọn trên canvas, dùng cho ngữ cảnh và sidecar. */
-export interface AiSelectedElement {
-  tag: string
-  id?: string
-  className?: string
-  text?: string
-  filePath?: string
-  lineNumber?: number
-}
+export type AiSelectedElement = AiSelection
 
 export const AI_BRIDGES: AiBridgeProfile[] = [
   { id: 'api', name: 'API Bridge', detail: 'OpenAI · GPT-4o', status: 'online', model: 'gpt-4o' },

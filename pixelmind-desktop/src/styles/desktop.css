@@ -539,8 +539,10 @@
   z-index: 10;
 }
 .pm-resize:hover,
+.pm-resize[data-separator='active'],
 .pm-resize[data-resize-handle-active],
 .pm-resize-vertical:hover,
+.pm-resize-vertical[data-separator='active'],
 .pm-resize-vertical[data-resize-handle-active] {
   background: var(--accent);
 }
@@ -598,8 +600,14 @@
 }
 
 body:has([data-separator='active']) iframe,
-.pm-workspace:has([data-separator='active']) iframe {
+body:has([data-separator='active']) webview,
+.pm-workspace:has([data-separator='active']) iframe,
+.pm-workspace:has([data-separator='active']) webview {
   pointer-events: none !important;
+}
+
+body:has([data-separator='active']) * {
+  user-select: none !important;
 }
 
 /* Panel của react-resizable-panels bọc nội dung trong một div trung gian:

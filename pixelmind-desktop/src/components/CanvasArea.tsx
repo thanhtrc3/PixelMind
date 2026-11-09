@@ -236,6 +236,8 @@ interface CanvasAreaProps {
   onOpenAIPanel?: () => void
   /** Báo phần tử đang chọn ra ngoài (để panel AI dùng làm ngữ cảnh). */
   onSelectionChange?: (selection: AiSelectedElement | null) => void
+  /** Tăng giá trị này để buộc iframe tải lại sau khi AI áp dụng thay đổi. */
+  reloadToken?: number
 }
 
 const COLOR_SWATCHES = [
@@ -283,6 +285,7 @@ const CanvasArea = ({
   onOpenPage,
   onOpenAIPanel,
   onSelectionChange,
+  reloadToken = 0,
 }: CanvasAreaProps) => {
 
   const [currentLiveUrl, setCurrentLiveUrl] = useState<string | null>(url ?? null)
@@ -314,6 +317,14 @@ const CanvasArea = ({
   // Lần load đầu tiên của iframe không phải là reload. Các lần sau (hot-reload,
   // bấm Thử lại, điều hướng cứng) đều làm uid cũ mất hiệu lực.
   const iframeLoadedOnceRef = useRef(false)
+
+  // Buộc iframe tải lại khi AI vừa áp dụng thay đổi mã nguồn.
+  const reloadSeenRef = useRef(reloadToken)
+  useEffect(() => {
+    if (reloadSeenRef.current === reloadToken) return
+    reloadSeenRef.current = reloadToken
+    setIframeKey((key) => key + 1)
+  }, [reloadToken])
 
   // ─── STATE SOI PHẦN TỬ THẬT (VISUAL INSPECTOR) ───
   const [isInspectMode, setIsInspectMode] = useState(false)
@@ -547,6 +558,9 @@ const CanvasArea = ({
       id: selectedEl.id || undefined,
       className: selectedEl.className || undefined,
       text: selectedEl.textSnippet || undefined,
+      outerHTML: selectedEl.outerHTML,
+      computedStyles: selectedEl.computedStyles as unknown as Record<string, string>,
+      selector: selectedEl.selector,
       filePath: sourceLoc?.fullPath || sourceLoc?.filePath,
       lineNumber: sourceLoc?.lineNumber,
     })

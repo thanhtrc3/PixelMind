@@ -22,6 +22,13 @@ import type {
   ToolboxWritePayload,
   ToolboxWriteResult,
 } from '../../shared/toolbox'
+import type {
+  AiChatEvent,
+  AiChatStartRequest,
+  AiContextRequest,
+  AiProposeChangeRequest,
+  AiToolCallRequest,
+} from '../../shared/ai'
 
 /* Cß║ºu nß╗æi duy nhß║Ñt giß╗»a renderer v├á main process. Renderer kh├┤ng c├│ quyß╗ün Node. */
 
@@ -157,6 +164,38 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('toolbox:write-file', payload),
     scan: (projectPath: string): Promise<ProjectScanResult> =>
       ipcRenderer.invoke('toolbox:scan', projectPath),
+  },
+  ai: {
+    status: (projectPath?: string) => ipcRenderer.invoke('ai:status', projectPath),
+    models: (projectPath?: string) => ipcRenderer.invoke('ai:models', projectPath),
+    test: (projectPath?: string) => ipcRenderer.invoke('ai:test', projectPath),
+    chat: (request: AiChatStartRequest) => ipcRenderer.invoke('ai:chat:start', request),
+    cancel: (id: string) => ipcRenderer.invoke('ai:cancel', id),
+    onChatEvent: (cb: (event: AiChatEvent) => void) => {
+      const listener = (_e: IpcRendererEvent, event: AiChatEvent) => cb(event)
+      ipcRenderer.on('ai:chat:event', listener)
+      return () => ipcRenderer.removeListener('ai:chat:event', listener)
+    },
+    chats: {
+      history: (projectId: string) => ipcRenderer.invoke('ai:chats:history', projectId),
+      clear: (projectId: string) => ipcRenderer.invoke('ai:chats:clear', projectId),
+    },
+    context: (request: AiContextRequest) => ipcRenderer.invoke('ai:context', request),
+    changes: {
+      list: (projectId: string) => ipcRenderer.invoke('ai:changes:list', projectId),
+      propose: (request: AiProposeChangeRequest) => ipcRenderer.invoke('ai:changes:propose', request),
+      accept: (projectId: string, changeId: string) =>
+        ipcRenderer.invoke('ai:changes:accept', projectId, changeId),
+      reject: (projectId: string, changeId: string) =>
+        ipcRenderer.invoke('ai:changes:reject', projectId, changeId),
+      undo: (projectId: string, changeId: string) =>
+        ipcRenderer.invoke('ai:changes:undo', projectId, changeId),
+    },
+    tools: {
+      list: () => ipcRenderer.invoke('ai:tools:list'),
+      run: (request: AiToolCallRequest) => ipcRenderer.invoke('ai:tools:run', request),
+      logs: (projectId?: string) => ipcRenderer.invoke('ai:tools:logs', projectId),
+    },
   },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),

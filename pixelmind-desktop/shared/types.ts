@@ -27,6 +27,13 @@ export interface Settings {
   clearConsoleOnRun?: boolean // Tự động xóa console khi chạy lại
   maxLogLines?: number // Giới hạn dòng log RAM (500, 1000, 2000, 5000)
   preferredPort?: number // Cổng dev mặc định ưu tiên (0 = tự động)
+
+  // Cấu hình AI (không chứa khoá bí mật — khoá chỉ đọc từ biến môi trường/.env ở main process)
+  aiProvider?: 'openai' | 'ollama'
+  aiBaseUrl?: string
+  aiModel?: string
+  aiTemperature?: number
+  aiMaxTokens?: number
 }
 
 export interface ScriptEntry {
@@ -287,4 +294,9 @@ export const DEFAULT_SETTINGS: Settings = {
   clearConsoleOnRun: true,
   maxLogLines: 1000,
   preferredPort: 0,
+  aiProvider: 'openai',
+  aiBaseUrl: 'https://api.openai.com/v1',
+  aiModel: 'gpt-4o-mini',
+  aiTemperature: 0.2,
+  aiMaxTokens: 2048,
 }

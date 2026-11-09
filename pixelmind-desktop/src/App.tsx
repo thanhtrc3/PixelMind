@@ -114,6 +114,7 @@ const App = () => {
   const [dialog, setDialog] = useState<DialogId | null>(null)
   const [diagnosisOpen, setDiagnosisOpen] = useState(false)
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
+  const [canvasReloadToken, setCanvasReloadToken] = useState(0)
   const [designOpen, setDesignOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [installing, setInstalling] = useState(false)
@@ -1427,6 +1428,11 @@ const App = () => {
               onToggleAIPanel={() => setAiPanelOpen((v) => !v)}
               onOpenDesign={() => setDesignOpen(true)}
               onOpenTheme={() => setThemeOpen(true)}
+              canvasReloadToken={canvasReloadToken}
+              onAIApplied={() => {
+                setCanvasReloadToken((value) => value + 1)
+                void refreshProject()
+              }}
             />
           )}
         </main>
@@ -1448,6 +1454,7 @@ const App = () => {
           storePath={storePath}
           projectCount={storeData.projects.length}
           isDesktop={isDesktop}
+          projectPath={project?.path}
           onUpdate={(patch) => void updateSettings(patch)}
           onResetSettings={resetSettingsOnly}
           onResetAllData={() => {
