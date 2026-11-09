@@ -27,12 +27,33 @@ import {
 } from './projects'
 import { RunnerManager } from './runner'
 import { runToolboxMutation, scanProjectToolbox, writeToolboxFile } from './toolbox'
-import { cancelChat, clearChatHistory, getChatHistory, getStatus, listModels, startChat, testConnection } from './ai'
+import {
+  cancelChat,
+  clearChatHistory,
+  getChatHistory,
+  getStatus,
+  listModels,
+  startChat,
+  completeAi,
+  testConnection,
+  getActiveBridge,
+  setActiveBridge,
+  listBridges,
+  pingBridge,
+  killSwitch,
+  saveApiKey,
+} from './ai'
+import { listAuditLogs, clearAuditLogs } from './aiAudit'
+import { getCostStats, setTokenBudget, resetCostStats } from './aiCost'
+import { runCliAgent, stopCliAgent, detectInstalledClis } from './cliBridge'
+import { ideWsBridge } from './ideWsBridge'
 import { buildContextPack } from './aiContext'
 import { acceptChange, listChanges, proposeChange, rejectChange, undoChange } from './aiApply'
 import { listToolLogs, runTool, TOOL_SCHEMAS } from './aiTools'
 import type {
+  AiBridgeKind,
   AiChatStartRequest,
+  AiCliRunRequest,
   AiContextRequest,
   AiProposeChangeRequest,
   AiToolCallRequest,
@@ -2586,6 +2607,14 @@ ipcMain.handle('ai:chat:start', async (event, request: AiChatStartRequest) => {
   })
 })
 
+ipcMain.handle(
+  'ai:complete',
+  async (
+    _e,
+    payload: { prompt: string; system?: string; projectPath?: string },
+  ) => completeAi(payload.prompt, payload.system, payload.projectPath),
+)
+
 ipcMain.handle('ai:cancel', async (_e, id: string) => cancelChat(id))
 
 ipcMain.handle('ai:chats:history', async (_e, projectId: string) => getChatHistory(projectId))
@@ -2619,6 +2648,53 @@ ipcMain.handle('ai:tools:list', async () => TOOL_SCHEMAS)
 ipcMain.handle('ai:tools:run', async (_e, request: AiToolCallRequest) => runTool(request))
 
 ipcMain.handle('ai:tools:logs', async (_e, projectId?: string) => listToolLogs(projectId))
+
+/* ── Chặng 5: Agent / Anti Gravity Bridge & Kill-Switch ── */
+ipcMain.handle('ai:kill-switch', async () => killSwitch())
+
+ipcMain.handle('ai:bridges:getActive', async () => getActiveBridge())
+
+ipcMain.handle('ai:bridges:setActive', async (_e, kind: AiBridgeKind) => setActiveBridge(kind))
+
+ipcMain.handle('ai:bridges:list', async (_e, projectPath?: string) => listBridges(projectPath))
+
+ipcMain.handle('ai:bridges:ping', async (_e, kind: AiBridgeKind, projectPath?: string) =>
+  pingBridge(kind, projectPath),
+)
+
+ipcMain.handle('ai:audit:list', async (_e, projectId?: string) => listAuditLogs(projectId))
+
+ipcMain.handle('ai:audit:clear', async (_e, projectId?: string) => clearAuditLogs(projectId))
+
+ipcMain.handle('ai:cost:get', async (_e, projectId?: string) => getCostStats(projectId))
+
+ipcMain.handle('ai:cost:setBudget', async (_e, projectId: string, budgetTokens: number) =>
+  setTokenBudget(projectId, budgetTokens),
+)
+
+ipcMain.handle('ai:cost:reset', async (_e, projectId?: string) => resetCostStats(projectId))
+
+ipcMain.handle('ai:cli:run', async (event, request: AiCliRunRequest) => {
+  return runCliAgent(request, (cliEvent) => {
+    if (!event.sender.isDestroyed()) {
+      event.sender.send('ai:cli:event', cliEvent)
+    }
+  })
+})
+
+ipcMain.handle('ai:cli:stop', async (_e, id: string) => stopCliAgent(id))
+
+ipcMain.handle('ai:cli:detect', async () => detectInstalledClis())
+
+ipcMain.handle('ai:key:save', async (_e, key: string, provider?: string) =>
+  saveApiKey(key, provider as never),
+)
+
+ipcMain.handle('ai:ws:send', async (_e, message: unknown) => {
+  return ideWsBridge.send(message as never)
+})
+
+ipcMain.handle('ai:ws:status', async () => ideWsBridge.ping())
 
 function camelToKebabCase(str: string): string {
   return str.replace(/([a-z0-9]|(?=[A-Z]))([A-Z])/g, '$1-$2').toLowerCase()

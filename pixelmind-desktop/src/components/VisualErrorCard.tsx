@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Terminal,
   TriangleAlert,
+  Wand2,
   Zap,
 } from 'lucide-react'
 import type { ParsedError } from '../lib/errorParser'
@@ -20,6 +21,7 @@ interface VisualErrorCardProps {
   showRawLogs?: boolean
   onToggleRawLogs?: () => void
   rawLogsCount?: number
+  onAskAI?: () => void
 }
 
 const errorBadgeLabel = (type: ParsedError['type']) => {
@@ -54,6 +56,7 @@ const VisualErrorCard = ({
   showRawLogs = false,
   onToggleRawLogs,
   rawLogsCount = 0,
+  onAskAI,
 }: VisualErrorCardProps) => {
   return (
     <div className="pm-visual-error">
@@ -88,6 +91,24 @@ const VisualErrorCard = ({
         </div>
 
         <div className="pm-visual-error__actions">
+          {onAskAI && (
+            <button
+              className="btn primary sm"
+              onClick={onAskAI}
+              title="Mở Trợ lý AI phân tích và tự động sửa lỗi build này"
+              style={{
+                gap: 5,
+                background: 'linear-gradient(135deg, var(--accent, #6d5df5), #8b5cf6)',
+                border: 'none',
+                color: '#fff',
+                fontWeight: 600,
+              }}
+            >
+              <Wand2 size={12} />
+              <span>Nhờ AI sửa</span>
+            </button>
+          )}
+
           {error.actionKind === 'install' && onInstall && (
             <button className="btn primary sm" onClick={onInstall} disabled={installing}>
               {installing ? (

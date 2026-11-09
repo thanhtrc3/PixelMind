@@ -6,7 +6,7 @@ export type AiStepStatus = 'done' | 'running' | 'pending' | 'failed'
 import type { AiSelection } from '@shared/ai'
 
 export type AiMessageRole = 'user' | 'assistant' | 'system'
-export type AiTab = 'chat' | 'tasks' | 'changes' | 'context' | 'errors'
+export type AiTab = 'chat' | 'tasks' | 'changes' | 'context' | 'errors' | 'security'
 
 export interface AiBridgeProfile {
   id: AiBridgeKind

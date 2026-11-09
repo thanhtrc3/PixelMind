@@ -12,7 +12,9 @@ import {
   Maximize2,
   Minimize2,
   Boxes,
+  ExternalLink,
   Palette,
+  RefreshCw,
   X,
 } from 'lucide-react'
 import type {
@@ -34,7 +36,7 @@ import CanvasArea from './CanvasArea'
 import LogPanel from './LogPanel'
 import RunSidebar from './RunSidebar'
 import AIPanel from './AIPanel'
-import type { AiSelectedElement } from '../lib/aiMock'
+import type { AiSelectedElement, AiTab } from '../lib/aiMock'
 
 interface WorkspaceViewProps {
   project: ProjectRecord | null
@@ -199,8 +201,11 @@ const WorkspaceView = ({
   const [isLogCollapsed, setIsLogCollapsed] = useState(false)
   // Chế độ tập trung toàn màn hình Canvas (ẩn cả cây tệp và sidebar)
   const [focusCanvas, setFocusCanvas] = useState(false)
+  const [openTokensToken, setOpenTokensToken] = useState(0)
+  const [localReloadToken, setLocalReloadToken] = useState(0)
   const [isBufferDirty, setIsBufferDirty] = useState(editorBuffer.isDirty())
   const [aiSelection, setAiSelection] = useState<AiSelectedElement | null>(null)
+  const [aiInitialTab, setAiInitialTab] = useState<AiTab>('chat')
 
   // Đăng ký lắng nghe thay đổi của EditorBuffer (RAM Model chuẩn VS 2022)
   useEffect(() => {
@@ -494,25 +499,57 @@ const WorkspaceView = ({
               })}
               <span style={{ flex: 1 }} />
 
-              {/* Nút Chế độ tập trung Canvas (Toàn màn hình) */}
+              {/* Nhóm tiện ích Tokens, Tải lại, Mở ngoài & Chế độ Toàn màn hình Canvas */}
               {activeTab === 'preview' && (
-                <button
-                  className={`pm-ibtn ${focusCanvas ? 'on' : ''}`}
-                  onClick={() => setFocusCanvas((v) => !v)}
-                  title={focusCanvas ? 'Thoát chế độ tập trung (Esc)' : 'Chế độ tập trung toàn màn hình Canvas'}
-                  style={{
-                    height: 24,
-                    fontSize: 11,
-                    gap: 4,
-                    padding: '0 8px',
-                    width: 'auto',
-                    display: 'inline-flex',
-                    marginLeft: 4,
-                  }}
-                >
-                  {focusCanvas ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-                  <span>{focusCanvas ? 'Thu nhỏ' : 'Toàn màn hình'}</span>
-                </button>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 4 }}>
+                  <div className="canvas__seg" style={{ padding: '1px 3px', height: 26, display: 'inline-flex', alignItems: 'center' }}>
+                    <button
+                      className="canvas__tool-btn"
+                      style={{ width: 'auto', padding: '0 8px', gap: 4, height: 22, display: 'inline-flex', alignItems: 'center' }}
+                      title="Hệ thống thiết kế (Design Tokens & Theme Manager)"
+                      onClick={() => setOpenTokensToken((v) => v + 1)}
+                    >
+                      <Palette size={13} style={{ color: 'var(--accent, #6d5df5)' }} />
+                      <span style={{ fontSize: 11, fontWeight: 600 }}>Tokens</span>
+                    </button>
+                    <button
+                      className="canvas__tool-btn"
+                      style={{ height: 22, width: 24, padding: 0 }}
+                      title="Tải lại giao diện (Ctrl+R)"
+                      onClick={() => setLocalReloadToken((v) => v + 1)}
+                    >
+                      <RefreshCw size={13} />
+                    </button>
+                    {canvasUrl && onOpenExternal && (
+                      <button
+                        className="canvas__tool-btn"
+                        style={{ height: 22, width: 24, padding: 0 }}
+                        title="Mở trên trình duyệt ngoài"
+                        onClick={() => onOpenExternal(canvasUrl)}
+                      >
+                        <ExternalLink size={13} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Nút Chế độ tập trung Canvas (Toàn màn hình) */}
+                  <button
+                    className={`pm-ibtn ${focusCanvas ? 'on' : ''}`}
+                    onClick={() => setFocusCanvas((v) => !v)}
+                    title={focusCanvas ? 'Thoát chế độ tập trung (Esc)' : 'Chế độ tập trung toàn màn hình Canvas'}
+                    style={{
+                      height: 26,
+                      fontSize: 11,
+                      gap: 4,
+                      padding: '0 8px',
+                      width: 'auto',
+                      display: 'inline-flex',
+                    }}
+                  >
+                    {focusCanvas ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                    <span>{focusCanvas ? 'Thu nhỏ' : 'Toàn màn hình'}</span>
+                  </button>
+                </div>
               )}
             </div>
 
@@ -540,7 +577,8 @@ const WorkspaceView = ({
                       onOpenPage={onOpenPage}
                       onOpenAIPanel={onToggleAIPanel}
                       onSelectionChange={setAiSelection}
-                      reloadToken={canvasReloadToken}
+                      reloadToken={(canvasReloadToken ?? 0) + localReloadToken}
+                      openTokensToken={openTokensToken}
                     />
                   ) : (
                     <FileViewer
@@ -589,6 +627,12 @@ const WorkspaceView = ({
                     }}
                     onClear={onClearLogs}
                     isCollapsed={isLogCollapsed}
+                    onAskAI={() => {
+                      setAiInitialTab('errors')
+                      if (!aiPanelOpen && onToggleAIPanel) {
+                        onToggleAIPanel()
+                      }
+                    }}
                     onToggleCollapse={() => {
                       if (logPanelRef.current) {
                         if (isLogCollapsed) {
@@ -670,6 +714,10 @@ const WorkspaceView = ({
                 projectName={project.name}
                 route={currentRoute}
                 selected={aiSelection}
+                parsedError={parsedError}
+                rawLogs={logs}
+                initialTab={aiInitialTab}
+                onTriggerBuild={onRun}
                 errorLog={
                   parsedError
                     ? [

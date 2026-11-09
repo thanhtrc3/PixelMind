@@ -177,11 +177,13 @@ const SettingsDialog = ({
     }
   }
 
-  const setProvider = (provider: 'openai' | 'ollama') => {
+  const setProvider = (provider: 'openai' | 'ollama' | 'gemini') => {
     const defaults =
       provider === 'ollama'
         ? { aiBaseUrl: 'http://localhost:11434/v1', aiModel: 'qwen2.5-coder' }
-        : { aiBaseUrl: 'https://api.openai.com/v1', aiModel: 'gpt-4o-mini' }
+        : provider === 'gemini'
+          ? { aiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', aiModel: 'gemini-2.5-flash-lite' }
+          : { aiBaseUrl: 'https://api.openai.com/v1', aiModel: 'gpt-4o-mini' }
     onUpdate({ aiProvider: provider, ...defaults })
     setAiTest(null)
     void api.ai.status(projectPath).then(setAiStatus).catch(() => undefined)
@@ -734,6 +736,12 @@ const SettingsDialog = ({
                       onClick={() => setProvider('openai')}
                     >
                       OpenAI-compatible
+                    </button>
+                    <button
+                      className={settings.aiProvider === 'gemini' ? 'on' : ''}
+                      onClick={() => setProvider('gemini')}
+                    >
+                      Google Gemini / AI Studio
                     </button>
                     <button
                       className={settings.aiProvider === 'ollama' ? 'on' : ''}

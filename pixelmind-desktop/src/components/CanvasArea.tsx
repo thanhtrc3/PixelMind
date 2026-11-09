@@ -238,6 +238,8 @@ interface CanvasAreaProps {
   onSelectionChange?: (selection: AiSelectedElement | null) => void
   /** Tăng giá trị này để buộc iframe tải lại sau khi AI áp dụng thay đổi. */
   reloadToken?: number
+  /** Kích hoạt mở DesignTokensDialog từ thanh công cụ bên ngoài */
+  openTokensToken?: number
 }
 
 const COLOR_SWATCHES = [
@@ -286,6 +288,7 @@ const CanvasArea = ({
   onOpenAIPanel,
   onSelectionChange,
   reloadToken = 0,
+  openTokensToken = 0,
 }: CanvasAreaProps) => {
 
   const [currentLiveUrl, setCurrentLiveUrl] = useState<string | null>(url ?? null)
@@ -325,6 +328,61 @@ const CanvasArea = ({
     reloadSeenRef.current = reloadToken
     setIframeKey((key) => key + 1)
   }, [reloadToken])
+
+  // Mở hộp thoại Design Tokens khi nhận trigger từ thanh công cụ bên ngoài
+  const tokensSeenRef = useRef(openTokensToken)
+  useEffect(() => {
+    if (openTokensToken && tokensSeenRef.current !== openTokensToken) {
+      tokensSeenRef.current = openTokensToken
+      setIsTokensDialogOpen(true)
+    }
+  }, [openTokensToken])
+
+  // Chặng 7 — Design Overlay so sánh (Ảnh thiết kế chồng lên canvas iframe với thanh trượt opacity)
+  const [overlayImage, setOverlayImage] = useState<string | null>(() => {
+    try {
+      return window.localStorage.getItem('pm.canvasOverlay')
+    } catch {
+      return null
+    }
+  })
+  const [overlayVisible, setOverlayVisible] = useState(true)
+  const [overlayOpacity, setOverlayOpacity] = useState(50)
+  const overlayFileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const handleOverlayUpdated = () => {
+      try {
+        const img = window.localStorage.getItem('pm.canvasOverlay')
+        setOverlayImage(img)
+        if (img) setOverlayVisible(true)
+      } catch {}
+    }
+    window.addEventListener('pm:overlay-updated', handleOverlayUpdated)
+    return () => window.removeEventListener('pm:overlay-updated', handleOverlayUpdated)
+  }, [])
+
+  const handleOverlayFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const b64 = reader.result as string
+      try {
+        window.localStorage.setItem('pm.canvasOverlay', b64)
+      } catch {}
+      setOverlayImage(b64)
+      setOverlayVisible(true)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleClearOverlay = () => {
+    try {
+      window.localStorage.removeItem('pm.canvasOverlay')
+    } catch {}
+    setOverlayImage(null)
+  }
 
   // ─── STATE SOI PHẦN TỬ THẬT (VISUAL INSPECTOR) ───
   const [isInspectMode, setIsInspectMode] = useState(false)
@@ -2856,6 +2914,24 @@ const CanvasArea = ({
 
   const renderFrameContent = () => (
     <>
+      {/* Chặng 7 — Overlay so sánh ảnh thiết kế gốc lên canvas */}
+      {overlayImage && overlayVisible && (
+        <div
+          className="canvas__design-overlay"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundImage: `url(${overlayImage})`,
+            backgroundSize: 'contain',
+            backgroundRepeat: 'no-repeat',
+            backgroundPosition: 'top center',
+            opacity: overlayOpacity / 100,
+            pointerEvents: 'none',
+            zIndex: 35,
+            transition: 'opacity 0.1s ease',
+          }}
+        />
+      )}
 
                 {(isPanActive || isPanning) && (
                   <div
@@ -3139,6 +3215,7 @@ const CanvasArea = ({
                       installing={installing}
                       onInstall={onInstall}
                       onRetry={onRun}
+                      onAskAI={onOpenAIPanel}
                     />
                   </div>
                 ) : running && url && !isServerReady ? (
@@ -3480,34 +3557,71 @@ const CanvasArea = ({
 
           <div className="canvas__tools-spacer" />
 
-          {/* Nhóm 3: Tiện ích Tokens & Tải lại */}
-          <div className="canvas__seg">
+          {/* Nhóm 3: Overlay So sánh Thiết kế (Chặng 7) */}
+          <div className="canvas__seg" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <input
+              type="file"
+              ref={overlayFileInputRef}
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={handleOverlayFileSelect}
+            />
             <button
-              className="canvas__tool-btn"
-              style={{ width: 'auto', padding: '0 8px', gap: 4, display: 'inline-flex' }}
-              title="Hệ thống thiết kế (Design Tokens & Theme Manager)"
-              onClick={() => setIsTokensDialogOpen(true)}
+              className={`canvas__seg-btn ${overlayImage && overlayVisible ? 'active' : ''}`}
+              onClick={() => {
+                if (!overlayImage) {
+                  overlayFileInputRef.current?.click()
+                } else {
+                  setOverlayVisible((v) => !v)
+                }
+              }}
+              title={
+                overlayImage
+                  ? overlayVisible
+                    ? 'Ẩn ảnh thiết kế overlay (Click để ẩn/hiện)'
+                    : 'Hiện ảnh thiết kế overlay'
+                  : 'Tải ảnh thiết kế lên để so sánh overlay trực tiếp trên canvas'
+              }
             >
-              <Palette size={13} style={{ color: 'var(--accent, #6d5df5)' }} />
-              <span style={{ fontSize: 11, fontWeight: 600 }}>Tokens</span>
+              <Layers size={12} />
+              <span>Overlay{overlayImage ? (overlayVisible ? ` ${overlayOpacity}%` : ' (Tắt)') : ''}</span>
             </button>
-            <button
-              className="canvas__tool-btn"
-              title="Tải lại giao diện (Ctrl+R)"
-              onClick={() => setIframeKey((k) => k + 1)}
-            >
-              <RefreshCw size={13} />
-            </button>
-            {url && onOpenExternal && (
-              <button
-                className="canvas__tool-btn"
-                title="Mở trên trình duyệt ngoài"
-                onClick={() => onOpenExternal(url)}
-              >
-                <ExternalLink size={13} />
-              </button>
+            {overlayImage && overlayVisible && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '0 4px' }}>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={overlayOpacity}
+                  onChange={(e) => setOverlayOpacity(Number(e.target.value))}
+                  style={{ width: 64, accentColor: 'var(--accent)', cursor: 'pointer', height: 4 }}
+                  title={`Độ mờ đục: ${overlayOpacity}% (Kéo để so sánh trước/sau)`}
+                />
+              </div>
+            )}
+            {overlayImage && (
+              <>
+                <button
+                  className="canvas__tool-btn"
+                  title="Chọn ảnh thiết kế khác"
+                  onClick={() => overlayFileInputRef.current?.click()}
+                  style={{ width: 22, height: 22 }}
+                >
+                  <SlidersHorizontal size={11} />
+                </button>
+                <button
+                  className="canvas__tool-btn"
+                  title="Xoá ảnh overlay thiết kế"
+                  onClick={handleClearOverlay}
+                  style={{ width: 22, height: 22, color: 'var(--text-3)' }}
+                >
+                  <X size={11} />
+                </button>
+              </>
             )}
           </div>
+
+          <div className="canvas__tools-spacer" />
 
           {/* Nhóm 4: Zoom */}
           <div className="canvas__seg">
@@ -3733,9 +3847,56 @@ const CanvasArea = ({
               detail={`${Math.round(selectedEl.rect.width)} × ${Math.round(selectedEl.rect.height)}${
                 sourceLoc ? ` · ${sourceLoc.filePath}:${sourceLoc.lineNumber}` : ''
               }`}
+              projectId={projectPath}
+              projectPath={projectPath}
+              projectName={projectName}
+              currentRoute={currentRoute}
+              selectedEl={selectedEl}
+              sourceLoc={sourceLoc}
               onClose={() => setSidecarHiddenFor(sidecarKey)}
               onOpenPanel={() => onOpenAIPanel?.()}
               onShowToast={(kind, text) => showToast(text, kind)}
+              onPreview={(change) => {
+                handleApplyLiveChange(change.styles, change.textContent, {
+                  description: `AI Sidecar: <${selectedEl.tagName.toLowerCase()}>`,
+                })
+              }}
+              onUndo={() => {
+                if (editorBuffer.canUndo()) {
+                  editorBuffer.undo()
+                } else if (originalStyles) {
+                  handleApplyLiveChange(originalStyles.styles, originalStyles.text, { skipHistory: true })
+                }
+              }}
+              onSyncCode={async (change) => {
+                if (!sourceLoc) {
+                  showToast('Chưa xác định được tệp mã nguồn tương ứng của phần tử này!', 'err')
+                  return false
+                }
+                setIsSyncingCode(true)
+                try {
+                  const res = await api.inspect.syncCode({
+                    fullPath: sourceLoc.fullPath,
+                    oldText: originalStyles?.text || selectedEl.textSnippet,
+                    newText: change.textContent ?? selectedEl.textSnippet,
+                    styles: change.styles ? { ...modifiedStyles, ...change.styles } : modifiedStyles,
+                    tagName: selectedEl.tagName,
+                    lineNumber: sourceLoc.lineNumber,
+                  })
+                  if (res?.success) {
+                    showToast(`Đã lưu vĩnh viễn vào ${sourceLoc.filePath}!`, 'ok')
+                    return true
+                  } else {
+                    showToast(res?.error || 'Không thể lưu vào tệp nguồn', 'err')
+                    return false
+                  }
+                } catch (err) {
+                  showToast((err as Error).message, 'err')
+                  return false
+                } finally {
+                  setIsSyncingCode(false)
+                }
+              }}
             />
           )}
         </div>
