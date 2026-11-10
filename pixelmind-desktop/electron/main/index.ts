@@ -2032,6 +2032,8 @@ function getInspectorScript(isActive: boolean) {
         }
         if (targetToMove && targetToMove.parentElement) {
           var pNode = targetToMove.parentElement;
+          var oldParentUid = ensureUid(pNode);
+          var oldIndex = Array.prototype.indexOf.call(pNode.childNodes, targetToMove);
           var act = e.data.action;
           if (act === 'up' && targetToMove.previousElementSibling) {
             pNode.insertBefore(targetToMove, targetToMove.previousElementSibling);
@@ -2064,6 +2066,20 @@ function getInspectorScript(isActive: boolean) {
           window.parent.postMessage({
             type: 'PM_SELECT_ELEMENT',
             payload: movedInfo
+          }, '*');
+
+          var finalParent = targetToMove.parentElement;
+          var finalNewParentUid = finalParent ? ensureUid(finalParent) : null;
+          var finalNewIndex = finalParent ? Array.prototype.indexOf.call(finalParent.childNodes, targetToMove) : -1;
+          window.parent.postMessage({
+            type: 'PM_REPARENT_NOTIFY',
+            message: 'Đã cập nhật phân cấp phần tử <' + targetToMove.tagName.toLowerCase() + '>!',
+            uid: ensureUid(targetToMove),
+            tagName: targetToMove.tagName,
+            oldParentUid: oldParentUid,
+            oldIndex: oldIndex,
+            newParentUid: finalNewParentUid,
+            newIndex: finalNewIndex
           }, '*');
         }
       } else if (e.data.type === 'PM_DRAG_OVER') {

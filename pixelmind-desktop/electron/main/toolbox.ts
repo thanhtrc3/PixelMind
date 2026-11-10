@@ -762,6 +762,116 @@ function mutateAttributes(
   )
 }
 
+function reindentBlock(block: string, oldIndent: string, newIndent: string): string {
+  const lines = block.split('\n')
+  return lines
+    .map((line) => {
+      if (line.startsWith(oldIndent)) {
+        return newIndent + line.slice(oldIndent.length)
+      }
+      return newIndent + line.trimStart()
+    })
+    .join('\n')
+}
+
+function mutateReparent(
+  fullPath: string,
+  projectPath: string,
+  content: string,
+  sourceRange: ElementRangeInfo,
+  payload: ToolboxMutationPayload,
+): MutationPreview {
+  const sourceLineStart = lineStartAt(content, sourceRange.startOffset)
+  const sourceLineEnd = lineEndAt(content, Math.max(sourceRange.startOffset, sourceRange.endOffset - 1))
+  const sourceEndWithNewline = sourceLineEnd < content.length ? sourceLineEnd + 1 : sourceLineEnd
+  const rawSourceBlock = content.slice(sourceLineStart, sourceLineEnd)
+
+  let destRange: ElementRangeInfo | null = null
+  let placement = payload.placement || 'inside'
+
+  // 1. Thử tìm thẻ anh em đích (targetSibling) nếu có
+  if (payload.targetSibling) {
+    const cand = findBestCandidate(content, payload.targetSibling)
+    if (cand) {
+      destRange = cand.candidate.range
+      placement = payload.placement || 'before'
+    }
+  }
+
+  // 2. Thử tìm thẻ cha đích (targetParent) nếu chưa tìm thấy sibling
+  if (!destRange && payload.targetParent) {
+    const cand = findBestCandidate(content, payload.targetParent)
+    if (cand) {
+      destRange = cand.candidate.range
+      placement = 'inside'
+    }
+  }
+
+  // Nếu không xác định được vị trí đích trong file
+  if (!destRange) {
+    return {
+      success: false,
+      error: 'Không xác định được vị trí khung chứa mới trong tệp mã nguồn.',
+    }
+  }
+
+  // 3. Tính toán vị trí chèn và độ thụt lề đích
+  let insertAt: number
+  let targetIndent: string
+
+  if (placement === 'inside' && !destRange.selfClosing) {
+    insertAt = lineStartAt(content, destRange.closeTagStart)
+    targetIndent = destRange.indent + '  '
+  } else if (placement === 'before') {
+    insertAt = lineStartAt(content, destRange.startOffset)
+    targetIndent = destRange.indent
+  } else {
+    insertAt = Math.min(content.length, lineEndAt(content, Math.max(destRange.startOffset, destRange.endOffset - 1)) + 1)
+    targetIndent = destRange.indent
+  }
+
+  const reindentedBlock = reindentBlock(rawSourceBlock, sourceRange.indent, targetIndent)
+
+  // 4. Ghép nối nội dung tệp mới
+  let newText: string
+  let changeStart: number
+  let oldChangeEnd: number
+  let newChangeEnd: number
+
+  if (sourceLineStart < insertAt) {
+    newText =
+      content.slice(0, sourceLineStart) +
+      content.slice(sourceEndWithNewline, insertAt) +
+      reindentedBlock +
+      '\n' +
+      content.slice(insertAt)
+    changeStart = sourceLineStart
+    oldChangeEnd = insertAt
+    newChangeEnd = insertAt - (sourceEndWithNewline - sourceLineStart) + reindentedBlock.length + 1
+  } else {
+    newText =
+      content.slice(0, insertAt) +
+      reindentedBlock +
+      '\n' +
+      content.slice(insertAt, sourceLineStart) +
+      content.slice(sourceEndWithNewline)
+    changeStart = insertAt
+    oldChangeEnd = sourceEndWithNewline
+    newChangeEnd = sourceEndWithNewline + reindentedBlock.length + 1 - (sourceEndWithNewline - sourceLineStart)
+  }
+
+  return buildPreview(
+    fullPath,
+    projectPath,
+    content,
+    newText,
+    changeStart,
+    oldChangeEnd,
+    newChangeEnd,
+    sourceRange,
+  )
+}
+
 /* ─────────────────────── API chính ─────────────────────── */
 
 /**
@@ -910,6 +1020,9 @@ export async function runToolboxMutation(payload: ToolboxMutationPayload): Promi
       break
     case 'attributes':
       preview = mutateAttributes(fullPath, payload.projectPath, content, range as ElementRangeInfo, payload, framework)
+      break
+    case 'reparent':
+      preview = mutateReparent(fullPath, payload.projectPath, content, range as ElementRangeInfo, payload)
       break
     default:
       return { success: false, error: 'Thao tác không hợp lệ.' }

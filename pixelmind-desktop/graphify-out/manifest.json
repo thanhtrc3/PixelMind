@@ -78,9 +78,9 @@
     "semantic_hash": "8682bb8ead2f610ea451590cfc8a1e29"
   },
   "electron/main/index.ts": {
-    "mtime": 1794314669.0805044,
-    "seen": 1794315417.8876004,
-    "ast_hash": "5518af1bb0ce3fb0761dff529971d5fa",
+    "mtime": 1794324183.5602412,
+    "seen": 1794324356.0448246,
+    "ast_hash": "8110e30e29f1d06dde4a743ecae1575c",
     "semantic_hash": ""
   },
   "electron/main/pages.ts": {
@@ -108,10 +108,10 @@
     "semantic_hash": "8409cc209bcb8580ec93e4544e5db435"
   },
   "electron/main/toolbox.ts": {
-    "mtime": 1794020373.4786448,
-    "seen": 1794306757.3063104,
-    "ast_hash": "2ddade7802e402c4314805d433b755ea",
-    "semantic_hash": "2ddade7802e402c4314805d433b755ea"
+    "mtime": 1794324164.34581,
+    "seen": 1794324356.0448246,
+    "ast_hash": "d49e176eec8a425de53d464d71b47ef6",
+    "semantic_hash": ""
   },
   "electron/preload/index.ts": {
     "mtime": 1794314690.1086502,
@@ -150,10 +150,10 @@
     "semantic_hash": "42c56adb789f292ed8b58c2e2f22be90"
   },
   "shared/toolbox.ts": {
-    "mtime": 1794019875.3181918,
-    "seen": 1794306757.3063104,
-    "ast_hash": "0bc36547c25d304aefa2cae9150b7827",
-    "semantic_hash": "0bc36547c25d304aefa2cae9150b7827"
+    "mtime": 1794324109.4737833,
+    "seen": 1794324356.0448246,
+    "ast_hash": "0338667df50a851c8b1c002af52948d7",
+    "semantic_hash": ""
   },
   "shared/types.ts": {
     "mtime": 1794314614.2966516,
@@ -204,9 +204,9 @@
     "semantic_hash": "b62124e7d5a751e922cac5cdb0d66c12"
   },
   "src/components/CanvasArea.tsx": {
-    "mtime": 1794323645.842346,
-    "seen": 1794323686.7027752,
-    "ast_hash": "72c586792c4a6cbbfa235355daae3a0c",
+    "mtime": 1794326539.6464717,
+    "seen": 1794326604.8389535,
+    "ast_hash": "025fc4b4f2fc4284c22626fec0133ca8",
     "semantic_hash": ""
   },
   "src/components/CommandPalette.tsx": {
@@ -840,9 +840,9 @@
     "semantic_hash": ""
   },
   "src/lib/diff.ts": {
-    "mtime": 1794323541.5744047,
-    "seen": 1794323686.7027752,
-    "ast_hash": "0a720d2435563342572dffc87ce8bf61",
+    "mtime": 1794323700.1756546,
+    "seen": 1794324356.0448246,
+    "ast_hash": "4735f275e7dd8b87b28b7822aa4aad1a",
     "semantic_hash": ""
   },
   "package-lock.json": {

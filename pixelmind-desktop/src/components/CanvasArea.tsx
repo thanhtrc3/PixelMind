@@ -7,6 +7,11 @@ import {
   AlignCenter,
   AlignRight,
   AlignJustify,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter,
   ArrowRight,
   ArrowDown,
   ArrowLeft,
@@ -970,51 +975,149 @@ const CanvasArea = ({
         setDropTargetHover(e.data.payload || null)
       } else if (e.data.type === 'PM_REPARENT_NOTIFY') {
         const payload = e.data || {}
-        showToast(payload.message || 'Đã cập nhật phân cấp phần tử!')
         const targetUid = payload.uid || selectedEl?.uid
-        let oldParentUid = payload.oldParentUid || moveStartRef.current?.oldParentUid || selectedEl?.parent?.uid || ''
-        let oldIndex = typeof payload.oldIndex === 'number' && payload.oldIndex >= 0
+        const oldParentUid = payload.oldParentUid || moveStartRef.current?.oldParentUid || selectedEl?.parent?.uid || ''
+        const oldIndex = typeof payload.oldIndex === 'number' && payload.oldIndex >= 0
           ? payload.oldIndex
           : (moveStartRef.current?.oldIndex ?? -1)
         let newParentUid = payload.newParentUid || ''
         let newIndex = typeof payload.newIndex === 'number' ? payload.newIndex : -1
 
-        try {
-          const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
-          if (doc && targetUid) {
-            const el = doc.querySelector(`[data-pm-uid="${targetUid}"]`)
-            if (el && el.parentElement) {
-              if (!el.parentElement.getAttribute('data-pm-uid')) {
-                el.parentElement.setAttribute('data-pm-uid', 'pm_' + Math.random().toString(36).slice(2, 9))
-              }
-              if (!newParentUid) {
-                newParentUid = el.parentElement.getAttribute('data-pm-uid') || ''
-              }
-              if (newIndex < 0) {
-                newIndex = Array.prototype.indexOf.call(el.parentElement.childNodes, el)
+        void (async () => {
+          let el: HTMLElement | null = null
+          let parentEl: HTMLElement | null = null
+          let prevSibling: HTMLElement | null = null
+          let nextSibling: HTMLElement | null = null
+
+          try {
+            const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+            if (doc && targetUid) {
+              el = doc.querySelector(`[data-pm-uid="${targetUid}"]`) as HTMLElement | null
+              if (el && el.parentElement) {
+                if (!el.parentElement.getAttribute('data-pm-uid')) {
+                  el.parentElement.setAttribute('data-pm-uid', 'pm_' + Math.random().toString(36).slice(2, 9))
+                }
+                if (!newParentUid) {
+                  newParentUid = el.parentElement.getAttribute('data-pm-uid') || ''
+                }
+                if (newIndex < 0) {
+                  newIndex = Array.prototype.indexOf.call(el.parentElement.childNodes, el)
+                }
+                parentEl = el.parentElement as HTMLElement
+                prevSibling = el.previousElementSibling as HTMLElement | null
+                nextSibling = el.nextElementSibling as HTMLElement | null
               }
             }
-          }
-        } catch { }
+          } catch { }
 
-        if (targetUid) {
+          if (!targetUid || !projectPath) return
+
+          const tagName = (el?.tagName || payload.tagName || selectedEl?.tagName || 'div').toLowerCase()
+
+          const targetMutation: ElementMutationTarget = {
+            tagName,
+            id: el?.id || selectedEl?.id,
+            className: el?.className || selectedEl?.className,
+            domPath: selectedEl?.domPath,
+            uid: targetUid,
+            selector: selectedEl?.selector,
+            textSnippet: el?.textContent?.trim().slice(0, 80) || selectedEl?.textSnippet,
+            currentPath: currentRouteRef.current,
+            fullPath: sourceLoc?.fullPath,
+            lineNumber: sourceLoc?.lineNumber,
+          }
+
+          let targetParent: ElementMutationTarget | undefined
+          if (parentEl && parentEl.tagName.toLowerCase() !== 'body') {
+            targetParent = {
+              tagName: parentEl.tagName.toLowerCase(),
+              id: parentEl.id,
+              className: parentEl.className,
+              uid: newParentUid,
+              textSnippet: parentEl.textContent?.trim().slice(0, 80),
+              currentPath: currentRouteRef.current,
+            }
+          }
+
+          let targetSibling: ElementMutationTarget | undefined
+          let placement: InsertPlacement = 'inside'
+          if (nextSibling) {
+            targetSibling = {
+              tagName: nextSibling.tagName.toLowerCase(),
+              id: nextSibling.id,
+              className: nextSibling.className,
+              uid: nextSibling.getAttribute('data-pm-uid') || undefined,
+              textSnippet: nextSibling.textContent?.trim().slice(0, 80),
+              currentPath: currentRouteRef.current,
+            }
+            placement = 'before'
+          } else if (prevSibling) {
+            targetSibling = {
+              tagName: prevSibling.tagName.toLowerCase(),
+              id: prevSibling.id,
+              className: prevSibling.className,
+              uid: prevSibling.getAttribute('data-pm-uid') || undefined,
+              textSnippet: prevSibling.textContent?.trim().slice(0, 80),
+              currentPath: currentRouteRef.current,
+            }
+            placement = 'after'
+          }
+
+          let fileBefore: string | undefined
+          let fileAfter: string | undefined
+          let reparentSourceLoc = sourceLoc ? { ...sourceLoc } : null
+
+          // Thực hiện ghi cấu trúc mới xuống mã nguồn
+          try {
+            const mutateRes = await api.toolbox.mutate({
+              kind: 'reparent',
+              projectPath,
+              target: targetMutation,
+              targetParent,
+              targetSibling,
+              placement,
+              index: newIndex,
+              dryRun: false,
+            })
+
+            if (mutateRes.success && mutateRes.newText !== undefined) {
+              fileBefore = mutateRes.oldText
+              fileAfter = mutateRes.newText
+              if (mutateRes.fullPath) {
+                reparentSourceLoc = {
+                  filePath: mutateRes.filePath || '',
+                  fullPath: mutateRes.fullPath,
+                  lineNumber: mutateRes.startLine || 1,
+                  lineContent: '',
+                }
+              }
+              showToast(
+                `Đã chuyển <${tagName}> và ghi cấu trúc vào mã nguồn thành công!`
+              )
+            } else {
+              showToast(payload.message || 'Đã cập nhật phân cấp phần tử trên giao diện!')
+            }
+          } catch {
+            showToast(payload.message || 'Đã cập nhật phân cấp phần tử!')
+          }
+
           editorBuffer.pushAction({
             type: 'MOVE',
-            description: `Chuyển vị trí <${(payload.tagName || selectedEl?.tagName || 'element').toLowerCase()}>`,
+            description: `Chuyển vị trí <${tagName}>`,
             target: {
-              tagName: payload.tagName || selectedEl?.tagName || 'div',
-              id: selectedEl?.id,
-              className: selectedEl?.className,
-              domPath: selectedEl?.domPath,
+              tagName,
+              id: targetMutation.id,
+              className: targetMutation.className,
+              domPath: targetMutation.domPath,
               uid: targetUid,
-              selector: selectedEl?.selector,
-              textSnippet: selectedEl?.textSnippet,
+              selector: targetMutation.selector,
+              textSnippet: targetMutation.textSnippet,
             },
-            sourceLoc: sourceLoc
+            sourceLoc: reparentSourceLoc
               ? {
-                  filePath: sourceLoc.filePath,
-                  fullPath: sourceLoc.fullPath,
-                  lineNumber: sourceLoc.lineNumber,
+                  filePath: reparentSourceLoc.filePath,
+                  fullPath: reparentSourceLoc.fullPath,
+                  lineNumber: reparentSourceLoc.lineNumber,
                 }
               : undefined,
             before: {
@@ -1031,10 +1134,12 @@ const CanvasArea = ({
               oldParentUid,
               oldIndex,
             },
+            fileBefore,
+            fileAfter,
             projectPath,
             docEpoch: docEpochRef.current,
           })
-        }
+        })()
       } else if (e.data.type === 'PM_HOVER_ELEMENT') {
         setHoverEl(e.data.payload)
       } else if (e.data.type === 'PM_SELECT_ELEMENT') {
@@ -2094,6 +2199,634 @@ const CanvasArea = ({
       showToast('Không thể tạo bản xem trước.', 'err')
     }
   }, [projectPath, selectedEl, sourceLoc, buildTarget, showToast])
+
+  // ─── CĂN LỀ & PHÂN BỔ KHOẢNG CÁCH (MULTI-SELECT ALIGN & DISTRIBUTE) ───
+  type AlignType = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'
+  type DistributeType = 'horizontal' | 'vertical'
+
+  const handleAlignSelection = useCallback(
+    (type: AlignType) => {
+      const list = multiSelectionRef.current.length > 1 ? multiSelectionRef.current : []
+
+      // ─── TRƯỜNG HỢP 1: Căn 1 phần tử theo Khung cha (Parent Container) ───
+      if (list.length < 2) {
+        if (!selectedEl) return
+        const win = iframeRef.current?.contentWindow
+        const doc = win?.document || iframeRef.current?.contentDocument
+        if (!win || !doc) return
+        const el = (selectedEl.uid ? doc.querySelector(`[data-pm-uid="${selectedEl.uid}"]`) : null) as HTMLElement | null
+        if (!el) return
+
+        const computed = win.getComputedStyle(el)
+        const isAbsolute = computed.position === 'absolute' || computed.position === 'fixed'
+        const parentEl = (isAbsolute ? (el.offsetParent as HTMLElement) : null) || el.parentElement || doc.body
+
+        const parentRect = parentEl.getBoundingClientRect()
+        const elRect = el.getBoundingClientRect()
+        const pWidth = parentEl.clientWidth || parentRect.width
+        const pHeight = parentEl.clientHeight || parentRect.height
+        const elWidth = elRect.width
+        const elHeight = elRect.height
+
+        let nextStyles: Record<string, string> = {}
+        let label = ''
+
+        if (isAbsolute) {
+          if (type === 'left') {
+            label = 'lề trái khung cha'
+            nextStyles = { left: '0px' }
+          } else if (type === 'center') {
+            label = 'chính giữa ngang khung cha'
+            const newLeft = Math.max(0, Math.round((pWidth - elWidth) / 2))
+            nextStyles = { left: `${newLeft}px` }
+          } else if (type === 'right') {
+            label = 'lề phải khung cha'
+            const newLeft = Math.max(0, Math.round(pWidth - elWidth))
+            nextStyles = { left: `${newLeft}px` }
+          } else if (type === 'top') {
+            label = 'lề trên khung cha'
+            nextStyles = { top: '0px' }
+          } else if (type === 'middle') {
+            label = 'chính giữa dọc khung cha'
+            const newTop = Math.max(0, Math.round((pHeight - elHeight) / 2))
+            nextStyles = { top: `${newTop}px` }
+          } else if (type === 'bottom') {
+            label = 'lề dưới khung cha'
+            const newTop = Math.max(0, Math.round(pHeight - elHeight))
+            nextStyles = { top: `${newTop}px` }
+          }
+        } else {
+          // Phần tử trong luồng tự nhiên (static / relative)
+          const currentLeftInParent = elRect.left - parentRect.left
+          const currentTopInParent = elRect.top - parentRect.top
+
+          const curLeft = parseFloat(computed.left) || 0
+          const curTop = parseFloat(computed.top) || 0
+
+          if (computed.position === 'static' || !computed.position) {
+            nextStyles.position = 'relative'
+          }
+
+          if (type === 'left') {
+            label = 'lề trái khung cha'
+            const deltaX = 0 - currentLeftInParent
+            nextStyles.left = `${Math.round(curLeft + deltaX)}px`
+          } else if (type === 'center') {
+            label = 'chính giữa ngang khung cha'
+            const targetLeft = Math.round((pWidth - elWidth) / 2)
+            const deltaX = targetLeft - currentLeftInParent
+            nextStyles.left = `${Math.round(curLeft + deltaX)}px`
+          } else if (type === 'right') {
+            label = 'lề phải khung cha'
+            const targetLeft = Math.round(pWidth - elWidth)
+            const deltaX = targetLeft - currentLeftInParent
+            nextStyles.left = `${Math.round(curLeft + deltaX)}px`
+          } else if (type === 'top') {
+            label = 'lề trên khung cha'
+            const deltaY = 0 - currentTopInParent
+            nextStyles.top = `${Math.round(curTop + deltaY)}px`
+          } else if (type === 'middle') {
+            label = 'chính giữa dọc khung cha'
+            const targetTop = Math.round((pHeight - elHeight) / 2)
+            const deltaY = targetTop - currentTopInParent
+            nextStyles.top = `${Math.round(curTop + deltaY)}px`
+          } else if (type === 'bottom') {
+            label = 'lề dưới khung cha'
+            const targetTop = Math.round(pHeight - elHeight)
+            const deltaY = targetTop - currentTopInParent
+            nextStyles.top = `${Math.round(curTop + deltaY)}px`
+          }
+        }
+
+        handleApplyLiveChange(nextStyles)
+        showToast(`Đã căn ${label} cho <${selectedEl.tagName.toLowerCase()}>!`, 'ok')
+        return
+      }
+
+      // ─── TRƯỜNG HỢP 2: Căn nhiều phần tử theo nhau (Multi-select) ───
+      const win = iframeRef.current?.contentWindow
+      const doc = win?.document || iframeRef.current?.contentDocument
+      if (!win || !doc) return
+
+      const itemsWithDom = list
+        .map((item) => {
+          const el = (item.uid ? doc.querySelector(`[data-pm-uid="${item.uid}"]`) : null) as HTMLElement | null
+          if (!el) return null
+          const rect = el.getBoundingClientRect()
+          const computed = win.getComputedStyle(el)
+          const curLeft = parseFloat(computed.left) || 0
+          const curTop = parseFloat(computed.top) || 0
+          return {
+            info: item,
+            el,
+            rect: {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+              right: rect.right,
+              bottom: rect.bottom,
+            },
+            curLeft,
+            curTop,
+            computedPosition: computed.position,
+          }
+        })
+        .filter(Boolean) as Array<{
+          info: RealElementInfo
+          el: HTMLElement
+          rect: { left: number; top: number; width: number; height: number; right: number; bottom: number }
+          curLeft: number
+          curTop: number
+          computedPosition: string
+        }>
+
+      if (itemsWithDom.length < 2) return
+
+      const updatedSelection: RealElementInfo[] = []
+      let label = ''
+
+      if (type === 'left') {
+        label = 'lề trái'
+        const minLeft = Math.min(...itemsWithDom.map((i) => i.rect.left))
+        itemsWithDom.forEach((item) => {
+          const dx = minLeft - item.rect.left
+          const newLeft = Math.round(item.curLeft + dx)
+          const styles = { left: `${newLeft}px` }
+
+          item.el.style.left = `${newLeft}px`
+          if (item.computedPosition === 'static') item.el.style.position = 'relative'
+
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: 'PM_APPLY_STYLE',
+              payload: {
+                target: item.info,
+                styles,
+              },
+            },
+            '*'
+          )
+
+          editorBuffer.pushAction({
+            type: 'MOVE',
+            description: `Căn lề trái <${item.info.tagName.toLowerCase()}>`,
+            target: {
+              tagName: item.info.tagName,
+              id: item.info.id,
+              className: item.info.className,
+              domPath: item.info.domPath,
+              uid: item.info.uid,
+              selector: item.info.selector,
+              textSnippet: item.info.textSnippet,
+            },
+            before: { styles: { left: `${item.curLeft}px` } },
+            after: { styles: { left: `${newLeft}px` } },
+            deltaStyles: styles,
+            projectPath,
+            docEpoch: docEpochRef.current,
+          })
+
+          updatedSelection.push({
+            ...item.info,
+            rect: { ...item.info.rect, left: item.info.rect.left + dx },
+            computedStyles: { ...item.info.computedStyles, ...styles },
+          })
+        })
+      } else if (type === 'center') {
+        label = 'giữa ngang'
+        const minLeft = Math.min(...itemsWithDom.map((i) => i.rect.left))
+        const maxRight = Math.max(...itemsWithDom.map((i) => i.rect.right))
+        const targetCenter = (minLeft + maxRight) / 2
+        itemsWithDom.forEach((item) => {
+          const itemCenter = item.rect.left + item.rect.width / 2
+          const dx = targetCenter - itemCenter
+          const newLeft = Math.round(item.curLeft + dx)
+          const styles = { left: `${newLeft}px` }
+
+          item.el.style.left = `${newLeft}px`
+          if (item.computedPosition === 'static') item.el.style.position = 'relative'
+
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: 'PM_APPLY_STYLE',
+              payload: {
+                target: item.info,
+                styles,
+              },
+            },
+            '*'
+          )
+
+          editorBuffer.pushAction({
+            type: 'MOVE',
+            description: `Căn giữa ngang <${item.info.tagName.toLowerCase()}>`,
+            target: {
+              tagName: item.info.tagName,
+              id: item.info.id,
+              className: item.info.className,
+              domPath: item.info.domPath,
+              uid: item.info.uid,
+              selector: item.info.selector,
+              textSnippet: item.info.textSnippet,
+            },
+            before: { styles: { left: `${item.curLeft}px` } },
+            after: { styles: { left: `${newLeft}px` } },
+            deltaStyles: styles,
+            projectPath,
+            docEpoch: docEpochRef.current,
+          })
+
+          updatedSelection.push({
+            ...item.info,
+            rect: { ...item.info.rect, left: item.info.rect.left + dx },
+            computedStyles: { ...item.info.computedStyles, ...styles },
+          })
+        })
+      } else if (type === 'right') {
+        label = 'lề phải'
+        const maxRight = Math.max(...itemsWithDom.map((i) => i.rect.right))
+        itemsWithDom.forEach((item) => {
+          const dx = maxRight - item.rect.right
+          const newLeft = Math.round(item.curLeft + dx)
+          const styles = { left: `${newLeft}px` }
+
+          item.el.style.left = `${newLeft}px`
+          if (item.computedPosition === 'static') item.el.style.position = 'relative'
+
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: 'PM_APPLY_STYLE',
+              payload: {
+                target: item.info,
+                styles,
+              },
+            },
+            '*'
+          )
+
+          editorBuffer.pushAction({
+            type: 'MOVE',
+            description: `Căn lề phải <${item.info.tagName.toLowerCase()}>`,
+            target: {
+              tagName: item.info.tagName,
+              id: item.info.id,
+              className: item.info.className,
+              domPath: item.info.domPath,
+              uid: item.info.uid,
+              selector: item.info.selector,
+              textSnippet: item.info.textSnippet,
+            },
+            before: { styles: { left: `${item.curLeft}px` } },
+            after: { styles: { left: `${newLeft}px` } },
+            deltaStyles: styles,
+            projectPath,
+            docEpoch: docEpochRef.current,
+          })
+
+          updatedSelection.push({
+            ...item.info,
+            rect: { ...item.info.rect, left: item.info.rect.left + dx },
+            computedStyles: { ...item.info.computedStyles, ...styles },
+          })
+        })
+      } else if (type === 'top') {
+        label = 'lề trên'
+        const minTop = Math.min(...itemsWithDom.map((i) => i.rect.top))
+        itemsWithDom.forEach((item) => {
+          const dy = minTop - item.rect.top
+          const newTop = Math.round(item.curTop + dy)
+          const styles = { top: `${newTop}px` }
+
+          item.el.style.top = `${newTop}px`
+          if (item.computedPosition === 'static') item.el.style.position = 'relative'
+
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: 'PM_APPLY_STYLE',
+              payload: {
+                target: item.info,
+                styles,
+              },
+            },
+            '*'
+          )
+
+          editorBuffer.pushAction({
+            type: 'MOVE',
+            description: `Căn lề trên <${item.info.tagName.toLowerCase()}>`,
+            target: {
+              tagName: item.info.tagName,
+              id: item.info.id,
+              className: item.info.className,
+              domPath: item.info.domPath,
+              uid: item.info.uid,
+              selector: item.info.selector,
+              textSnippet: item.info.textSnippet,
+            },
+            before: { styles: { top: `${item.curTop}px` } },
+            after: { styles: { top: `${newTop}px` } },
+            deltaStyles: styles,
+            projectPath,
+            docEpoch: docEpochRef.current,
+          })
+
+          updatedSelection.push({
+            ...item.info,
+            rect: { ...item.info.rect, top: item.info.rect.top + dy },
+            computedStyles: { ...item.info.computedStyles, ...styles },
+          })
+        })
+      } else if (type === 'middle') {
+        label = 'giữa dọc'
+        const minTop = Math.min(...itemsWithDom.map((i) => i.rect.top))
+        const maxBottom = Math.max(...itemsWithDom.map((i) => i.rect.bottom))
+        const targetMiddle = (minTop + maxBottom) / 2
+        itemsWithDom.forEach((item) => {
+          const itemMiddle = item.rect.top + item.rect.height / 2
+          const dy = targetMiddle - itemMiddle
+          const newTop = Math.round(item.curTop + dy)
+          const styles = { top: `${newTop}px` }
+
+          item.el.style.top = `${newTop}px`
+          if (item.computedPosition === 'static') item.el.style.position = 'relative'
+
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: 'PM_APPLY_STYLE',
+              payload: {
+                target: item.info,
+                styles,
+              },
+            },
+            '*'
+          )
+
+          editorBuffer.pushAction({
+            type: 'MOVE',
+            description: `Căn giữa dọc <${item.info.tagName.toLowerCase()}>`,
+            target: {
+              tagName: item.info.tagName,
+              id: item.info.id,
+              className: item.info.className,
+              domPath: item.info.domPath,
+              uid: item.info.uid,
+              selector: item.info.selector,
+              textSnippet: item.info.textSnippet,
+            },
+            before: { styles: { top: `${item.curTop}px` } },
+            after: { styles: { top: `${newTop}px` } },
+            deltaStyles: styles,
+            projectPath,
+            docEpoch: docEpochRef.current,
+          })
+
+          updatedSelection.push({
+            ...item.info,
+            rect: { ...item.info.rect, top: item.info.rect.top + dy },
+            computedStyles: { ...item.info.computedStyles, ...styles },
+          })
+        })
+      } else if (type === 'bottom') {
+        label = 'lề dưới'
+        const maxBottom = Math.max(...itemsWithDom.map((i) => i.rect.bottom))
+        itemsWithDom.forEach((item) => {
+          const dy = maxBottom - item.rect.bottom
+          const newTop = Math.round(item.curTop + dy)
+          const styles = { top: `${newTop}px` }
+
+          item.el.style.top = `${newTop}px`
+          if (item.computedPosition === 'static') item.el.style.position = 'relative'
+
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: 'PM_APPLY_STYLE',
+              payload: {
+                target: item.info,
+                styles,
+              },
+            },
+            '*'
+          )
+
+          editorBuffer.pushAction({
+            type: 'MOVE',
+            description: `Căn lề dưới <${item.info.tagName.toLowerCase()}>`,
+            target: {
+              tagName: item.info.tagName,
+              id: item.info.id,
+              className: item.info.className,
+              domPath: item.info.domPath,
+              uid: item.info.uid,
+              selector: item.info.selector,
+              textSnippet: item.info.textSnippet,
+            },
+            before: { styles: { top: `${item.curTop}px` } },
+            after: { styles: { top: `${newTop}px` } },
+            deltaStyles: styles,
+            projectPath,
+            docEpoch: docEpochRef.current,
+          })
+
+          updatedSelection.push({
+            ...item.info,
+            rect: { ...item.info.rect, top: item.info.rect.top + dy },
+            computedStyles: { ...item.info.computedStyles, ...styles },
+          })
+        })
+      }
+
+      setMultiSelection(updatedSelection)
+      showToast(`Đã căn ${label} cho ${itemsWithDom.length} phần tử!`, 'ok')
+    },
+    [projectPath, showToast]
+  )
+
+  const handleDistributeSelection = useCallback(
+    (type: DistributeType) => {
+      const list = multiSelectionRef.current.length > 1 ? multiSelectionRef.current : []
+      if (list.length < 3) {
+        showToast('Cần chọn từ 3 phần tử trở lên để phân bổ khoảng cách đều.', 'info')
+        return
+      }
+
+      const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+      if (!doc) return
+
+      const itemsWithDom = list
+        .map((item) => {
+          const el = (item.uid ? doc.querySelector(`[data-pm-uid="${item.uid}"]`) : null) as HTMLElement | null
+          if (!el) return null
+          const rect = el.getBoundingClientRect()
+          const computed = window.getComputedStyle(el)
+          const curLeft = parseFloat(computed.left) || 0
+          const curTop = parseFloat(computed.top) || 0
+          return {
+            info: item,
+            el,
+            rect: {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+              right: rect.right,
+              bottom: rect.bottom,
+            },
+            curLeft,
+            curTop,
+            computedPosition: computed.position,
+          }
+        })
+        .filter(Boolean) as Array<{
+          info: RealElementInfo
+          el: HTMLElement
+          rect: { left: number; top: number; width: number; height: number; right: number; bottom: number }
+          curLeft: number
+          curTop: number
+          computedPosition: string
+        }>
+
+      if (itemsWithDom.length < 3) {
+        showToast('Cần ít nhất 3 phần tử để phân bổ khoảng cách đều.', 'info')
+        return
+      }
+
+      const updatedMap = new Map<string, { rect: { left: number; top: number; width: number; height: number }; styles: Record<string, string> }>()
+
+      if (type === 'horizontal') {
+        const sorted = [...itemsWithDom].sort((a, b) => a.rect.left - b.rect.left)
+        const first = sorted[0]
+        const last = sorted[sorted.length - 1]
+
+        const totalSpan = last.rect.left - first.rect.right
+        const midWidths = sorted.slice(1, -1).reduce((sum, item) => sum + item.rect.width, 0)
+        const totalGapSpace = totalSpan - midWidths
+        const gap = totalGapSpace / (sorted.length - 1)
+
+        let prevEdge = first.rect.right
+        sorted.slice(1, -1).forEach((item) => {
+          const targetLeft = prevEdge + gap
+          const dx = targetLeft - item.rect.left
+          const newLeft = Math.round(item.curLeft + dx)
+          const styles = { left: `${newLeft}px` }
+
+          item.el.style.left = `${newLeft}px`
+          if (item.computedPosition === 'static') item.el.style.position = 'relative'
+
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: 'PM_APPLY_STYLE',
+              payload: {
+                target: item.info,
+                styles,
+              },
+            },
+            '*'
+          )
+
+          editorBuffer.pushAction({
+            type: 'MOVE',
+            description: `Phân bổ khoảng cách ngang <${item.info.tagName.toLowerCase()}>`,
+            target: {
+              tagName: item.info.tagName,
+              id: item.info.id,
+              className: item.info.className,
+              domPath: item.info.domPath,
+              uid: item.info.uid,
+              selector: item.info.selector,
+              textSnippet: item.info.textSnippet,
+            },
+            before: { styles: { left: `${item.curLeft}px` } },
+            after: { styles: { left: `${newLeft}px` } },
+            deltaStyles: styles,
+            projectPath,
+            docEpoch: docEpochRef.current,
+          })
+
+          updatedMap.set(item.info.uid || '', {
+            rect: { ...item.info.rect, left: item.info.rect.left + dx },
+            styles,
+          })
+
+          prevEdge = targetLeft + item.rect.width
+        })
+
+        showToast(`Đã phân bổ khoảng cách ngang đều nhau (${Math.round(gap)}px) cho ${sorted.length} phần tử!`, 'ok')
+      } else {
+        const sorted = [...itemsWithDom].sort((a, b) => a.rect.top - b.rect.top)
+        const first = sorted[0]
+        const last = sorted[sorted.length - 1]
+
+        const totalSpan = last.rect.top - first.rect.bottom
+        const midHeights = sorted.slice(1, -1).reduce((sum, item) => sum + item.rect.height, 0)
+        const totalGapSpace = totalSpan - midHeights
+        const gap = totalGapSpace / (sorted.length - 1)
+
+        let prevEdge = first.rect.bottom
+        sorted.slice(1, -1).forEach((item) => {
+          const targetTop = prevEdge + gap
+          const dy = targetTop - item.rect.top
+          const newTop = Math.round(item.curTop + dy)
+          const styles = { top: `${newTop}px` }
+
+          item.el.style.top = `${newTop}px`
+          if (item.computedPosition === 'static') item.el.style.position = 'relative'
+
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              type: 'PM_APPLY_STYLE',
+              payload: {
+                target: item.info,
+                styles,
+              },
+            },
+            '*'
+          )
+
+          editorBuffer.pushAction({
+            type: 'MOVE',
+            description: `Phân bổ khoảng cách dọc <${item.info.tagName.toLowerCase()}>`,
+            target: {
+              tagName: item.info.tagName,
+              id: item.info.id,
+              className: item.info.className,
+              domPath: item.info.domPath,
+              uid: item.info.uid,
+              selector: item.info.selector,
+              textSnippet: item.info.textSnippet,
+            },
+            before: { styles: { top: `${item.curTop}px` } },
+            after: { styles: { top: `${newTop}px` } },
+            deltaStyles: styles,
+            projectPath,
+            docEpoch: docEpochRef.current,
+          })
+
+          updatedMap.set(item.info.uid || '', {
+            rect: { ...item.info.rect, top: item.info.rect.top + dy },
+            styles,
+          })
+
+          prevEdge = targetTop + item.rect.height
+        })
+
+        showToast(`Đã phân bổ khoảng cách dọc đều nhau (${Math.round(gap)}px) cho ${sorted.length} phần tử!`, 'ok')
+      }
+
+      setMultiSelection((prev) =>
+        prev.map((item) => {
+          const upd = updatedMap.get(item.uid || '')
+          if (!upd) return item
+          return {
+            ...item,
+            rect: { ...item.rect, ...upd.rect },
+            computedStyles: { ...item.computedStyles, ...upd.styles },
+          }
+        })
+      )
+    },
+    [projectPath, showToast]
+  )
 
   // ─── SAO CHÉP / DÁN PHẦN TỬ (HOẠT ĐỘNG XUYÊN TRANG) ───
   const copySelection = useCallback(() => {
@@ -4075,18 +4808,18 @@ const CanvasArea = ({
           {/* Lớp xem ảnh mẫu phủ kín stage nhưng KHÔNG unmount iframe Live bên dưới. */}
           {showReference && referenceAsset && renderReferenceView()}
 
-          {isInspectMode && multiSelection.length > 1 && (
+          {isInspectMode && multiSelection.length >= 2 && (
             <div
               style={{
                 position: 'absolute',
                 top: 12,
                 left: '50%',
                 transform: 'translateX(-50%)',
-                zIndex: 60,
+                zIndex: 100,
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
-                padding: '7px 10px',
+                gap: 7,
+                padding: '6px 10px',
                 borderRadius: 10,
                 background: 'rgba(15, 23, 42, 0.94)',
                 border: '1px solid #6d5df5',
@@ -4103,11 +4836,101 @@ const CanvasArea = ({
                 Đang chọn {multiSelection.length} phần tử
               </span>
               <span style={{ width: 1, height: 16, background: 'rgba(148,163,184,0.35)' }} />
+
+              {/* ── CĂN LỀ NGANG ── */}
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: 22, height: 22 }}
+                  onClick={() => handleAlignSelection('left')}
+                  title="Căn lề trái các phần tử đang chọn"
+                >
+                  <AlignLeft size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: 22, height: 22 }}
+                  onClick={() => handleAlignSelection('center')}
+                  title="Căn giữa ngang các phần tử đang chọn"
+                >
+                  <AlignCenter size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: 22, height: 22 }}
+                  onClick={() => handleAlignSelection('right')}
+                  title="Căn lề phải các phần tử đang chọn"
+                >
+                  <AlignRight size={12} />
+                </button>
+              </div>
+
+              {/* ── CĂN LỀ DỌC ── */}
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: 22, height: 22 }}
+                  onClick={() => handleAlignSelection('top')}
+                  title="Căn lề trên các phần tử đang chọn"
+                >
+                  <AlignStartVertical size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: 22, height: 22 }}
+                  onClick={() => handleAlignSelection('middle')}
+                  title="Căn giữa dọc các phần tử đang chọn"
+                >
+                  <AlignCenterVertical size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: 22, height: 22 }}
+                  onClick={() => handleAlignSelection('bottom')}
+                  title="Căn lề dưới các phần tử đang chọn"
+                >
+                  <AlignEndVertical size={12} />
+                </button>
+              </div>
+
+              {/* ── PHÂN BỔ KHOẢNG CÁCH ĐỀU ── */}
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: 22, height: 22 }}
+                  onClick={() => handleDistributeSelection('horizontal')}
+                  title="Phân bổ khoảng cách ngang đều nhau (tối thiểu 3 phần tử)"
+                >
+                  <AlignHorizontalDistributeCenter size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: 22, height: 22 }}
+                  onClick={() => handleDistributeSelection('vertical')}
+                  title="Phân bổ khoảng cách dọc đều nhau (tối thiểu 3 phần tử)"
+                >
+                  <AlignVerticalDistributeCenter size={12} />
+                </button>
+              </div>
+
+              <span style={{ width: 1, height: 16, background: 'rgba(148,163,184,0.35)' }} />
+
+              {multiSelection.length <= 1 && (
+                <button
+                  className="btn secondary"
+                  style={{ height: 24, fontSize: 11, padding: '0 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  onClick={() => void beginToolboxDuplicate()}
+                  title="Nhân bản phần tử (Ctrl+D)"
+                >
+                  <Copy size={11} /> Nhân bản
+                </button>
+              )}
+
               <button
                 className="btn secondary"
                 style={{ height: 24, fontSize: 11, padding: '0 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                 onClick={copySelection}
-                title="Sao chép các phần tử đang chọn (Ctrl+C)"
+                title="Sao chép phần tử đang chọn (Ctrl+C)"
               >
                 <Copy size={11} /> Sao chép
               </button>
@@ -4123,14 +4946,14 @@ const CanvasArea = ({
                 className="btn secondary canvas__attrs-danger"
                 style={{ height: 24, fontSize: 11, padding: '0 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                 onClick={() => void beginDeleteSelection()}
-                title="Xoá tất cả phần tử đang chọn (Delete) — có thể hoàn tác bằng Ctrl+Z"
+                title="Xoá phần tử đang chọn (Delete) — có thể hoàn tác bằng Ctrl+Z"
               >
                 <Trash2 size={11} /> Xoá
               </button>
               <button
                 className="canvas__tool-btn"
                 style={{ width: 24, height: 24 }}
-                title="Bỏ chọn nhiều phần tử (Esc)"
+                title="Bỏ chọn (Esc)"
                 onClick={() => {
                   setMultiSelection([])
                   setSelectedEl(null)
@@ -6014,6 +6837,99 @@ const CanvasArea = ({
                         </button>
                       </div>
 
+                      {(multiSelection.length > 1 || selectedEl) && (
+                        <div className="canvas__inspector-card">
+                          <div className="canvas__inspector-card-hd">
+                            <Layers size={13} style={{ color: '#a78bfa' }} />
+                            <span>
+                              {multiSelection.length > 1
+                                ? `Căn lề & Phân bổ (${multiSelection.length} phần tử)`
+                                : `Căn lề theo khung cha (<${(selectedEl?.tagName || 'div').toLowerCase()}>)`}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 0' }}>
+                            <div style={{ fontSize: 10.5, color: 'var(--text-3)' }}>
+                              {multiSelection.length > 1 ? 'Căn lề (Alignment)' : 'Căn lề trong phần tử cha (Container Alignment)'}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 3 }}>
+                              <button
+                                className="pm-ibtn"
+                                title={multiSelection.length > 1 ? "Căn lề trái các phần tử" : "Căn lề trái theo khung cha"}
+                                onClick={() => handleAlignSelection('left')}
+                                style={{ height: 26, width: '100%' }}
+                              >
+                                <AlignLeft size={13} />
+                              </button>
+                              <button
+                                className="pm-ibtn"
+                                title={multiSelection.length > 1 ? "Căn giữa ngang các phần tử" : "Căn giữa ngang theo khung cha"}
+                                onClick={() => handleAlignSelection('center')}
+                                style={{ height: 26, width: '100%' }}
+                              >
+                                <AlignCenter size={13} />
+                              </button>
+                              <button
+                                className="pm-ibtn"
+                                title={multiSelection.length > 1 ? "Căn lề phải các phần tử" : "Căn lề phải theo khung cha"}
+                                onClick={() => handleAlignSelection('right')}
+                                style={{ height: 26, width: '100%' }}
+                              >
+                                <AlignRight size={13} />
+                              </button>
+                              <button
+                                className="pm-ibtn"
+                                title={multiSelection.length > 1 ? "Căn lề trên các phần tử" : "Căn lề trên theo khung cha"}
+                                onClick={() => handleAlignSelection('top')}
+                                style={{ height: 26, width: '100%' }}
+                              >
+                                <AlignStartVertical size={13} />
+                              </button>
+                              <button
+                                className="pm-ibtn"
+                                title={multiSelection.length > 1 ? "Căn giữa dọc các phần tử" : "Căn giữa dọc theo khung cha"}
+                                onClick={() => handleAlignSelection('middle')}
+                                style={{ height: 26, width: '100%' }}
+                              >
+                                <AlignCenterVertical size={13} />
+                              </button>
+                              <button
+                                className="pm-ibtn"
+                                title={multiSelection.length > 1 ? "Căn lề dưới các phần tử" : "Căn lề dưới theo khung cha"}
+                                onClick={() => handleAlignSelection('bottom')}
+                                style={{ height: 26, width: '100%' }}
+                              >
+                                <AlignEndVertical size={13} />
+                              </button>
+                            </div>
+
+                            {multiSelection.length > 1 && (
+                              <>
+                                <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 4 }}>Khoảng cách đều (Distribution)</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                                  <button
+                                    className="btn secondary"
+                                    style={{ height: 26, fontSize: 10.5, padding: '0 6px', gap: 4, justifyContent: 'center' }}
+                                    title="Phân bổ khoảng cách ngang đều nhau (tối thiểu 3 phần tử)"
+                                    onClick={() => handleDistributeSelection('horizontal')}
+                                  >
+                                    <AlignHorizontalDistributeCenter size={12} /> Cách đều ngang
+                                  </button>
+                                  <button
+                                    className="btn secondary"
+                                    style={{ height: 26, fontSize: 10.5, padding: '0 6px', gap: 4, justifyContent: 'center' }}
+                                    title="Phân bổ khoảng cách dọc đều nhau (tối thiểu 3 phần tử)"
+                                    onClick={() => handleDistributeSelection('vertical')}
+                                  >
+                                    <AlignVerticalDistributeCenter size={12} /> Cách đều dọc
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       <div className="canvas__inspector-card">
                         <div className="canvas__inspector-card-hd">
                           <Copy size={13} style={{ color: '#a78bfa' }} />
@@ -6255,6 +7171,108 @@ const CanvasArea = ({
             <Copy size={13} />
             <span>Dán phần tử (Ctrl+V)</span>
           </button>
+
+          {multiSelection.length > 1 && (
+            <>
+              <div className="pm-canvas-context-menu__divider" />
+              <div style={{ padding: '4px 8px 2px', fontSize: 10, color: 'var(--text-3)', fontWeight: 600 }}>
+                CĂN LỀ & PHÂN BỔ
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 2, padding: '2px 6px' }}>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: '100%', height: 24 }}
+                  title="Căn lề trái"
+                  onClick={() => {
+                    handleAlignSelection('left')
+                    setCanvasContextMenu(null)
+                  }}
+                >
+                  <AlignLeft size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: '100%', height: 24 }}
+                  title="Căn giữa ngang"
+                  onClick={() => {
+                    handleAlignSelection('center')
+                    setCanvasContextMenu(null)
+                  }}
+                >
+                  <AlignCenter size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: '100%', height: 24 }}
+                  title="Căn lề phải"
+                  onClick={() => {
+                    handleAlignSelection('right')
+                    setCanvasContextMenu(null)
+                  }}
+                >
+                  <AlignRight size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: '100%', height: 24 }}
+                  title="Căn lề trên"
+                  onClick={() => {
+                    handleAlignSelection('top')
+                    setCanvasContextMenu(null)
+                  }}
+                >
+                  <AlignStartVertical size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: '100%', height: 24 }}
+                  title="Căn giữa dọc"
+                  onClick={() => {
+                    handleAlignSelection('middle')
+                    setCanvasContextMenu(null)
+                  }}
+                >
+                  <AlignCenterVertical size={12} />
+                </button>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: '100%', height: 24 }}
+                  title="Căn lề dưới"
+                  onClick={() => {
+                    handleAlignSelection('bottom')
+                    setCanvasContextMenu(null)
+                  }}
+                >
+                  <AlignEndVertical size={12} />
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, padding: '3px 6px 4px' }}>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: '100%', height: 22, fontSize: 10, gap: 4, padding: '0 4px', justifyContent: 'center' }}
+                  title="Phân bổ khoảng cách ngang đều nhau"
+                  onClick={() => {
+                    handleDistributeSelection('horizontal')
+                    setCanvasContextMenu(null)
+                  }}
+                >
+                  <AlignHorizontalDistributeCenter size={11} /> Cách đều ngang
+                </button>
+                <button
+                  className="pm-ibtn"
+                  style={{ width: '100%', height: 22, fontSize: 10, gap: 4, padding: '0 4px', justifyContent: 'center' }}
+                  title="Phân bổ khoảng cách dọc đều nhau"
+                  onClick={() => {
+                    handleDistributeSelection('vertical')
+                    setCanvasContextMenu(null)
+                  }}
+                >
+                  <AlignVerticalDistributeCenter size={11} /> Cách đều dọc
+                </button>
+              </div>
+            </>
+          )}
 
           <div className="pm-canvas-context-menu__divider" />
 
