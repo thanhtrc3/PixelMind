@@ -52,7 +52,7 @@ import {
 } from './ai'
 import { listAuditLogs, clearAuditLogs } from './aiAudit'
 import { getCostStats, setTokenBudget, resetCostStats } from './aiCost'
-import { runCliAgent, stopCliAgent, detectInstalledClis } from './cliBridge'
+import { runCliAgent, stopCliAgent, detectInstalledClis, listAgentModels } from './cliBridge'
 import { ideWsBridge } from './ideWsBridge'
 import { buildContextPack } from './aiContext'
 import { acceptChange, listChanges, proposeChange, rejectChange, undoChange } from './aiApply'
@@ -2996,7 +2996,9 @@ ipcMain.handle('ai:cli:run', async (event, request: AiCliRunRequest) => {
 
 ipcMain.handle('ai:cli:stop', async (_e, id: string) => stopCliAgent(id))
 
-ipcMain.handle('ai:cli:detect', async () => detectInstalledClis())
+ipcMain.handle('ai:cli:detect', async (_e, force?: boolean) => detectInstalledClis(force))
+
+ipcMain.handle('ai:cli:models', async (_e, id: string) => listAgentModels(id))
 
 ipcMain.handle('ai:key:save', async (_e, key: string, provider?: string) =>
   saveApiKey(key, provider as never),

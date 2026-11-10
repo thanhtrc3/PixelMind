@@ -266,7 +266,8 @@ const api: PixelMindApi = {
     cli: {
       run: (request: AiCliRunRequest) => ipcRenderer.invoke('ai:cli:run', request),
       stop: (id: string) => ipcRenderer.invoke('ai:cli:stop', id),
-      detect: () => ipcRenderer.invoke('ai:cli:detect'),
+      detect: (force?: boolean) => ipcRenderer.invoke('ai:cli:detect', force),
+      models: (id: string) => ipcRenderer.invoke('ai:cli:models', id),
       onEvent: (cb: (event: AiCliEvent) => void) => {
         const listener = (_e: IpcRendererEvent, event: AiCliEvent) => cb(event)
         ipcRenderer.on('ai:cli:event', listener)

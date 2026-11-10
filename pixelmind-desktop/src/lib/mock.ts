@@ -925,10 +925,38 @@ export function createBrowserMock(): PixelMindApi {
         },
         async detect() {
           return [
-            { binary: 'agy', name: 'Antigravity CLI (agy)', installed: true, description: 'Google Antigravity Agent CLI' },
-            { binary: 'dotnet', name: '.NET SDK', installed: true, description: 'ASP.NET Core & C# Compiler' },
-            { binary: 'git', name: 'Git', installed: true, description: 'Version Control System' },
+            {
+              id: 'antigravity',
+              binary: 'agy',
+              name: 'Antigravity CLI (agy)',
+              installed: true,
+              description: 'Google Antigravity Agent CLI',
+              supportsRun: false,
+              auth: 'unknown' as const,
+            },
+            {
+              id: 'opencode',
+              binary: 'opencode',
+              name: 'OpenCode',
+              installed: true,
+              version: '1.0.0',
+              description: 'OpenCode terminal agent',
+              supportsRun: true,
+              auth: 'unknown' as const,
+            },
+            {
+              id: 'codex',
+              binary: 'codex',
+              name: 'Codex CLI (ChatGPT)',
+              installed: false,
+              description: 'OpenAI Codex CLI',
+              supportsRun: true,
+              auth: 'unknown' as const,
+            },
           ]
+        },
+        async models() {
+          return ['mock-model']
         },
         onEvent() {
           return () => {}

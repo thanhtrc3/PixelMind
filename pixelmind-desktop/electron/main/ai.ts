@@ -19,7 +19,9 @@ import type {
 } from '../../shared/ai'
 import { readStore } from './store'
 import { runTool, TOOL_SCHEMAS } from './aiTools'
-import { killAllCliProcesses, isBinaryAllowed, runCliAgent } from './cliBridge'
+import { detectInstalledClis, isAgentInstalled, killAllCliProcesses, runAgent, stopCliAgent } from './cliBridge'
+import { getAgentDef } from './agentDefs'
+import { prepareAgentIntegration } from './agentIntegrations'
 import { ideWsBridge } from './ideWsBridge'
 import { recordAudit } from './aiAudit'
 import { GUARDRAILS_SYSTEM_INSTRUCTION } from './aiGuardrails'
@@ -41,6 +43,38 @@ const DEFAULTS: Record<AiProvider, { baseUrl: string; model: string }> = {
 }
 
 const controllers = new Map<string, AbortController>()
+
+/* Phiên native của từng CLI agent (resume). Lưu theo userData để sống qua khởi động lại. */
+const agentSessions = new Map<string, string>()
+let agentSessionsLoaded = false
+const agentSessionsFile = () => join(app.getPath('userData'), 'ai-agent-sessions.json')
+
+async function loadAgentSessions(): Promise<void> {
+  if (agentSessionsLoaded) return
+  agentSessionsLoaded = true
+  try {
+    const raw = await fs.readFile(agentSessionsFile(), 'utf8')
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === 'string' && value) agentSessions.set(key, value)
+    }
+  } catch {
+    // chưa có phiên nào
+  }
+}
+
+async function persistAgentSessions(): Promise<void> {
+  try {
+    await fs.mkdir(app.getPath('userData'), { recursive: true })
+    await fs.writeFile(
+      agentSessionsFile(),
+      JSON.stringify(Object.fromEntries(agentSessions), null, 2),
+      'utf8',
+    )
+  } catch {
+    // không chặn luồng chat nếu ghi lỗi
+  }
+}
 
 const parseEnvFile = (text: string): Record<string, string> => {
   const values: Record<string, string> = {}
@@ -735,10 +769,12 @@ export function startChat(
   const controller = new AbortController()
   controllers.set(id, controller)
 
-  // Giới hạn thời gian toàn bộ agent loop (120 giây)
+  // Giới hạn thời gian toàn bộ agent loop: CLI agent cần lâu hơn API (10 phút).
+  const requestedBridge = request.bridge ?? activeBridgeKind
+  const loopLimitMs = requestedBridge === 'cli' ? 10 * 60_000 : 120_000
   const loopTimeout = setTimeout(() => {
     controller.abort()
-  }, 120_000)
+  }, loopLimitMs)
 
   const run = async () => {
     const started = Date.now()
@@ -756,8 +792,11 @@ export function startChat(
         await persistChat(request.projectId, { at: started, role: 'user', text: lastUser.content })
       }
 
+      // Cầu nối người dùng chọn tại thời điểm gửi (ưu tiên hơn activeBridge toàn cục).
+      const bridgeKind = request.bridge ?? activeBridgeKind
+
       // 1. ROUTE CHO IDE WEBSOCKET BRIDGE
-      if (activeBridgeKind === 'ide') {
+      if (bridgeKind === 'ide') {
         const isConnected =
           ideWsBridge.isConnected() ||
           (await ideWsBridge.connect(request.projectPath, request.projectId))
@@ -796,27 +835,114 @@ export function startChat(
         return
       }
 
-      // 2. ROUTE CHO CLI BRIDGE
-      if (activeBridgeKind === 'cli') {
-        const binary = isBinaryAllowed('agy') ? 'agy' : isBinaryAllowed('opencode') ? 'opencode' : 'dotnet'
-        emit({ type: 'delta', id, text: `[CLI Bridge] Khởi chạy ${binary} agent với tác vụ: "${userText}"...\n` })
-        runCliAgent(
-          {
-            binary,
-            args: ['run', userText],
-            projectPath: request.projectPath || process.cwd(),
-          },
-          (cliEvt) => {
-            if (cliEvt.type === 'stdout' || cliEvt.type === 'stderr') {
-              emit({ type: 'delta', id, text: cliEvt.text || '' })
-            } else if (cliEvt.type === 'exit') {
-              emit({ type: 'done', id, at: Date.now() })
-            } else if (cliEvt.type === 'error') {
-              emit({ type: 'error', id, message: cliEvt.text || 'CLI Error' })
-            }
-          },
-        )
-        return
+      // 2. ROUTE CHO CLI BRIDGE (agent CLI trên máy)
+      if (bridgeKind === 'cli') {
+        const requested = request.cli
+        const def = requested ? getAgentDef(requested.id) : undefined
+        const usable = def ? def.supportsRun && (await isAgentInstalled(def.id)) : false
+
+        if (def && usable) {
+          await loadAgentSessions()
+          const projectPath = request.projectPath || process.cwd()
+          const integration = await prepareAgentIntegration(def.id, projectPath)
+          const sessionKey = `${request.projectId ?? projectPath}:${def.id}`
+          const sessionId = agentSessions.get(sessionKey)
+
+          const history = request.messages.filter((message) => message.role !== 'system')
+          const transcript = history
+            .slice(0, -1)
+            .map(
+              (message) =>
+                `${message.role === 'user' ? 'Người dùng' : 'Trợ lý'}: ${message.content}`,
+            )
+            .join('\n\n')
+          const contextText = request.context
+            ? `Gói ngữ cảnh dự án (JSON):\n${JSON.stringify(request.context, null, 2)}`
+            : ''
+          const prompt = sessionId
+            ? userText
+            : [integration.preamble, contextText, transcript, `Người dùng: ${userText}`]
+                .filter(Boolean)
+                .join('\n\n')
+
+          emit({
+            type: 'delta',
+            id,
+            text: `▶ ${def.name}${requested?.model ? ` · ${requested.model}` : ''}${
+              sessionId ? ' · tiếp tục phiên' : ''
+            }\n\n`,
+          })
+
+          let stderrText = ''
+          const handle = runAgent(
+            {
+              def,
+              prompt,
+              projectPath,
+              model: requested?.model,
+              sessionId,
+              extraArgs: integration.extraArgs,
+              extraEnv: integration.env,
+            },
+            (cliEvt) => {
+              if (cliEvt.type === 'text' && cliEvt.text) {
+                streamedText += cliEvt.text
+                emit({ type: 'delta', id, text: cliEvt.text })
+              } else if (cliEvt.type === 'tool' && cliEvt.tool) {
+                emit({
+                  type: 'tool',
+                  id,
+                  name: cliEvt.tool.name,
+                  status: cliEvt.tool.status,
+                  detail: cliEvt.tool.detail,
+                })
+              } else if (cliEvt.type === 'session' && cliEvt.sessionId) {
+                if (agentSessions.get(sessionKey) !== cliEvt.sessionId) {
+                  agentSessions.set(sessionKey, cliEvt.sessionId)
+                  void persistAgentSessions()
+                }
+              } else if (cliEvt.type === 'usage' && cliEvt.usage) {
+                void recordTokenUsage(
+                  request.projectId,
+                  cliEvt.usage.promptTokens ?? 0,
+                  cliEvt.usage.completionTokens ?? 0,
+                )
+              } else if (cliEvt.type === 'stderr' && cliEvt.text) {
+                stderrText += cliEvt.text
+              } else if (cliEvt.type === 'error') {
+                emit({ type: 'error', id, message: cliEvt.text || 'CLI Error' })
+              }
+            },
+          )
+
+          const abortHandler = () => stopCliAgent(handle.id)
+          controller.signal.addEventListener('abort', abortHandler, { once: true })
+          const code = await handle.done
+          controller.signal.removeEventListener('abort', abortHandler)
+
+          finalText = streamedText.trim()
+          if (code !== 0 && !finalText) {
+            const detail = stderrText.trim().slice(-1200)
+            throw new Error(detail || `${def.name} thoát với mã ${code}`)
+          }
+
+          if (finalText) {
+            await persistChat(request.projectId, {
+              at: Date.now(),
+              role: 'assistant',
+              text: finalText,
+            })
+          }
+          emit({ type: 'done', id, at: Date.now() })
+          return
+        }
+
+        // Gói 4 — BYOK fallback: không có CLI khả dụng thì dùng API Bridge.
+        emit({
+          type: 'delta',
+          id,
+          text: `⚠️ CLI "${requested?.id ?? 'mặc định'}" chưa cài hoặc chưa hỗ trợ chạy. Đang chuyển sang API Bridge…\n\n`,
+        })
       }
 
       // 3. ROUTE CHO API BRIDGE (HOẶC OLLAMA)
@@ -832,7 +958,7 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
 1. **OpenAI Cloud:** Thêm \`PIXELMIND_AI_KEY=sk-...\` vào tệp \`.env\` của dự án hoặc tệp \`pixelmind.env\` trong thư mục cấu hình userData.
 2. **Ollama Local (Offline Miễn phí):** Chuyển sang cầu nối **Ollama Local** trên thanh tiêu đề (chạy mô hình cục bộ không cần mạng).
 3. **IDE WebSocket Bridge:** Chọn **IDE WebSocket** để kết nối trực tiếp với Anti Gravity hoặc VS Code (cổng \`ws://127.0.0.1:45678\`).
-4. **CLI Bridge:** Chọn **CLI Bridge** để chạy agent qua dòng lệnh (\`agy\`, \`opencode\`).
+4. **CLI Bridge:** Chọn **CLI Bridge** để chạy agent qua dòng lệnh đã cài trên máy (\`opencode\`, \`codex\`, \`claude\`, \`gemini\`…).
 
 👉 *Bạn có thể thử nhập: "Sửa navbar tối giản hơn", "Đổi màu nút theo theme" hoặc "Thêm thông tin" để xem trước vòng lặp Agent (Plan → Tool Call → Diff) hoạt động trực tiếp!*`
           emit({ type: 'delta', id, text: finalText })
@@ -1144,12 +1270,18 @@ export async function pingBridge(kind: AiBridgeKind, projectPath?: string): Prom
       }
     }
     case 'cli': {
-      const allowed = isBinaryAllowed('opencode') || isBinaryAllowed('agy')
+      const detected = await detectInstalledClis()
+      const runnable = detected.filter((item) => item.installed && item.supportsRun)
       return {
         kind: 'cli',
         name: 'CLI Bridge',
-        detail: 'Local Agent CLI (opencode / agy / claude)',
-        status: allowed ? 'local' : 'offline',
+        detail: runnable.length
+          ? `${runnable.length} CLI chạy được: ${runnable
+              .slice(0, 3)
+              .map((item) => item.name)
+              .join(', ')}`
+          : 'Chưa cài CLI agent nào (dùng API dự phòng)',
+        status: runnable.length ? 'local' : 'offline',
       }
     }
     case 'ollama': {

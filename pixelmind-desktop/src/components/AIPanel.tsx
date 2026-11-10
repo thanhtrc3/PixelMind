@@ -323,13 +323,50 @@ const AIPanel = ({
   const [bridges, setBridges] = useState<AiBridgeStatus[]>([])
   const [detectedClis, setDetectedClis] = useState<DetectedCli[]>([])
   const [scanningClis, setScanningClis] = useState(false)
+  const [selectedCli, setSelectedCli] = useState<{ id: string; model?: string } | null>(() => {
+    try {
+      const raw = localStorage.getItem('pixelmind.ai.cliTarget')
+      return raw ? (JSON.parse(raw) as { id: string; model?: string }) : null
+    } catch {
+      return null
+    }
+  })
+  const [cliModels, setCliModels] = useState<string[]>([])
+  const [loadingModels, setLoadingModels] = useState(false)
   const [apiKeyInput, setApiKeyInput] = useState('')
   const [isSavingKey, setIsSavingKey] = useState(false)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('pixelmind.ai.cliTarget', JSON.stringify(selectedCli))
+    } catch {
+      // localStorage có thể bị chặn — bỏ qua
+    }
+  }, [selectedCli])
+
+  const loadCliModels = useCallback(async (id: string) => {
+    setLoadingModels(true)
+    try {
+      const list = await api.ai.cli.models(id)
+      setCliModels(list || [])
+    } catch {
+      setCliModels([])
+    } finally {
+      setLoadingModels(false)
+    }
+  }, [])
+
+  // Tự chọn CLI chạy được đầu tiên nếu người dùng chưa chọn.
+  useEffect(() => {
+    if (selectedCli) return
+    const first = detectedClis.find((cli) => cli.installed && cli.supportsRun)
+    if (first) setSelectedCli({ id: first.id })
+  }, [detectedClis, selectedCli])
 
   const scanLocalClis = useCallback(async () => {
     setScanningClis(true)
     try {
-      const list = await api.ai.cli.detect()
+      const list = await api.ai.cli.detect(true)
       setDetectedClis(list || [])
     } catch {
       setDetectedClis([])
@@ -337,6 +374,22 @@ const AIPanel = ({
       setScanningClis(false)
     }
   }, [])
+
+  const selectCli = useCallback(
+    async (cli: DetectedCli) => {
+      if (!cli.installed || !cli.supportsRun) return
+      setSelectedCli({ id: cli.id })
+      setActiveBridge('cli')
+      try {
+        await api.ai.bridges.setActive('cli')
+      } catch {
+        // vẫn giữ lựa chọn cục bộ
+      }
+      onShowToast('ok', `Đã chọn ${cli.name}`)
+      void loadCliModels(cli.id)
+    },
+    [loadCliModels, onShowToast],
+  )
 
   const handleSaveApiKey = async () => {
     const key = apiKeyInput.trim()
@@ -370,6 +423,14 @@ const AIPanel = ({
     setActiveBridge(kind)
     setBridgeOpen(false)
     try {
+      if (kind === 'cli' && !selectedCli) {
+        // Chọn CLI Bridge mà chưa chọn agent: tự lấy CLI chạy được đầu tiên.
+        const first = detectedClis.find((cli) => cli.installed && cli.supportsRun)
+        if (first) {
+          setSelectedCli({ id: first.id })
+          void loadCliModels(first.id)
+        }
+      }
       if (kind === 'ollama') {
         await switchProvider('ollama')
       } else if (kind === 'api') {
@@ -720,6 +781,8 @@ const AIPanel = ({
         tools: true,
         context,
         messages: payloadMessages,
+        bridge: activeBridge,
+        cli: activeBridge === 'cli' ? (selectedCli ?? undefined) : undefined,
       })
       activeChatId.current = handle.id
     } catch (error) {
@@ -1145,6 +1208,7 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
             onClick={() => {
               void refreshBridges()
               void scanLocalClis()
+              if (selectedCli) void loadCliModels(selectedCli.id)
               updateBridgePos()
               setBridgeOpen((v) => !v)
             }}
@@ -1157,7 +1221,9 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
               {activeBridge === 'ide'
                 ? 'IDE WebSocket'
                 : activeBridge === 'cli'
-                  ? 'CLI Bridge'
+                  ? selectedCli
+                    ? `CLI · ${detectedClis.find((cli) => cli.id === selectedCli.id)?.name ?? selectedCli.id}`
+                    : 'CLI Bridge'
                   : activeBridge === 'ollama'
                     ? 'Ollama Local'
                     : status?.model || providerName}
@@ -1266,36 +1332,102 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
                       Đang quét các lệnh CLI...
                     </div>
                   ) : (
-                    detectedClis.map((cli) => (
-                      <button
-                        key={cli.binary}
-                        className={`pm-ai-bridge__item ${activeBridge === 'cli' ? 'is-active' : ''}`}
-                        style={{
-                          opacity: cli.installed ? 1 : 0.45,
-                          cursor: cli.installed ? 'pointer' : 'default',
-                          padding: '5px 8px',
-                        }}
-                        onClick={() => {
-                          if (cli.installed) {
-                            void handleSelectBridge('cli')
+                    detectedClis.map((cli) => {
+                      const runnable = cli.installed && cli.supportsRun
+                      const isSelected = selectedCli?.id === cli.id && activeBridge === 'cli'
+                      const authLabel =
+                        cli.auth === 'ok'
+                          ? 'đã đăng nhập'
+                          : cli.auth === 'missing'
+                            ? 'chưa đăng nhập'
+                            : ''
+                      const detail = cli.installed
+                        ? [cli.version ? `v${cli.version}` : '', authLabel]
+                            .filter(Boolean)
+                            .join(' · ') || 'Sẵn sàng'
+                        : cli.note
+                          ? 'Lệnh không chạy được'
+                          : 'Chưa cài đặt'
+                      return (
+                        <button
+                          key={cli.id}
+                          className={`pm-ai-bridge__item ${isSelected ? 'is-active' : ''}`}
+                          style={{
+                            opacity: cli.installed ? (cli.supportsRun ? 1 : 0.6) : 0.4,
+                            cursor: runnable ? 'pointer' : 'default',
+                            padding: '5px 8px',
+                          }}
+                          onClick={() => void selectCli(cli)}
+                          title={
+                            cli.installed
+                              ? `${cli.description}\nĐường dẫn: ${cli.path || cli.binary}${
+                                  cli.supportsRun ? '' : '\nChưa hỗ trợ chạy từ chatbox'
+                                }`
+                              : cli.note
+                                ? `${cli.description}\n${cli.note}\nĐường dẫn: ${cli.path || cli.binary}`
+                                : 'Chưa cài đặt trên máy'
                           }
-                        }}
-                        title={cli.installed ? `Đường dẫn: ${cli.path || cli.binary}` : 'Chưa cài đặt trên máy'}
-                      >
-                        <span className={`pm-ai-dot is-${cli.installed ? 'local' : 'offline'}`} />
-                        <span className="pm-ai-bridge__item-main">
-                          <b>{cli.name}</b>
-                          <span>{cli.installed ? (cli.path ? `✓ ${cli.path}` : 'Sẵn sàng') : 'Chưa cài đặt'}</span>
-                        </span>
-                        {cli.installed && (
-                          <span className="pm-ai-badge is-done" style={{ fontSize: 8.5 }}>
-                            Dùng
+                        >
+                          <span
+                            className={`pm-ai-dot is-${
+                              runnable ? 'local' : cli.installed ? 'offline' : 'offline'
+                            }`}
+                          />
+                          <span className="pm-ai-bridge__item-main">
+                            <b>{cli.name}</b>
+                            <span>{detail}</span>
                           </span>
-                        )}
-                      </button>
-                    ))
+                          {isSelected && <Check size={12} />}
+                          {!isSelected && cli.installed && (
+                            <span
+                              className={`pm-ai-badge ${runnable ? 'is-done' : ''}`}
+                              style={{ fontSize: 8.5 }}
+                            >
+                              {runnable ? 'Dùng' : 'Chỉ quét'}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })
                   )}
                 </div>
+
+                {/* 4. Chọn model cho CLI đang dùng */}
+                {activeBridge === 'cli' && selectedCli && (
+                  <div className="pm-ai-bridge__key-box">
+                    <div className="pm-ai-bridge__key-title">
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Cpu size={11} style={{ color: 'var(--accent)' }} />
+                        <span>Model cho {selectedCli.id}</span>
+                      </span>
+                      {loadingModels && (
+                        <span style={{ fontSize: 9.5, color: 'var(--text-3)' }}>Đang tải…</span>
+                      )}
+                    </div>
+                    <div className="pm-ai-bridge__key-row">
+                      <select
+                        value={selectedCli.model ?? ''}
+                        onChange={(e) =>
+                          setSelectedCli((prev) =>
+                            prev ? { ...prev, model: e.target.value || undefined } : prev,
+                          )
+                        }
+                        title="Model truyền xuống CLI (để trống = mặc định của CLI)"
+                      >
+                        <option value="">Mặc định của CLI</option>
+                        {cliModels.map((model) => (
+                          <option key={model} value={model}>
+                            {model}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="pm-ai-bridge__key-hint">
+                      Skills được stage tự động vào <code>.pixelmind/skills</code>; MCP server
+                      cấu hình trong <code>.pixelmind/mcp.json</code>.
+                    </div>
+                  </div>
+                )}
 
                 {/* 4. Link Cài đặt AI */}
                 {onOpenSettings && (

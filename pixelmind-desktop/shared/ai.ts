@@ -259,15 +259,34 @@ export interface AiChatRequest {
   title?: string
   /** Giới hạn phạm vi: chỉ cho phép sửa tệp này (nếu gọi tool sửa tệp) */
   scopedFile?: string
+  /** Cầu nối người dùng chọn tại thời điểm gửi (ưu tiên hơn activeBridge toàn cục). */
+  bridge?: AiBridgeKind
+  /** CLI agent đích khi dùng CLI Bridge. */
+  cli?: AiCliTarget
 }
 
 export interface DetectedCli {
+  /** ID adapter, ví dụ "opencode" | "codex" | "claude". */
+  id: string
   binary: string
   name: string
   version?: string
   path?: string
   installed: boolean
   description: string
+  /** CLI có hỗ trợ chạy từ chatbox hay chỉ phát hiện. */
+  supportsRun: boolean
+  /** Trạng thái đăng nhập nếu CLI có auth probe. */
+  auth?: 'ok' | 'missing' | 'unknown'
+  /** Model gợi ý / phát hiện được. */
+  models?: string[]
+  /** Ghi chú chẩn đoán khi tìm thấy lệnh nhưng không chạy được. */
+  note?: string
+}
+
+export interface AiCliTarget {
+  id: string
+  model?: string
 }
 
 export interface AiCliRunRequest {
@@ -276,13 +295,28 @@ export interface AiCliRunRequest {
   args: string[]
   projectPath: string
   timeoutMs?: number
+  /** Nội dung ghi vào stdin (nếu cần). */
+  stdinText?: string
+  /** Biến môi trường bổ sung. */
+  env?: Record<string, string>
 }
 
 export interface AiCliEvent {
   id: string
-  type: 'stdout' | 'stderr' | 'exit' | 'error'
+  type:
+    | 'stdout'
+    | 'stderr'
+    | 'exit'
+    | 'error'
+    | 'text'
+    | 'tool'
+    | 'session'
+    | 'usage'
   text?: string
   code?: number
+  tool?: { name: string; status: 'running' | 'ok' | 'error'; detail?: string }
+  sessionId?: string
+  usage?: { promptTokens?: number; completionTokens?: number }
 }
 
 export type AiChatEvent =
@@ -339,7 +373,8 @@ export interface AiApi {
   cli: {
     run(request: AiCliRunRequest): Promise<{ id: string }>
     stop(id: string): Promise<boolean>
-    detect(): Promise<DetectedCli[]>
+    detect(force?: boolean): Promise<DetectedCli[]>
+    models(id: string): Promise<string[]>
     onEvent(callback: (event: AiCliEvent) => void): () => void
   }
   ws: {

@@ -5,3 +5,5 @@ dist/
 .vscode/
 .env
 .env.local
+# Skill/MCP staged by the app into each project
+.pixelmind/
