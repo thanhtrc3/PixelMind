@@ -12,6 +12,8 @@ import type {
 } from '../../shared/ai'
 import { isBlockedPath, isTextFile, readTextFileSafe, resolveProjectPath, toPosix } from './aiSafe'
 import { proposeChange } from './aiApply'
+import { redactSecrets } from './aiGuardrails'
+import { recordAudit } from './aiAudit'
 
 /* Tool Layer tối thiểu. AI chỉ được gọi đúng các tool trong danh sách này,
    mọi lần gọi đều đi qua kiểm tra đường dẫn và ghi audit log. */
@@ -160,7 +162,7 @@ const runReadFile = async (
   return {
     ok: true,
     tool: 'read_file',
-    output: slice.map((line, index) => `${start + index}: ${line}`).join('\n'),
+    output: redactSecrets(slice.map((line, index) => `${start + index}: ${line}`).join('\n')),
     data: { file: rel, startLine: start, endLine: end, totalLines: lines.length, truncated },
   }
 }
@@ -224,7 +226,7 @@ const runSearch = async (
   return {
     ok: true,
     tool: 'search_project',
-    output: results.length ? results.join('\n') : 'Không tìm thấy kết quả.',
+    output: results.length ? redactSecrets(results.join('\n')) : 'Không tìm thấy kết quả.',
     data: { scanned: files.length, matches: results.length },
   }
 }
@@ -253,6 +255,19 @@ const runApplyPatch = async (
   if (!file) return { ok: false, tool: 'apply_patch', error: 'Thiếu tham số file.' }
   const fullPath = resolveProjectPath(root, file)
   const rel = toPosix(fullPath.slice(resolve(root).length + 1))
+
+  // Giới hạn phạm vi: Chỉ sửa phần tử này (chặn nếu AI đề xuất sửa ngoài tệp đã chỉ định)
+  if (request.scopedFile) {
+    const normScoped = toPosix(request.scopedFile).toLowerCase().replace(/^\/+/, '')
+    const normTarget = toPosix(rel).toLowerCase().replace(/^\/+/, '')
+    if (!normTarget.endsWith(normScoped) && !normScoped.endsWith(normTarget)) {
+      return {
+        ok: false,
+        tool: 'apply_patch',
+        error: `Đã chặn sửa tệp ngoài phạm vi: AI đề xuất sửa "${rel}", nhưng chế độ "Chỉ sửa phần tử này" đang bật (chỉ cho phép "${request.scopedFile}").`,
+      }
+    }
+  }
 
   let current = ''
   try {
@@ -415,6 +430,19 @@ const runSyncNav = async (
 
   const fullPath = resolveProjectPath(root, file)
   const rel = toPosix(fullPath.slice(resolve(root).length + 1))
+
+  // Giới hạn phạm vi: Chỉ sửa phần tử này
+  if (request.scopedFile) {
+    const normScoped = toPosix(request.scopedFile).toLowerCase().replace(/^\/+/, '')
+    const normTarget = toPosix(rel).toLowerCase().replace(/^\/+/, '')
+    if (!normTarget.endsWith(normScoped) && !normScoped.endsWith(normTarget)) {
+      return {
+        ok: false,
+        tool: 'sync_nav',
+        error: `Đã chặn sửa tệp ngoài phạm vi: AI đề xuất sửa "${rel}", nhưng chế độ "Chỉ sửa phần tử này" đang bật (chỉ cho phép "${request.scopedFile}").`,
+      }
+    }
+  }
   let current = ''
   try {
     current = await fs.readFile(fullPath, 'utf8')
@@ -499,6 +527,17 @@ export async function runTool(request: AiToolCallRequest): Promise<AiToolResult>
   }
 
   const durationMs = Date.now() - started
+  if (!result.ok && (result.error?.includes('ngoài dự án') || result.error?.includes('bị chặn') || result.error?.includes('ngoài phạm vi'))) {
+    void recordAudit({
+      type: 'guardrail_blocked',
+      summary: `Guardrail chặn thao tác ${request.tool}`,
+      ok: false,
+      projectId: request.projectId,
+      detail: result.error,
+      durationMs,
+    })
+  }
+
   await logToolCall({
     id: randomUUID(),
     at: started,

@@ -7,4 +7,6 @@ release/
 .DS_Store
 .env
 .env*.local
-
+*.env
+.env.*
+pixelmind.env

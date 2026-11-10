@@ -1,7 +1,48 @@
 /* Hợp đồng dữ liệu AI dùng chung giữa main process, preload và renderer.
    Khoá API KHÔNG bao giờ nằm trong các kiểu dữ liệu gửi xuống renderer. */
 
-export type AiProvider = 'openai' | 'ollama'
+export type AiProvider = 'openai' | 'ollama' | 'gemini'
+
+export type AiBridgeKind = 'api' | 'ide' | 'cli' | 'ollama'
+
+export interface AiBridgeStatus {
+  kind: AiBridgeKind
+  name: string
+  detail: string
+  status: 'online' | 'offline' | 'local'
+  latencyMs?: number
+  model?: string
+  error?: string
+}
+
+export interface AiAuditEntry {
+  id: string
+  at: number
+  type: 'tool_call' | 'patch' | 'cli' | 'kill_switch' | 'bridge' | 'guardrail_blocked'
+  summary: string
+  ok: boolean
+  projectId?: string
+  detail?: string
+  durationMs?: number
+}
+
+export interface AiCostStats {
+  projectId?: string
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  estimatedCostUsd: number
+  budgetTokens: number
+  percentageUsed: number
+  isOverBudget: boolean
+  isNearBudget: boolean
+}
+
+export interface AiPlanStep {
+  id: string
+  label: string
+  status: 'pending' | 'running' | 'done' | 'failed'
+}
 
 export type AiMessageRole = 'system' | 'user' | 'assistant'
 
@@ -177,6 +218,8 @@ export interface AiToolCallRequest {
   projectId?: string
   projectPath: string
   args: Record<string, unknown>
+  /** Giới hạn phạm vi: chỉ cho phép sửa tệp này (nếu gọi tool sửa tệp) */
+  scopedFile?: string
 }
 
 export interface AiToolResult {
@@ -214,11 +257,39 @@ export interface AiChatRequest {
   tools?: boolean
   /** Tên hiển thị cho phiên chat, dùng cho nhật ký. */
   title?: string
+  /** Giới hạn phạm vi: chỉ cho phép sửa tệp này (nếu gọi tool sửa tệp) */
+  scopedFile?: string
+}
+
+export interface DetectedCli {
+  binary: string
+  name: string
+  version?: string
+  path?: string
+  installed: boolean
+  description: string
+}
+
+export interface AiCliRunRequest {
+  id?: string
+  binary: string
+  args: string[]
+  projectPath: string
+  timeoutMs?: number
+}
+
+export interface AiCliEvent {
+  id: string
+  type: 'stdout' | 'stderr' | 'exit' | 'error'
+  text?: string
+  code?: number
 }
 
 export type AiChatEvent =
   | { type: 'start'; id: string; at: number }
   | { type: 'delta'; id: string; text: string }
+  | { type: 'plan'; id: string; steps: AiPlanStep[] }
+  | { type: 'step_update'; id: string; stepId: string; status: 'running' | 'done' | 'failed' }
   | { type: 'tool'; id: string; name: string; status: 'running' | 'ok' | 'error'; detail?: string }
   | { type: 'done'; id: string; at: number; usage?: { promptTokens?: number; completionTokens?: number } }
   | { type: 'error'; id: string; message: string }
@@ -233,6 +304,7 @@ export interface AiChatEntry {
   at: number
   role: AiMessageRole
   text: string
+  plan?: AiPlanStep[]
 }
 
 export interface AiChatStartRequest extends AiChatRequest {
@@ -243,9 +315,37 @@ export interface AiApi {
   status(projectPath?: string): Promise<AiStatus>
   models(projectPath?: string): Promise<AiModel[]>
   test(projectPath?: string): Promise<AiTestResult>
+  saveKey(key: string, provider?: string): Promise<{ ok: boolean; masked: string }>
   chat(request: AiChatStartRequest): Promise<AiChatHandle>
+  complete(request: { prompt: string; system?: string; projectPath?: string }): Promise<{ text: string; error?: string }>
   cancel(id: string): Promise<boolean>
+  killSwitch(): Promise<{ count: number; ok: boolean }>
   onChatEvent(callback: (event: AiChatEvent) => void): () => void
+  bridges: {
+    getActive(): Promise<AiBridgeKind>
+    setActive(kind: AiBridgeKind): Promise<AiBridgeStatus>
+    list(projectPath?: string): Promise<AiBridgeStatus[]>
+    ping(kind: AiBridgeKind, projectPath?: string): Promise<AiBridgeStatus>
+  }
+  audit: {
+    list(projectId?: string): Promise<AiAuditEntry[]>
+    clear(projectId?: string): Promise<boolean>
+  }
+  cost: {
+    get(projectId?: string): Promise<AiCostStats>
+    setBudget(projectId: string, budgetTokens: number): Promise<AiCostStats>
+    reset(projectId?: string): Promise<boolean>
+  }
+  cli: {
+    run(request: AiCliRunRequest): Promise<{ id: string }>
+    stop(id: string): Promise<boolean>
+    detect(): Promise<DetectedCli[]>
+    onEvent(callback: (event: AiCliEvent) => void): () => void
+  }
+  ws: {
+    send(message: unknown): Promise<boolean>
+    status(): Promise<{ online: boolean; latencyMs: number }>
+  }
   chats: {
     history(projectId: string): Promise<AiChatEntry[]>
     clear(projectId: string): Promise<boolean>

@@ -15,6 +15,7 @@ interface LogPanelProps {
   onOpenFile?: (file: string) => void
   onToggleCollapse?: () => void
   isCollapsed?: boolean
+  onAskAI?: () => void
 }
 
 const LogPanel = ({
@@ -28,6 +29,7 @@ const LogPanel = ({
   onOpenFile,
   onToggleCollapse,
   isCollapsed = false,
+  onAskAI,
 }: LogPanelProps) => {
   const bodyRef = useRef<HTMLDivElement>(null)
   const [showRawLogs, setShowRawLogs] = useState(false)
@@ -109,6 +111,7 @@ const LogPanel = ({
               showRawLogs={showRawLogs}
               onToggleRawLogs={() => setShowRawLogs((v) => !v)}
               rawLogsCount={logs.length}
+              onAskAI={onAskAI}
             />
           </div>
         )}

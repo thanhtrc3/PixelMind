@@ -24,8 +24,11 @@ import type {
   ToolboxWriteResult,
 } from '../../shared/toolbox'
 import type {
+  AiBridgeKind,
   AiChatEvent,
   AiChatStartRequest,
+  AiCliEvent,
+  AiCliRunRequest,
   AiContextRequest,
   AiProposeChangeRequest,
   AiToolCallRequest,
@@ -212,6 +215,8 @@ const api: PixelMindApi = {
     models: (projectPath?: string) => ipcRenderer.invoke('ai:models', projectPath),
     test: (projectPath?: string) => ipcRenderer.invoke('ai:test', projectPath),
     chat: (request: AiChatStartRequest) => ipcRenderer.invoke('ai:chat:start', request),
+    complete: (payload: { prompt: string; system?: string; projectPath?: string }) =>
+      ipcRenderer.invoke('ai:complete', payload),
     cancel: (id: string) => ipcRenderer.invoke('ai:cancel', id),
     onChatEvent: (cb: (event: AiChatEvent) => void) => {
       const listener = (_e: IpcRendererEvent, event: AiChatEvent) => cb(event)
@@ -237,6 +242,40 @@ const api: PixelMindApi = {
       list: () => ipcRenderer.invoke('ai:tools:list'),
       run: (request: AiToolCallRequest) => ipcRenderer.invoke('ai:tools:run', request),
       logs: (projectId?: string) => ipcRenderer.invoke('ai:tools:logs', projectId),
+    },
+    killSwitch: () => ipcRenderer.invoke('ai:kill-switch'),
+    saveKey: (key: string, provider?: string) =>
+      ipcRenderer.invoke('ai:key:save', key, provider),
+    bridges: {
+      getActive: () => ipcRenderer.invoke('ai:bridges:getActive'),
+      setActive: (kind: AiBridgeKind) => ipcRenderer.invoke('ai:bridges:setActive', kind),
+      list: (projectPath?: string) => ipcRenderer.invoke('ai:bridges:list', projectPath),
+      ping: (kind: AiBridgeKind, projectPath?: string) =>
+        ipcRenderer.invoke('ai:bridges:ping', kind, projectPath),
+    },
+    audit: {
+      list: (projectId?: string) => ipcRenderer.invoke('ai:audit:list', projectId),
+      clear: (projectId?: string) => ipcRenderer.invoke('ai:audit:clear', projectId),
+    },
+    cost: {
+      get: (projectId?: string) => ipcRenderer.invoke('ai:cost:get', projectId),
+      setBudget: (projectId: string, budgetTokens: number) =>
+        ipcRenderer.invoke('ai:cost:setBudget', projectId, budgetTokens),
+      reset: (projectId?: string) => ipcRenderer.invoke('ai:cost:reset', projectId),
+    },
+    cli: {
+      run: (request: AiCliRunRequest) => ipcRenderer.invoke('ai:cli:run', request),
+      stop: (id: string) => ipcRenderer.invoke('ai:cli:stop', id),
+      detect: () => ipcRenderer.invoke('ai:cli:detect'),
+      onEvent: (cb: (event: AiCliEvent) => void) => {
+        const listener = (_e: IpcRendererEvent, event: AiCliEvent) => cb(event)
+        ipcRenderer.on('ai:cli:event', listener)
+        return () => ipcRenderer.removeListener('ai:cli:event', listener)
+      },
+    },
+    ws: {
+      send: (message: unknown) => ipcRenderer.invoke('ai:ws:send', message),
+      status: () => ipcRenderer.invoke('ai:ws:status'),
     },
   },
   window: {

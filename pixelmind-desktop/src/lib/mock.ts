@@ -703,6 +703,9 @@ export function createBrowserMock(): PixelMindApi {
           error: 'browser-mock',
         }
       },
+      async saveKey(key: string) {
+        return { ok: true, masked: `${key.slice(0, 3)}…${key.slice(-4)}` }
+      },
       async chat(request: AiChatStartRequest) {
         const id = `mock-chat-${Date.now()}`
         const reply =
@@ -725,6 +728,10 @@ export function createBrowserMock(): PixelMindApi {
       },
       async cancel() {
         return true
+      },
+      async complete(payload: { prompt: string; system?: string }) {
+        void payload
+        return { text: '[]' }
       },
       onChatEvent(cb: (event: AiChatEvent) => void) {
         aiEventListeners.add(cb)
@@ -837,6 +844,102 @@ export function createBrowserMock(): PixelMindApi {
         },
         async logs() {
           return []
+        },
+      },
+      async killSwitch() {
+        return { count: 0, ok: true }
+      },
+      bridges: {
+        async getActive() {
+          return 'api' as const
+        },
+        async setActive(kind) {
+          return {
+            kind,
+            name: kind === 'ide' ? 'IDE WebSocket' : kind === 'cli' ? 'CLI Bridge' : 'API Bridge',
+            detail: 'Mô phỏng trình duyệt',
+            status: 'online' as const,
+          }
+        },
+        async list() {
+          return [
+            { kind: 'api' as const, name: 'API Bridge', detail: 'OpenAI · GPT-4o', status: 'online' as const },
+            { kind: 'ide' as const, name: 'IDE WebSocket', detail: 'ws://localhost:45678', status: 'offline' as const },
+            { kind: 'cli' as const, name: 'CLI Bridge', detail: 'Local Agent CLI', status: 'local' as const },
+            { kind: 'ollama' as const, name: 'Ollama Local', detail: 'http://localhost:11434', status: 'offline' as const },
+          ]
+        },
+        async ping(kind) {
+          return {
+            kind,
+            name: kind,
+            detail: 'Mock ping',
+            status: 'online' as const,
+          }
+        },
+      },
+      audit: {
+        async list() {
+          return []
+        },
+        async clear() {
+          return true
+        },
+      },
+      cost: {
+        async get(projectId?: string) {
+          return {
+            projectId,
+            promptTokens: 1240,
+            completionTokens: 580,
+            totalTokens: 1820,
+            estimatedCostUsd: 0.0005,
+            budgetTokens: 100000,
+            percentageUsed: 2,
+            isOverBudget: false,
+            isNearBudget: false,
+          }
+        },
+        async setBudget(_projectId: string, budgetTokens: number) {
+          return {
+            promptTokens: 1240,
+            completionTokens: 580,
+            totalTokens: 1820,
+            estimatedCostUsd: 0.0005,
+            budgetTokens,
+            percentageUsed: Math.round((1820 / budgetTokens) * 100),
+            isOverBudget: false,
+            isNearBudget: false,
+          }
+        },
+        async reset() {
+          return true
+        },
+      },
+      cli: {
+        async run() {
+          return { id: 'mock-cli' }
+        },
+        async stop() {
+          return true
+        },
+        async detect() {
+          return [
+            { binary: 'agy', name: 'Antigravity CLI (agy)', installed: true, description: 'Google Antigravity Agent CLI' },
+            { binary: 'dotnet', name: '.NET SDK', installed: true, description: 'ASP.NET Core & C# Compiler' },
+            { binary: 'git', name: 'Git', installed: true, description: 'Version Control System' },
+          ]
+        },
+        onEvent() {
+          return () => {}
+        },
+      },
+      ws: {
+        async send() {
+          return true
+        },
+        async status() {
+          return { online: false, latencyMs: 0 }
         },
       },
     },

@@ -8,6 +8,32 @@ import type {
   AiProposeChangeRequest,
 } from '../../shared/ai'
 import { resolveProjectPath, toPosix } from './aiSafe'
+import { recordAudit } from './aiAudit'
+
+/* Áp dụng tệp an toàn có cơ chế thử lại (Retry) khi gặp File Lock do dotnet watch hoặc IDE đang chiếm giữ */
+async function writeFileWithRetry(
+  filePath: string,
+  content: string,
+  maxRetries = 4,
+  delayMs = 150,
+): Promise<void> {
+  let lastErr: unknown
+  for (let attempt = 0; attempt < maxRetries; attempt += 1) {
+    try {
+      await fs.writeFile(filePath, content, 'utf8')
+      return
+    } catch (err: unknown) {
+      lastErr = err
+      const code = (err as { code?: string })?.code
+      if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES') {
+        await new Promise((resolve) => setTimeout(resolve, delayMs * Math.pow(1.5, attempt)))
+        continue
+      }
+      throw err
+    }
+  }
+  throw lastErr
+}
 
 /* Apply Engine + Change Journal.
    Luồng: đề xuất (ghi snapshot, chưa chạm mã nguồn) → người dùng duyệt → ghi tệp → log.
@@ -256,10 +282,17 @@ export async function acceptChange(projectId: string, changeId: string): Promise
 
   const after = await fs.readFile(snapshotPath(projectId, changeId, 'after'), 'utf8')
   await fs.mkdir(dirname(change.fullPath), { recursive: true })
-  // Snapshot "before" đã ghi lúc đề xuất; ghi tệp thật ngay sau khi người dùng duyệt.
-  await fs.writeFile(change.fullPath, after, 'utf8')
+  // Snapshot "before" đã ghi lúc đề xuất; ghi tệp thật với cơ chế retry chống file lock (dotnet watch).
+  await writeFileWithRetry(change.fullPath, after)
   await updateStatus(projectId, changeId, { status: 'accepted', appliedAt: Date.now() })
   await appendEvent(projectId, { event: 'accepted', id: changeId, file: change.file })
+  void recordAudit({
+    type: 'patch',
+    summary: `Áp dụng thay đổi cho tệp: ${change.file}`,
+    ok: true,
+    projectId,
+    detail: `+${change.added} -${change.removed} dòng | ${change.summary || 'Không có mô tả'}`,
+  })
   return listChanges(projectId)
 }
 
@@ -272,6 +305,13 @@ export async function rejectChange(projectId: string, changeId: string): Promise
   await fs.rm(snapshotPath(projectId, changeId, 'before'), { force: true })
   await fs.rm(snapshotPath(projectId, changeId, 'after'), { force: true })
   await appendEvent(projectId, { event: 'rejected', id: changeId, file: change.file })
+  void recordAudit({
+    type: 'patch',
+    summary: `Từ chối thay đổi tệp: ${change.file}`,
+    ok: true,
+    projectId,
+    detail: change.summary,
+  })
   return listChanges(projectId)
 }
 
@@ -280,8 +320,15 @@ export async function undoChange(projectId: string, changeId: string): Promise<A
   if (change.status !== 'accepted') throw new Error('Chỉ có thể hoàn tác thay đổi đã áp dụng.')
 
   const before = await fs.readFile(snapshotPath(projectId, changeId, 'before'), 'utf8')
-  await fs.writeFile(change.fullPath, before, 'utf8')
+  await writeFileWithRetry(change.fullPath, before)
   await updateStatus(projectId, changeId, { status: 'undone', undoneAt: Date.now() })
   await appendEvent(projectId, { event: 'undone', id: changeId, file: change.file })
+  void recordAudit({
+    type: 'patch',
+    summary: `Hoàn tác thay đổi tệp (1-click Undo): ${change.file}`,
+    ok: true,
+    projectId,
+    detail: `Khôi phục trạng thái ban đầu của ${change.file}`,
+  })
   return listChanges(projectId)
 }

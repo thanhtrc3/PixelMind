@@ -29,7 +29,7 @@ export interface Settings {
   preferredPort?: number // Cổng dev mặc định ưu tiên (0 = tự động)
 
   // Cấu hình AI (không chứa khoá bí mật — khoá chỉ đọc từ biến môi trường/.env ở main process)
-  aiProvider?: 'openai' | 'ollama'
+  aiProvider?: 'openai' | 'ollama' | 'gemini'
   aiBaseUrl?: string
   aiModel?: string
   aiTemperature?: number

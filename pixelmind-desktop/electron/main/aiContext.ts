@@ -7,6 +7,7 @@ import type { DesignTokens } from '../../shared/types'
 import { readTextFileSafe, resolveProjectPath, toPosix, isInside } from './aiSafe'
 import { readStore } from './store'
 import { readTree } from './projects'
+import { redactSecrets, sanitizeUntrustedContent } from './aiGuardrails'
 
 /* Context Packer: đóng gói phần tử đang chọn, tệp nguồn, tokens, route, wire graph, log lỗi.
    Chỉ đọc tệp nằm trong dự án; bỏ qua .env, node_modules, thư mục build và tệp bí mật. */
@@ -160,17 +161,27 @@ export async function buildContextPack(request: AiContextRequest): Promise<AiCon
       tag: selection.tag,
       id: selection.id,
       className: selection.className,
-      text: selection.text ? clamp(selection.text, 500).text : undefined,
+      text: selection.text
+        ? sanitizeUntrustedContent(redactSecrets(clamp(selection.text, 500).text))
+        : undefined,
       selector: selection.selector,
-      outerHTML: selection.outerHTML ? clamp(selection.outerHTML, MAX_HTML_CHARS).text : undefined,
+      outerHTML: selection.outerHTML
+        ? sanitizeUntrustedContent(redactSecrets(clamp(selection.outerHTML, MAX_HTML_CHARS).text))
+        : undefined,
       computedStyles: styles,
     }
   }
 
   if (include.has('source') && request.selection?.filePath) {
     const source = await readSourceWindow(root, request.selection.filePath, request.selection.lineNumber)
-    if (source) pack.source = source
-    else notes.push('Không đọc được tệp nguồn của phần tử đang chọn (ngoài dự án hoặc bị chặn).')
+    if (source) {
+      pack.source = {
+        ...source,
+        text: sanitizeUntrustedContent(redactSecrets(source.text)),
+      }
+    } else {
+      notes.push('Không đọc được tệp nguồn của phần tử đang chọn (ngoài dự án hoặc bị chặn).')
+    }
   }
 
   if (include.has('tokens')) {
@@ -197,7 +208,7 @@ export async function buildContextPack(request: AiContextRequest): Promise<AiCon
 
   if (include.has('logs')) {
     const log = (request.errorLog ?? '').trim()
-    if (log) pack.errors = clamp(log, MAX_ERROR_CHARS).text
+    if (log) pack.errors = sanitizeUntrustedContent(redactSecrets(clamp(log, MAX_ERROR_CHARS).text))
     else notes.push('Chưa có log lỗi gần nhất để đưa vào ngữ cảnh.')
   }
 

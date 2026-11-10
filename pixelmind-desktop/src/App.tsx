@@ -1628,7 +1628,16 @@ const App = () => {
           onClose={() => setDesignOpen(false)}
           onShowToast={showToast}
           projectName={project?.name}
+          projectPath={project?.path}
+          projectId={project?.id}
           pageRoutes={project?.meta.pages.map((page) => page.route)}
+          onSetCanvasOverlay={(img) => {
+            try {
+              window.localStorage.setItem('pm.canvasOverlay', img)
+              window.dispatchEvent(new Event('pm:overlay-updated'))
+              showToast('ok', '✨ Đã bật Overlay so sánh ảnh mẫu trên Canvas!')
+            } catch {}
+          }}
         />
       )}
 
@@ -1637,6 +1646,8 @@ const App = () => {
           onClose={() => setThemeOpen(false)}
           onShowToast={showToast}
           projectName={project?.name}
+          projectPath={project?.path}
+          onTokensUpdated={() => void refreshProject()}
         />
       )}
 
