@@ -303,6 +303,49 @@ class EditorBufferManager {
     return Array.from(this.dirtyFiles.values())
   }
 
+  /** Lịch sử thao tác trong RAM, cũ → mới. */
+  getUndoHistory(): HistoryAction[] {
+    return [...this.undoStack]
+  }
+
+  /** Các thao tác đã hoàn tác, có thể làm lại. Phần tử cuối là thao tác kế tiếp. */
+  getRedoHistory(): HistoryAction[] {
+    return [...this.redoStack]
+  }
+
+  /**
+   * Hoàn tác các thao tác mới hơn `actionId`, giữ nguyên trạng thái sau `actionId`.
+   * Trả về số thao tác đã hoàn tác.
+   */
+  undoTo(actionId: string): number {
+    const index = this.undoStack.findIndex((action) => action.id === actionId)
+    if (index < 0) return 0
+
+    let count = 0
+    while (this.undoStack.length - 1 > index) {
+      if (!this.undo()) break
+      count += 1
+    }
+    return count
+  }
+
+  /**
+   * Làm lại các thao tác cho tới khi `actionId` được áp dụng lại.
+   * Trả về số thao tác đã làm lại.
+   */
+  redoTo(actionId: string): number {
+    const index = this.redoStack.findIndex((action) => action.id === actionId)
+    if (index < 0) return 0
+
+    const count = this.redoStack.length - index
+    let done = 0
+    for (let step = 0; step < count; step += 1) {
+      if (!this.redo()) break
+      done += 1
+    }
+    return done
+  }
+
   // ─── LƯU TOÀN BỘ FILE CHƯA LƯU XUỐNG Ổ CỨNG (CTRL+S HOẶC TRƯỚC KHI RUN F5) ───
   async saveAllDirtyFiles(showToast?: (msg: string) => void): Promise<boolean> {
     if (this.dirtyFiles.size === 0) return true

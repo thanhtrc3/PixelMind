@@ -95,6 +95,7 @@ const DesignTokensDialog = ({
       if (res?.success) {
         showToast(`✨ Đã đồng bộ Design Tokens vào ${res.filePath || 'dự án'}!`)
         onTokensUpdated?.(tokens)
+        window.dispatchEvent(new CustomEvent('pm:tokens-updated', { detail: tokens }))
       } else {
         showToast(`Lỗi khi đồng bộ: ${res?.error || 'Không xác định'}`)
       }

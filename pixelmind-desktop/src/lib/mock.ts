@@ -433,6 +433,15 @@ export function createBrowserMock(): PixelMindApi {
       async diagnose() {
         return { healthy: true, hasIssues: false, checkedAt: Date.now(), issues: [] }
       },
+      async gitGraph() {
+        return { branch: null, hasRemote: false, commits: [] }
+      },
+      async gitFetch() {
+        return { ok: false, error: 'Đồng bộ Git chỉ khả dụng trên bản desktop.' }
+      },
+      async gitRollback() {
+        return { ok: false, error: 'Khôi phục Git chỉ khả dụng trên bản desktop.' }
+      },
       async gitInit() {
         return true
       },

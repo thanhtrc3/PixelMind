@@ -3,6 +3,9 @@ import type {
   DesignTokens,
   FileContent,
   FileNode,
+  GitGraphData,
+  GitGraphScope,
+  GitRollbackResult,
   ProjectDiagnosis,
   ProjectPage,
   ProjectRecord,
@@ -60,6 +63,12 @@ export interface PixelMindApi {
     /** Dò xem route sẽ tạo tệp ở đâu, có hỗ trợ không và có trùng tệp không. */
     pageFilePreview(projectId: string, route: string): Promise<PageFilePreview>
     diagnose(idOrPath: string): Promise<ProjectDiagnosis>
+    /** Đọc đồ thị commit thật từ .git (mọi nhánh hoặc nhánh hiện tại). */
+    gitGraph(projectId: string, scope?: GitGraphScope): Promise<GitGraphData>
+    /** Chạy git fetch --all --prune để cập nhật remote-tracking branches. */
+    gitFetch(projectId: string): Promise<{ ok: boolean; error?: string }>
+    /** Khôi phục mã nguồn về commit đã chọn, có tạo nhánh backup trước. */
+    gitRollback(projectId: string, hash: string): Promise<GitRollbackResult>
     gitInit(projectId: string): Promise<boolean>
     createIndexHtml(projectId: string): Promise<boolean>
     addDevScript(projectId: string): Promise<boolean>

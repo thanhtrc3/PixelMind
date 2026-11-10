@@ -739,6 +739,241 @@
   color: #86efac;
 }
 
+/* ── Toolbar điều khiển Diff 2.0 (Hunk & View mode) ── */
+.pm-diff-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 12px;
+  margin-bottom: 10px;
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 6px);
+  font-size: 11px;
+}
+
+.pm-diff-toolbar__stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pm-diff-stat-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #4ade80;
+  font-weight: 600;
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+}
+
+.pm-diff-stat-del {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #f87171;
+  font-weight: 600;
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+}
+
+.pm-diff-stat-hunks {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.pm-diff-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pm-diff-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pm-diff-mode-btn:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.pm-diff-mode-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+/* ── Danh sách Hunks (Từng đoạn thay đổi) ── */
+.pm-diff-hunks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 56vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.pm-diff-hunk {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 6px);
+  background: var(--panel-2);
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.pm-diff-hunk--rejected {
+  opacity: 0.55;
+  border-style: dashed;
+  border-color: var(--line-2, rgba(148, 163, 184, 0.25));
+}
+
+.pm-diff-hunk__hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--panel-3);
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+
+.pm-diff-hunk__info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.pm-diff-hunk__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.pm-diff-hunk__badge--accepted {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.pm-diff-hunk__badge--rejected {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.pm-diff-hunk__toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 550;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text-2);
+  transition: all 0.12s ease;
+}
+
+.pm-diff-hunk__toggle-btn:hover {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--text-3);
+}
+
+/* ── Unified (Gộp dòng) ── */
+.pm-diff-unified {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.pm-diff-unified__row {
+  display: flex;
+  align-items: stretch;
+  min-width: 100%;
+}
+
+.pm-diff-unified__row--add {
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.pm-diff-unified__row--del {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.pm-diff-unified__row--eq {
+  background: transparent;
+}
+
+.pm-diff-unified__ln {
+  flex: none;
+  width: 32px;
+  padding: 0 6px;
+  text-align: right;
+  color: var(--text-3);
+  opacity: 0.55;
+  user-select: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.pm-diff-unified__sign {
+  flex: none;
+  width: 22px;
+  text-align: center;
+  font-weight: 700;
+  user-select: none;
+}
+
+.pm-diff-unified__row--add .pm-diff-unified__sign {
+  color: #4ade80;
+}
+
+.pm-diff-unified__row--del .pm-diff-unified__sign {
+  color: #f87171;
+}
+
+.pm-diff-unified__code {
+  flex: 1;
+  padding: 0 8px;
+  color: var(--text);
+}
+
+.pm-diff-unified__row--add .pm-diff-unified__code {
+  color: #86efac;
+}
+
+.pm-diff-unified__row--del .pm-diff-unified__code {
+  color: #fca5a5;
+}
+
 .pm-diff-error {
   display: flex;
   gap: 12px;

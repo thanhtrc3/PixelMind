@@ -64,9 +64,13 @@ Sau khi rà soát mục tiêu sản phẩm PixelMind (Công cụ thiết kế & 
   - Hiển thị thumbnail xem trước, tên và dung lượng tệp.
   - 1-click chọn làm ảnh mẫu đối chiếu trên Canvas.
 - [x] **3.6. Tab Versions (Phiên bản & Lịch sử)**:
-  - Hiển thị nhánh Git hiện tại (`git branch`), trạng thái kho mã.
-  - Dòng thời gian các mốc thay đổi trong RAM In-Memory Buffer (Undo/Redo checkpoints).
-  - Thông báo trạng thái lộ trình cho tính năng Git branching & sync nâng cao.
+  - Đồ thị commit Git thật kiểu VS Code Git Graph (`git log --all --topo-order`), làn nhánh nhiều màu, nối commit merge, badge `main` / `origin/…` / tag, avatar chữ cái theo tác giả.
+  - Thẻ nhánh hiện tại (`git rev-parse --abbrev-ref HEAD`, hỗ trợ worktree), commit HEAD và remote GitHub đọc từ `.git/config`.
+  - Nút **Fetch** chạy `git fetch --all --prune` để đồng bộ remote-tracking branches; nút **Refresh** đọc lại lịch sử.
+  - Bộ lọc phạm vi **Tất cả nhánh / Nhánh hiện tại**, bảng chi tiết commit (hash, tác giả, thời gian, parent, body).
+  - Khôi phục mã nguồn bằng `git reset --hard` sau khi tạo nhánh backup `pm-backup-*`; modal cảnh báo rõ thay đổi tracked chưa commit sẽ mất.
+  - Dòng thời gian mốc thật của In-Memory Buffer: danh sách undo/redo, nút **Quay về mốc** / **Làm lại**, và nút lưu các tệp đang sửa trong RAM.
+  - Không dùng dữ liệu ảo: trình duyệt trả đồ thị rỗng và báo cần chạy bản desktop.
 - [x] **3.7. Tab Design (Hệ thống thiết kế)**:
   - Bảng màu Swatches trực quan (Accent, Success, Warning, Error...).
   - 1-click sao chép tên biến CSS (`var(--pm-accent)...`).

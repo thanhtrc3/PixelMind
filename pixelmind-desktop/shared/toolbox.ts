@@ -223,13 +223,19 @@ export interface MutationPreview {
   matchedCount?: number
 }
 
-export type ToolboxMutationKind = 'insert' | 'delete' | 'duplicate' | 'attributes' | 'delete-batch'
+export type ToolboxMutationKind = 'insert' | 'delete' | 'duplicate' | 'attributes' | 'delete-batch' | 'reparent'
 
 export interface ToolboxMutationPayload {
   kind: ToolboxMutationKind
   projectPath: string
   projectFramework?: string
   target?: ElementMutationTarget
+  /** Thẻ cha đích (cho thao tác chuyển phân cấp reparent). */
+  targetParent?: ElementMutationTarget
+  /** Thẻ anh em đích (cho thao tác sắp xếp reorder / chèn trước sau). */
+  targetSibling?: ElementMutationTarget
+  placement?: InsertPlacement
+  index?: number
   /** Nhiều phần tử đích cho thao tác xoá gộp (kind = 'delete-batch'). */
   targets?: ElementMutationTarget[]
   html?: string

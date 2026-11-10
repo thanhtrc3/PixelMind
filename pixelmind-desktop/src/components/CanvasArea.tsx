@@ -1151,11 +1151,14 @@ const CanvasArea = ({
     }
   }, [isInspectMode])
 
-  // Reset modified styles khi chọn phần tử khác
+  // Reset modified styles khi chọn phần tử khác & phát sự kiện đồng bộ toàn ứng dụng
   useEffect(() => {
     setModifiedStyles({})
     setOriginalStyles(null)
-  }, [selectedEl?.domPath])
+    window.dispatchEvent(
+      new CustomEvent('pm:selected-element-changed', { detail: selectedEl })
+    )
+  }, [selectedEl])
 
   // Lắng nghe thay đổi của EditorBuffer (Dirty flag cho RAM Designer)
   useEffect(() => {
@@ -1476,6 +1479,25 @@ const CanvasArea = ({
     },
     [selectedEl, sourceLoc]
   )
+
+  // Lắng nghe sự kiện áp dụng token trực tiếp từ Design Sidebar
+  useEffect(() => {
+    const handleApplyTokenStyle = (e: Event) => {
+      const custom = e as CustomEvent<{
+        styles: Record<string, string>
+        textContent?: string
+        tokenName?: string
+      }>
+      if (!custom.detail?.styles) return
+      if (selectedEl) {
+        handleApplyLiveChange(custom.detail.styles, custom.detail.textContent, {
+          description: `Áp dụng token ${custom.detail.tokenName || ''}`,
+        })
+      }
+    }
+    window.addEventListener('pm:apply-token-style', handleApplyTokenStyle)
+    return () => window.removeEventListener('pm:apply-token-style', handleApplyTokenStyle)
+  }, [selectedEl, handleApplyLiveChange])
 
   // ─── KÉO CO GIÃN 8 ĐIỂM NEO PHẦN TỬ THẬT ───
   const handleStartElementResize = (e: React.MouseEvent, handle: HandleDirection) => {
@@ -2550,7 +2572,7 @@ const CanvasArea = ({
     }
   }, [projectPath, selectedEl, sourceLoc, attrsDraft, buildTarget, showToast])
 
-  const applyPendingMutation = useCallback(async () => {
+  const applyPendingMutation = useCallback(async (customBlock?: string) => {
     if (!pendingMutation) return
     setMutationBusy(true)
     const startEpoch = docEpochRef.current
@@ -2568,10 +2590,55 @@ const CanvasArea = ({
         preview,
       } = pendingMutation
 
-      const result = await api.toolbox.mutate({ ...payload, dryRun: false })
-      if (!result.success) {
-        showToast(result.error || 'Không ghi được mã nguồn.', 'err')
-        return
+      let result: MutationPreview
+      // Nếu người dùng chọn lọc từng hunk và customBlock khác với newBlock dự tính:
+      if (customBlock && preview?.fullPath && preview?.oldBlock && customBlock !== preview.newBlock) {
+        if (customBlock === preview.oldBlock) {
+          showToast('Đã bỏ qua tất cả đoạn thay đổi (giữ nguyên mã nguồn).', 'info')
+          setPendingMutation(null)
+          setMutationBusy(false)
+          return
+        }
+
+        const fileRes = await api.fs.read(preview.fullPath)
+        if (fileRes && typeof fileRes.text === 'string' && fileRes.text.includes(preview.oldBlock)) {
+          const updatedFullText = fileRes.text.replace(preview.oldBlock, customBlock)
+          const writeRes = await api.toolbox.writeFile({
+            fullPath: preview.fullPath,
+            text: updatedFullText,
+            backup: true,
+          })
+          if (!writeRes.success) {
+            showToast(writeRes.error || 'Không ghi được mã nguồn.', 'err')
+            setMutationBusy(false)
+            return
+          }
+          result = {
+            success: true,
+            fullPath: preview.fullPath,
+            filePath: preview.filePath,
+            startLine: preview.startLine,
+            endLine: preview.endLine,
+            oldBlock: preview.oldBlock,
+            newBlock: customBlock,
+            oldText: fileRes.text,
+            newText: updatedFullText,
+          }
+        } else {
+          result = await api.toolbox.mutate({ ...payload, dryRun: false })
+          if (!result.success) {
+            showToast(result.error || 'Không ghi được mã nguồn.', 'err')
+            setMutationBusy(false)
+            return
+          }
+        }
+      } else {
+        result = await api.toolbox.mutate({ ...payload, dryRun: false })
+        if (!result.success) {
+          showToast(result.error || 'Không ghi được mã nguồn.', 'err')
+          setMutationBusy(false)
+          return
+        }
       }
 
       let dom: DomMutationRecord | undefined
@@ -6252,7 +6319,7 @@ const CanvasArea = ({
         onCancel={() => {
           if (!mutationBusy) setPendingMutation(null)
         }}
-        onConfirm={() => void applyPendingMutation()}
+        onConfirm={(customBlock?: string) => void applyPendingMutation(customBlock)}
         onPreviewOnly={() => void applyPreviewOnlyMutation()}
       />
 

@@ -612,60 +612,982 @@
   color: var(--text-3);
 }
 
-/* ══════════════════════════════════════════════════════════════
-   5. DESIGN TOKENS TAB (Hệ thống thiết kế)
-   ══════════════════════════════════════════════════════════════ */
-.pm-design-section {
+.pm-versions-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+.pm-version-branch-card {
+  align-items: flex-start;
+}
+
+.pm-version-branch-card__title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pm-version-branch-card__meta {
+  margin-top: 1px;
+  font-size: 10px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-versions-section {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.pm-design-section-title {
-  font-size: calc(10px * var(--font-scale, 1));
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.pm-versions-section__hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.pm-versions-section__hd b {
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.pm-versions-section__hd .pm-grow {
+  flex: 1;
+}
+
+.pm-versions-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+  text-align: center;
+}
+
+.pm-versions-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  font-size: 11px;
   color: var(--text-3);
 }
 
-.pm-swatches-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
+.pm-versions-dirty {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px solid var(--accent-line, var(--line));
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 10px;
+  line-height: 1.35;
 }
 
-.pm-swatch-item {
+.pm-timeline--versions {
+  margin-left: 6px;
+  padding-left: 12px;
+  gap: 7px;
+}
+
+.pm-timeline--versions .pm-timeline-item {
+  padding: 2px 0 4px;
+}
+
+.pm-timeline--versions .btn {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.pm-timeline-item--redo {
+  opacity: 0.62;
+}
+
+.pm-timeline-item--base::before {
+  background: var(--text-3);
+}
+
+.pm-gitgraph {
+  position: relative;
+  margin: 2px -2px 0;
+  border-top: 1px solid var(--line);
+}
+
+.pm-gitgraph__svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.pm-gitgraph__rows {
+  position: relative;
+  z-index: 1;
+}
+
+.pm-gitgraph-row {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  height: 42px;
+  padding: 3px 6px 3px 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pm-gitgraph-row:hover {
+  background: var(--panel-2);
+}
+
+.pm-gitgraph-row.active {
+  background: var(--accent-soft);
+}
+
+.pm-gitgraph-row__top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pm-gitgraph-subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-gitgraph-ref {
+  flex: none;
+  max-width: 90px;
+  overflow: hidden;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-size: 8.5px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-gitgraph-ref.branch {
+  border-color: rgba(79, 140, 255, 0.45);
+  background: rgba(79, 140, 255, 0.12);
+  color: #93c5fd;
+}
+
+.pm-gitgraph-ref.current {
+  border-color: rgba(79, 140, 255, 0.7);
+  color: #bfdbfe;
+}
+
+.pm-gitgraph-ref.remote {
+  border-color: rgba(176, 108, 255, 0.4);
+  background: rgba(176, 108, 255, 0.1);
+  color: #c4b5fd;
+}
+
+.pm-gitgraph-ref.tag {
+  border-color: rgba(229, 161, 58, 0.45);
+  background: rgba(229, 161, 58, 0.1);
+  color: #fcd34d;
+}
+
+.pm-gitgraph-ref.head {
+  border-color: var(--text-3);
+  color: var(--text);
+}
+
+.pm-gitgraph-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-3);
+  font-size: 9.5px;
+}
+
+.pm-gitgraph-avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pm-gitgraph-author {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-gitgraph-time {
+  flex: none;
+}
+
+.pm-gitgraph-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+}
+
+.pm-gitgraph-detail__hd {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11.5px;
+}
+
+.pm-gitgraph-detail__grid {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 3px 8px;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.pm-gitgraph-detail__grid code {
+  color: var(--text-2);
+  font-size: 10px;
+}
+
+.pm-gitgraph-detail__body {
+  max-height: 120px;
+  margin: 0;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text-2);
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.pm-rollback-warning {
+  display: flex;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 7px;
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.pm-rollback-warning p {
+  margin: 0 0 4px;
+}
+
+.pm-rollback-warning ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.pm-rollback-warning code {
+  color: #fca5a5;
+}
+
+.pm-select--sm {
+  height: 22px;
+  padding: 2px 4px;
+  font-size: 10px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   5. DESIGN TOKENS TAB (Hệ thống thiết kế)
+   ══════════════════════════════════════════════════════════════ */
+.pm-design-tokens-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 8px;
+  padding: 8px 10px;
+  container-type: inline-size;
+  container-name: designBody;
+}
+
+/* ── Banner trạng thái phần tử đang chọn ── */
+.pm-design-selected-banner {
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: var(--accent-soft, rgba(109, 93, 245, 0.12));
+  border: 1px solid var(--accent-line, rgba(109, 93, 245, 0.35));
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  cursor: pointer;
-  transition: all 100ms ease;
-}
-
-.pm-swatch-item:hover {
-  background: var(--panel-3);
-  border-color: var(--line-2);
-}
-
-.pm-swatch-circle {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.2);
   flex-shrink: 0;
 }
 
-.pm-swatch-label {
+.pm-design-selected-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pm-design-selected-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.pm-design-selected-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-design-selected-title code {
+  font-family: var(--font-mono, monospace);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.pm-design-selected-hint {
+  font-size: 9.5px;
+  color: var(--text-3);
+  margin-top: 1px;
+}
+
+.pm-design-selected-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.pm-design-quick-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 120ms ease;
+}
+
+.pm-design-quick-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--panel-3);
+}
+
+.pm-design-quick-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pm-design-unselected-banner {
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px dashed var(--line-2, rgba(125, 125, 125, 0.2));
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  color: var(--text-3);
+  flex-shrink: 0;
+  line-height: 1.35;
+}
+
+/* ── Đề xuất 3: Khung nhận diện màu THẬT từ DOM phần tử ── */
+.pm-design-detected-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--accent-soft, rgba(109, 93, 245, 0.1));
+  border: 1px dashed var(--accent-line, rgba(109, 93, 245, 0.4));
+  flex-shrink: 0;
+}
+
+.pm-design-detected-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pm-design-detected-title {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+}
+
+.pm-design-detected-sub {
   font-size: 10.5px;
   color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pm-design-detected-sub code {
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.pm-design-save-token-btn {
+  padding: 2px 7px;
+  font-size: 10px;
+  height: 22px;
+  gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Thanh phân nhóm 4 mục: Màu, Chữ, Cách, Góc (Co giãn thông minh) ── */
+.pm-design-subnav {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+  padding: 2px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  flex-shrink: 0;
+}
+
+@container designBody (max-width: 250px) {
+  .pm-design-subnav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.pm-design-subnav__btn {
+  padding: 5px 2px;
+  font-size: 10.5px;
+  font-weight: 500;
+  text-align: center;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all 120ms ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pm-design-subnav__btn:hover {
+  color: var(--text);
+  background: var(--panel-3);
+}
+
+.pm-design-subnav__btn.active {
+  background: var(--panel);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: var(--shadow-xs, 0 1px 3px rgba(0, 0, 0, 0.2));
+}
+
+/* ── Ô tìm kiếm Token ── */
+.pm-design-search-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.pm-design-search-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.pm-design-search-icon {
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.pm-design-search-input {
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--text);
+  font-size: 11px;
+  width: 100%;
+}
+
+.pm-design-search-input::placeholder {
+  color: var(--text-3);
+}
+
+/* ── Thanh chọn mục tiêu áp dụng (Target Mode: Nền / Chữ / Viền hoặc Padding / Margin / Gap) ── */
+.pm-design-target-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  flex-shrink: 0;
+}
+
+.pm-design-target-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.pm-design-target-pills {
+  display: flex;
+  flex: 1;
+  min-width: 140px;
+  gap: 3px;
+}
+
+.pm-design-target-pill {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 3px 2px;
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-3);
+  cursor: pointer;
+  text-align: center;
+  transition: all 120ms ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pm-design-target-pill:hover {
+  background: var(--panel-3);
+  color: var(--text);
+}
+
+.pm-design-target-pill.active {
+  background: var(--accent);
+  color: var(--text-on-accent, #ffffff);
+  border-color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(109, 93, 245, 0.3);
+}
+
+/* ── Danh mục phân loại màu ── */
+.pm-design-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.pm-design-cat-pill {
+  padding: 2px 7px;
+  font-size: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-3);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 120ms ease;
+}
+
+.pm-design-cat-pill:hover {
+  color: var(--text);
+  background: var(--panel-3);
+}
+
+.pm-design-cat-pill.active {
+  background: var(--accent-soft, rgba(109, 93, 245, 0.15));
+  border-color: var(--accent-line, rgba(109, 93, 245, 0.4));
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── Danh sách cuộn Tokens ── */
+.pm-design-token-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 2px;
+}
+
+.pm-design-loading,
+.pm-design-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 10px;
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+/* ── 1. MÀU SẮC CARDS ── */
+.pm-token-colors-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pm-token-color-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  cursor: pointer;
+  transition: all 120ms ease;
+  position: relative;
+}
+
+.pm-token-color-card:hover {
+  background: var(--panel-3);
+  border-color: var(--line-2);
+  transform: translateY(-0.5px);
+}
+
+.pm-token-color-card.copied {
+  border-color: var(--color-success);
+  background: var(--color-success-muted);
+}
+
+.pm-token-color-card.applied {
+  border-color: var(--color-success) !important;
+  background: var(--color-success-muted) !important;
+  box-shadow: 0 0 8px rgba(49, 192, 122, 0.3);
+}
+
+/* Đề xuất 2: Đèn báo Token đang dùng trên phần tử */
+.pm-token-color-card.is-active-token,
+.pm-token-typo-card.is-active-token,
+.pm-token-metric-card.is-active-token {
+  border-color: var(--accent) !important;
+  background: var(--accent-soft) !important;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.pm-token-active-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft, rgba(109, 93, 245, 0.16));
+  border: 1px solid var(--accent-line, rgba(109, 93, 245, 0.35));
+  padding: 1px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.pm-token-color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  border: 1px solid var(--line-2);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
+}
+
+.pm-token-color-swatch.sm {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+.pm-token-color-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.pm-token-color-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-token-color-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  color: var(--text-3);
+  margin-top: 1px;
+}
+
+.pm-token-color-meta code {
+  font-family: var(--font-mono, monospace);
+  color: var(--text-2);
+}
+
+.pm-token-var-name {
+  font-size: 9px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-token-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.pm-token-applied-badge {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--color-success-text);
+  background: var(--color-success-muted);
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--color-success);
+}
+
+.pm-token-copy-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all 120ms ease;
+  padding: 0;
+}
+
+.pm-token-copy-btn:hover {
+  background: var(--panel-3);
+  color: var(--text);
+  border-color: var(--line);
+}
+
+/* ── 2. KIỂU CHỮ CARDS ── */
+.pm-token-typo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pm-token-typo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.pm-token-typo-card:hover {
+  background: var(--panel-3);
+  border-color: var(--line-2);
+}
+
+.pm-token-typo-card.copied {
+  border-color: var(--color-success);
+  background: var(--color-success-muted);
+}
+
+.pm-token-typo-card.applied {
+  border-color: var(--color-success) !important;
+  background: var(--color-success-muted) !important;
+  box-shadow: 0 0 8px rgba(49, 192, 122, 0.3);
+}
+
+.pm-token-typo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.pm-token-typo-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pm-token-typo-specs {
+  font-size: 9.5px;
+  color: var(--text-3);
+  font-family: var(--font-mono, monospace);
+}
+
+.pm-token-typo-preview {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 0;
+}
+
+.pm-token-typo-footer {
+  font-size: 9px;
+  color: var(--text-3);
+}
+
+.pm-token-typo-footer code,
+.pm-token-metric-code code {
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  color: var(--text-3);
+}
+
+/* ── 3. KHOẢNG CÁCH & 4. BO GÓC CARDS ── */
+.pm-token-metric-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pm-token-metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.pm-token-metric-card:hover {
+  background: var(--panel-3);
+  border-color: var(--line-2);
+}
+
+.pm-token-metric-card.copied {
+  border-color: var(--color-success);
+  background: var(--color-success-muted);
+}
+
+.pm-token-metric-card.applied {
+  border-color: var(--color-success) !important;
+  background: var(--color-success-muted) !important;
+  box-shadow: 0 0 8px rgba(49, 192, 122, 0.3);
+}
+
+.pm-token-metric-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.pm-token-metric-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pm-token-metric-val {
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.pm-token-spacing-bar-track {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--panel-3);
+  overflow: hidden;
+  margin: 1px 0;
+}
+
+.pm-token-spacing-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.pm-token-radius-box-wrapper {
+  display: flex;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.pm-token-radius-box-preview {
+  width: 28px;
+  height: 20px;
+  border: 1.5px solid var(--accent);
+  background: var(--accent-soft, rgba(109, 93, 245, 0.12));
+}
+
+.pm-token-metric-code {
+  font-size: 9px;
+  color: var(--text-3);
+}
+
+.pm-design-footer {
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  flex-shrink: 0;
 }
 
 /* ══════════════════════════════════════════════════════════════

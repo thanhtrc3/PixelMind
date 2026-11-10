@@ -458,6 +458,7 @@ Trả về DUY NHẤT một mảng JSON 3 đối tượng (không giải thích,
         })
         if (res.success) {
           onTokensUpdated?.(finalTokens)
+          window.dispatchEvent(new CustomEvent('pm:tokens-updated', { detail: finalTokens }))
           onShowToast(
             'ok',
             `✨ Đã áp dụng theme "${selectedTheme.name}" và ghi thành công vào variables.css & tokens.json!`,

@@ -5,6 +5,7 @@ import type {
   DesignTokens,
   FileContent,
   FileNode,
+  GitGraphScope,
   PageFilePreview,
   ProjectDiagnosis,
   ProjectPage,
@@ -81,6 +82,11 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('project:page-file-preview', projectId, route),
     diagnose: (idOrPath: string): Promise<ProjectDiagnosis> =>
       ipcRenderer.invoke('project:diagnose', idOrPath),
+    gitGraph: (projectId: string, scope?: GitGraphScope) =>
+      ipcRenderer.invoke('project:git-graph', projectId, scope),
+    gitFetch: (projectId: string) => ipcRenderer.invoke('project:git-fetch', projectId),
+    gitRollback: (projectId: string, hash: string) =>
+      ipcRenderer.invoke('project:git-rollback', projectId, hash),
     gitInit: (projectId: string): Promise<boolean> => ipcRenderer.invoke('project:git-init', projectId),
     createIndexHtml: (projectId: string): Promise<boolean> =>
       ipcRenderer.invoke('project:create-index-html', projectId),

@@ -3,7 +3,15 @@ import { basename, dirname, extname, join, resolve, sep } from 'node:path'
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import type { MenuItemConstructorOptions, OpenDialogOptions } from 'electron'
-import type { DesignTokens, ProjectPage, ProjectRecord, Settings, StoreData } from '../../shared/types'
+import type {
+  DesignTokens,
+  GitGraphScope,
+  GitRollbackResult,
+  ProjectPage,
+  ProjectRecord,
+  Settings,
+  StoreData,
+} from '../../shared/types'
 import type { ToolboxMutationPayload, ToolboxWritePayload } from '../../shared/toolbox'
 import {
   DEFAULT_DESIGN_TOKENS,
@@ -18,10 +26,13 @@ import {
   detectProject,
   diagnoseProject,
   gitBranch,
+  gitFetch,
   initGit,
   isDirectory,
   readFileContent,
+  readGitGraph,
   readTree,
+  rollbackGit,
   statProject,
   writeFileContent,
 } from './projects'
@@ -584,6 +595,46 @@ ipcMain.handle('project:refresh', async (_e, id: string): Promise<ProjectRecord 
   await patchStore({ projects: store.projects.map((p) => (p.id === id ? updated : p)) })
   return updated
 })
+
+ipcMain.handle('project:git-graph', async (_e, id: string, scope?: GitGraphScope) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  if (!project) return { branch: null, hasRemote: false, commits: [] }
+  return readGitGraph(project.path, { scope })
+})
+
+ipcMain.handle('project:git-fetch', async (_e, id: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  if (!project) return { ok: false, error: 'Không tìm thấy dự án.' }
+  return gitFetch(project.path)
+})
+
+ipcMain.handle(
+  'project:git-rollback',
+  async (_e, id: string, hash: string): Promise<GitRollbackResult> => {
+    const store = await readStore()
+    const project = store.projects.find((p) => p.id === id)
+    if (!project) return { ok: false, error: 'Không tìm thấy dự án.' }
+
+    const result = await rollbackGit(project.path, hash)
+    if (!result.ok) return result
+
+    const fresh = await detectProject(project.path)
+    const updated = await mergeDetected(project, fresh)
+    await patchStore({
+      projects: store.projects.map((p) => (p.id === id ? updated : p)),
+    })
+    await appendActivity(id, {
+      actor: 'bạn',
+      action: `Khôi phục mã nguồn về commit ${hash.slice(0, 7)}${result.safetyRef ? ` (backup: ${result.safetyRef})` : ''}`,
+      kind: 'người',
+      status: 'ok',
+    })
+
+    return { ...result, project: updated }
+  },
+)
 
 ipcMain.handle(
   'project:add-page',

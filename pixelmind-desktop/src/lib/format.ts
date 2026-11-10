@@ -19,6 +19,22 @@ export const formatTime = (timestamp: number | null): string => {
   return new Date(timestamp).toLocaleDateString('vi-VN')
 }
 
+/** Thời gian tương đối dùng cho commit/checkpoint. `timestamp` tính bằng ms. */
+export const formatRelativeTime = (timestamp: number): string => {
+  if (!timestamp) return '—'
+  const diff = Date.now() - timestamp
+  const minute = 60_000
+  const hour = 60 * minute
+  const day = 24 * hour
+  if (diff < minute) return 'Vừa xong'
+  if (diff < hour) return `${Math.floor(diff / minute)} phút trước`
+  if (diff < day) return `${Math.floor(diff / hour)} giờ trước`
+  if (diff < 7 * day) return `${Math.floor(diff / day)} ngày trước`
+  if (diff < 30 * day) return `${Math.floor(diff / (7 * day))} tuần trước`
+  if (diff < 365 * day) return `${Math.floor(diff / (30 * day))} tháng trước`
+  return `${Math.floor(diff / (365 * day))} năm trước`
+}
+
 export const shortPath = (path: string, home?: string): string => {
   if (!home) return path
   const normalized = path.toLowerCase()

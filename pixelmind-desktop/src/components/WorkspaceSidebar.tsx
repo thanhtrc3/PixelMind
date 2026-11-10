@@ -17,7 +17,6 @@ import {
   FolderOpen,
   FolderPlus,
   FolderTree,
-  GitBranch,
   Hash,
   History,
   Image as ImageIcon,
@@ -39,18 +38,22 @@ import {
   Sliders,
   Sparkles,
   Table,
+  Target,
   Trash2,
   Type,
   Undo2,
   X,
 } from 'lucide-react'
-import type { FileContent, FileNode, ProjectPage, ProjectRecord } from '@shared/types'
-import { formatBytes } from '../lib/format'
+import type { FileContent, FileNode, ProjectPage, ProjectRecord, DesignTokens } from '@shared/types'
+import { DEFAULT_DESIGN_TOKENS, tokenToCssVarName } from '@shared/designTokens'
+import type { RealElementInfo } from './CanvasArea'
 import { editorBuffer } from '../lib/editorBuffer'
+import { formatBytes } from '../lib/format'
 import { api } from '../lib/bridge'
 import FileTree from './FileTree'
 import FileActionDialog from './FileActionDialog'
 import ToolboxPanel from './ToolboxPanel'
+import VersionsTab from './VersionsTab'
 
 export type SidebarTab = 'files' | 'layers' | 'pages' | 'assets' | 'versions' | 'design' | 'toolbox'
 
@@ -275,6 +278,45 @@ function getTagIcon(tagName?: string) {
   return Box
 }
 
+export function parseRgbOrHex(colorStr?: string): { hex: string; isValid: boolean } {
+  if (!colorStr) return { hex: '', isValid: false }
+  const s = colorStr.trim().toLowerCase()
+  if (
+    s === 'transparent' ||
+    s === 'inherit' ||
+    s === 'initial' ||
+    s === 'currentcolor' ||
+    s === 'rgba(0, 0, 0, 0)'
+  ) {
+    return { hex: '', isValid: false }
+  }
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s)) {
+    if (s.length === 4) {
+      const full = '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3]
+      return { hex: full, isValid: true }
+    }
+    return { hex: s, isValid: true }
+  }
+  const m = s.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+  if (m) {
+    const r = parseInt(m[1], 10).toString(16).padStart(2, '0')
+    const g = parseInt(m[2], 10).toString(16).padStart(2, '0')
+    const b = parseInt(m[3], 10).toString(16).padStart(2, '0')
+    return { hex: `#${r}${g}${b}`, isValid: true }
+  }
+  return { hex: s, isValid: false }
+}
+
+export function colorsMatch(c1?: string, c2?: string): boolean {
+  if (!c1 || !c2) return false
+  const p1 = parseRgbOrHex(c1)
+  const p2 = parseRgbOrHex(c2)
+  if (p1.isValid && p2.isValid) {
+    return p1.hex.toLowerCase() === p2.hex.toLowerCase()
+  }
+  return c1.trim().toLowerCase() === c2.trim().toLowerCase()
+}
+
 export const WorkspaceSidebar = ({
   project,
   tree,
@@ -320,6 +362,471 @@ export const WorkspaceSidebar = ({
   const [liveLayers, setLiveLayers] = useState<LayerNode[]>([])
   const [isLoadingLayers, setIsLoadingLayers] = useState(false)
 
+  // ── Hệ thống Design Tokens từ dự án thật ──
+  const [tokens, setTokens] = useState<DesignTokens | null>(null)
+  const [tokensLoading, setTokensLoading] = useState(false)
+  const [tokenSearch, setTokenSearch] = useState('')
+  const [tokenSubtab, setTokenSubtab] = useState<'colors' | 'typography' | 'spacing' | 'radius'>('colors')
+  const [colorCategory, setColorCategory] = useState<'all' | 'brand' | 'background' | 'status' | 'neutral'>('all')
+  const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null)
+
+  // ── Phần tử đang được chọn trên Canvas (để trực tiếp áp dụng Token) ──
+  const [selectedElement, setSelectedElement] = useState<RealElementInfo | null>(null)
+  const [colorApplyTarget, setColorApplyTarget] = useState<'bg' | 'text' | 'border'>('bg')
+  const [spacingApplyTarget, setSpacingApplyTarget] = useState<'padding' | 'margin' | 'gap'>('padding')
+  const [appliedTokenId, setAppliedTokenId] = useState<string | null>(null)
+
+  // Lắng nghe phần tử đang chọn từ CanvasArea
+  useEffect(() => {
+    const handleSelectedChange = (e: Event) => {
+      const custom = e as CustomEvent<RealElementInfo | null>
+      setSelectedElement(custom.detail || null)
+    }
+    window.addEventListener('pm:selected-element-changed', handleSelectedChange)
+    return () => window.removeEventListener('pm:selected-element-changed', handleSelectedChange)
+  }, [])
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedElement(null)
+    const iframe = (document.querySelector('iframe.canvas__iframe') ||
+      document.querySelector('.canvas__frame iframe')) as HTMLIFrameElement | null
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
+    }
+  }, [])
+
+  const loadProjectTokens = useCallback(async () => {
+    if (!project?.path) return
+    setTokensLoading(true)
+    try {
+      const data = await api.tokens.get(project.path)
+      setTokens(data || DEFAULT_DESIGN_TOKENS)
+    } catch {
+      setTokens(DEFAULT_DESIGN_TOKENS)
+    } finally {
+      setTokensLoading(false)
+    }
+  }, [project?.path])
+
+  useEffect(() => {
+    if (activeTab === 'design') {
+      loadProjectTokens()
+    }
+  }, [activeTab, loadProjectTokens])
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const custom = e as CustomEvent<DesignTokens>
+      if (custom.detail) {
+        setTokens(custom.detail)
+      } else {
+        loadProjectTokens()
+      }
+    }
+    window.addEventListener('pm:tokens-updated', handler)
+    return () => window.removeEventListener('pm:tokens-updated', handler)
+  }, [loadProjectTokens])
+
+  const handleCopyVar = (tokenType: 'color' | 'font' | 'spacing' | 'radius', id: string, extraNote?: string) => {
+    const varName = tokenToCssVarName(tokenType, id)
+    const textToCopy = `var(${varName})`
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopiedTokenId(id)
+      onShowToast('ok', `Đã sao chép ${textToCopy}${extraNote ? ` (${extraNote})` : ''}`)
+      setTimeout(() => setCopiedTokenId((prev) => (prev === id ? null : prev)), 1800)
+    }).catch(() => {
+      onShowToast('err', 'Không thể sao chép vào clipboard')
+    })
+  }
+
+  const previewOriginalRef = useRef<{ prop: string; originalVal: string } | null>(null)
+
+  const handleTokenMouseEnter = (
+    tokenType: 'color' | 'font' | 'spacing' | 'radius',
+    token: { id: string; name: string; value?: string; fontSize?: string; lineHeight?: string; fontWeight?: string; category?: string },
+    explicitTarget?: string
+  ) => {
+    if (!selectedElement) return
+
+    let prop = ''
+    let val = ''
+
+    if (tokenType === 'color') {
+      let target = explicitTarget || colorApplyTarget
+      if (!explicitTarget) {
+        if (token.category === 'background' || token.id.includes('bg') || token.id.includes('surface')) {
+          target = 'bg'
+        } else if (token.id.includes('border')) {
+          target = 'border'
+        } else if (token.category === 'neutral' || token.id.includes('text')) {
+          target = 'text'
+        }
+      }
+      prop = target === 'bg' ? 'backgroundColor' : (target === 'text' ? 'color' : 'borderColor')
+      val = token.value || ''
+    } else if (tokenType === 'font') {
+      prop = 'fontSize'
+      val = token.fontSize || ''
+    } else if (tokenType === 'spacing') {
+      const target = explicitTarget || spacingApplyTarget
+      prop = target === 'padding' ? 'padding' : (target === 'margin' ? 'margin' : 'gap')
+      val = token.value || ''
+    } else if (tokenType === 'radius') {
+      prop = 'borderRadius'
+      val = token.value || ''
+    }
+
+    if (!prop || !val) return
+
+    // Lưu lại giá trị ban đầu nếu chưa lưu
+    if (!previewOriginalRef.current) {
+      const currentVal = (selectedElement.computedStyles as any)?.[prop] || ''
+      previewOriginalRef.current = { prop, originalVal: currentVal }
+    }
+
+    // Gửi áp dụng tạm thời lên iframe để người dùng xem trước
+    const iframe = (document.querySelector('iframe.canvas__iframe') ||
+      document.querySelector('.canvas__frame iframe')) as HTMLIFrameElement | null
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage(
+        {
+          type: 'PM_APPLY_STYLE',
+          payload: {
+            target: {
+              tagName: selectedElement.tagName,
+              id: selectedElement.id,
+              className: selectedElement.className,
+              domPath: (selectedElement as any).domPath,
+              uid: selectedElement.uid,
+              selector: selectedElement.selector,
+            },
+            styles: { [prop]: val },
+          },
+        },
+        '*'
+      )
+    }
+  }
+
+  const handleTokenMouseLeave = () => {
+    if (!selectedElement || !previewOriginalRef.current) return
+    const { prop, originalVal } = previewOriginalRef.current
+    previewOriginalRef.current = null
+
+    // Hoàn nguyên lại style gốc trước khi hover
+    const iframe = (document.querySelector('iframe.canvas__iframe') ||
+      document.querySelector('.canvas__frame iframe')) as HTMLIFrameElement | null
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage(
+        {
+          type: 'PM_APPLY_STYLE',
+          payload: {
+            target: {
+              tagName: selectedElement.tagName,
+              id: selectedElement.id,
+              className: selectedElement.className,
+              domPath: (selectedElement as any).domPath,
+              uid: selectedElement.uid,
+              selector: selectedElement.selector,
+            },
+            styles: { [prop]: originalVal },
+          },
+        },
+        '*'
+      )
+    }
+  }
+
+  const applyTokenToElement = (
+    tokenType: 'color' | 'font' | 'spacing' | 'radius',
+    token: { id: string; name: string; value?: string; fontSize?: string; lineHeight?: string; fontWeight?: string; category?: string },
+    explicitTarget?: string
+  ) => {
+    // Hủy bỏ biến preview để không bị hoàn nguyên khi mouseLeave
+    previewOriginalRef.current = null
+    const varName = tokenToCssVarName(tokenType, token.id)
+
+    // Nếu CHƯA chọn phần tử nào trên Canvas: Tự động sao chép mã biến CSS và nhắc nhở
+    if (!selectedElement) {
+      const textToCopy = `var(${varName})`
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        setCopiedTokenId(token.id)
+        onShowToast('info', `Đã chép ${textToCopy} · Mẹo: Hãy nhấp chọn 1 phần tử trên Canvas để áp dụng trực tiếp!`)
+        setTimeout(() => setCopiedTokenId((prev) => (prev === token.id ? null : prev)), 1800)
+      }).catch(() => {
+        onShowToast('err', 'Không thể sao chép vào clipboard')
+      })
+      return
+    }
+
+    let stylesToApply: Record<string, string> = {}
+    let styleDescription = ''
+
+    if (tokenType === 'color') {
+      let target = explicitTarget || colorApplyTarget
+      if (!explicitTarget) {
+        if (token.category === 'background' || token.id.includes('bg') || token.id.includes('surface')) {
+          target = 'bg'
+        } else if (token.id.includes('border')) {
+          target = 'border'
+        } else if (token.category === 'neutral' || token.id.includes('text')) {
+          target = 'text'
+        }
+      }
+
+      const val = `var(${varName})`
+      if (target === 'bg') {
+        stylesToApply = { backgroundColor: val }
+        styleDescription = `màu nền`
+      } else if (target === 'text') {
+        stylesToApply = { color: val }
+        styleDescription = `màu chữ`
+      } else {
+        stylesToApply = { borderColor: val }
+        styleDescription = `màu viền`
+      }
+    } else if (tokenType === 'font') {
+      stylesToApply = {
+        fontSize: `var(${varName})`,
+        lineHeight: token.lineHeight || 'normal',
+        ...(token.fontWeight ? { fontWeight: token.fontWeight } : {}),
+      }
+      styleDescription = `cỡ chữ ${token.fontSize || ''}`
+    } else if (tokenType === 'spacing') {
+      const target = explicitTarget || spacingApplyTarget
+      const val = `var(${varName})`
+      if (target === 'padding') {
+        stylesToApply = { padding: val }
+        styleDescription = `đệm (padding)`
+      } else if (target === 'margin') {
+        stylesToApply = { margin: val }
+        styleDescription = `lề (margin)`
+      } else {
+        stylesToApply = { gap: val }
+        styleDescription = `khoảng cách con (gap)`
+      }
+    } else if (tokenType === 'radius') {
+      stylesToApply = { borderRadius: `var(${varName})` }
+      styleDescription = `bo góc`
+    }
+
+    // 1. Phát sự kiện toàn cục để CanvasArea xử lý (ghi vào RAM buffer + hoàn tác Undo)
+    window.dispatchEvent(
+      new CustomEvent('pm:apply-token-style', {
+        detail: {
+          styles: stylesToApply,
+          tokenName: token.name,
+        },
+      })
+    )
+
+    // 2. Gửi dự phòng trực tiếp vào iframe nếu có
+    const iframe = (document.querySelector('iframe.canvas__iframe') ||
+      document.querySelector('.canvas__frame iframe')) as HTMLIFrameElement | null
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage(
+        {
+          type: 'PM_APPLY_STYLE',
+          payload: {
+            target: {
+              tagName: selectedElement.tagName,
+              id: selectedElement.id,
+              className: selectedElement.className,
+              domPath: (selectedElement as any).domPath,
+              uid: selectedElement.uid,
+              selector: selectedElement.selector,
+            },
+            styles: stylesToApply,
+          },
+        },
+        '*'
+      )
+    }
+
+    // 3. Phản hồi Toast & hiệu ứng UI
+    setAppliedTokenId(token.id)
+    const elTag = selectedElement.tagName.toLowerCase()
+    onShowToast('ok', `✨ Đã áp dụng ${token.name} (${styleDescription}) cho <${elTag}>!`)
+    setTimeout(() => setAppliedTokenId((prev) => (prev === token.id ? null : prev)), 1500)
+  }
+
+  // ── Nhận diện màu THẬT từ phần tử đang chọn trên DOM ──
+  const elementRealColor = useMemo(() => {
+    if (!selectedElement?.computedStyles) return null
+    let rawColor = ''
+    let label = ''
+    if (colorApplyTarget === 'bg') {
+      rawColor = selectedElement.computedStyles.backgroundColor || ''
+      label = 'Màu nền'
+      if (rawColor === 'rgba(0, 0, 0, 0)' || rawColor === 'transparent') {
+        rawColor = selectedElement.computedStyles.color || ''
+        label = 'Màu chữ'
+      }
+    } else if (colorApplyTarget === 'text') {
+      rawColor = selectedElement.computedStyles.color || ''
+      label = 'Màu chữ'
+    } else {
+      rawColor =
+        selectedElement.computedStyles.borderColor ||
+        (selectedElement.computedStyles as any).borderTopColor ||
+        ''
+      label = 'Màu viền'
+    }
+
+    const parsed = parseRgbOrHex(rawColor)
+    if (!parsed.isValid) return null
+    return {
+      raw: rawColor,
+      hex: parsed.hex,
+      label,
+    }
+  }, [selectedElement, colorApplyTarget])
+
+  const handleSaveDetectedColorAsToken = async () => {
+    if (!elementRealColor || !project?.path || !tokens) return
+    const cleanHex = elementRealColor.hex
+    const tagName = selectedElement?.tagName?.toLowerCase() || 'el'
+    const newId = `c_${tagName}_${Date.now().toString(36).slice(-4)}`
+    const newName = `${tagName.toUpperCase()} ${cleanHex}`
+    const newCategory =
+      colorApplyTarget === 'bg'
+        ? 'background'
+        : colorApplyTarget === 'text'
+        ? 'neutral'
+        : 'brand'
+
+    const newTokens: DesignTokens = {
+      ...tokens,
+      colors: [
+        ...tokens.colors,
+        { id: newId, name: newName, value: cleanHex, category: newCategory },
+      ],
+    }
+
+    try {
+      const res = await api.tokens.save({
+        projectPath: project.path,
+        tokens: newTokens,
+        syncTarget: 'both',
+      })
+      if (res?.success) {
+        setTokens(newTokens)
+        window.dispatchEvent(new CustomEvent('pm:tokens-updated', { detail: newTokens }))
+        onShowToast('ok', `✨ Đã lưu màu thật ${cleanHex} thành token "${newName}"!`)
+      } else {
+        onShowToast('err', `Lỗi lưu token: ${res?.error || 'Không xác định'}`)
+      }
+    } catch (err) {
+      onShowToast('err', `Lỗi: ${(err as Error).message}`)
+    }
+  }
+
+  const handleQuickUndo = () => {
+    if (editorBuffer.canUndo()) {
+      editorBuffer.undo()
+      onShowToast('info', '↶ Đã hoàn tác thay đổi vừa áp dụng')
+    } else {
+      onShowToast('info', 'Chưa có thao tác nào để hoàn tác')
+    }
+  }
+
+  const handleResetElementStyles = () => {
+    if (!selectedElement) return
+    const iframe = (document.querySelector('iframe.canvas__iframe') ||
+      document.querySelector('.canvas__frame iframe')) as HTMLIFrameElement | null
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage(
+        {
+          type: 'PM_APPLY_STYLE',
+          payload: {
+            target: {
+              tagName: selectedElement.tagName,
+              id: selectedElement.id,
+              className: selectedElement.className,
+              domPath: (selectedElement as any).domPath,
+              uid: selectedElement.uid,
+              selector: selectedElement.selector,
+            },
+            styles: {
+              backgroundColor: '',
+              color: '',
+              borderColor: '',
+              fontSize: '',
+              padding: '',
+              margin: '',
+              gap: '',
+              borderRadius: '',
+            },
+          },
+        },
+        '*'
+      )
+    }
+    onShowToast('info', `✨ Đã đặt lại style mặc định cho <${selectedElement.tagName.toLowerCase()}>`)
+  }
+
+  const filteredColors = useMemo(() => {
+    if (!tokens?.colors) return []
+    const q = tokenSearch.trim().toLowerCase()
+    return tokens.colors.filter((c) => {
+      const matchCat = colorCategory === 'all' || c.category === colorCategory
+      if (!matchCat) return false
+      if (!q) return true
+      const varName = tokenToCssVarName('color', c.id)
+      return (
+        c.name.toLowerCase().includes(q) ||
+        c.value.toLowerCase().includes(q) ||
+        c.id.toLowerCase().includes(q) ||
+        varName.toLowerCase().includes(q)
+      )
+    })
+  }, [tokens?.colors, colorCategory, tokenSearch])
+
+  const filteredTypography = useMemo(() => {
+    if (!tokens?.typography) return []
+    const q = tokenSearch.trim().toLowerCase()
+    return tokens.typography.filter((t) => {
+      if (!q) return true
+      const varName = tokenToCssVarName('font', t.id)
+      return (
+        t.name.toLowerCase().includes(q) ||
+        t.fontSize.toLowerCase().includes(q) ||
+        t.id.toLowerCase().includes(q) ||
+        varName.toLowerCase().includes(q)
+      )
+    })
+  }, [tokens?.typography, tokenSearch])
+
+  const filteredSpacing = useMemo(() => {
+    if (!tokens?.spacing) return []
+    const q = tokenSearch.trim().toLowerCase()
+    return tokens.spacing.filter((s) => {
+      if (!q) return true
+      const varName = tokenToCssVarName('spacing', s.id)
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.value.toLowerCase().includes(q) ||
+        s.id.toLowerCase().includes(q) ||
+        varName.toLowerCase().includes(q)
+      )
+    })
+  }, [tokens?.spacing, tokenSearch])
+
+  const filteredRadius = useMemo(() => {
+    if (!tokens?.radius) return []
+    const q = tokenSearch.trim().toLowerCase()
+    return tokens.radius.filter((r) => {
+      if (!q) return true
+      const varName = tokenToCssVarName('radius', r.id)
+      return (
+        r.name.toLowerCase().includes(q) ||
+        r.value.toLowerCase().includes(q) ||
+        r.id.toLowerCase().includes(q) ||
+        varName.toLowerCase().includes(q)
+      )
+    })
+  }, [tokens?.radius, tokenSearch])
+
   // ── Lắng nghe cây DOM thật phát ra từ iframe qua postMessage ──
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
@@ -331,8 +838,17 @@ export const WorkspaceSidebar = ({
           setIsLoadingLayers(false)
         }
       } else if (e.data.type === 'PM_SELECT_ELEMENT') {
-        if (e.data.payload?.uid) {
-          setSelectedLayerId(e.data.payload.uid)
+        if (e.data.payload) {
+          if (e.data.payload.uid) setSelectedLayerId(e.data.payload.uid)
+          setSelectedElement(e.data.payload)
+        }
+      } else if (e.data.type === 'PM_CLEAR_MULTI_SELECTION') {
+        setSelectedElement(null)
+      } else if (e.data.type === 'PM_SELECTION_CHANGED') {
+        if (e.data.payload?.primary) {
+          setSelectedElement(e.data.payload.primary)
+        } else if (Array.isArray(e.data.payload?.items) && e.data.payload.items.length === 0) {
+          setSelectedElement(null)
         }
       }
     }
@@ -863,11 +1379,6 @@ export const WorkspaceSidebar = ({
         )}
       </div>
     )
-  }
-
-  const copyToClipboard = (text: string, msg: string) => {
-    navigator.clipboard.writeText(text)
-    onShowToast('ok', msg)
   }
 
   return (
@@ -1435,55 +1946,12 @@ export const WorkspaceSidebar = ({
             </div>
 
             <div className="pm-ws-bd">
-              {/* Thẻ nhánh Git */}
-              <div className="pm-version-branch-card">
-                <GitBranch size={14} style={{ color: 'var(--accent)' }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600 }}>Nhánh: {branch || 'main'}</div>
-                  <div className="pm-muted" style={{ fontSize: 10 }}>
-                    Trạng thái: Đã đồng bộ mã nguồn
-                  </div>
-                </div>
-              </div>
-
-              {/* Dòng thời gian checkpoint */}
-              <div style={{ marginTop: 8 }}>
-                <div
-                  className="pm-muted"
-                  style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', marginBottom: 6 }}
-                >
-                  Mốc sửa đổi gần đây (In-Memory Buffer)
-                </div>
-                <div className="pm-timeline">
-                  <div className="pm-timeline-item">
-                    <span className="pm-timeline-title">Khởi tạo phiên làm việc</span>
-                    <span className="pm-timeline-meta">Vừa xong · Sẵn sàng sửa đổi trực quan</span>
-                  </div>
-                  {editorBuffer.isDirty() && (
-                    <div className="pm-timeline-item">
-                      <span className="pm-timeline-title">Đang có thay đổi trong RAM</span>
-                      <span className="pm-timeline-meta">Chưa ghi xuống ổ đĩa · Nhấn Ctrl+S để lưu</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  marginTop: 'auto',
-                  padding: 10,
-                  borderRadius: 7,
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  border: '1px solid var(--line)',
-                  fontSize: 11,
-                  color: 'var(--text-3)',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-2)', fontWeight: 600, marginBottom: 3 }}>
-                  <Sparkles size={12} style={{ color: 'var(--accent)' }} /> Tính năng nâng cao
-                </div>
-                Tính năng tạo nhánh Git và đồng bộ kho mã từ xa đang được phát triển ở phiên bản kế tiếp.
-              </div>
+              <VersionsTab
+                project={project}
+                branch={branch}
+                onRefresh={onRefresh}
+                onShowToast={onShowToast}
+              />
             </div>
           </>
         )}
@@ -1496,74 +1964,544 @@ export const WorkspaceSidebar = ({
                 <Palette size={13} /> Hệ thống thiết kế
               </span>
               <div className="pm-ws-hd__actions">
-                <button className="pm-ibtn" onClick={onOpenTokens} title="Mở bảng quản trị Tokens đầy đủ">
+                <button
+                  className="pm-ibtn"
+                  onClick={loadProjectTokens}
+                  title="Tải lại tokens từ dự án"
+                  disabled={tokensLoading}
+                >
+                  <RefreshCw size={12} className={tokensLoading ? 'pm-spin' : ''} />
+                </button>
+                <button className="pm-ibtn" onClick={onOpenTokens} title="Mở trình chỉnh sửa Design Tokens đầy đủ">
                   <ExternalLink size={12} />
                 </button>
               </div>
             </div>
 
-            <div className="pm-ws-bd">
-              {/* Bảng màu Swatches */}
-              <div className="pm-design-section">
-                <span className="pm-design-section-title">Bảng màu chính (Colors)</span>
-                <div className="pm-swatches-grid">
-                  <div
-                    className="pm-swatch-item"
-                    onClick={() => copyToClipboard('var(--pm-accent)', 'Đã sao chép var(--pm-accent)')}
-                    title="Nhấp để chép biến CSS"
-                  >
-                    <span className="pm-swatch-circle" style={{ background: 'var(--pm-accent, #8b5cf6)' }} />
-                    <span className="pm-swatch-label">Accent</span>
+            <div className="pm-ws-bd pm-design-tokens-body">
+              {/* Chỉ thị phần tử đang chọn trên Canvas */}
+              {selectedElement ? (
+                <div className="pm-design-selected-banner">
+                  <div className="pm-design-selected-icon">
+                    <Target size={13} style={{ color: 'var(--accent)' }} />
                   </div>
-                  <div
-                    className="pm-swatch-item"
-                    onClick={() => copyToClipboard('var(--color-success)', 'Đã sao chép var(--color-success)')}
-                    title="Nhấp để chép biến CSS"
-                  >
-                    <span className="pm-swatch-circle" style={{ background: '#10b981' }} />
-                    <span className="pm-swatch-label">Success</span>
+                  <div className="pm-design-selected-info">
+                    <div className="pm-design-selected-title">
+                      Đang chọn: <code>&lt;{selectedElement.tagName.toLowerCase()}{selectedElement.className ? `.${selectedElement.className.trim().split(/\s+/)[0]}` : ''}&gt;</code>
+                    </div>
+                    <div className="pm-design-selected-hint">
+                      Di chuột: Xem trước · Nhấp chuột: Áp dụng
+                    </div>
                   </div>
-                  <div
-                    className="pm-swatch-item"
-                    onClick={() => copyToClipboard('var(--color-warning)', 'Đã sao chép var(--color-warning)')}
-                    title="Nhấp để chép biến CSS"
-                  >
-                    <span className="pm-swatch-circle" style={{ background: '#f59e0b' }} />
-                    <span className="pm-swatch-label">Warning</span>
-                  </div>
-                  <div
-                    className="pm-swatch-item"
-                    onClick={() => copyToClipboard('var(--color-error)', 'Đã sao chép var(--color-error)')}
-                    title="Nhấp để chép biến CSS"
-                  >
-                    <span className="pm-swatch-circle" style={{ background: '#ef4444' }} />
-                    <span className="pm-swatch-label">Error</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Kiểu chữ Typography */}
-              <div className="pm-design-section" style={{ marginTop: 8 }}>
-                <span className="pm-design-section-title">Kiểu chữ (Typography)</span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ padding: '6px 8px', background: 'var(--panel-2)', borderRadius: 6, fontSize: 11 }}>
-                    <div className="pm-muted" style={{ fontSize: 9.5 }}>Font Sans</div>
-                    <div style={{ fontWeight: 600 }}>Inter, system-ui</div>
-                  </div>
-                  <div style={{ padding: '6px 8px', background: 'var(--panel-2)', borderRadius: 6, fontSize: 11 }}>
-                    <div className="pm-muted" style={{ fontSize: 9.5 }}>Font Mono</div>
-                    <div style={{ fontFamily: 'var(--font-mono)' }}>JetBrains Mono</div>
+                  <div className="pm-design-selected-actions">
+                    <button
+                      type="button"
+                      className="pm-ibtn pm-design-quick-btn"
+                      onClick={handleQuickUndo}
+                      title="Hoàn tác thay đổi vừa áp dụng (Ctrl+Z)"
+                    >
+                      <Undo2 size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      className="pm-ibtn pm-design-quick-btn"
+                      onClick={handleResetElementStyles}
+                      title="Xóa style tùy biến, trở về mặc định"
+                    >
+                      <RotateCcw size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      className="pm-ibtn pm-design-quick-btn"
+                      onClick={handleClearSelection}
+                      title="Bỏ chọn phần tử"
+                    >
+                      <X size={11} />
+                    </button>
                   </div>
                 </div>
+              ) : (
+                <div className="pm-design-unselected-banner">
+                  <Sparkles size={13} style={{ color: 'var(--accent)' }} />
+                  <span>Chọn 1 phần tử trên Canvas để xem trước khi rê chuột và áp dụng 1-chạm</span>
+                </div>
+              )}
+
+              {/* Phân nhóm: Màu, Chữ, Khoảng cách, Bo góc */}
+              <div className="pm-design-subnav">
+                <button
+                  type="button"
+                  className={`pm-design-subnav__btn ${tokenSubtab === 'colors' ? 'active' : ''}`}
+                  onClick={() => setTokenSubtab('colors')}
+                >
+                  Màu ({tokens?.colors?.length ?? 0})
+                </button>
+                <button
+                  type="button"
+                  className={`pm-design-subnav__btn ${tokenSubtab === 'typography' ? 'active' : ''}`}
+                  onClick={() => setTokenSubtab('typography')}
+                >
+                  Chữ ({tokens?.typography?.length ?? 0})
+                </button>
+                <button
+                  type="button"
+                  className={`pm-design-subnav__btn ${tokenSubtab === 'spacing' ? 'active' : ''}`}
+                  onClick={() => setTokenSubtab('spacing')}
+                >
+                  Cách ({tokens?.spacing?.length ?? 0})
+                </button>
+                <button
+                  type="button"
+                  className={`pm-design-subnav__btn ${tokenSubtab === 'radius' ? 'active' : ''}`}
+                  onClick={() => setTokenSubtab('radius')}
+                >
+                  Góc ({tokens?.radius?.length ?? 0})
+                </button>
               </div>
 
-              <button
-                className="btn primary"
-                onClick={onOpenTokens}
-                style={{ marginTop: 'auto', width: '100%', fontSize: 11.5, gap: 6 }}
+              {/* Ô tìm kiếm token */}
+              <div className="pm-design-search-box">
+                <Search size={12} className="pm-design-search-icon" />
+                <input
+                  type="text"
+                  placeholder="Tìm token, CSS var, mã màu..."
+                  value={tokenSearch}
+                  onChange={(e) => setTokenSearch(e.target.value)}
+                  className="pm-design-search-input"
+                />
+                {tokenSearch && (
+                  <button className="pm-ibtn" onClick={() => setTokenSearch('')} title="Xóa tìm kiếm">
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+
+              {/* Tùy chọn mục tiêu áp dụng cho Màu Sắc */}
+              {tokenSubtab === 'colors' && (
+                <>
+                  <div className="pm-design-target-bar">
+                    <span className="pm-design-target-label">Áp dụng:</span>
+                    <div className="pm-design-target-pills">
+                      <button
+                        type="button"
+                        className={`pm-design-target-pill ${colorApplyTarget === 'bg' ? 'active' : ''}`}
+                        onClick={() => setColorApplyTarget('bg')}
+                        title="Áp dụng làm màu nền (background-color)"
+                      >
+                        Nền (bg)
+                      </button>
+                      <button
+                        type="button"
+                        className={`pm-design-target-pill ${colorApplyTarget === 'text' ? 'active' : ''}`}
+                        onClick={() => setColorApplyTarget('text')}
+                        title="Áp dụng làm màu chữ (color)"
+                      >
+                        Chữ (text)
+                      </button>
+                      <button
+                        type="button"
+                        className={`pm-design-target-pill ${colorApplyTarget === 'border' ? 'active' : ''}`}
+                        onClick={() => setColorApplyTarget('border')}
+                        title="Áp dụng làm màu đường viền (border-color)"
+                      >
+                        Viền (border)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Đề xuất 3: Nhận diện màu THẬT từ phần tử đang chọn */}
+                  {elementRealColor && !tokens?.colors?.some((c) => colorsMatch(c.value, elementRealColor.hex)) && (
+                    <div className="pm-design-detected-box">
+                      <span
+                        className="pm-token-color-swatch sm"
+                        style={{ backgroundColor: elementRealColor.hex }}
+                      />
+                      <div className="pm-design-detected-info">
+                        <span className="pm-design-detected-title">Màu thật của phần tử:</span>
+                        <span className="pm-design-detected-sub">
+                          <code>{elementRealColor.hex}</code> · {elementRealColor.label}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn primary sm pm-design-save-token-btn"
+                        onClick={handleSaveDetectedColorAsToken}
+                        title="Lưu màu này vào Design Tokens của dự án"
+                      >
+                        <Plus size={11} /> Lưu Token
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Danh mục màu */}
+                  <div className="pm-design-cats">
+                    {(
+                      [
+                        { key: 'all', label: 'Tất cả' },
+                        { key: 'brand', label: 'Brand' },
+                        { key: 'background', label: 'Nền' },
+                        { key: 'status', label: 'Trạng thái' },
+                        { key: 'neutral', label: 'Chữ & Viền' },
+                      ] as const
+                    ).map((cat) => (
+                      <button
+                        key={cat.key}
+                        type="button"
+                        className={`pm-design-cat-pill ${colorCategory === cat.key ? 'active' : ''}`}
+                        onClick={() => setColorCategory(cat.key)}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Tùy chọn mục tiêu áp dụng cho Khoảng cách */}
+              {tokenSubtab === 'spacing' && (
+                <div className="pm-design-target-bar">
+                  <span className="pm-design-target-label">Áp dụng:</span>
+                  <div className="pm-design-target-pills">
+                    <button
+                      type="button"
+                      className={`pm-design-target-pill ${spacingApplyTarget === 'padding' ? 'active' : ''}`}
+                      onClick={() => setSpacingApplyTarget('padding')}
+                      title="Áp dụng khoảng cách đệm bên trong (padding)"
+                    >
+                      Padding (Trong)
+                    </button>
+                    <button
+                      type="button"
+                      className={`pm-design-target-pill ${spacingApplyTarget === 'margin' ? 'active' : ''}`}
+                      onClick={() => setSpacingApplyTarget('margin')}
+                      title="Áp dụng khoảng cách lề bên ngoài (margin)"
+                    >
+                      Margin (Ngoài)
+                    </button>
+                    <button
+                      type="button"
+                      className={`pm-design-target-pill ${spacingApplyTarget === 'gap' ? 'active' : ''}`}
+                      onClick={() => setSpacingApplyTarget('gap')}
+                      title="Áp dụng khoảng cách giữa các phần tử con (gap)"
+                    >
+                      Gap (Con)
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Danh sách tokens */}
+              <div
+                className="pm-design-token-list"
+                onMouseLeave={handleTokenMouseLeave}
               >
-                <Palette size={13} /> Mở trình quản lý Tokens…
-              </button>
+                {tokensLoading && !tokens ? (
+                  <div className="pm-design-loading">
+                    <Loader2 size={16} className="pm-spin" />
+                    <span>Đang nạp tokens dự án...</span>
+                  </div>
+                ) : (
+                  <>
+                    {/* 1. MÀU SẮC (COLORS) */}
+                    {tokenSubtab === 'colors' && (
+                      <div className="pm-token-colors-grid">
+                        {filteredColors.length === 0 ? (
+                          <div className="pm-design-empty">Không tìm thấy màu phù hợp</div>
+                        ) : (
+                          filteredColors.map((color) => {
+                            const varName = tokenToCssVarName('color', color.id)
+                            const isCopied = copiedTokenId === color.id
+                            const isApplied = appliedTokenId === color.id
+                            // Đề xuất 2: Nhận diện token đang dùng trên phần tử
+                            const activeVal =
+                              colorApplyTarget === 'bg'
+                                ? selectedElement?.computedStyles?.backgroundColor
+                                : colorApplyTarget === 'text'
+                                ? selectedElement?.computedStyles?.color
+                                : selectedElement?.computedStyles?.borderColor ||
+                                  (selectedElement?.computedStyles as any)?.borderTopColor
+                            const isActive = Boolean(selectedElement && colorsMatch(color.value, activeVal))
+
+                            const cardTitle = selectedElement
+                              ? `Rê chuột: Xem thử tạm thời\nNhấp chuột: Áp dụng màu này vào <${selectedElement.tagName.toLowerCase()}>\nIcon copy: Sao chép mã CSS`
+                              : `Nhấp để sao chép var(${varName})\n(Mẹo: Chọn một phần tử trên Canvas để áp dụng trực tiếp)`
+                            return (
+                              <div
+                                key={color.id}
+                                className={`pm-token-color-card ${isCopied ? 'copied' : ''} ${isApplied ? 'applied' : ''} ${isActive ? 'is-active-token' : ''}`}
+                                onClick={() => applyTokenToElement('color', color)}
+                                onMouseEnter={() => handleTokenMouseEnter('color', color)}
+                                onMouseLeave={handleTokenMouseLeave}
+                                title={cardTitle}
+                              >
+                                <span
+                                  className="pm-token-color-swatch"
+                                  style={{ backgroundColor: color.value }}
+                                />
+                                <div className="pm-token-color-info">
+                                  <div className="pm-token-color-name" title={color.name}>
+                                    {color.name}
+                                  </div>
+                                  <div className="pm-token-color-meta">
+                                    <code>{color.value}</code>
+                                    <span className="pm-token-var-name">var({varName})</span>
+                                  </div>
+                                </div>
+                                <div className="pm-token-card-actions">
+                                  {isActive && (
+                                    <span className="pm-token-active-badge">● Đang dùng</span>
+                                  )}
+                                  {isApplied && (
+                                    <span className="pm-token-applied-badge">✓ Áp dụng</span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="pm-token-copy-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleCopyVar('color', color.id, color.value)
+                                    }}
+                                    title="Sao chép mã biến CSS"
+                                  >
+                                    {isCopied ? (
+                                      <Check size={12} style={{ color: 'var(--color-success)' }} />
+                                    ) : (
+                                      <Copy size={11} />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+
+                    {/* 2. KIỂU CHỮ (TYPOGRAPHY) */}
+                    {tokenSubtab === 'typography' && (
+                      <div className="pm-token-typo-list">
+                        {filteredTypography.length === 0 ? (
+                          <div className="pm-design-empty">Không tìm thấy kiểu chữ phù hợp</div>
+                        ) : (
+                          filteredTypography.map((typo) => {
+                            const varName = tokenToCssVarName('font', typo.id)
+                            const isCopied = copiedTokenId === typo.id
+                            const isApplied = appliedTokenId === typo.id
+                            const isActive = Boolean(
+                              selectedElement && selectedElement.computedStyles?.fontSize === typo.fontSize
+                            )
+                            const cardTitle = selectedElement
+                              ? `Rê chuột: Xem thử tạm thời\nNhấp chuột: Áp dụng kiểu chữ này vào <${selectedElement.tagName.toLowerCase()}>\nIcon copy: Sao chép mã CSS`
+                              : `Nhấp để sao chép var(${varName})\n(Mẹo: Chọn một phần tử trên Canvas để áp dụng trực tiếp)`
+                            return (
+                              <div
+                                key={typo.id}
+                                className={`pm-token-typo-card ${isCopied ? 'copied' : ''} ${isApplied ? 'applied' : ''} ${isActive ? 'is-active-token' : ''}`}
+                                onClick={() => applyTokenToElement('font', typo)}
+                                onMouseEnter={() => handleTokenMouseEnter('font', typo)}
+                                onMouseLeave={handleTokenMouseLeave}
+                                title={cardTitle}
+                              >
+                                <div className="pm-token-typo-header">
+                                  <span className="pm-token-typo-name">{typo.name}</span>
+                                  <span className="pm-token-typo-specs">
+                                    {typo.fontSize} / {typo.lineHeight}
+                                    {typo.fontWeight ? ` · ${typo.fontWeight}` : ''}
+                                  </span>
+                                  <div className="pm-token-card-actions">
+                                    {isActive && (
+                                      <span className="pm-token-active-badge">● Đang dùng</span>
+                                    )}
+                                    {isApplied && (
+                                      <span className="pm-token-applied-badge">✓ Áp dụng</span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className="pm-token-copy-btn"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleCopyVar('font', typo.id, typo.fontSize)
+                                      }}
+                                      title="Sao chép mã biến CSS"
+                                    >
+                                      {isCopied ? (
+                                        <Check size={12} style={{ color: 'var(--color-success)' }} />
+                                      ) : (
+                                        <Copy size={11} />
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                                <div
+                                  className="pm-token-typo-preview"
+                                  style={{
+                                    fontSize: typo.fontSize,
+                                    lineHeight: typo.lineHeight,
+                                    fontWeight: typo.fontWeight || '400',
+                                  }}
+                                >
+                                  PixelMind Design 123
+                                </div>
+                                <div className="pm-token-typo-footer">
+                                  <code>var({varName})</code>
+                                </div>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+
+                    {/* 3. KHOẢNG CÁCH (SPACING) */}
+                    {tokenSubtab === 'spacing' && (
+                      <div className="pm-token-metric-list">
+                        {filteredSpacing.length === 0 ? (
+                          <div className="pm-design-empty">Không tìm thấy khoảng cách phù hợp</div>
+                        ) : (
+                          filteredSpacing.map((sp) => {
+                            const varName = tokenToCssVarName('spacing', sp.id)
+                            const isCopied = copiedTokenId === sp.id
+                            const isApplied = appliedTokenId === sp.id
+                            const isActive = Boolean(
+                              selectedElement &&
+                                (selectedElement.computedStyles?.padding?.includes(sp.value) ||
+                                  selectedElement.computedStyles?.paddingLeft === sp.value)
+                            )
+                            const numericVal = parseInt(sp.value, 10) || 4
+                            const barWidth = Math.min(120, Math.max(6, numericVal * 2))
+                            const cardTitle = selectedElement
+                              ? `Rê chuột: Xem thử tạm thời\nNhấp chuột: Áp dụng ${spacingApplyTarget} = ${sp.value} vào <${selectedElement.tagName.toLowerCase()}>\nIcon copy: Sao chép mã CSS`
+                              : `Nhấp để sao chép var(${varName})\n(Mẹo: Chọn một phần tử trên Canvas để áp dụng trực tiếp)`
+                            return (
+                              <div
+                                key={sp.id}
+                                className={`pm-token-metric-card ${isCopied ? 'copied' : ''} ${isApplied ? 'applied' : ''} ${isActive ? 'is-active-token' : ''}`}
+                                onClick={() => applyTokenToElement('spacing', sp)}
+                                onMouseEnter={() => handleTokenMouseEnter('spacing', sp)}
+                                onMouseLeave={handleTokenMouseLeave}
+                                title={cardTitle}
+                              >
+                                <div className="pm-token-metric-header">
+                                  <span className="pm-token-metric-name">{sp.name}</span>
+                                  <span className="pm-token-metric-val">{sp.value}</span>
+                                  <div className="pm-token-card-actions">
+                                    {isActive && (
+                                      <span className="pm-token-active-badge">● Đang dùng</span>
+                                    )}
+                                    {isApplied && (
+                                      <span className="pm-token-applied-badge">✓ Áp dụng</span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className="pm-token-copy-btn"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleCopyVar('spacing', sp.id, sp.value)
+                                      }}
+                                      title="Sao chép mã biến CSS"
+                                    >
+                                      {isCopied ? (
+                                        <Check size={12} style={{ color: 'var(--color-success)' }} />
+                                      ) : (
+                                        <Copy size={11} />
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="pm-token-spacing-bar-track">
+                                  <div className="pm-token-spacing-bar-fill" style={{ width: `${barWidth}px` }} />
+                                </div>
+                                <div className="pm-token-metric-code">
+                                  <code>var({varName})</code>
+                                </div>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+
+                    {/* 4. BO GÓC (RADIUS) */}
+                    {tokenSubtab === 'radius' && (
+                      <div className="pm-token-metric-list">
+                        {filteredRadius.length === 0 ? (
+                          <div className="pm-design-empty">Không tìm thấy bán kính bo góc</div>
+                        ) : (
+                          filteredRadius.map((rad) => {
+                            const varName = tokenToCssVarName('radius', rad.id)
+                            const isCopied = copiedTokenId === rad.id
+                            const isApplied = appliedTokenId === rad.id
+                            const isActive = Boolean(
+                              selectedElement &&
+                                (selectedElement.computedStyles?.borderRadius === rad.value ||
+                                  selectedElement.computedStyles?.borderTopLeftRadius === rad.value)
+                            )
+                            const cardTitle = selectedElement
+                              ? `Rê chuột: Xem thử tạm thời\nNhấp chuột: Áp dụng bo góc ${rad.value} vào <${selectedElement.tagName.toLowerCase()}>\nIcon copy: Sao chép mã CSS`
+                              : `Nhấp để sao chép var(${varName})\n(Mẹo: Chọn một phần tử trên Canvas để áp dụng trực tiếp)`
+                            return (
+                              <div
+                                key={rad.id}
+                                className={`pm-token-metric-card ${isCopied ? 'copied' : ''} ${isApplied ? 'applied' : ''} ${isActive ? 'is-active-token' : ''}`}
+                                onClick={() => applyTokenToElement('radius', rad)}
+                                onMouseEnter={() => handleTokenMouseEnter('radius', rad)}
+                                onMouseLeave={handleTokenMouseLeave}
+                                title={cardTitle}
+                              >
+                                <div className="pm-token-metric-header">
+                                  <span className="pm-token-metric-name">{rad.name}</span>
+                                  <span className="pm-token-metric-val">{rad.value}</span>
+                                  <div className="pm-token-card-actions">
+                                    {isActive && (
+                                      <span className="pm-token-active-badge">● Đang dùng</span>
+                                    )}
+                                    {isApplied && (
+                                      <span className="pm-token-applied-badge">✓ Áp dụng</span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className="pm-token-copy-btn"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleCopyVar('radius', rad.id, rad.value)
+                                      }}
+                                      title="Sao chép mã biến CSS"
+                                    >
+                                      {isCopied ? (
+                                        <Check size={12} style={{ color: 'var(--color-success)' }} />
+                                      ) : (
+                                        <Copy size={11} />
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="pm-token-radius-box-wrapper">
+                                  <div className="pm-token-radius-box-preview" style={{ borderRadius: rad.value }} />
+                                </div>
+                                <div className="pm-token-metric-code">
+                                  <code>var({varName})</code>
+                                </div>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Chân sidebar: Nút mở trình biên tập Design Tokens */}
+              <div className="pm-design-footer">
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={onOpenTokens}
+                  style={{ width: '100%', fontSize: 11.5, gap: 6 }}
+                >
+                  <Palette size={13} /> Mở trình chỉnh sửa Tokens…
+                </button>
+              </div>
             </div>
           </>
         )}

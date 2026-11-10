@@ -274,6 +274,17 @@ const App = () => {
         } catch {}
       }
 
+      // Checkpoint RAM là theo từng dự án: lưu phần đang sửa rồi xoá buffer trước khi đổi dự án.
+      if (projectId && projectId !== target.id) {
+        if (editorBuffer.isDirty()) {
+          const saved = await editorBuffer.saveAllDirtyFiles((message) => showToast('info', message))
+          if (!saved) {
+            showToast('err', 'Một số thay đổi RAM chưa lưu được trước khi chuyển dự án.')
+          }
+        }
+        editorBuffer.clearAll()
+      }
+
       const opened = (await api.projects.open(target.id)) ?? target
       setStoreData((prev) => ({
         ...prev,

@@ -133,6 +133,48 @@ export interface ProjectVersion {
   hash: string
   date: string
   note: string
+  /** Tên tác giả commit (nếu đọc được từ git log). */
+  author?: string
+}
+
+export type GitRefType = 'head' | 'branch' | 'remote' | 'tag'
+
+export interface GitRef {
+  name: string
+  type: GitRefType
+  /** Nhánh hiện tại đang được checkout. */
+  current?: boolean
+}
+
+export interface GitCommit {
+  hash: string
+  shortHash: string
+  parents: string[]
+  author: string
+  authorEmail: string
+  /** Unix timestamp (giây). */
+  timestamp: number
+  subject: string
+  body?: string
+  refs: GitRef[]
+  isHead: boolean
+  isMerge: boolean
+}
+
+export type GitGraphScope = 'all' | 'current'
+
+export interface GitGraphData {
+  branch: string | null
+  hasRemote: boolean
+  commits: GitCommit[]
+}
+
+export interface GitRollbackResult {
+  ok: boolean
+  error?: string
+  /** Nhánh backup được tạo trước khi reset. */
+  safetyRef?: string
+  project?: ProjectRecord
 }
 
 export type ActivityStatus = 'ok' | 'warn' | 'err' | 'info'

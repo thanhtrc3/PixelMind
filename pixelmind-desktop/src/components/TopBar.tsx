@@ -1,13 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
+import { useState, useEffect } from 'react'
 import {
-  Check,
-  ChevronDown,
   ClipboardList,
   FolderKanban,
   HelpCircle,
   LayoutDashboard,
-  Octagon,
   Palette,
   Play,
   Redo2,
@@ -19,8 +15,6 @@ import {
   Undo2,
 } from 'lucide-react'
 import type { ProjectRecord, RunState } from '@shared/types'
-import type { AiBridgeKind, AiBridgeStatus } from '@shared/ai'
-import { api } from '../lib/bridge'
 import { editorBuffer } from '../lib/editorBuffer'
 import AtomLogo from './AtomLogo'
 import { PanelLeftIcon, PanelBottomIcon, PanelRightIcon } from './PanelIcons'
@@ -77,60 +71,6 @@ const TopBar = ({
   const [undoTitle, setUndoTitle] = useState(editorBuffer.getUndoDescription())
   const [redoTitle, setRedoTitle] = useState(editorBuffer.getRedoDescription())
   const [isSaving, setIsSaving] = useState(false)
-  const [activeBridge, setActiveBridge] = useState<AiBridgeKind>('api')
-  const [bridges, setBridges] = useState<AiBridgeStatus[]>([])
-  const [bridgeOpen, setBridgeOpen] = useState(false)
-  const bridgeBtnRef = useRef<HTMLButtonElement>(null)
-  const [killSwitchFeedback, setKillSwitchFeedback] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    const refreshBridges = async () => {
-      try {
-        const [active, list] = await Promise.all([
-          api.ai.bridges.getActive(),
-          api.ai.bridges.list(project?.path),
-        ])
-        if (!cancelled) {
-          setActiveBridge(active)
-          setBridges(list)
-        }
-      } catch {}
-    }
-    void refreshBridges()
-    const timer = setInterval(() => void refreshBridges(), 15000)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [project?.path])
-
-  const handleSelectBridge = async (kind: AiBridgeKind) => {
-    setActiveBridge(kind)
-    setBridgeOpen(false)
-    try {
-      const updated = await api.ai.bridges.setActive(kind)
-      setBridges((prev) => prev.map((b) => (b.kind === kind ? updated : b)))
-    } catch {}
-  }
-
-  const handleKillSwitch = async () => {
-    try {
-      const res = await api.ai.killSwitch()
-      setKillSwitchFeedback(`Đã dừng ${res.count} tiến trình`)
-      setTimeout(() => setKillSwitchFeedback(null), 3000)
-    } catch {
-      setKillSwitchFeedback('Lỗi dừng')
-      setTimeout(() => setKillSwitchFeedback(null), 3000)
-    }
-  }
-
-  const currentBridgeInfo = bridges.find((b) => b.kind === activeBridge) || {
-    kind: activeBridge,
-    name: activeBridge === 'ide' ? 'IDE WebSocket' : activeBridge === 'cli' ? 'CLI Bridge' : 'API Bridge',
-    status: 'offline' as const,
-    detail: '',
-  }
 
   useEffect(() => {
     return editorBuffer.subscribe(() => {
@@ -291,135 +231,6 @@ const TopBar = ({
 
       {/* ── Cụm nút bên phải ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-        {/* Bộ chọn Bridge AI (1-click đổi Bridge: API, IDE WebSocket, CLI, Ollama) */}
-        <div style={{ position: 'relative' }}>
-          <button
-            ref={bridgeBtnRef}
-            className={`pm-topbar__bridge-pill is-${currentBridgeInfo.status}`}
-            onClick={() => setBridgeOpen((v) => !v)}
-            title={`Cầu nối AI: ${currentBridgeInfo.name} (${currentBridgeInfo.status.toUpperCase()})`}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 26,
-              padding: '0 8px',
-              fontSize: 11,
-              fontWeight: 500,
-              background: 'var(--surface, #1e1e24)',
-              border: '1px solid var(--line, #333)',
-              borderRadius: 6,
-              cursor: 'pointer',
-              color: 'var(--fg, #e2e8f0)',
-            }}
-          >
-            <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: '50%',
-                background:
-                  currentBridgeInfo.status === 'online'
-                    ? '#22c55e'
-                    : currentBridgeInfo.status === 'local'
-                      ? '#3b82f6'
-                      : '#ef4444',
-                boxShadow:
-                  currentBridgeInfo.status === 'online' ? '0 0 6px #22c55e' : 'none',
-              }}
-            />
-            <span>{currentBridgeInfo.name}</span>
-            <ChevronDown size={11} style={{ opacity: 0.6 }} />
-          </button>
-
-          {bridgeOpen && (() => {
-            const rect = bridgeBtnRef.current?.getBoundingClientRect()
-            return createPortal(
-              <>
-                <div
-                  style={{ position: 'fixed', inset: 0, zIndex: 99998 }}
-                  onClick={() => setBridgeOpen(false)}
-                />
-                <div
-                  className="pm-topbar__dropdown"
-                  style={{
-                    position: 'fixed',
-                    top: (rect?.bottom ?? 30) + 4,
-                    right: Math.max(10, window.innerWidth - (rect?.right ?? window.innerWidth)),
-                    minWidth: 230,
-                    zIndex: 99999,
-                  }}
-                >
-                  <div className="pm-topbar__dropdown-title">
-                    <span>Cầu nối Agent (Chặng 5)</span>
-                  </div>
-                  {bridges.map((b) => (
-                    <button
-                      key={b.kind}
-                      className={`pm-topbar__dropdown-item ${activeBridge === b.kind ? 'active' : ''}`}
-                      onClick={() => void handleSelectBridge(b.kind)}
-                    >
-                      <span
-                        style={{
-                          width: 7,
-                          height: 7,
-                          borderRadius: '50%',
-                          marginRight: 8,
-                          background:
-                            b.status === 'online'
-                              ? '#22c55e'
-                              : b.status === 'local'
-                                ? '#3b82f6'
-                                : '#ef4444',
-                          boxShadow: b.status === 'online' ? '0 0 6px #22c55e' : 'none',
-                        }}
-                      />
-                      <div style={{ flex: 1, textAlign: 'left' }}>
-                        <div style={{ fontWeight: 600, fontSize: 11 }}>{b.name}</div>
-                        <div style={{ fontSize: 9.5, opacity: 0.6 }}>{b.detail}</div>
-                      </div>
-                      {activeBridge === b.kind && <Check size={12} style={{ color: '#22c55e' }} />}
-                    </button>
-                  ))}
-                </div>
-              </>,
-              document.body,
-            )
-          })()}
-        </div>
-
-        {/* Nút Dừng khẩn cấp AI (Kill-Switch toàn cục) */}
-        <button
-          className="pm-ibtn"
-          onClick={() => void handleKillSwitch()}
-          title="Dừng khẩn cấp toàn bộ AI & tiến trình con (Kill-switch)"
-          style={{
-            color: '#ef4444',
-            position: 'relative',
-          }}
-        >
-          <Octagon size={13} strokeWidth={2.2} />
-          {killSwitchFeedback && (
-            <span
-              style={{
-                position: 'absolute',
-                top: '100%',
-                right: 0,
-                marginTop: 4,
-                whiteSpace: 'nowrap',
-                fontSize: 10,
-                background: '#ef4444',
-                color: '#fff',
-                padding: '2px 6px',
-                borderRadius: 4,
-                zIndex: 1001,
-              }}
-            >
-              {killSwitchFeedback}
-            </span>
-          )}
-        </button>
-
         {/* Nút Trợ lý AI */}
         {project && onToggleAI && (
           <button

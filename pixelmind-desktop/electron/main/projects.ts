@@ -7,6 +7,10 @@ import { userInfo } from 'node:os'
 import type {
   FileContent,
   FileNode,
+  GitCommit,
+  GitGraphData,
+  GitGraphScope,
+  GitRef,
   PackageManager,
   ProjectDiagnosis,
   ProjectIssue,
@@ -906,32 +910,227 @@ export async function detectPages(dir: string): Promise<ProjectPage[]> {
 
 /* ── Lịch sử git để hiển thị danh sách phiên bản ──────────── */
 
-export async function readVersions(root: string): Promise<ProjectVersion[]> {
+const GIT_LOG_FIELD = '\u001f'
+const GIT_LOG_RECORD = '\u001e'
+const GIT_LOG_FORMAT = [
+  '%H',
+  '%h',
+  '%P',
+  '%an',
+  '%ae',
+  '%at',
+  '%s',
+  '%D',
+  '%b',
+].join(GIT_LOG_FIELD)
+
+async function gitRemotes(root: string): Promise<Set<string>> {
   try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-C', root, 'log', '-8', '--date=short', '--pretty=format:%h%x1f%s%x1f%ad%x1f%D'],
-      { windowsHide: true, timeout: 4000 },
+    const { stdout } = await execFileAsync('git', ['-C', root, 'remote'], {
+      windowsHide: true,
+      timeout: 4000,
+    })
+    return new Set(
+      stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean),
     )
-    return stdout
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line, index) => {
-        const [hash, subject, date, refs] = line.split('\u001f')
-        const tag = refs?.match(/tag:\s*([^,]+)/)?.[1]
-        const isHead = refs?.includes('HEAD')
-        return {
-          id: `${hash}-${index}`,
-          name: tag ?? (isHead ? 'HEAD' : `v${index + 1}`),
-          status: isHead ? 'review' : 'ok',
-          hash: hash ?? '',
-          date: date ?? '',
-          note: subject ?? '',
-        } satisfies ProjectVersion
-      })
   } catch {
-    return []
+    return new Set()
+  }
+}
+
+async function gitHeadHash(root: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', root, 'rev-parse', 'HEAD'], {
+      windowsHide: true,
+      timeout: 4000,
+    })
+    return stdout.trim() || null
+  } catch {
+    return null
+  }
+}
+
+function parseGitRefs(raw: string, currentBranch: string | null, remotes: Set<string>): GitRef[] {
+  const refs: GitRef[] = []
+  const seen = new Set<string>()
+  const add = (ref: GitRef) => {
+    const key = `${ref.type}:${ref.name}`
+    if (seen.has(key)) return
+    seen.add(key)
+    refs.push(ref)
+  }
+
+  for (const rawToken of raw.split(',')) {
+    let token = rawToken.trim()
+    if (!token) continue
+
+    if (token.startsWith('HEAD -> ')) {
+      add({ name: 'HEAD', type: 'head' })
+      token = token.slice('HEAD -> '.length).trim()
+    } else if (token === 'HEAD') {
+      add({ name: 'HEAD', type: 'head' })
+      continue
+    }
+
+    if (token.startsWith('tag: ')) {
+      add({ name: token.slice('tag: '.length).trim(), type: 'tag' })
+      continue
+    }
+
+    // `origin/HEAD` chỉ là alias trỏ tới nhánh mặc định, không cần hiển thị thành badge riêng.
+    if (token.endsWith('/HEAD')) continue
+
+    const remoteName = token.split('/')[0]
+    if (remotes.has(remoteName)) {
+      add({ name: token, type: 'remote' })
+    } else {
+      add({ name: token, type: 'branch', current: token === currentBranch })
+    }
+  }
+
+  return refs
+}
+
+export interface ReadGitGraphOptions {
+  scope?: GitGraphScope
+  limit?: number
+}
+
+/**
+ * Đọc đồ thị commit thật từ `.git`.
+ * `scope: 'all'` lấy mọi nhánh local + remote-tracking (sau khi `git fetch`).
+ */
+export async function readGitGraph(
+  root: string,
+  options: ReadGitGraphOptions = {},
+): Promise<GitGraphData> {
+  const scope = options.scope ?? 'all'
+  const limit = Math.min(Math.max(options.limit ?? 200, 1), 500)
+  const [branch, remotes, headHash] = await Promise.all([
+    gitBranch(root),
+    gitRemotes(root),
+    gitHeadHash(root),
+  ])
+
+  if (!headHash) {
+    return { branch, hasRemote: remotes.size > 0, commits: [] }
+  }
+
+  try {
+    const args = ['-C', root, 'log', '--topo-order', `--max-count=${limit}`]
+    if (scope === 'all') args.push('--all')
+    args.push(`--pretty=format:${GIT_LOG_FORMAT}${GIT_LOG_RECORD}`)
+
+    const { stdout } = await execFileAsync('git', args, {
+      windowsHide: true,
+      timeout: 8000,
+      maxBuffer: 8 * 1024 * 1024,
+    })
+
+    const commits: GitCommit[] = []
+    for (const rawRecord of stdout.split(GIT_LOG_RECORD)) {
+      const record = rawRecord.replace(/^\r?\n/, '')
+      if (!record.trim()) continue
+      const [hash, shortHash, parentsRaw, author, authorEmail, timestampRaw, subject, refsRaw, body] =
+        record.split(GIT_LOG_FIELD)
+      if (!hash || !shortHash) continue
+      const parents = (parentsRaw ?? '').split(/\s+/).filter(Boolean)
+      commits.push({
+        hash,
+        shortHash,
+        parents,
+        author: author?.trim() || 'Không rõ',
+        authorEmail: authorEmail?.trim() || '',
+        timestamp: Number(timestampRaw) || 0,
+        subject: subject?.trim() || '(không có tiêu đề)',
+        body: body?.trim() || undefined,
+        refs: parseGitRefs(refsRaw ?? '', branch, remotes),
+        isHead: hash === headHash,
+        isMerge: parents.length > 1,
+      })
+    }
+
+    return { branch, hasRemote: remotes.size > 0, commits }
+  } catch {
+    return { branch, hasRemote: remotes.size > 0, commits: [] }
+  }
+}
+
+export async function readVersions(root: string): Promise<ProjectVersion[]> {
+  const graph = await readGitGraph(root, { scope: 'current', limit: 30 })
+  return graph.commits.map((commit, index) => {
+    const tag = commit.refs.find((ref) => ref.type === 'tag')?.name
+    const date = new Date(commit.timestamp * 1000)
+    const dateText = Number.isNaN(date.getTime())
+      ? ''
+      : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    return {
+      id: `${commit.shortHash}-${index}`,
+      name: tag ?? (commit.isHead ? 'HEAD' : `v${index + 1}`),
+      status: commit.isHead ? 'review' : 'ok',
+      hash: commit.shortHash,
+      date: dateText,
+      note: commit.subject,
+      author: commit.author,
+    } satisfies ProjectVersion
+  })
+}
+
+/** Đồng bộ remote-tracking branches từ GitHub/remote đã cấu hình. */
+export async function gitFetch(root: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await execFileAsync('git', ['-C', root, 'fetch', '--all', '--prune'], {
+      windowsHide: true,
+      timeout: 20_000,
+      maxBuffer: 4 * 1024 * 1024,
+    })
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/**
+ * Khôi phục mã nguồn về một commit bằng `git reset --hard`.
+ * Luôn tạo nhánh backup `pm-backup-*` trước khi reset để có thể quay lại.
+ */
+export async function rollbackGit(
+  root: string,
+  hash: string,
+): Promise<{ ok: boolean; error?: string; safetyRef?: string }> {
+  if (!/^[0-9a-f]{4,40}$/i.test(hash)) {
+    return { ok: false, error: 'Mã commit không hợp lệ.' }
+  }
+
+  try {
+    await execFileAsync('git', ['-C', root, 'rev-parse', '--verify', `${hash}^{commit}`], {
+      windowsHide: true,
+      timeout: 4000,
+    })
+
+    const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 17)
+    const safetyRef = `pm-backup-${stamp}`
+    await execFileAsync('git', ['-C', root, 'branch', '-f', safetyRef, 'HEAD'], {
+      windowsHide: true,
+      timeout: 4000,
+    })
+    await execFileAsync('git', ['-C', root, 'reset', '--hard', hash], {
+      windowsHide: true,
+      timeout: 10_000,
+      maxBuffer: 4 * 1024 * 1024,
+    })
+    return { ok: true, safetyRef }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
   }
 }
 
@@ -1721,10 +1920,25 @@ export async function statProject(root: string): Promise<ProjectStat> {
 
 export async function gitBranch(root: string): Promise<string | null> {
   try {
-    const head = await fs.readFile(join(root, '.git', 'HEAD'), 'utf8')
-    const match = head.match(/ref:\s*refs\/heads\/(.+)/)
-    return match ? match[1].trim() : head.trim().slice(0, 8)
+    // `rev-parse` xử lý đúng cả worktree (nơi `.git` là một tệp con trỏ).
+    const { stdout } = await execFileAsync('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+      windowsHide: true,
+      timeout: 4000,
+    })
+    const branch = stdout.trim()
+    if (branch && branch !== 'HEAD') return branch
+    const { stdout: hash } = await execFileAsync('git', ['-C', root, 'rev-parse', '--short', 'HEAD'], {
+      windowsHide: true,
+      timeout: 4000,
+    })
+    return hash.trim() || null
   } catch {
-    return null
+    try {
+      const head = await fs.readFile(join(root, '.git', 'HEAD'), 'utf8')
+      const match = head.match(/ref:\s*refs\/heads\/(.+)/)
+      return match ? match[1].trim() : head.trim().slice(0, 8)
+    } catch {
+      return null
+    }
   }
 }
