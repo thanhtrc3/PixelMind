@@ -25,7 +25,12 @@ export interface AgentIntegration {
 const BUILTIN_SKILLS: Record<string, string> = {
   'pixelmind-design': `# PixelMind Design Skill
 
-Bạn đang hỗ trợ thiết kế giao diện trong **PixelMind Desktop**.
+Bạn đang hỗ trợ thiết kế giao diện cho dự án của người dùng đang được mở trong **PixelMind Desktop**.
+
+## QUYỀN HẠN & PHẠM VI (BẮT BUỘC TUÂN THỦ)
+- **CHỈ SỬA DỰ ÁN ĐANG MỞ**: Bạn chỉ được phép đọc và chỉnh sửa các tệp tin bên trong thư mục dự án đang mở này.
+- **KHÔNG ĐƯỢC SỬA ỨNG DỤNG**: Bạn TUYỆT ĐỐI KHÔNG CÓ QUYỀN sửa đổi, can thiệp hoặc thay đổi giao diện, mã nguồn, cấu hình của chính ứng dụng PixelMind Desktop.
+- **PHẠM VI YÊU CẦU**: Mọi yêu cầu như "đổi màu nút theo theme", "đổi giao diện", "làm navbar tối giản hơn"... đều là dành cho các tệp giao diện (HTML/CSS/JS/TSX/Vue...) của DỰ ÁN ĐANG MỞ TRÊN CANVAS, KHÔNG PHẢI cho ứng dụng PixelMind Desktop.
 
 ## Nguyên tắc
 - Ưu tiên tái sử dụng component và design token đã có trong dự án.
@@ -43,13 +48,14 @@ Bạn đang hỗ trợ thiết kế giao diện trong **PixelMind Desktop**.
 
 Quy trình làm việc an toàn khi sửa mã nguồn dự án:
 
-1. **Khảo sát** — đọc tệp liên quan, xác định đúng điểm sửa.
+1. **Khảo sát** — đọc tệp liên quan trong dự án đang mở, xác định đúng điểm sửa.
 2. **Lập kế hoạch** — nêu ngắn gọn các bước sẽ làm.
-3. **Thực thi** — sửa từng tệp, giữ thay đổi nhỏ và có thể hoàn tác.
+3. **Thực thi** — sửa từng tệp của dự án, giữ thay đổi nhỏ và có thể hoàn tác.
 4. **Kiểm chứng** — chạy \`npm run build\`, \`npm run typecheck\`, hoặc lệnh tương ứng của dự án.
 5. **Báo cáo** — tóm tắt tệp đã đổi và cách kiểm tra.
 
 Không chạy lệnh phá huỷ (\`rm -rf\`, \`git reset --hard\`, \`format\`) nếu người dùng chưa xác nhận.
+Tuyệt đối không đụng vào mã nguồn của ứng dụng PixelMind Desktop.
 `,
 }
 
@@ -74,11 +80,16 @@ export async function ensureProjectSkills(projectPath: string): Promise<string> 
   return skillRoot
 }
 
-export function buildSkillPreamble(skillRoot: string, skillCount: number): string {
+export function buildSkillPreamble(
+  skillRoot: string,
+  skillCount: number,
+  projectPath?: string,
+): string {
   return [
-    'Bạn đang chạy trong PixelMind Desktop với vai trò trợ lý thiết kế/lập trình.',
-    `Có ${skillCount} skill đã được stage tại: ${skillRoot}`,
-    'Khi tác vụ liên quan, hãy đọc các tệp SKILL.md trong thư mục đó trước khi thực hiện.',
+    `[PHẠM VI QUYỀN HẠN] Bạn là trợ lý thiết kế/lập trình CHỈ DÀNH CHO DỰ ÁN ĐANG MỞ tại: "${projectPath || 'dự án hiện tại'}".`,
+    'Bạn TUYỆT ĐỐI KHÔNG CÓ QUYỀN sửa đổi, đổi giao diện hay can thiệp vào bất kỳ tệp nào của ứng dụng PixelMind Desktop. Mọi chỉnh sửa giao diện chỉ áp dụng cho các tệp của dự án đang mở này.',
+    `Có ${skillCount} skill tham khảo tại ${skillRoot} — chỉ đọc khi tác vụ thật sự liên quan.`,
+    'Trả lời trực tiếp câu hỏi của người dùng trước; không liệt kê lại skill, quy trình hay tệp đã đọc trừ khi được hỏi.',
   ].join('\n')
 }
 
@@ -192,7 +203,7 @@ export async function prepareAgentIntegration(
     mcpCount = 0
   }
 
-  const preamble = skillRoot ? buildSkillPreamble(skillRoot, skillCount) : ''
+  const preamble = skillRoot ? buildSkillPreamble(skillRoot, skillCount, projectPath) : ''
 
   return { env, extraArgs, preamble, skillRoot, skillCount, mcpCount }
 }

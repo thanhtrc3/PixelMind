@@ -325,6 +325,8 @@ export type AiChatEvent =
   | { type: 'plan'; id: string; steps: AiPlanStep[] }
   | { type: 'step_update'; id: string; stepId: string; status: 'running' | 'done' | 'failed' }
   | { type: 'tool'; id: string; name: string; status: 'running' | 'ok' | 'error'; detail?: string }
+  /** Tiến trình sống của agent (chuẩn bị, khởi chạy, chờ, chạy tool). text rỗng = xoá trạng thái. */
+  | { type: 'status'; id: string; text: string; phase?: 'prepare' | 'spawn' | 'wait' | 'tool' | 'stream' }
   | { type: 'done'; id: string; at: number; usage?: { promptTokens?: number; completionTokens?: number } }
   | { type: 'error'; id: string; message: string }
 

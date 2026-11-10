@@ -660,6 +660,7 @@ export async function completeAi(
 }
 
 const SYSTEM_PROMPT = `Bạn là trợ lý lập trình tích hợp trong PixelMind Desktop.
+- PHẠM VI QUYỀN HẠN: Bạn CHỈ CÓ QUYỀN sửa giao diện và mã nguồn của DỰ ÁN ĐANG ĐƯỢC MỞ TRONG APP. Bạn TUYỆT ĐỐI KHÔNG CÓ QUYỀN sửa mã nguồn, css, tệp cấu hình hay giao diện của chính ứng dụng PixelMind Desktop. Mọi yêu cầu sửa màu, đổi theme, chỉnh layout đều chỉ dành cho dự án của người dùng đang mở trên canvas.
 - Trả lời bằng tiếng Việt, ngắn gọn, nêu rõ tệp và thay đổi cần làm.
 - Bạn KHÔNG có quyền chạy lệnh terminal tuỳ ý. Chỉ dùng các tool nội bộ được cung cấp.
 - Mọi thay đổi mã nguồn phải thực hiện qua tool apply_patch hoặc sync_nav để tạo diff cho người dùng duyệt.
@@ -844,7 +845,20 @@ export function startChat(
         if (def && usable) {
           await loadAgentSessions()
           const projectPath = request.projectPath || process.cwd()
+          emit({ type: 'status', id, text: 'Đang chuẩn bị Skills & MCP…', phase: 'prepare' })
           const integration = await prepareAgentIntegration(def.id, projectPath)
+          const staged = [
+            integration.skillCount ? `${integration.skillCount} skill` : '',
+            integration.mcpCount ? `${integration.mcpCount} MCP` : '',
+          ]
+            .filter(Boolean)
+            .join(' · ')
+          emit({
+            type: 'status',
+            id,
+            text: staged ? `Đã nạp ${staged}` : 'Không có skill/MCP bổ sung',
+            phase: 'prepare',
+          })
           const sessionKey = `${request.projectId ?? projectPath}:${def.id}`
           const sessionId = agentSessions.get(sessionKey)
 
@@ -859,9 +873,10 @@ export function startChat(
           const contextText = request.context
             ? `Gói ngữ cảnh dự án (JSON):\n${JSON.stringify(request.context, null, 2)}`
             : ''
+          const scopeHeader = `[CHÚ Ý: Chỉ sửa trong phạm vi dự án đang mở tại "${projectPath}". Tuyệt đối không can thiệp vào ứng dụng PixelMind Desktop.]`
           const prompt = sessionId
-            ? userText
-            : [integration.preamble, contextText, transcript, `Người dùng: ${userText}`]
+            ? `${scopeHeader}\n\n${userText}`
+            : [scopeHeader, integration.preamble, contextText, transcript, `Người dùng: ${userText}`]
                 .filter(Boolean)
                 .join('\n\n')
 
@@ -872,8 +887,16 @@ export function startChat(
               sessionId ? ' · tiếp tục phiên' : ''
             }\n\n`,
           })
+          emit({
+            type: 'status',
+            id,
+            text: `Đang khởi chạy ${def.name}${requested?.model ? ` (${requested.model})` : ''}…`,
+            phase: 'spawn',
+          })
 
           let stderrText = ''
+          let lastStatusAt = 0
+          let sawToolSinceLastText = false
           const handle = runAgent(
             {
               def,
@@ -886,15 +909,34 @@ export function startChat(
             },
             (cliEvt) => {
               if (cliEvt.type === 'text' && cliEvt.text) {
-                streamedText += cliEvt.text
-                emit({ type: 'delta', id, text: cliEvt.text })
+                let chunk = cliEvt.text
+                if (sawToolSinceLastText) {
+                  if (streamedText && !streamedText.endsWith('\n')) {
+                    chunk = '\n\n' + chunk
+                  } else if (streamedText && !streamedText.endsWith('\n\n')) {
+                    chunk = '\n' + chunk
+                  }
+                  sawToolSinceLastText = false
+                }
+                streamedText += chunk
+                emit({ type: 'delta', id, text: chunk })
               } else if (cliEvt.type === 'tool' && cliEvt.tool) {
+                sawToolSinceLastText = true
                 emit({
                   type: 'tool',
                   id,
                   name: cliEvt.tool.name,
                   status: cliEvt.tool.status,
                   detail: cliEvt.tool.detail,
+                })
+                emit({
+                  type: 'status',
+                  id,
+                  text:
+                    cliEvt.tool.status === 'running'
+                      ? `Đang chạy tool: ${cliEvt.tool.name}…`
+                      : `Tool ${cliEvt.tool.name} ${cliEvt.tool.status === 'ok' ? 'xong' : 'lỗi'}`,
+                  phase: 'tool',
                 })
               } else if (cliEvt.type === 'session' && cliEvt.sessionId) {
                 if (agentSessions.get(sessionKey) !== cliEvt.sessionId) {
@@ -909,11 +951,36 @@ export function startChat(
                 )
               } else if (cliEvt.type === 'stderr' && cliEvt.text) {
                 stderrText += cliEvt.text
+                // Khi CLI còn im lặng, đẩy dòng stderr gần nhất lên UI để thấy nó vẫn đang làm việc.
+                const now = Date.now()
+                if (!streamedText && now - lastStatusAt > 900) {
+                  const line = cliEvt.text
+                    .split(/\r?\n/)
+                    .map((part) => part.trim())
+                    .filter(Boolean)
+                    .pop()
+                  if (line) {
+                    lastStatusAt = now
+                    emit({
+                      type: 'status',
+                      id,
+                      text: line.slice(0, 160),
+                      phase: 'wait',
+                    })
+                  }
+                }
               } else if (cliEvt.type === 'error') {
                 emit({ type: 'error', id, message: cliEvt.text || 'CLI Error' })
               }
             },
           )
+
+          emit({
+            type: 'status',
+            id,
+            text: `Đang chờ ${def.name} phản hồi…`,
+            phase: 'wait',
+          })
 
           const abortHandler = () => stopCliAgent(handle.id)
           controller.signal.addEventListener('abort', abortHandler, { once: true })

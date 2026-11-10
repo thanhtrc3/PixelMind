@@ -6,7 +6,9 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   CircleDot,
+  Copy,
   Cpu,
   FileCode2,
   History,
@@ -115,9 +117,9 @@ const DEFAULT_CONTEXT_OPTIONS: ContextOption[] = [
 
 const CONTEXT_LIMIT = 6000
 
-/** In đậm **đoạn** và `code` trong câu trả lời. */
-const richText = (text: string) => {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean)
+/** Phân tích các thành phần nội dòng: in đậm, code, liên kết URL. */
+const renderInline = (text: string) => {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\bhttps?:\/\/[^\s]+)/g).filter(Boolean)
   return parts.map((part, index) => {
     if (part.startsWith('**') && part.endsWith('**')) {
       return <b key={index}>{part.slice(2, -2)}</b>
@@ -125,8 +127,245 @@ const richText = (text: string) => {
     if (part.startsWith('`') && part.endsWith('`')) {
       return <code key={index}>{part.slice(1, -1)}</code>
     }
+    if (/^https?:\/\//.test(part)) {
+      return (
+        <a key={index} href={part} target="_blank" rel="noreferrer" className="pm-ai-link">
+          {part}
+        </a>
+      )
+    }
     return <span key={index}>{part}</span>
   })
+}
+
+const CodeBlock = ({ lang, code }: { lang: string; code: string }) => {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = () => {
+    void navigator.clipboard.writeText(code)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <div className="pm-ai-codeblock">
+      <div className="pm-ai-codeblock__bar">
+        <span>{lang || 'code'}</span>
+        <button className="pm-ai-codeblock__copy" onClick={handleCopy} type="button">
+          {copied ? <Check size={11} /> : <Copy size={11} />}
+          <span>{copied ? 'Đã sao chép' : 'Sao chép'}</span>
+        </button>
+      </div>
+      <pre>
+        <code>{code}</code>
+      </pre>
+    </div>
+  )
+}
+
+interface ParsedBlock {
+  type: 'p' | 'ol' | 'ul' | 'quote' | 'heading' | 'code'
+  level?: number
+  lang?: string
+  code?: string
+  items?: string[]
+  text?: string
+}
+
+function parseAiMessage(rawText: string): {
+  agentBadge: string | null
+  blocks: ParsedBlock[]
+} {
+  let text = rawText || ''
+  let agentBadge: string | null = null
+
+  // 1. Tách huy hiệu CLI nếu có (ví dụ "▶ OpenCode · tiếp tục phiên")
+  const standardMatch = text.match(/^▶\s*([^\r\n]+?)(?:\r?\n+|$)/)
+  if (standardMatch) {
+    const candidate = standardMatch[1].trim()
+    if (candidate.length < 80 && !candidate.includes('.')) {
+      agentBadge = candidate
+      text = text.slice(standardMatch[0].length).trim()
+    }
+  }
+
+  if (!agentBadge) {
+    const squashedMatch = text.match(
+      /^▶\s*([^·\n\r]+(?:\s*·\s*[^·\n\r\s]+)*?\s*(?:·\s*tiếp tục phiên)?)(?:\s+(?=[A-ZÀ-ỸĐa-z])|\r?\n|$)/,
+    )
+    if (squashedMatch && squashedMatch[1] && squashedMatch[1].trim().length < 60) {
+      agentBadge = squashedMatch[1].trim()
+      text = text.slice(squashedMatch[0].length).trim()
+    }
+  }
+
+  // 2. Tách các câu bị nối liền bởi dấu hai chấm (kết quả sau tool)
+  text = text.replace(/([^\s\n]):([A-ZÀ-ỸĐ])/g, '$1:\n\n$2')
+  // Tách các bước đánh số bị dính trên cùng một dòng thành dòng riêng
+  text = text.replace(/([^\n])\s+(\d+\.)\s+/g, '$1\n$2 ')
+
+  // 3. Tách khối mã (fenced code blocks ```...```)
+  const blocks: ParsedBlock[] = []
+  const codeBlockRegex = /```([a-zA-Z0-9_-]*)\r?\n([\s\S]*?)```/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      const nonCode = text.slice(lastIndex, match.index)
+      blocks.push(...parseTextBlocks(nonCode))
+    }
+    blocks.push({
+      type: 'code',
+      lang: match[1] || '',
+      code: match[2].trimEnd(),
+    })
+    lastIndex = match.index + match[0].length
+  }
+
+  if (lastIndex < text.length) {
+    const remaining = text.slice(lastIndex)
+    const unclosedMatch = remaining.match(/```([a-zA-Z0-9_-]*)\r?\n([\s\S]*)$/)
+    if (unclosedMatch) {
+      const beforeCode = remaining.slice(0, unclosedMatch.index)
+      if (beforeCode.trim()) blocks.push(...parseTextBlocks(beforeCode))
+      blocks.push({
+        type: 'code',
+        lang: unclosedMatch[1] || '',
+        code: unclosedMatch[2],
+      })
+    } else {
+      blocks.push(...parseTextBlocks(remaining))
+    }
+  }
+
+  return { agentBadge, blocks }
+}
+
+function parseTextBlocks(text: string): ParsedBlock[] {
+  const blocks: ParsedBlock[] = []
+  const rawParagraphs = text.split(/\r?\n\r?\n/)
+
+  for (const para of rawParagraphs) {
+    const trimmed = para.trim()
+    if (!trimmed) continue
+
+    const lines = trimmed.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    if (lines.length === 0) continue
+
+    if (lines.length === 1 && /^#{1,4}\s+/.test(lines[0])) {
+      const level = lines[0].match(/^(#{1,4})\s+/)?.[1].length || 2
+      blocks.push({
+        type: 'heading',
+        level,
+        text: lines[0].replace(/^#{1,4}\s+/, ''),
+      })
+      continue
+    }
+
+    let currentList: { type: 'ol' | 'ul'; items: string[] } | null = null
+
+    for (const line of lines) {
+      const olMatch = line.match(/^(\d+)\.\s+(.*)$/)
+      const ulMatch = line.match(/^[-*•]\s+(.*)$/)
+      const quoteMatch = line.match(/^>\s+(.*)$/)
+
+      if (olMatch) {
+        if (!currentList || currentList.type !== 'ol') {
+          if (currentList) blocks.push(currentList)
+          currentList = { type: 'ol', items: [] }
+        }
+        currentList.items.push(olMatch[2])
+      } else if (ulMatch) {
+        if (!currentList || currentList.type !== 'ul') {
+          if (currentList) blocks.push(currentList)
+          currentList = { type: 'ul', items: [] }
+        }
+        currentList.items.push(ulMatch[1])
+      } else if (quoteMatch) {
+        if (currentList) {
+          blocks.push(currentList)
+          currentList = null
+        }
+        blocks.push({ type: 'quote', text: quoteMatch[1] })
+      } else {
+        if (currentList) {
+          blocks.push(currentList)
+          currentList = null
+        }
+        blocks.push({ type: 'p', text: line })
+      }
+    }
+
+    if (currentList) {
+      blocks.push(currentList)
+    }
+  }
+
+  return blocks
+}
+
+const AiMessageContent = ({ text, isUser }: { text: string; isUser?: boolean }) => {
+  if (isUser) {
+    return <div className="pm-ai-user-text">{renderInline(text)}</div>
+  }
+
+  const { agentBadge, blocks } = useMemo(() => parseAiMessage(text), [text])
+
+  return (
+    <div className="pm-ai-message-content">
+      {agentBadge && (
+        <div className="pm-ai-agent-pill">
+          <Sparkles size={10} className="pm-ai-agent-pill__icon" />
+          <span>{agentBadge}</span>
+        </div>
+      )}
+      <div className="pm-ai-markdown">
+        {blocks.map((block, idx) => {
+          if (block.type === 'code') {
+            return <CodeBlock key={idx} lang={block.lang || ''} code={block.code || ''} />
+          }
+          if (block.type === 'heading') {
+            if (block.level === 1) return <h2 key={idx} className="pm-ai-h2">{renderInline(block.text || '')}</h2>
+            if (block.level === 2) return <h3 key={idx} className="pm-ai-h3">{renderInline(block.text || '')}</h3>
+            return <h4 key={idx} className="pm-ai-h4">{renderInline(block.text || '')}</h4>
+          }
+          if (block.type === 'ol') {
+            return (
+              <ol key={idx} className="pm-ai-ol">
+                {(block.items || []).map((item, itemIdx) => (
+                  <li key={itemIdx} className="pm-ai-li">
+                    {renderInline(item)}
+                  </li>
+                ))}
+              </ol>
+            )
+          }
+          if (block.type === 'ul') {
+            return (
+              <ul key={idx} className="pm-ai-ul">
+                {(block.items || []).map((item, itemIdx) => (
+                  <li key={itemIdx} className="pm-ai-li">
+                    {renderInline(item)}
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+          if (block.type === 'quote') {
+            return (
+              <blockquote key={idx} className="pm-ai-quote">
+                {renderInline(block.text || '')}
+              </blockquote>
+            )
+          }
+          return (
+            <p key={idx} className="pm-ai-p">
+              {renderInline(block.text || '')}
+            </p>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 const timeNow = () => {
@@ -259,10 +498,8 @@ const AIPanel = ({
   const [costStats, setCostStats] = useState<AiCostStats | null>(null)
   const [budgetInput, setBudgetInput] = useState<string>('100000')
   const [isEditingBudget, setIsEditingBudget] = useState(false)
-  const [loadingAudit, setLoadingAudit] = useState(false)
 
   const loadSecurityData = useCallback(async () => {
-    setLoadingAudit(true)
     try {
       const [logs, cost] = await Promise.all([
         api.ai.audit.list(projectId),
@@ -271,9 +508,7 @@ const AIPanel = ({
       setAuditLogs(logs)
       setCostStats(cost)
       if (cost?.budgetTokens) setBudgetInput(String(cost.budgetTokens))
-    } catch {} finally {
-      setLoadingAudit(false)
-    }
+    } catch {}
   }, [projectId])
 
   useEffect(() => {
@@ -450,6 +685,11 @@ const AIPanel = ({
   const [contexts, setContexts] = useState<ContextOption[]>(DEFAULT_CONTEXT_OPTIONS)
   const [draft, setDraft] = useState('')
   const [thinking, setThinking] = useState(false)
+  const [liveStatus, setLiveStatus] = useState<{
+    text: string
+    phase: 'prepare' | 'spawn' | 'wait' | 'tool' | 'stream'
+  } | null>(null)
+  const [elapsed, setElapsed] = useState(0)
   const [retryText, setRetryText] = useState<string | null>(null)
   const [busyChange, setBusyChange] = useState(false)
   const [pack, setPack] = useState<AiContextResult | null>(null)
@@ -620,6 +860,7 @@ const AIPanel = ({
     const off = api.ai.onChatEvent((event) => {
       if (event.id !== activeChatId.current) return
       if (event.type === 'delta') {
+        if (event.text && !event.text.startsWith('▶')) setLiveStatus(null)
         setMessages((prev) =>
           prev.map((message) =>
             message.id === assistantId.current
@@ -627,6 +868,8 @@ const AIPanel = ({
               : message,
           ),
         )
+      } else if (event.type === 'status') {
+        setLiveStatus(event.text ? { text: event.text, phase: event.phase ?? 'wait' } : null)
       } else if (event.type === 'plan') {
         setMessages((prev) =>
           prev.map((message) =>
@@ -657,6 +900,7 @@ const AIPanel = ({
         }
       } else if (event.type === 'done') {
         setThinking(false)
+        setLiveStatus(null)
         setRetryText(null)
         activeChatId.current = null
         void loadChanges()
@@ -664,6 +908,7 @@ const AIPanel = ({
         void loadAuditLogs()
       } else if (event.type === 'error') {
         setThinking(false)
+        setLiveStatus(null)
         activeChatId.current = null
         setMessages((prev) =>
           prev.map((message) =>
@@ -687,6 +932,15 @@ const AIPanel = ({
     })
     return off
   }, [loadChanges, onShowToast, loadToolLogs, loadAuditLogs])
+
+  useEffect(() => {
+    if (!thinking) {
+      setElapsed(0)
+      return
+    }
+    const timer = window.setInterval(() => setElapsed((value) => value + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [thinking])
 
   useEffect(() => {
     if (tab === 'chat' && listRef.current) {
@@ -761,6 +1015,8 @@ const AIPanel = ({
       { id: replyId, role: 'assistant', text: '', time },
     ])
     setThinking(true)
+    setLiveStatus({ text: 'Đang gửi yêu cầu…', phase: 'prepare' })
+    setElapsed(0)
 
     let context: AiContextPack | undefined
     try {
@@ -787,6 +1043,7 @@ const AIPanel = ({
       activeChatId.current = handle.id
     } catch (error) {
       setThinking(false)
+      setLiveStatus(null)
       const message = (error as Error).message
       setMessages((prev) =>
         prev.map((item) =>
@@ -1189,6 +1446,8 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
 
   const providerName = status?.provider === 'ollama' ? 'Ollama Local' : 'OpenAI-compatible'
   const configured = Boolean(status?.configured)
+  const activeCli = detectedClis.find((cli) => cli.id === selectedCli?.id)
+  const cliReady = activeBridge === 'cli' && Boolean(activeCli?.installed && activeCli?.supportsRun)
 
   return (
     <aside className="pm-ai-panel" role="complementary" aria-label="Trợ lý AI">
@@ -1487,11 +1746,13 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
         })}
       </div>
 
-      <div className={`pm-ai-preview-note ${configured ? 'is-ok' : ''}`}>
+      <div className={`pm-ai-preview-note ${cliReady || configured ? 'is-ok' : ''}`}>
         <ShieldCheck size={11} />
-        {configured
-          ? `AI Gateway đã cấu hình · khoá ${status?.key.masked || 'từ môi trường'} · thay đổi phải được duyệt`
-          : status?.error ?? 'Chưa cấu hình AI Gateway — mở Cài đặt để nhập provider/model và đặt khoá qua .env.'}
+        {cliReady
+          ? `CLI ${activeCli?.name}${activeCli?.version ? ` ${activeCli.version}` : ''} · không cần API key · thay đổi phải được duyệt`
+          : configured
+            ? `AI Gateway đã cấu hình · khoá ${status?.key.masked || 'từ môi trường'} · thay đổi phải được duyệt`
+            : status?.error ?? 'Chưa cấu hình AI Gateway — mở Cài đặt để nhập provider/model và đặt khoá qua .env.'}
       </div>
 
       {/* ── Thân panel ── */}
@@ -1519,7 +1780,18 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
                   )}
                   <div className="pm-ai-msg__col">
                     <div className="pm-ai-bubble">
-                      {message.text ? richText(message.text) : <span className="pm-ai-muted">…</span>}
+                      {thinking && message.id === assistantId.current && (
+                        <div className="pm-ai-live">
+                          <RefreshCw size={11} className="pm-spin" />
+                          <span className="pm-ai-live__text">
+                            {liveStatus?.text || 'Đang xử lý…'}
+                          </span>
+                          <span className="pm-ai-live__time">{elapsed}s</span>
+                        </div>
+                      )}
+                      {message.text ? (
+                        <AiMessageContent text={message.text} isUser={message.role === 'user'} />
+                      ) : null}
                     </div>
                     {message.plan && message.plan.length > 0 && (
                       <div className="pm-ai-steps is-compact" style={{ marginTop: 8 }}>
@@ -1543,18 +1815,6 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
                 </div>
               ))}
 
-              {thinking && (
-                <div className="pm-ai-msg is-assistant">
-                  <span className="pm-ai-avatar">
-                    <Sparkles size={11} />
-                  </span>
-                  <div className="pm-ai-typing">
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                </div>
-              )}
             </div>
 
             <div className="pm-ai-quick">
@@ -1574,9 +1834,11 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
               <textarea
                 className="pm-ai-composer__input"
                 placeholder={
-                  configured
-                    ? 'Nhập yêu cầu bằng tiếng Việt… (Enter để gửi)'
-                    : 'Chưa cấu hình AI — mở Cài đặt để bắt đầu'
+                  cliReady
+                    ? `Nhập yêu cầu cho ${activeCli?.name ?? 'CLI'}… (Enter để gửi)`
+                    : configured
+                      ? 'Nhập yêu cầu bằng tiếng Việt… (Enter để gửi)'
+                      : 'Chưa cấu hình AI — mở Cài đặt để bắt đầu'
                 }
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
@@ -1622,36 +1884,48 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
 
         {tab === 'tasks' && (
           <div className="pm-ai-list">
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-              <button
-                className={`btn sm ${tasksSubTab === 'tools' ? 'primary' : 'ghost'}`}
-                onClick={() => setTasksSubTab('tools')}
-                style={{ flex: 1, fontSize: 11 }}
-              >
-                Công cụ Tool ({toolLogs.length})
-              </button>
-              <button
-                className={`btn sm ${tasksSubTab === 'audit' ? 'primary' : 'ghost'}`}
-                onClick={() => setTasksSubTab('audit')}
-                style={{ flex: 1, fontSize: 11 }}
-              >
-                Audit Log ({auditLogs.length})
-              </button>
-            </div>
-
-            <div className="pm-ai-list__hd">
-              <span>{tasksSubTab === 'tools' ? 'Nhật ký tác vụ AI' : 'Audit Log hệ thống'}</span>
-              <button
-                className="btn sm ghost"
-                onClick={() => {
-                  if (tasksSubTab === 'tools') void loadToolLogs()
-                  else void loadAuditLogs()
-                }}
-                title="Làm mới danh sách"
-                style={{ marginLeft: 'auto', gap: 4 }}
-              >
-                <RefreshCw size={11} /> Làm mới
-              </button>
+            <div className="pm-ai-list__hd" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="pm-ai-seg">
+                <button
+                  type="button"
+                  className={tasksSubTab === 'tools' ? 'is-active' : ''}
+                  onClick={() => setTasksSubTab('tools')}
+                >
+                  Công cụ Tool ({toolLogs.length})
+                </button>
+                <button
+                  type="button"
+                  className={tasksSubTab === 'audit' ? 'is-active' : ''}
+                  onClick={() => setTasksSubTab('audit')}
+                >
+                  Audit Log ({auditLogs.length})
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                {tasksSubTab === 'audit' && auditLogs.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    onClick={() => void handleClearAudit()}
+                    title="Xoá nhật ký audit"
+                    style={{ fontSize: 10, color: 'var(--text-3)' }}
+                  >
+                    Xoá log
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn sm ghost"
+                  onClick={() => {
+                    if (tasksSubTab === 'tools') void loadToolLogs()
+                    else void loadAuditLogs()
+                  }}
+                  title="Làm mới"
+                  style={{ gap: 4 }}
+                >
+                  <RefreshCw size={11} /> Làm mới
+                </button>
+              </div>
             </div>
 
             {tasksSubTab === 'tools' ? (
@@ -1844,14 +2118,6 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
             {showPack && pack && (
               <pre className="pm-ai-pack">{pack.json}</pre>
             )}
-
-            <button
-              className="pm-ai-wide-btn"
-              onClick={() => void previewContext()}
-              disabled={packLoading}
-            >
-              <ShieldCheck size={12} /> Kiểm tra an toàn &amp; đóng gói lại
-            </button>
           </div>
         )}
 
@@ -1996,9 +2262,6 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
                       disabled={!parsedError && !errorLog}
                       title="Bắt đầu vòng lặp AI tự động phân tích và sửa lỗi tối đa 3 lần"
                       style={{
-                        background: 'linear-gradient(135deg, var(--accent, #6d5df5), #8b5cf6)',
-                        border: 'none',
-                        color: '#fff',
                         fontWeight: 600,
                         gap: 5,
                       }}
@@ -2163,96 +2426,27 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
                   <span className="pm-ai-badge is-done">Kích hoạt</span>
                 </div>
               </div>
-
-              {/* Nút dừng khẩn cấp toàn cục */}
-              <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-                <button
-                  className="btn sm"
-                  onClick={async () => {
-                    await api.ai.killSwitch()
-                    onShowToast('ok', 'Đã kích hoạt Dừng khẩn cấp: Mọi tiến trình AI đã bị dừng.')
-                  }}
-                  style={{
-                    width: '100%',
-                    background: 'rgba(239, 68, 68, 0.12)',
-                    borderColor: 'rgba(239, 68, 68, 0.35)',
-                    color: '#ef4444',
-                    fontWeight: 650,
-                    gap: 6,
-                  }}
-                >
-                  <Octagon size={13} fill="currentColor" /> Dừng khẩn cấp toàn cục (Global Kill-Switch)
-                </button>
-              </div>
             </div>
 
             {/* ── 3. Nhật ký Thao tác AI (Audit Log) ── */}
             <div className="pm-ai-loop-box" style={{ padding: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ fontWeight: 650, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
                   <History size={13} />
-                  <span>Nhật ký Thao tác AI ({auditLogs.length})</span>
+                  <span>Nhật ký Thao tác &amp; Kiểm toán ({auditLogs.length} bản ghi)</span>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn xs" onClick={() => void loadSecurityData()} disabled={loadingAudit} style={{ fontSize: 10 }}>
-                    <RefreshCw size={10} className={loadingAudit ? 'pm-spin' : ''} /> Tải lại
-                  </button>
-                  {auditLogs.length > 0 && (
-                    <button className="btn xs" onClick={() => void handleClearAudit()} style={{ fontSize: 10, color: 'var(--text-3)' }}>
-                      Xoá log
-                    </button>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  className="btn xs ghost"
+                  onClick={() => {
+                    setTab('tasks')
+                    setTasksSubTab('audit')
+                  }}
+                  style={{ fontSize: 10, gap: 4 }}
+                >
+                  Xem chi tiết <ChevronRight size={10} />
+                </button>
               </div>
-
-              {auditLogs.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '16px 8px', color: 'var(--text-3)', fontSize: 11 }}>
-                  Chưa có thao tác AI nào được ghi nhận cho dự án này.
-                </div>
-              ) : (
-                <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {auditLogs.map((entry) => (
-                    <div
-                      key={entry.id}
-                      style={{
-                        padding: '6px 8px',
-                        borderRadius: 5,
-                        background: 'var(--panel-2, rgba(255,255,255,0.03))',
-                        border: '1px solid var(--border)',
-                        fontSize: 10.5,
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                        <span
-                          className={`pm-ai-badge ${
-                            entry.type === 'guardrail_blocked'
-                              ? 'is-failed'
-                              : entry.type === 'patch'
-                                ? 'is-previewing'
-                                : entry.type === 'kill_switch'
-                                  ? 'is-rejected'
-                                  : 'is-done'
-                          }`}
-                          style={{ fontSize: 9 }}
-                        >
-                          {entry.type}
-                        </span>
-                        <span style={{ fontSize: 9.5, color: 'var(--text-3)' }}>
-                          {new Date(entry.at).toLocaleTimeString('vi-VN')}
-                        </span>
-                      </div>
-                      <div style={{ fontWeight: 600, color: entry.ok ? 'var(--text-1)' : '#ef4444' }}>
-                        {entry.summary}
-                      </div>
-                      {entry.detail && (
-                        <div style={{ fontSize: 9.5, color: 'var(--text-3)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {entry.detail}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
 
             {/* ── 4. Tài liệu Onboarding ── */}
@@ -2286,12 +2480,14 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
           <span>Theme &amp; Nội dung</span>
         </button>
         <span className="pm-ai-panel__ft-spacer" />
-        <span className="pm-ai-model" title="Model của AI Gateway đang cấu hình">
+        <span
+          className="pm-ai-model"
+          title={cliReady ? 'Model CLI đang dùng' : 'Model của AI Gateway đang cấu hình'}
+        >
           <Cpu size={11} />
-          {status?.model ?? 'chưa cấu hình'}
+          {cliReady ? selectedCli?.model ?? 'mặc định CLI' : status?.model ?? 'chưa cấu hình'}
         </span>
-        <span className={`pm-ai-dot is-${configured ? 'online' : 'offline'}`} />
-        <CircleDot size={11} className="pm-ai-muted" />
+        <span className={`pm-ai-dot is-${cliReady ? 'local' : configured ? 'online' : 'offline'}`} />
       </div>
     </aside>
   )

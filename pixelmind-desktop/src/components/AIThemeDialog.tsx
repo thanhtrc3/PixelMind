@@ -265,29 +265,14 @@ const AIThemeDialog = ({
   )
   const isWcagPass = ratioTextBg >= 4.5
 
-  /* ── 1. Live Preview token tạm trong renderer ── */
+  /* ── 1. Live Preview token CHỈ áp dụng trên Canvas dự án (iframe), tuyệt đối KHÔNG đụng giao diện PixelMind Desktop ── */
   useEffect(() => {
-    const styleId = 'pm-live-theme-preview'
-    let styleEl = document.getElementById(styleId) as HTMLStyleElement | null
-    if (!styleEl) {
-      styleEl = document.createElement('style')
-      styleEl.id = styleId
-      document.head.appendChild(styleEl)
-    }
+    // Luôn dọn dẹp thẻ style nếu từng vô tình bị rò rỉ vào document của PixelMind Desktop
+    const leakedAppStyle = document.getElementById('pm-live-theme-preview')
+    if (leakedAppStyle) leakedAppStyle.remove()
 
-    styleEl.textContent = `
-      :root {
-        --accent: ${selectedTheme.accent} !important;
-        --accent-hover: ${selectedTheme.accent}dd !important;
-        --bg: ${selectedTheme.bg} !important;
-        --surface: ${selectedTheme.surface} !important;
-        --text: ${selectedTheme.text} !important;
-        --text-muted: ${selectedTheme.muted} !important;
-        --radius: ${selectedTheme.radius}px !important;
-      }
-    `
-
-    // Đồng thời đồng bộ vào iframe canvas nếu có
+    const styleId = 'pm-canvas-project-theme'
+    // Chỉ đồng bộ vào iframe canvas của dự án người dùng
     const iframes = document.querySelectorAll<HTMLIFrameElement>('.canvas__frame, iframe')
     iframes.forEach((iframe) => {
       try {
@@ -301,9 +286,11 @@ const AIThemeDialog = ({
           }
           s.textContent = `:root {
             --accent: ${selectedTheme.accent} !important;
+            --accent-hover: ${selectedTheme.accent}dd !important;
             --bg: ${selectedTheme.bg} !important;
             --surface: ${selectedTheme.surface} !important;
             --text: ${selectedTheme.text} !important;
+            --text-muted: ${selectedTheme.muted} !important;
             --radius: ${selectedTheme.radius}px !important;
           }`
         }
@@ -311,10 +298,11 @@ const AIThemeDialog = ({
     })
 
     return () => {
-      // Khi đóng dialog mà chưa bấm áp dụng thì dọn dẹp preview tạm
+      // Khi đóng dialog hoặc đổi theme, dọn dẹp preview tạm trên iframe và bảo đảm app chính sạch sẽ
+      const leftover = document.getElementById('pm-live-theme-preview')
+      if (leftover) leftover.remove()
+
       if (!applied) {
-        const previewTag = document.getElementById(styleId)
-        if (previewTag) previewTag.remove()
         iframes.forEach((iframe) => {
           try {
             iframe.contentDocument?.getElementById(styleId)?.remove()
@@ -640,7 +628,7 @@ YÊU CẦU QUAN TRỌNG:
           </button>
           {tab === 'theme' ? (
             <button className="btn primary" onClick={applyTheme} disabled={applied}>
-              <Check size={13} /> Áp dụng vào tokens.css
+              <Check size={13} /> Áp dụng vào dự án (tokens.css)
             </button>
           ) : (
             <button className="btn primary" onClick={applyContent} disabled={applyingContent}>
@@ -755,7 +743,7 @@ YÊU CẦU QUAN TRỌNG:
               </button>
 
               <p className="pm-ai-theme__hint">
-                ✨ <b>Live Preview</b>: Chọn phương án sẽ đổi màu trực tiếp trên Canvas. Bấm <b>Áp dụng</b> để ghi vĩnh viễn vào <code>tokens.css</code> và <code>variables.css</code>.
+                ✨ <b>Live Preview</b>: Xem trước trực tiếp trên Canvas dự án (không đổi màu ứng dụng PixelMind). Bấm <b>Áp dụng</b> để ghi vĩnh viễn vào <code>tokens.css</code> và <code>variables.css</code> của dự án.
               </p>
             </div>
 

@@ -435,26 +435,31 @@
   align-items: flex-end;
 }
 .pm-ai-bubble {
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--panel-2);
   color: var(--text);
-  font-size: 11.5px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.6;
   word-break: break-word;
 }
-.pm-ai-bubble b {
+.pm-ai-bubble b,
+.pm-ai-bubble strong {
   color: var(--text);
   font-weight: 650;
 }
 .pm-ai-bubble code {
-  padding: 1px 4px;
+  padding: 1.5px 5px;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.28);
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--accent-text);
+}
+:root[data-theme='light'] .pm-ai-bubble code {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--accent);
 }
 .pm-ai-msg.is-user .pm-ai-bubble {
   background: var(--accent);
@@ -464,6 +469,169 @@
 .pm-ai-msg.is-user .pm-ai-bubble code {
   background: rgba(255, 255, 255, 0.18);
   color: #fff;
+}
+.pm-ai-user-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Huy hiệu Agent CLI trên đầu bubble ──────────────────── */
+.pm-ai-agent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2.5px 8px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  color: var(--accent-text, #818cf8);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.pm-ai-agent-pill__icon {
+  color: var(--accent);
+}
+
+/* ── Cấu trúc khối Markdown phong cách Antigravity ─────────── */
+.pm-ai-message-content {
+  display: flex;
+  flex-direction: column;
+}
+.pm-ai-markdown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pm-ai-markdown p {
+  margin: 0;
+  line-height: 1.6;
+}
+.pm-ai-markdown p + p {
+  margin-top: 2px;
+}
+.pm-ai-markdown ol,
+.pm-ai-markdown ul {
+  margin: 3px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pm-ai-markdown ol {
+  list-style-type: decimal;
+}
+.pm-ai-markdown ul {
+  list-style-type: disc;
+}
+.pm-ai-markdown li {
+  line-height: 1.55;
+}
+.pm-ai-markdown li::marker {
+  color: var(--accent);
+  font-weight: 600;
+}
+.pm-ai-markdown h2,
+.pm-ai-markdown h3,
+.pm-ai-markdown h4 {
+  margin: 6px 0 2px 0;
+  font-weight: 650;
+  color: var(--text);
+}
+.pm-ai-markdown h2 { font-size: 13.5px; }
+.pm-ai-markdown h3 { font-size: 12.5px; }
+.pm-ai-markdown h4 { font-size: 12px; }
+
+.pm-ai-quote {
+  margin: 4px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--accent);
+  background: rgba(99, 102, 241, 0.06);
+  border-radius: 0 6px 6px 0;
+  font-style: italic;
+  color: var(--text-2);
+}
+.pm-ai-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.pm-ai-link:hover {
+  opacity: 0.85;
+}
+
+/* ── Khối mã lệnh (Code block) ────────────────────────────── */
+.pm-ai-codeblock {
+  margin: 6px 0;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0f131a;
+  overflow: hidden;
+}
+.pm-ai-codeblock__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+  color: #94a3b8;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+.pm-ai-codeblock__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+.pm-ai-codeblock__copy:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+.pm-ai-codeblock pre {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: #e2e8f0;
+}
+.pm-ai-codeblock code {
+  background: transparent !important;
+  padding: 0 !important;
+  color: inherit !important;
+  font-size: inherit !important;
+}
+
+:root[data-theme='light'] .pm-ai-codeblock {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+:root[data-theme='light'] .pm-ai-codeblock__bar {
+  background: #f1f5f9;
+  border-bottom-color: #e2e8f0;
+  color: #64748b;
+}
+:root[data-theme='light'] .pm-ai-codeblock__copy {
+  color: #64748b;
+}
+:root[data-theme='light'] .pm-ai-codeblock__copy:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+:root[data-theme='light'] .pm-ai-codeblock pre {
+  color: #1e293b;
 }
 .pm-ai-msg__time {
   font-size: 9px;
@@ -2064,3 +2232,76 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Live Agent Status Indicator & Segmented Controls ── */
+.pm-ai-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent, #6d5df5) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #6d5df5) 30%, transparent);
+  color: var(--accent, #6d5df5);
+  font-size: 11px;
+}
+
+.pm-ai-live__text {
+  color: var(--text, #f8fafc);
+  font-size: 11px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-ai-live__time {
+  font-size: 10px;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  padding-left: 6px;
+}
+
+.pm-ai-seg {
+  display: inline-flex;
+  align-items: center;
+  background: var(--panel-2, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.pm-ai-seg button {
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3, #94a3b8);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pm-ai-seg button:hover {
+  color: var(--text, #f8fafc);
+}
+
+.pm-ai-seg button.is-active {
+  background: var(--accent, #6d5df5);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.pm-spin {
+  animation: pm-spin 1s linear infinite;
+}
+
+@keyframes pm-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
