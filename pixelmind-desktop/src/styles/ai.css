@@ -2564,3 +2564,292 @@
   to { transform: rotate(360deg); }
 }
 
+/* ── Message footer & actions (Copy, Undo) ────────── */
+.pm-ai-msg__ft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.pm-ai-msg.is-user .pm-ai-msg__ft {
+  justify-content: flex-end;
+}
+.pm-ai-msg__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  opacity: 0.75;
+  transition: opacity 0.15s ease;
+}
+.pm-ai-msg:hover .pm-ai-msg__actions {
+  opacity: 1;
+}
+.pm-ai-msg__btn {
+  background: transparent;
+  border: none;
+  padding: 3px 5px;
+  border-radius: 4px;
+  color: var(--text-3, #94a3b8);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+.pm-ai-msg__btn:hover {
+  color: var(--text, #f1f5f9);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Confirm Undo Modal (Scoped inside Chatbox) ─────── */
+.pm-ai-undo-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 12, 18, 0.78);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: pm-ai-fade-in 0.15s ease;
+}
+
+.pm-ai-undo-dialog {
+  width: 100%;
+  max-width: 380px;
+  background: #18191f;
+  border: 1px solid #2a2e39;
+  border-radius: 12px;
+  padding: 18px 20px;
+  color: #f8fafc;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75);
+  animation: pm-ai-zoom-in 0.15s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.pm-ai-undo-dialog__hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.pm-ai-undo-dialog__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.pm-ai-undo-dialog__close {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+.pm-ai-undo-dialog__close:hover {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pm-ai-undo-dialog__desc {
+  font-size: 12.5px;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.pm-ai-undo-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: #e2e8f0;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 14px;
+}
+
+.pm-ai-undo-check input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  accent-color: #0284c7;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+/* Danh sách tệp thay đổi trong Confirm Undo */
+.pm-ai-undo-files {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 18px;
+  padding-right: 4px;
+}
+
+.pm-ai-undo-files::-webkit-scrollbar {
+  width: 4px;
+}
+.pm-ai-undo-files::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+
+.pm-ai-undo-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-family: var(--font-mono, 'Consolas', 'Fira Code', monospace);
+  background: rgba(255, 255, 255, 0.02);
+  transition: background 0.15s ease;
+}
+
+.pm-ai-undo-file-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.pm-ai-undo-file-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  flex: none;
+}
+
+.pm-ai-undo-file-badge.is-ts {
+  color: #38bdf8;
+}
+
+.pm-ai-undo-file-badge.is-tsx {
+  color: #38bdf8;
+}
+
+.pm-ai-undo-file-badge.is-js {
+  color: #facc15;
+}
+
+.pm-ai-undo-file-badge.is-css {
+  color: #22d3ee;
+  font-weight: 600;
+}
+
+.pm-ai-undo-file-badge.is-code {
+  color: #fb923c;
+}
+
+.pm-ai-undo-file-badge.is-cs {
+  color: #a78bfa;
+}
+
+.pm-ai-undo-file-name {
+  flex: 1;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-ai-undo-file-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  flex: none;
+}
+
+.pm-ai-undo-diff-add {
+  color: #22c55e;
+}
+
+.pm-ai-undo-diff-del {
+  color: #ef4444;
+}
+
+.pm-ai-undo-dialog__ft {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.pm-ai-undo-btn-cancel {
+  background: #232630;
+  border: 1px solid #323744;
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pm-ai-undo-btn-cancel:hover {
+  background: #2d313d;
+  color: #ffffff;
+}
+
+.pm-ai-undo-btn-confirm {
+  background: #0284c7;
+  border: none;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+}
+
+.pm-ai-undo-btn-confirm:hover:not(:disabled) {
+  background: #0369a1;
+}
+
+.pm-ai-undo-btn-confirm:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.pm-ai-undo-enter {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+@keyframes pm-ai-zoom-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pm-ai-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+

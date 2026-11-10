@@ -18,6 +18,8 @@ import {
   detectProject,
   diagnoseProject,
   gitBranch,
+  getGitDiffStats,
+  gitRevertFiles,
   initGit,
   isDirectory,
   readFileContent,
@@ -37,6 +39,7 @@ import { runToolboxMutation, scanProjectToolbox, writeToolboxFile } from './tool
 import {
   cancelChat,
   clearChatHistory,
+  rewriteChatHistory,
   getChatHistory,
   getStatus,
   listModels,
@@ -59,6 +62,7 @@ import { acceptChange, listChanges, proposeChange, rejectChange, undoChange } fr
 import { listToolLogs, runTool, TOOL_SCHEMAS } from './aiTools'
 import type {
   AiBridgeKind,
+  AiChatEntry,
   AiChatStartRequest,
   AiCliRunRequest,
   AiContextRequest,
@@ -2972,6 +2976,10 @@ ipcMain.handle('ai:chats:history', async (_e, projectId: string) => getChatHisto
 
 ipcMain.handle('ai:chats:clear', async (_e, projectId: string) => clearChatHistory(projectId))
 
+ipcMain.handle('ai:chats:rewrite', async (_e, projectId: string, entries: AiChatEntry[]) =>
+  rewriteChatHistory(projectId, entries),
+)
+
 ipcMain.handle('ai:context', async (_e, request: AiContextRequest) => {
   return buildContextPack(request)
 })
@@ -2992,6 +3000,14 @@ ipcMain.handle('ai:changes:reject', async (_e, projectId: string, changeId: stri
 
 ipcMain.handle('ai:changes:undo', async (_e, projectId: string, changeId: string) => {
   return undoChange(projectId, changeId)
+})
+
+ipcMain.handle('ai:changes:diff-stats', async (_e, projectPath: string) => {
+  return getGitDiffStats(projectPath)
+})
+
+ipcMain.handle('ai:changes:git-revert', async (_e, projectPath: string, files?: string[]) => {
+  return gitRevertFiles(projectPath, files)
 })
 
 ipcMain.handle('ai:tools:list', async () => TOOL_SCHEMAS)

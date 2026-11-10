@@ -386,6 +386,7 @@ export interface AiApi {
   chats: {
     history(projectId: string): Promise<AiChatEntry[]>
     clear(projectId: string): Promise<boolean>
+    rewrite(projectId: string, entries: AiChatEntry[]): Promise<boolean>
   }
   context(request: AiContextRequest): Promise<AiContextResult>
   changes: {
@@ -394,6 +395,8 @@ export interface AiApi {
     accept(projectId: string, changeId: string): Promise<AiChange[]>
     reject(projectId: string, changeId: string): Promise<AiChange[]>
     undo(projectId: string, changeId: string): Promise<AiChange[]>
+    diffStats?(projectPath: string): Promise<Array<{ file: string; added: number; removed: number }>>
+    gitRevert?(projectPath: string, files?: string[]): Promise<boolean>
   }
   tools: {
     list(): Promise<AiToolSchema[]>
