@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AlertTriangle,
+  BoxSelect,
   Bug,
   Check,
   CheckCircle2,
@@ -11,6 +12,7 @@ import {
   Copy,
   Cpu,
   FileCode2,
+  Folder,
   History,
   Image as ImageIcon,
   Layers,
@@ -18,6 +20,8 @@ import {
   MessageSquare,
   Octagon,
   Palette,
+  Pencil,
+  Plus,
   RefreshCw,
   RotateCcw,
   Send,
@@ -54,6 +58,27 @@ import type {
 
 type ToastKind = 'ok' | 'err' | 'info'
 
+export interface AiAttachment {
+  id: string
+  type: 'file' | 'folder' | 'image' | 'element' | 'area'
+  name: string
+  path?: string
+  dataUrl?: string
+  size?: number
+  content?: string
+  tag?: string
+  selector?: string
+  count?: number
+  elements?: Array<{
+    tag: string
+    id?: string
+    className?: string
+    text?: string
+    selector?: string
+    outerHTML?: string
+  }>
+}
+
 interface AiChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -61,6 +86,7 @@ interface AiChatMessage {
   time: string
   failed?: boolean
   plan?: AiPlanStep[]
+  attachments?: AiAttachment[]
 }
 
 interface AIPanelProps {
@@ -111,8 +137,8 @@ const DEFAULT_CONTEXT_OPTIONS: ContextOption[] = [
   { id: 'source', label: 'Tệp nguồn của phần tử', checked: true },
   { id: 'tokens', label: 'Design tokens dự án', checked: true },
   { id: 'wires', label: 'Sơ đồ dây nối các trang', checked: true },
-  { id: 'logs', label: 'Nhật ký lỗi build gần nhất', checked: false },
-  { id: 'project', label: 'Chỉ mục tệp toàn bộ dự án', checked: false },
+  { id: 'logs', label: 'Nhật ký lỗi build gần nhất', checked: true },
+  { id: 'project', label: 'Chỉ mục tệp toàn bộ dự án', checked: true },
 ]
 
 const CONTEXT_LIMIT = 6000
@@ -727,6 +753,233 @@ const AIPanel = ({
 
   const lastPromptRef = useRef('')
 
+  // ─── ĐÍNH KÈM (ATTACHMENTS) & NÚT DẤU + ───
+  const [attachments, setAttachments] = useState<AiAttachment[]>([])
+  const [addMenuOpen, setAddMenuOpen] = useState(false)
+  const [waitingPickMode, setWaitingPickMode] = useState<'single' | 'area' | null>(null)
+  const waitingPickModeRef = useRef(waitingPickMode)
+  useEffect(() => {
+    waitingPickModeRef.current = waitingPickMode
+  }, [waitingPickMode])
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const addBtnRef = useRef<HTMLButtonElement>(null)
+  const addMenuRef = useRef<HTMLDivElement>(null)
+
+  // Đóng popover menu dấu + khi nhấp chuột ra ngoài
+  useEffect(() => {
+    if (!addMenuOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        addMenuRef.current &&
+        !addMenuRef.current.contains(e.target as Node) &&
+        addBtnRef.current &&
+        !addBtnRef.current.contains(e.target as Node)
+      ) {
+        setAddMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [addMenuOpen])
+
+  const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    const newAtts: AiAttachment[] = []
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const filePath = (file as unknown as { path?: string }).path || file.name
+      let content = ''
+      try {
+        content = await file.text()
+      } catch {}
+      newAtts.push({
+        id: `file-${Date.now()}-${i}`,
+        type: 'file',
+        name: file.name,
+        path: filePath,
+        size: file.size,
+        content: content.slice(0, 10000),
+      })
+    }
+    setAttachments((prev) => [...prev, ...newAtts])
+    e.target.value = ''
+    setAddMenuOpen(false)
+    onShowToast('ok', `Đã đính kèm ${newAtts.length} tệp`)
+  }
+
+  const handleFolderSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    const firstPath = files[0].webkitRelativePath || ''
+    const folderName = firstPath.split('/')[0] || 'Thư mục'
+    const folderFullPath = (files[0] as unknown as { path?: string }).path
+      ? (files[0] as unknown as { path: string }).path.replace(/[\\/][^\\/]+$/, '')
+      : folderName
+    setAttachments((prev) => [
+      ...prev,
+      {
+        id: `folder-${Date.now()}`,
+        type: 'folder',
+        name: folderName,
+        path: folderFullPath,
+      },
+    ])
+    e.target.value = ''
+    setAddMenuOpen(false)
+    onShowToast('ok', `Đã đính kèm thư mục "${folderName}"`)
+  }
+
+  const handleImagesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    const newAtts: AiAttachment[] = []
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const filePath = (file as unknown as { path?: string }).path || file.name
+      const dataUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.readAsDataURL(file)
+      })
+      newAtts.push({
+        id: `img-${Date.now()}-${i}`,
+        type: 'image',
+        name: file.name,
+        path: filePath,
+        dataUrl,
+        size: file.size,
+      })
+    }
+    setAttachments((prev) => [...prev, ...newAtts])
+    e.target.value = ''
+    setAddMenuOpen(false)
+    onShowToast('ok', `Đã đính kèm ${newAtts.length} ảnh`)
+  }
+
+  const handlePickElement = () => {
+    setWaitingPickMode('single')
+    setAddMenuOpen(false)
+    window.dispatchEvent(new CustomEvent('pixelmind:enable-inspect', { detail: { mode: 'single' } }))
+    onShowToast('info', '✏️ Cây bút: Hãy nhấp vào 1 phần tử trên Canvas để đính kèm vào câu hỏi.')
+  }
+
+  const handlePickArea = () => {
+    setWaitingPickMode('area')
+    setAddMenuOpen(false)
+    window.dispatchEvent(new CustomEvent('pixelmind:enable-inspect', { detail: { mode: 'area' } }))
+    onShowToast('info', '⬚ Cây bút: Hãy kéo chuột khoanh 1 vùng trên Canvas để đính kèm các phần tử.')
+  }
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id))
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) {
+          const reader = new FileReader()
+          reader.onload = () => {
+            setAttachments((prev) => [
+              ...prev,
+              {
+                id: `paste-img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                type: 'image',
+                name: `Ảnh dán ${new Date().toLocaleTimeString('vi-VN')}`,
+                dataUrl: reader.result as string,
+                size: file.size,
+              },
+            ])
+            onShowToast('ok', 'Đã dán ảnh từ clipboard vào câu hỏi!')
+          }
+          reader.readAsDataURL(file)
+        }
+      }
+    }
+  }
+
+  useEffect(() => {
+    const handleElementPicked = (e: Event) => {
+      if (waitingPickModeRef.current !== 'single') return
+      const payload = (e as CustomEvent).detail as {
+        tagName?: string
+        tag?: string
+        id?: string
+        className?: string
+        selector?: string
+        textSnippet?: string
+        outerHTML?: string
+      }
+      if (!payload) return
+      const tag = payload.tagName || payload.tag || 'element'
+      const id = payload.id || ''
+      const className = payload.className || ''
+      const name = `<${tag}${id ? `#${id}` : className ? `.${className.split(' ')[0]}` : ''}>`
+      setAttachments((prev) => [
+        ...prev,
+        {
+          id: `el-${Date.now()}`,
+          type: 'element',
+          name,
+          tag,
+          selector: payload.selector || (id ? `#${id}` : tag),
+          content: payload.textSnippet || payload.outerHTML || '',
+        },
+      ])
+      setWaitingPickMode(null)
+      onShowToast('ok', `Đã đính kèm phần tử ${name} vào câu hỏi!`)
+    }
+
+    const handleAreaPicked = (e: Event) => {
+      if (waitingPickModeRef.current !== 'area') return
+      const items = (e as CustomEvent).detail as Array<{
+        tagName?: string
+        id?: string
+        className?: string
+        textSnippet?: string
+        selector?: string
+        outerHTML?: string
+      }>
+      if (!Array.isArray(items) || items.length === 0) return
+      const count = items.length
+      const name = `Vùng khoanh (${count} phần tử)`
+      setAttachments((prev) => [
+        ...prev.filter((a) => a.type !== 'area'),
+        {
+          id: `area-${Date.now()}`,
+          type: 'area',
+          name,
+          count,
+          elements: items.map((it) => ({
+            tag: it.tagName || 'div',
+            id: it.id,
+            className: it.className,
+            text: it.textSnippet,
+            selector: it.selector,
+            outerHTML: it.outerHTML,
+          })),
+        },
+      ])
+      setWaitingPickMode(null)
+      onShowToast('ok', `Đã đính kèm ${name} vào câu hỏi!`)
+    }
+
+    window.addEventListener('pixelmind:element-picked', handleElementPicked)
+    window.addEventListener('pixelmind:area-picked', handleAreaPicked)
+    return () => {
+      window.removeEventListener('pixelmind:element-picked', handleElementPicked)
+      window.removeEventListener('pixelmind:area-picked', handleAreaPicked)
+    }
+  }, [onShowToast])
+
   const loadToolLogs = useCallback(async () => {
     if (!projectId) {
       setToolLogs([])
@@ -986,16 +1239,76 @@ const AIPanel = ({
 
   const sendText = async (raw: string, addUser = true) => {
     const text = raw.trim()
-    if (!text || thinking) return
+    if ((!text && attachments.length === 0) || thinking) return
     lastPromptRef.current = text
     setRetryText(null)
     msgId.current += 1
     const time = timeNow()
+
+    // Sao chép đính kèm hiện tại và xoá khỏi input
+    const currentAttachments = [...attachments]
+    setAttachments([])
+
+    let augmentedText = text
+    if (currentAttachments.length > 0) {
+      const parts: string[] = []
+      const fileAtts = currentAttachments.filter((a) => a.type === 'file')
+      const folderAtts = currentAttachments.filter((a) => a.type === 'folder')
+      const imgAtts = currentAttachments.filter((a) => a.type === 'image')
+      const elAtts = currentAttachments.filter((a) => a.type === 'element')
+      const areaAtts = currentAttachments.filter((a) => a.type === 'area')
+
+      if (fileAtts.length > 0) {
+        parts.push(
+          `[Tệp đính kèm (${fileAtts.length})]:\n` +
+            fileAtts
+              .map(
+                (f) =>
+                  `• ${f.name} (${f.path || ''})${f.content ? `:\n\`\`\`\n${f.content.slice(0, 4000)}\n\`\`\`` : ''}`,
+              )
+              .join('\n'),
+        )
+      }
+      if (folderAtts.length > 0) {
+        parts.push(`[Thư mục đính kèm]: ${folderAtts.map((f) => f.path || f.name).join(', ')}`)
+      }
+      if (imgAtts.length > 0) {
+        parts.push(`[Ảnh đính kèm (${imgAtts.length})]: ${imgAtts.map((img) => img.name).join(', ')}`)
+      }
+      if (elAtts.length > 0) {
+        parts.push(
+          `[Phần tử giao diện chỉ định chính xác bằng Cây bút]:\n` +
+            elAtts.map((el) => `• ${el.name} (selector: ${el.selector || el.tag})`).join('\n'),
+        )
+      }
+      if (areaAtts.length > 0) {
+        parts.push(
+          `[Vùng khoanh chọn giao diện bằng Cây bút (${areaAtts.length} vùng)]:\n` +
+            areaAtts
+              .map(
+                (ar) =>
+                  `• ${ar.name} bao gồm ${ar.elements?.length || 0} phần tử:\n` +
+                  (ar.elements || [])
+                    .map(
+                      (e, idx) =>
+                        `  ${idx + 1}. <${e.tag}${e.id ? `#${e.id}` : ''}${e.className ? ` class="${e.className}"` : ''}>: ${e.text ? `"${e.text}"` : '(không có chữ)'}${e.selector ? ` (selector: ${e.selector})` : ''}${e.outerHTML ? `\n     HTML: \`${e.outerHTML.slice(0, 250).replace(/\r?\n\s*/g, ' ')}\`` : ''}`,
+                    )
+                    .join('\n'),
+              )
+              .join('\n'),
+        )
+      }
+      augmentedText = text
+        ? `${text}\n\n--- THÔNG TIN ĐÍNH KÈM TỪ NGƯỜI DÙNG ---\n${parts.join('\n\n')}`
+        : parts.join('\n\n')
+    }
+
     const userMessage: AiChatMessage = {
       id: `local-user-${msgId.current}`,
       role: 'user',
-      text,
+      text: text || (currentAttachments.length > 0 ? `Đã đính kèm ${currentAttachments.length} mục` : ''),
       time,
+      attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
     }
     const history = messages
       .filter(
@@ -1026,8 +1339,8 @@ const AIPanel = ({
     }
 
     const payloadMessages =
-      addUser || history[history.length - 1]?.content !== text
-        ? [...history, { role: 'user' as const, content: text }]
+      addUser || history[history.length - 1]?.content !== augmentedText
+        ? [...history, { role: 'user' as const, content: augmentedText }]
         : history
 
     try {
@@ -1059,7 +1372,7 @@ const AIPanel = ({
 
   const send = () => {
     const text = draft.trim()
-    if (!text || thinking) return
+    if ((!text && attachments.length === 0) || thinking) return
     setDraft('')
     void sendText(text, true)
   }
@@ -1779,20 +2092,49 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
                     </span>
                   )}
                   <div className="pm-ai-msg__col">
-                    <div className="pm-ai-bubble">
-                      {thinking && message.id === assistantId.current && (
-                        <div className="pm-ai-live">
-                          <RefreshCw size={11} className="pm-spin" />
-                          <span className="pm-ai-live__text">
-                            {liveStatus?.text || 'Đang xử lý…'}
-                          </span>
-                          <span className="pm-ai-live__time">{elapsed}s</span>
-                        </div>
-                      )}
-                      {message.text ? (
-                        <AiMessageContent text={message.text} isUser={message.role === 'user'} />
-                      ) : null}
-                    </div>
+                    {message.attachments && message.attachments.length > 0 && (
+                      <div className="pm-ai-msg__attachments">
+                        {message.attachments.map((att) => (
+                          <div
+                            key={att.id}
+                            className={`pm-ai-att pm-ai-att--${att.type}`}
+                            title={att.path || att.name}
+                          >
+                            {att.type === 'image' && att.dataUrl ? (
+                              <div className="pm-ai-att__img-wrap">
+                                <img src={att.dataUrl} alt={att.name} className="pm-ai-att__img" />
+                              </div>
+                            ) : (
+                              <>
+                                <span className="pm-ai-att__icon">
+                                  {att.type === 'file' && <FileCode2 size={11} />}
+                                  {att.type === 'folder' && <Folder size={11} />}
+                                  {att.type === 'element' && <Pencil size={11} style={{ color: '#a78bfa' }} />}
+                                  {att.type === 'area' && <BoxSelect size={11} style={{ color: '#38bdf8' }} />}
+                                </span>
+                                <span className="pm-ai-att__name">{att.name}</span>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {Boolean(message.text || (thinking && message.id === assistantId.current)) && (
+                      <div className="pm-ai-bubble">
+                        {thinking && message.id === assistantId.current && (
+                          <div className="pm-ai-live">
+                            <RefreshCw size={11} className="pm-spin" />
+                            <span className="pm-ai-live__text">
+                              {liveStatus?.text || 'Đang xử lý…'}
+                            </span>
+                            <span className="pm-ai-live__time">{elapsed}s</span>
+                          </div>
+                        )}
+                        {message.text ? (
+                          <AiMessageContent text={message.text} isUser={message.role === 'user'} />
+                        ) : null}
+                      </div>
+                    )}
                     {message.plan && message.plan.length > 0 && (
                       <div className="pm-ai-steps is-compact" style={{ marginTop: 8 }}>
                         {message.plan.map((s) => (
@@ -1831,26 +2173,215 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
             </div>
 
             <div className="pm-ai-composer">
-              <textarea
-                className="pm-ai-composer__input"
-                placeholder={
-                  cliReady
-                    ? `Nhập yêu cầu cho ${activeCli?.name ?? 'CLI'}… (Enter để gửi)`
-                    : configured
-                      ? 'Nhập yêu cầu bằng tiếng Việt… (Enter để gửi)'
-                      : 'Chưa cấu hình AI — mở Cài đặt để bắt đầu'
-                }
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault()
-                    void send()
-                  }
-                }}
-                rows={2}
+              {/* File inputs ẩn cho Files, Folder, Image */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                style={{ display: 'none' }}
+                onChange={handleFilesSelected}
               />
+              <input
+                ref={folderInputRef}
+                type="file"
+                // @ts-expect-error webkitdirectory is standard in Chromium
+                webkitdirectory=""
+                directory=""
+                multiple
+                style={{ display: 'none' }}
+                onChange={handleFolderSelected}
+              />
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: 'none' }}
+                onChange={handleImagesSelected}
+              />
+
+              {/* Banner báo đang bật Cây bút chọn phần tử / khoanh vùng */}
+              {waitingPickMode && (
+                <div className="pm-ai-picking-banner">
+                  <span className="pm-spin"><Pencil size={11} /></span>
+                  <span>
+                    {waitingPickMode === 'single'
+                      ? 'Đang bật Cây bút: Hãy nhấp vào 1 phần tử trên giao diện...'
+                      : 'Đang bật Cây bút: Hãy kéo chuột khoanh 1 vùng trên giao diện...'}
+                  </span>
+                  <button
+                    type="button"
+                    className="pm-ai-picking-banner__cancel"
+                    onClick={() => setWaitingPickMode(null)}
+                  >
+                    Huỷ
+                  </button>
+                </div>
+              )}
+
+              {/* Khung nhập liệu hợp nhất (Chứa hàng đính kèm phía trên và ô nhập phía dưới) */}
+              <div className="pm-ai-composer__box">
+                {/* Vùng hiển thị đính kèm phía trên ô nhập (Ảnh, Tệp, Folder, Element) */}
+                {attachments.length > 0 && (
+                  <div className="pm-ai-attachments">
+                    {attachments.map((att) => (
+                      <div
+                        key={att.id}
+                        className={`pm-ai-att pm-ai-att--${att.type}`}
+                        title={att.path || att.name}
+                      >
+                        {att.type === 'image' && att.dataUrl ? (
+                          <div className="pm-ai-att__img-wrap">
+                            <img src={att.dataUrl} alt={att.name} className="pm-ai-att__img" />
+                            <button
+                              type="button"
+                              className="pm-ai-att__del"
+                              onClick={() => removeAttachment(att.id)}
+                              title="Xoá ảnh này"
+                            >
+                              <X size={10} />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="pm-ai-att__icon">
+                              {att.type === 'file' && <FileCode2 size={12} />}
+                              {att.type === 'folder' && <Folder size={12} />}
+                              {att.type === 'element' && <Pencil size={12} style={{ color: '#a78bfa' }} />}
+                              {att.type === 'area' && <BoxSelect size={12} style={{ color: '#38bdf8' }} />}
+                            </span>
+                            <span className="pm-ai-att__name">{att.name}</span>
+                            <button
+                              type="button"
+                              className="pm-ai-att__del"
+                              onClick={() => removeAttachment(att.id)}
+                              title="Xoá đính kèm"
+                            >
+                              <X size={10} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {attachments.length > 0 && <div className="pm-ai-composer__box-divider" />}
+
+                <textarea
+                  className="pm-ai-composer__input"
+                  placeholder={
+                    cliReady
+                      ? `Nhập yêu cầu cho ${activeCli?.name ?? 'CLI'}… (Enter để gửi)`
+                      : configured
+                        ? 'Nhập yêu cầu bằng tiếng Việt… (Enter để gửi)'
+                        : 'Chưa cấu hình AI — mở Cài đặt để bắt đầu'
+                  }
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onPaste={handlePaste}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault()
+                      void send()
+                    }
+                  }}
+                  rows={2}
+                />
+              </div>
+
               <div className="pm-ai-composer__ft">
+                {/* Nút + Thêm tệp, thư mục, ảnh, cây bút */}
+                <div className="pm-ai-add-wrap">
+                  <button
+                    ref={addBtnRef}
+                    type="button"
+                    className={`pm-ai-add-btn ${addMenuOpen ? 'is-active' : ''}`}
+                    onClick={() => setAddMenuOpen((v) => !v)}
+                    title="Thêm đính kèm (Tệp, Thư mục, Ảnh, Cây bút chọn phần tử, Khoanh vùng)"
+                  >
+                    <Plus size={14} />
+                  </button>
+
+                  {/* Popover menu của nút + */}
+                  {addMenuOpen && (
+                    <div ref={addMenuRef} className="pm-ai-add-menu">
+                      <div className="pm-ai-add-menu__hd">Đính kèm vào câu hỏi</div>
+
+                        <button
+                          type="button"
+                          className="pm-ai-add-menu__item"
+                          onClick={() => {
+                            fileInputRef.current?.click()
+                            setAddMenuOpen(false)
+                          }}
+                        >
+                          <FileCode2 size={14} style={{ color: 'var(--accent, #6d5df5)' }} />
+                          <div className="pm-ai-add-menu__item-text">
+                            <b>Chọn Tệp (Files)</b>
+                            <span>Đính kèm mã nguồn hoặc tệp văn bản</span>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          className="pm-ai-add-menu__item"
+                          onClick={() => {
+                            folderInputRef.current?.click()
+                            setAddMenuOpen(false)
+                          }}
+                        >
+                          <Folder size={14} style={{ color: '#eab308' }} />
+                          <div className="pm-ai-add-menu__item-text">
+                            <b>Chọn Thư mục (Folder)</b>
+                            <span>Đính kèm thư mục dự án làm ngữ cảnh</span>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          className="pm-ai-add-menu__item"
+                          onClick={() => {
+                            imageInputRef.current?.click()
+                            setAddMenuOpen(false)
+                          }}
+                        >
+                          <ImageIcon size={14} style={{ color: '#22c55e' }} />
+                          <div className="pm-ai-add-menu__item-text">
+                            <b>Chọn Ảnh (Image)</b>
+                            <span>Tải ảnh giao diện, mockup để AI phân tích</span>
+                          </div>
+                        </button>
+
+                        <div className="pm-ai-add-menu__div" />
+
+                        <button
+                          type="button"
+                          className="pm-ai-add-menu__item"
+                          onClick={handlePickElement}
+                        >
+                          <Pencil size={14} style={{ color: '#a78bfa' }} />
+                          <div className="pm-ai-add-menu__item-text">
+                            <b>Cây bút: Chọn 1 phần tử</b>
+                            <span>Nhấp chuột chọn chính xác 1 phần tử trên giao diện</span>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          className="pm-ai-add-menu__item"
+                          onClick={handlePickArea}
+                        >
+                          <BoxSelect size={14} style={{ color: '#38bdf8' }} />
+                          <div className="pm-ai-add-menu__item-text">
+                            <b>Cây bút: Khoanh vùng nhiều phần tử</b>
+                            <span>Kéo chuột khoanh 1 vùng chọn nhiều phần tử cùng lúc</span>
+                          </div>
+                        </button>
+                      </div>
+                  )}
+                </div>
+
                 <span className="pm-ai-composer__ctx">
                   <Layers size={11} />
                   {selected
@@ -1872,7 +2403,7 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
                   <button
                     className="btn sm primary"
                     onClick={() => void send()}
-                    disabled={!draft.trim()}
+                    disabled={!draft.trim() && attachments.length === 0}
                   >
                     <Send size={11} /> Gửi
                   </button>

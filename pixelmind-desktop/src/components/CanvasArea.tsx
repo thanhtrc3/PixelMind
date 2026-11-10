@@ -70,7 +70,6 @@ import type { ToolboxDragItem } from '../lib/toolboxBridge'
 import { PencilFillIcon } from './PanelIcons'
 import MultiPageCanvas from './MultiPageCanvas'
 import type { ReferenceAsset } from './WorkspaceSidebar'
-import AISidecar from './AISidecar'
 import type { AiSelectedElement } from '../lib/aiMock'
 
 export type CanvasMode = 'reference' | 'live' | 'compare' | 'overlay' | 'diff'
@@ -320,9 +319,6 @@ const CanvasArea = ({
   const spacePressedRef = useRef(false)
   const stageRef = useRef<HTMLDivElement>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const [stageSize, setStageSize] = useState({ w: 0, h: 0 })
-  // Ẩn gợi ý sidecar cho đúng phần tử người dùng đã đóng (đổi phần tử sẽ hiện lại).
-  const [sidecarHiddenFor, setSidecarHiddenFor] = useState<string | null>(null)
   const [iframeKey, setIframeKey] = useState(0)
   // Nhận diện tài liệu của iframe. Mỗi lần trang được tải lại (điều hướng hoặc
   // hot-reload), script inspector sinh docId mới → tăng epoch. Epoch được lưu
@@ -682,20 +678,26 @@ const CanvasArea = ({
 
   const currentVp = VIEWPORTS.find((v) => v.key === viewport) ?? VIEWPORTS[0]
 
-  // Theo dõi kích thước stage để đặt sidecar AI đúng toạ độ.
-  useEffect(() => {
-    const el = stageRef.current
-    if (!el) return
-    const update = () => setStageSize({ w: el.clientWidth, h: el.clientHeight })
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
-
   // Báo ngữ cảnh phần tử đang chọn ra ngoài cho AI Panel.
   useEffect(() => {
     if (!onSelectionChange) return
+    if (multiSelection.length > 1) {
+      const summaryText = multiSelection
+        .map((el, i) => `${i + 1}. <${el.tagName}${el.id ? `#${el.id}` : ''}>: "${el.textSnippet || ''}"`)
+        .join('\n')
+      onSelectionChange({
+        tag: `Vùng khoanh (${multiSelection.length} phần tử)`,
+        id: undefined,
+        className: undefined,
+        text: summaryText,
+        outerHTML: multiSelection.map((el) => el.outerHTML).join('\n'),
+        computedStyles: selectedEl?.computedStyles as unknown as Record<string, string>,
+        selector: multiSelection.map((el) => el.selector).join(', '),
+        filePath: sourceLoc?.fullPath || sourceLoc?.filePath,
+        lineNumber: sourceLoc?.lineNumber,
+      })
+      return
+    }
     if (!selectedEl) {
       onSelectionChange(null)
       return
@@ -711,43 +713,7 @@ const CanvasArea = ({
       filePath: sourceLoc?.fullPath || sourceLoc?.filePath,
       lineNumber: sourceLoc?.lineNumber,
     })
-  }, [selectedEl, sourceLoc, onSelectionChange])
-
-  const sidecarKey = selectedEl
-    ? selectedEl.uid ||
-      selectedEl.selector ||
-      `${selectedEl.tagName}:${Math.round(selectedEl.rect.top)}:${Math.round(selectedEl.rect.left)}`
-    : null
-
-  // Bỏ chọn → lần chọn sau sẽ hiện lại gợi ý sidecar.
-  useEffect(() => {
-    if (!selectedEl) setSidecarHiddenFor(null)
-  }, [selectedEl])
-
-  // Toạ độ stage-local cho sidecar (không đặt bên trong iframe để tránh xung đột CSS).
-  const sidecarPos = useMemo(() => {
-    if (!selectedEl || stageSize.w === 0) return null
-    const scale = viewport === 'responsive' ? 1 : zoom / 100
-    let baseX = 0
-    let baseY = 0
-    if (viewport !== 'responsive') {
-      const wrapH = currentVp.h + 38 // frame bar 30 + gap 8
-      baseX = stageSize.w / 2 + pan.x - (currentVp.w * scale) / 2
-      baseY = stageSize.h / 2 + pan.y - (wrapH * scale) / 2 + 38 * scale
-    }
-    const ex = baseX + selectedEl.rect.left * scale
-    const ey = baseY + selectedEl.rect.top * scale
-    const ew = selectedEl.rect.width * scale
-    const W = 300
-    const H = 250
-    let x = ex + ew + 14
-    if (x + W > stageSize.w - 10) x = ex - W - 14
-    if (x < 10) x = 10
-    let y = ey
-    if (y + H > stageSize.h - 10) y = stageSize.h - H - 10
-    if (y < 10) y = 10
-    return { x, y }
-  }, [selectedEl, stageSize, viewport, currentVp, zoom, pan])
+  }, [selectedEl, multiSelection, sourceLoc, onSelectionChange])
 
   // Zoom to Fit (F)
   const zoomToFit = useCallback(() => {
@@ -1040,6 +1006,8 @@ const CanvasArea = ({
       } else if (e.data.type === 'PM_SELECT_ELEMENT') {
         if (e.data.payload) {
           const payload = e.data.payload as RealElementInfo
+          // Phát sự kiện element-picked ra toàn ứng dụng (cho AI Panel)
+          window.dispatchEvent(new CustomEvent('pixelmind:element-picked', { detail: payload }))
           // Click chọn một phần tử: xoá vùng chọn nhiều trước đó
           if (e.data.source === 'click') {
             setMultiSelection([])
@@ -1064,6 +1032,10 @@ const CanvasArea = ({
         const items = Array.isArray(payload.items) ? (payload.items as RealElementInfo[]) : []
         setMultiSelection(items)
         setHoverEl(null)
+        if (items.length > 0) {
+          // Phát sự kiện area-picked ra toàn ứng dụng (cho AI Panel)
+          window.dispatchEvent(new CustomEvent('pixelmind:area-picked', { detail: items }))
+        }
         if (payload.primary) {
           const primary = payload.primary as RealElementInfo
           setSelectedEl(primary)
@@ -1150,6 +1122,23 @@ const CanvasArea = ({
       setMultiSelection([])
     }
   }, [isInspectMode])
+
+  // Lắng nghe kích hoạt chế độ Soi / Khoanh vùng từ AI Panel
+  useEffect(() => {
+    const handleInspectRequest = (e: Event) => {
+      const detail = (e as CustomEvent<{ mode: 'single' | 'area' }>).detail
+      setIsInspectMode(true)
+      if (detail?.mode === 'single') {
+        showToast('Cây bút: Hãy nhấp vào 1 phần tử trên Canvas để đính kèm vào AI', 'info')
+      } else if (detail?.mode === 'area') {
+        showToast('Cây bút: Hãy kéo chuột khoanh 1 vùng trên Canvas để đính kèm vào AI', 'info')
+      }
+    }
+    window.addEventListener('pixelmind:enable-inspect', handleInspectRequest)
+    return () => {
+      window.removeEventListener('pixelmind:enable-inspect', handleInspectRequest)
+    }
+  }, [showToast])
 
   // Reset modified styles khi chọn phần tử khác
   useEffect(() => {
@@ -4078,68 +4067,6 @@ const CanvasArea = ({
           <div className="canvas__hint">
             <span>▷ Soi phần tử (I) · Kéo vùng để chọn nhiều · Shift + Click để cộng/trừ · Ctrl+C / Ctrl+V sao chép-dán · F vừa khung</span>
           </div>
-
-          {isInspectMode && selectedEl && sidecarPos && sidecarKey !== sidecarHiddenFor && (
-            <AISidecar
-              key={sidecarKey}
-              x={sidecarPos.x}
-              y={sidecarPos.y}
-              label={`${selectedEl.tagName}${selectedEl.id ? `#${selectedEl.id}` : ''}`}
-              detail={`${Math.round(selectedEl.rect.width)} × ${Math.round(selectedEl.rect.height)}${
-                sourceLoc ? ` · ${sourceLoc.filePath}:${sourceLoc.lineNumber}` : ''
-              }`}
-              projectId={projectPath}
-              projectPath={projectPath}
-              projectName={projectName}
-              currentRoute={currentRoute}
-              selectedEl={selectedEl}
-              sourceLoc={sourceLoc}
-              onClose={() => setSidecarHiddenFor(sidecarKey)}
-              onOpenPanel={() => onOpenAIPanel?.()}
-              onShowToast={(kind, text) => showToast(text, kind)}
-              onPreview={(change) => {
-                handleApplyLiveChange(change.styles, change.textContent, {
-                  description: `AI Sidecar: <${selectedEl.tagName.toLowerCase()}>`,
-                })
-              }}
-              onUndo={() => {
-                if (editorBuffer.canUndo()) {
-                  editorBuffer.undo()
-                } else if (originalStyles) {
-                  handleApplyLiveChange(originalStyles.styles, originalStyles.text, { skipHistory: true })
-                }
-              }}
-              onSyncCode={async (change) => {
-                if (!sourceLoc) {
-                  showToast('Chưa xác định được tệp mã nguồn tương ứng của phần tử này!', 'err')
-                  return false
-                }
-                setIsSyncingCode(true)
-                try {
-                  const res = await api.inspect.syncCode({
-                    fullPath: sourceLoc.fullPath,
-                    oldText: originalStyles?.text || selectedEl.textSnippet,
-                    newText: change.textContent ?? selectedEl.textSnippet,
-                    styles: change.styles ? { ...modifiedStyles, ...change.styles } : modifiedStyles,
-                    tagName: selectedEl.tagName,
-                    lineNumber: sourceLoc.lineNumber,
-                  })
-                  if (res?.success) {
-                    showToast(`Đã lưu vĩnh viễn vào ${sourceLoc.filePath}!`, 'ok')
-                    return true
-                  } else {
-                    showToast(res?.error || 'Không thể lưu vào tệp nguồn', 'err')
-                    return false
-                  }
-                } catch (err) {
-                  showToast((err as Error).message, 'err')
-                  return false
-                } finally {
-                  setIsSyncingCode(false)
-                }
-              }}
-            />
-          )}
         </div>
 
         {/* ═══════════════════════════════════════════════

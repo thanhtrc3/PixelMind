@@ -38,7 +38,7 @@ interface EnvMap {
 
 const DEFAULTS: Record<AiProvider, { baseUrl: string; model: string }> = {
   openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash-lite' },
+  gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.5-flash-lite' },
   ollama: { baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5-coder' },
 }
 
@@ -269,13 +269,20 @@ export async function resolveConfig(projectPath?: string): Promise<{
 
   // Tự động phát hiện Google AI Studio / Gemini key hoặc trường hợp cấu hình nhầm trang web aistudio.google.com
   const isGeminiKey = keyValue && (keyValue.startsWith('AIza') || keyValue.startsWith('AQ.'))
-  if (isGeminiKey || baseUrl.includes('aistudio.google.com') || model === 'aistudio') {
+  if (isGeminiKey || baseUrl.includes('aistudio.google.com') || model === 'aistudio' || provider === 'gemini') {
     provider = 'gemini'
     defaults = DEFAULTS.gemini
     if (!baseUrl || baseUrl.includes('aistudio.google.com') || baseUrl.includes('api.openai.com')) {
       baseUrl = defaults.baseUrl
     }
-    if (!model || model === 'aistudio' || model === 'gpt-4o-mini') {
+    // Tự động nâng cấp lên gemini-3.5-flash-lite nếu model để trống, model mặc định OpenAI,
+    // hoặc model cũ gemini-2.5-flash-lite đã bị Google khai tử cho tài khoản mới
+    if (
+      !model ||
+      model === 'aistudio' ||
+      model === 'gpt-4o-mini' ||
+      model.includes('2.5-flash')
+    ) {
       model = defaults.model
     }
   }
@@ -365,6 +372,9 @@ const friendlyHttpError = (status: number, text: string): string => {
   ) {
     return `Vượt giới hạn token của model (HTTP 400). Giảm bớt ngữ cảnh hoặc chọn model có cửa sổ ngữ cảnh lớn hơn. ${detail}`
   }
+  if (status === 503 || lower.includes('503') || lower.includes('high demand') || lower.includes('overloaded')) {
+    return `Máy chủ AI đang bị quá tải tạm thời (HTTP 503 - High Demand). Vui lòng chờ 1-2 phút rồi bấm "Thử lại", hoặc chuyển sang API Bridge. ${detail}`
+  }
   return `Máy chủ AI trả về lỗi HTTP ${status}. ${detail}`
 }
 
@@ -383,6 +393,26 @@ const friendlyRuntimeError = (error: unknown, timedOut: boolean): string => {
       message.includes('network')
     ) {
       return 'Mất kết nối tới AI Gateway. Kiểm tra mạng, Base URL hoặc trạng thái Ollama rồi bấm Thử lại.'
+    }
+    if (
+      message.includes('503') ||
+      message.includes('high demand') ||
+      message.includes('overloaded') ||
+      message.includes('temporarily unavailable')
+    ) {
+      return 'Máy chủ Google Gemini đang bị quá tải tạm thời (HTTP 503 - High demand). Bạn hãy đợi 1-2 phút rồi bấm "Thử lại", hoặc chuyển sang cầu nối "API Bridge" để dùng model ổn định hơn.'
+    }
+    if (message.includes('429') || message.includes('quota') || message.includes('RESOURCE_EXHAUSTED')) {
+      return 'Đã vượt quá giới hạn lượt gọi (HTTP 429 / Quota Limit). Vui lòng đợi ít phút rồi thử lại.'
+    }
+    // Rút gọn stack trace từ CLI (loại bỏ đường dẫn node_modules dài dòng)
+    if (message.includes('node_modules') || message.includes('at async')) {
+      const matchMsg = message.match(/message:\s*['"]([^'"]+)['"]/i)
+      if (matchMsg) {
+        return `Lỗi từ CLI: ${matchMsg[1]}. Bạn hãy chờ ít phút hoặc chuyển sang API Bridge.`
+      }
+      const lines = message.split(/\r?\n/).filter((l) => !l.trim().startsWith('at ') && !l.includes('node_modules'))
+      if (lines.length > 0) return lines.slice(0, 3).join('\n')
     }
     return message
   }
@@ -440,6 +470,7 @@ interface StreamToolCall {
   id: string
   name: string
   arguments: string
+  extra_content?: unknown
 }
 
 interface StreamResult {
@@ -450,7 +481,16 @@ interface StreamResult {
 
 type LocalMessage =
   | { role: 'system' | 'user'; content: string }
-  | { role: 'assistant'; content: string | null; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
+  | {
+      role: 'assistant'
+      content: string | null
+      tool_calls?: Array<{
+        id: string
+        type: 'function'
+        function: { name: string; arguments: string }
+        extra_content?: unknown
+      }>
+    }
   | { role: 'tool'; tool_call_id: string; content: string }
 
 const parseSseData = (line: string): string | null => {
@@ -545,6 +585,7 @@ async function streamCompletion(
             index?: number
             id?: string
             function?: { name?: string; arguments?: string }
+            extra_content?: unknown
           }>
         }
         finish_reason?: string
@@ -569,6 +610,7 @@ async function streamCompletion(
       if (call.id) current.id = call.id
       if (call.function?.name) current.name += call.function.name
       if (call.function?.arguments) current.arguments += call.function.arguments
+      if (call.extra_content) current.extra_content = call.extra_content
       toolCalls.set(index, current)
     }
   }
@@ -660,8 +702,24 @@ export async function completeAi(
 }
 
 const SYSTEM_PROMPT = `Bạn là trợ lý lập trình tích hợp trong PixelMind Desktop.
-- PHẠM VI QUYỀN HẠN: Bạn CHỈ CÓ QUYỀN sửa giao diện và mã nguồn của DỰ ÁN ĐANG ĐƯỢC MỞ TRONG APP. Bạn TUYỆT ĐỐI KHÔNG CÓ QUYỀN sửa mã nguồn, css, tệp cấu hình hay giao diện của chính ứng dụng PixelMind Desktop. Mọi yêu cầu sửa màu, đổi theme, chỉnh layout đều chỉ dành cho dự án của người dùng đang mở trên canvas.
+
+1. KHẢ NĂNG QUAN SÁT & ĐỌC DỮ LIỆU:
+- Bạn CÓ THỂ ĐỌC ĐƯỢC CANVAS AREA: Bạn quan sát được cấu trúc cây DOM, thẻ HTML, nội dung văn bản, toạ độ, kích thước, CSS styles của trang web đang mở trên sân khấu Canvas, cũng như phần tử đang soi/chọn (selection) và tệp nguồn tương ứng.
+- Bạn CÓ THỂ NHÌN THẤY TẤT CẢ NHỮNG GÌ CÓ TRONG APP:
+  + Cây thư mục và tệp mã nguồn toàn bộ dự án (File Explorer qua tool search_project, read_file).
+  + Tất cả các trang và sơ đồ dây nối (Pages, routes, wire graph).
+  + Bảng Design Tokens (Màu sắc, Typography, Spacing, Border radius).
+  + Các thanh công cụ và sidebars của app (bảng thuộc tính inspector, styles, layers, runtime logs, lỗi build).
+
+2. PHẠM VI QUYỀN HẠN CHỈNH SỬA (NGHIÊM NGẶT):
+- Bạn CHỈ ĐƯỢC PHÉP CHỈNH SỬA BÊN TRONG PHẦN CANVAS AREA VÀ TẤT CẢ CÁC SIDE BAR của dự án người dùng:
+  + Canvas Area: Chỉnh sửa các tệp giao diện trực quan của trang đang mở (.cshtml, .razor, .html, .tsx, .jsx, CSS/SCSS).
+  + Sidebars: Chỉnh sửa các thành phần thanh bên, menu điều hướng, layout (_Layout.cshtml, navbar, sidebar links qua sync_nav hoặc apply_patch), tệp design tokens (variables.css, tokens.json).
+  + TUYỆT ĐỐI BỊ CẤM: Không được sửa đổi mã nguồn, css, tệp cấu hình hay giao diện của chính phần mềm PixelMind Desktop (như các file electron, node_modules, cấu hình hệ thống desktop). Mọi thao tác sửa đổi chỉ áp dụng cho dự án của người dùng đang mở trên canvas và sidebars.
+
+3. QUY TRÌNH THỰC THI:
 - Trả lời bằng tiếng Việt, ngắn gọn, nêu rõ tệp và thay đổi cần làm.
+- QUAN TRỌNG: Sau khi gọi tool apply_patch hoặc hoàn thành các bước, hãy LUÔN LUÔN viết một câu trả lời bằng lời giải thích bạn đã sửa gì và nhắc người dùng mở tab "Thay đổi" để duyệt bản vá.
 - Bạn KHÔNG có quyền chạy lệnh terminal tuỳ ý. Chỉ dùng các tool nội bộ được cung cấp.
 - Mọi thay đổi mã nguồn phải thực hiện qua tool apply_patch hoặc sync_nav để tạo diff cho người dùng duyệt.
 - Khi người dùng yêu cầu sửa nhiều tệp (2-3 tệp) hoặc tác vụ có nhiều bước:
@@ -897,6 +955,17 @@ export function startChat(
           let stderrText = ''
           let lastStatusAt = 0
           let sawToolSinceLastText = false
+          const { keyValue: resolvedApiKey } = await resolveConfig(projectPath)
+          const mergedCliEnv: Record<string, string> = {
+            ...integration.env,
+            ...(resolvedApiKey
+              ? {
+                  GEMINI_API_KEY: resolvedApiKey,
+                  OPENAI_API_KEY: resolvedApiKey,
+                  ANTHROPIC_API_KEY: resolvedApiKey,
+                }
+              : {}),
+          }
           const handle = runAgent(
             {
               def,
@@ -905,7 +974,7 @@ export function startChat(
               model: requested?.model,
               sessionId,
               extraArgs: integration.extraArgs,
-              extraEnv: integration.env,
+              extraEnv: mergedCliEnv,
             },
             (cliEvt) => {
               if (cliEvt.type === 'text' && cliEvt.text) {
@@ -1113,6 +1182,8 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
 
       const toolsEnabled = request.tools !== false
 
+      const executedTools: Array<{ name: string; ok: boolean; detail?: string }> = []
+
       // Cho phép vòng lặp Agent tối đa 8 rounds để hoàn thành tác vụ đa tệp (2-3 tệp)
       for (let round = 0; round < 8; round += 1) {
         const result = await streamCompletion(
@@ -1138,11 +1209,10 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
         )
         finalText += result.content
 
-        // Nếu mô hình chưa phát sinh checklist dạng text nhưng bắt đầu gọi tools,
-        // tự động tạo checklist bước thực thi trực quan cho người dùng
-        if (result.toolCalls.length > 0 && !planEmitted) {
-          currentPlan = result.toolCalls.map((call, idx) => {
-            let label = `Bước ${idx + 1}: ${call.name}`
+        // Cập nhật checklist bước thực thi trực quan cho mọi vòng lặp Agent
+        if (result.toolCalls.length > 0) {
+          const newSteps = result.toolCalls.map((call, idx) => {
+            let label = `Bước ${currentPlan.length + idx + 1}: ${call.name}`
             try {
               const args = JSON.parse(call.arguments || '{}') as Record<string, unknown>
               if (call.name === 'read_file' && typeof args.path === 'string') {
@@ -1161,7 +1231,7 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
               status: 'pending' as const,
             }
           })
-          planEmitted = true
+          currentPlan = [...currentPlan, ...newSteps]
           emit({ type: 'plan', id, steps: currentPlan })
         }
 
@@ -1174,6 +1244,24 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
         }
 
         if (!result.toolCalls.length) {
+          if (!finalText.trim()) {
+            const hasPatch = executedTools.some((t) => t.name === 'apply_patch' && t.ok)
+            const patchFailed = executedTools.some((t) => t.name === 'apply_patch' && !t.ok)
+            if (hasPatch) {
+              finalText = `Tôi đã phân tích mã nguồn và đề xuất bản vá thay đổi thành công.
+
+👉 **Bước tiếp theo:** Bạn hãy mở tab **"Thay đổi"** ở phía trên để xem chi tiết mã nguồn trước/sau (Diff) và bấm **"Duyệt"** (hoặc Duyệt tất cả) để áp dụng vào dự án nhé!`
+            } else if (patchFailed) {
+              const err = executedTools.find((t) => t.name === 'apply_patch' && !t.ok)?.detail || ''
+              finalText = `Tôi đã tìm kiếm tệp và cố gắng chỉnh sửa nhưng gặp lỗi: ${err}\nBạn có thể thử chọn lại phần tử cần sửa hoặc yêu cầu rõ hơn nhé.`
+            } else if (executedTools.length > 0) {
+              finalText = `Tôi đã hoàn thành việc kiểm tra và đọc nội dung các tệp liên quan trong dự án.`
+            } else {
+              finalText = `Tôi đã nhận được yêu cầu của bạn. Bạn muốn tôi hỗ trợ sửa đổi phần nào trong giao diện hoặc mã nguồn?`
+            }
+            emit({ type: 'delta', id, text: finalText })
+          }
+
           // Ghi lịch sử trước khi báo done để dữ liệu chắc chắn còn sau khi khởi động lại.
           if (finalText) {
             await persistChat(request.projectId, {
@@ -1187,19 +1275,25 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
           return
         }
 
+        const callsWithId = result.toolCalls.map((call) => ({
+          ...call,
+          id: call.id || `call-${randomUUID()}`,
+        }))
+
         messages.push({
           role: 'assistant',
           content: result.content || null,
-          tool_calls: result.toolCalls.map((call) => ({
-            id: call.id || `call-${randomUUID()}`,
+          tool_calls: callsWithId.map((call) => ({
+            id: call.id,
             type: 'function' as const,
             function: { name: call.name, arguments: call.arguments || '{}' },
+            ...(call.extra_content ? { extra_content: call.extra_content } : {}),
           })),
         })
 
-        for (let idx = 0; idx < result.toolCalls.length; idx += 1) {
-          const call = result.toolCalls[idx]
-          const stepId = currentPlan[idx]?.id || `step-${round}-${idx + 1}`
+        for (let idx = 0; idx < callsWithId.length; idx += 1) {
+          const call = callsWithId[idx]
+          const stepId = `step-${round}-${idx + 1}`
 
           let args: Record<string, unknown> = {}
           try {
@@ -1217,6 +1311,12 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
             projectPath: String(request.projectPath ?? ''),
             args,
             scopedFile: request.scopedFile,
+          })
+
+          executedTools.push({
+            name: call.name,
+            ok: toolResult.ok,
+            detail: toolResult.ok ? (toolResult.output ?? toolResult.changeId ?? 'ok') : toolResult.error,
           })
 
           emit({
@@ -1242,6 +1342,20 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
             content: JSON.stringify(toolResult),
           })
         }
+      }
+
+      if (!finalText.trim()) {
+        const hasPatch = executedTools.some((t) => t.name === 'apply_patch' && t.ok)
+        if (hasPatch) {
+          finalText = `Tôi đã phân tích mã nguồn và đề xuất bản vá thay đổi thành công.
+
+👉 **Bước tiếp theo:** Bạn hãy mở tab **"Thay đổi"** ở phía trên để xem trước (Diff) và bấm **"Duyệt"** để áp dụng vào dự án nhé!`
+        } else if (executedTools.length > 0) {
+          finalText = `Tôi đã hoàn thành các bước tra cứu và phân tích mã nguồn liên quan.`
+        } else {
+          finalText = `Tôi đã hoàn thành xử lý yêu cầu của bạn.`
+        }
+        emit({ type: 'delta', id, text: finalText })
       }
 
       if (finalText) {

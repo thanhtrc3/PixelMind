@@ -231,14 +231,46 @@ const runSearch = async (
   }
 }
 
-const applyEdits = (source: string, edits: Array<{ find: string; replace: string; all?: boolean }>): string => {
+const applyEdits = (source: string, edits: Array<Record<string, unknown>>): string => {
   let next = source
+  const hasCrlf = next.includes('\r\n')
   for (const edit of edits) {
-    const find = String(edit.find ?? '')
-    const replace = String(edit.replace ?? '')
-    if (!find) throw new Error('Phép thay thế có "find" rỗng.')
-    const count = next.split(find).length - 1
-    if (count === 0) throw new Error(`Không tìm thấy đoạn cần sửa trong tệp: ${find.slice(0, 80)}`)
+    const rawFind = String(edit.find ?? edit.search ?? edit.from ?? edit.target ?? '')
+    const rawReplace = String(edit.replace ?? edit.to ?? edit.replacement ?? '')
+    if (!rawFind) throw new Error('Phép thay thế có "find" rỗng.')
+
+    let find = hasCrlf ? rawFind.replace(/\r?\n/g, '\r\n') : rawFind.replace(/\r\n/g, '\n')
+    let replace = hasCrlf ? rawReplace.replace(/\r?\n/g, '\r\n') : rawReplace.replace(/\r\n/g, '\n')
+
+    let count = next.split(find).length - 1
+    if (count === 0) {
+      // 1. Thử loại bỏ BOM (Byte Order Mark) nếu có
+      const stripBOM = (s: string) => s.replace(/^\uFEFF/, '')
+      const cleanNext = stripBOM(next)
+      const cleanFind = stripBOM(find)
+      if (cleanNext.includes(cleanFind)) {
+        find = cleanFind
+        next = cleanNext
+        count = next.split(find).length - 1
+      } else {
+        // 2. Thử tìm kiếm theo dòng đơn (bỏ qua khoảng trắng thụt đầu dòng)
+        const findLines = cleanFind.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+        if (findLines.length === 1) {
+          const singleLine = findLines[0]
+          const sourceLines = next.split(/\r?\n/)
+          const matchIndex = sourceLines.findIndex((l) => l.includes(singleLine))
+          if (matchIndex !== -1) {
+            find = sourceLines[matchIndex]
+            replace = replace.trim()
+            const leadingSpaces = (sourceLines[matchIndex].match(/^\s*/) ?? [''])[0]
+            replace = leadingSpaces + replace
+            count = 1
+          }
+        }
+      }
+    }
+
+    if (count === 0) throw new Error(`Không tìm thấy đoạn cần sửa trong tệp: ${rawFind.slice(0, 80)}`)
     if (count > 1 && !edit.all) {
       throw new Error(`Đoạn cần sửa xuất hiện ${count} lần. Hãy thêm ngữ cảnh hoặc đặt all=true.`)
     }

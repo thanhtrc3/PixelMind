@@ -888,23 +888,47 @@
   border-top: 1px solid var(--line);
   background: var(--panel);
 }
+
+.pm-ai-composer__box {
+  width: 100%;
+  border-radius: 9px;
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pm-ai-composer__box:focus-within {
+  border-color: var(--accent, #6d5df5);
+  box-shadow: 0 0 0 2px var(--accent-soft, rgba(109, 93, 245, 0.18));
+}
+
+.pm-ai-composer__box-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 5px 0 6px 0;
+}
+
+:root[data-theme='light'] .pm-ai-composer__box-divider {
+  background: rgba(0, 0, 0, 0.08);
+}
+
 .pm-ai-composer__input {
   width: 100%;
   resize: none;
-  padding: 7px 8px;
-  border-radius: 8px;
-  border: 1px solid var(--line-2);
-  background: var(--panel-2);
+  padding: 2px 0 0 0;
+  border: none;
+  background: transparent;
   color: var(--text);
   font-family: inherit;
   font-size: 11.5px;
   line-height: 1.5;
   outline: none;
+  box-shadow: none !important;
 }
-.pm-ai-composer__input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
+
 .pm-ai-composer__ft {
   display: flex;
   align-items: center;
@@ -925,6 +949,241 @@
 }
 .pm-ai-composer__ctx i {
   opacity: 0.5;
+}
+
+/* ── ĐÍNH KÈM (ATTACHMENTS) TRONG CHATBOX ── */
+.pm-ai-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 2px;
+  align-items: center;
+}
+
+.pm-ai-att {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--panel-2, #181a20);
+  border: 1px solid var(--line-2, #2d3139);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: var(--text, #e2e8f0);
+  position: relative;
+  transition: all 120ms ease;
+}
+
+.pm-ai-att:hover {
+  border-color: var(--accent, #6d5df5);
+}
+
+.pm-ai-att--image {
+  padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  width: 48px;
+  height: 48px;
+  background: #000;
+  position: relative;
+  display: inline-block;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line-2, #2d3139);
+}
+
+.pm-ai-att__img-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.pm-ai-att__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pm-ai-att__icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.pm-ai-att__name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-family: var(--font-mono, monospace);
+}
+
+.pm-ai-att__del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--text-3, #94a3b8);
+  cursor: pointer;
+  padding: 0;
+  transition: all 120ms ease;
+}
+
+.pm-ai-att__del:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+}
+
+.pm-ai-att--image .pm-ai-att__del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  border-radius: 50%;
+  z-index: 2;
+}
+
+.pm-ai-att--image .pm-ai-att__del:hover {
+  background: #ef4444;
+}
+
+/* Banner đang bật Cây bút */
+.pm-ai-picking-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(109, 93, 245, 0.12);
+  border: 1px dashed var(--accent, #6d5df5);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 10.5px;
+  color: var(--accent-light, #a78bfa);
+  margin-bottom: 6px;
+}
+
+.pm-ai-picking-banner__cancel {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--text-3, #94a3b8);
+  font-size: 10px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.pm-ai-picking-banner__cancel:hover {
+  color: #ef4444;
+}
+
+/* Nút dấu + và menu popover */
+.pm-ai-add-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.pm-ai-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2, #2d3139);
+  background: var(--panel-2, #181a20);
+  color: var(--text-2, #cbd5e1);
+  cursor: pointer;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+}
+
+.pm-ai-add-btn:hover,
+.pm-ai-add-btn.is-active {
+  background: var(--accent-soft, rgba(109, 93, 245, 0.15));
+  border-color: var(--accent, #6d5df5);
+  color: var(--accent-light, #a78bfa);
+}
+
+.pm-ai-add-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: 270px;
+  background: #181a20;
+  border: 1px solid var(--line-2, #2d3139);
+  border-radius: 9px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  padding: 5px;
+  z-index: 99999;
+  animation: pm-ai-pop 120ms var(--ease-out, ease-out);
+}
+
+.pm-ai-add-menu__hd {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-3, #94a3b8);
+  letter-spacing: 0.05em;
+  padding: 4px 8px 6px;
+}
+
+.pm-ai-add-menu__item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  color: var(--text, #e2e8f0);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 100ms ease;
+}
+
+.pm-ai-add-menu__item:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.pm-ai-add-menu__item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pm-ai-add-menu__item-text b {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pm-ai-add-menu__item-text span {
+  font-size: 9.5px;
+  color: var(--text-3, #94a3b8);
+  line-height: 1.3;
+}
+
+.pm-ai-add-menu__div {
+  height: 1px;
+  background: var(--line, #262930);
+  margin: 4px 0;
+}
+
+/* Đính kèm hiển thị trong bong bóng tin nhắn chat */
+.pm-ai-msg__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 6px;
 }
 
 /* ── Danh sách chung (Tác vụ / Thay đổi / Ngữ cảnh / Lỗi) ────── */
