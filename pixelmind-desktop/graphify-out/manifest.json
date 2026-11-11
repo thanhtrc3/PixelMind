@@ -6,10 +6,10 @@
     "semantic_hash": "5a66a3ff44680fe7a15a8d5b69bb5475"
   },
   "electron/main/agentDefs.ts": {
-    "mtime": 1794282057.18058,
-    "seen": 1794306757.3063104,
-    "ast_hash": "83990ca02188893ab36be27fe499a99e",
-    "semantic_hash": "83990ca02188893ab36be27fe499a99e"
+    "mtime": 1794379578.3175583,
+    "seen": 1794379766.9035182,
+    "ast_hash": "2dadd2e1b66be0755224e657155e7e81",
+    "semantic_hash": ""
   },
   "electron/main/agentIntegrations.ts": {
     "mtime": 1794296237.1194327,
@@ -18,10 +18,10 @@
     "semantic_hash": "aba9bc0b6ff7aa1c66684d0f8efff190"
   },
   "electron/main/ai.ts": {
-    "mtime": 1794296274.1628485,
-    "seen": 1794306757.3063104,
-    "ast_hash": "f7d1a9e41e43160c167cd5b4ffd4a556",
-    "semantic_hash": "f7d1a9e41e43160c167cd5b4ffd4a556"
+    "mtime": 1794379683.8903651,
+    "seen": 1794379766.9035182,
+    "ast_hash": "d97752d100767c66d906dfadf672b7b6",
+    "semantic_hash": ""
   },
   "electron/main/aiApply.ts": {
     "mtime": 1794280265.5700092,
@@ -36,10 +36,10 @@
     "semantic_hash": "cddcef3041b132e10c484231c8c6575e"
   },
   "electron/main/aiContext.ts": {
-    "mtime": 1794280265.5710368,
-    "seen": 1794306757.3063104,
-    "ast_hash": "ebcd1664a66744f0a83cb4b74f890479",
-    "semantic_hash": "ebcd1664a66744f0a83cb4b74f890479"
+    "mtime": 1794379578.3187542,
+    "seen": 1794379766.9035182,
+    "ast_hash": "6f8adff5adcbd77cd3538725c31977c6",
+    "semantic_hash": ""
   },
   "electron/main/aiCost.ts": {
     "mtime": 1794280265.5710368,
@@ -48,10 +48,10 @@
     "semantic_hash": "2938e24f37f39086495d26ba74e965af"
   },
   "electron/main/aiGuardrails.ts": {
-    "mtime": 1794296291.6271722,
-    "seen": 1794306757.3063104,
-    "ast_hash": "0b8f78a5d81ab9fedde417f92fc26a31",
-    "semantic_hash": "0b8f78a5d81ab9fedde417f92fc26a31"
+    "mtime": 1794379578.3187542,
+    "seen": 1794379766.9035182,
+    "ast_hash": "2a79838f40919ee97d5fa2b0a7f51d15",
+    "semantic_hash": ""
   },
   "electron/main/aiSafe.ts": {
     "mtime": 1794234400.1384017,
@@ -60,10 +60,10 @@
     "semantic_hash": "1278e834250a338071c2bedbb26a36cd"
   },
   "electron/main/aiTools.ts": {
-    "mtime": 1794280265.5722451,
-    "seen": 1794306757.3063104,
-    "ast_hash": "a220073628c6df18de0dc0b821a72b74",
-    "semantic_hash": "a220073628c6df18de0dc0b821a72b74"
+    "mtime": 1794379578.3187542,
+    "seen": 1794379766.9035182,
+    "ast_hash": "174f3f38edc635373b087382b3e3b89d",
+    "semantic_hash": ""
   },
   "electron/main/cliBridge.ts": {
     "mtime": 1794282401.2379308,
@@ -78,9 +78,9 @@
     "semantic_hash": "8682bb8ead2f610ea451590cfc8a1e29"
   },
   "electron/main/index.ts": {
-    "mtime": 1794324183.5602412,
-    "seen": 1794324356.0448246,
-    "ast_hash": "8110e30e29f1d06dde4a743ecae1575c",
+    "mtime": 1794379703.9508839,
+    "seen": 1794379766.9035182,
+    "ast_hash": "ac8aadd124ced1ab877f10b1d688f107",
     "semantic_hash": ""
   },
   "electron/main/pages.ts": {
@@ -90,9 +90,9 @@
     "semantic_hash": "7a375d1f3b1de4899dc4fa166a85caf6"
   },
   "electron/main/projects.ts": {
-    "mtime": 1794315276.9419947,
-    "seen": 1794315417.8876004,
-    "ast_hash": "0ae24ac85fc494bbe6d4491e9cd886cd",
+    "mtime": 1794379683.8903651,
+    "seen": 1794379766.9035182,
+    "ast_hash": "0c130e4ab137e5a0fde886dd39191ff4",
     "semantic_hash": ""
   },
   "electron/main/runner.ts": {
@@ -114,9 +114,9 @@
     "semantic_hash": ""
   },
   "electron/preload/index.ts": {
-    "mtime": 1794314690.1086502,
-    "seen": 1794315417.8876004,
-    "ast_hash": "1240b9c940515935b8e9ca48b2597e87",
+    "mtime": 1794379683.8903651,
+    "seen": 1794379766.9035182,
+    "ast_hash": "d86bc1d1ccec3da82983f821e1e9f85c",
     "semantic_hash": ""
   },
   "package.json": {
@@ -132,10 +132,10 @@
     "semantic_hash": "9b82db47c190fdeee01dc76be975e11a"
   },
   "shared/ai.ts": {
-    "mtime": 1794292767.0086973,
-    "seen": 1794306757.3063104,
-    "ast_hash": "b6dc12fa19659265951d73e5b0ca4864",
-    "semantic_hash": "b6dc12fa19659265951d73e5b0ca4864"
+    "mtime": 1794379683.8903651,
+    "seen": 1794379766.9035182,
+    "ast_hash": "c21fc18bbecd8905a5b7c8c7dd286721",
+    "semantic_hash": ""
   },
   "shared/api.ts": {
     "mtime": 1794314677.9906716,
@@ -174,10 +174,10 @@
     "semantic_hash": "93b52fb10b10fd95bd8f7aaea5680bda"
   },
   "src/components/AIPanel.tsx": {
-    "mtime": 1794295299.2497215,
-    "seen": 1794306757.3063104,
-    "ast_hash": "912a2101eace231cdedcd891c3a2287b",
-    "semantic_hash": "912a2101eace231cdedcd891c3a2287b"
+    "mtime": 1794379683.8903651,
+    "seen": 1794379766.9035182,
+    "ast_hash": "51f025d086573958f01dab91f81366ba",
+    "semantic_hash": ""
   },
   "src/components/AISidecar.tsx": {
     "mtime": 1794280265.5785222,
@@ -204,9 +204,9 @@
     "semantic_hash": "b62124e7d5a751e922cac5cdb0d66c12"
   },
   "src/components/CanvasArea.tsx": {
-    "mtime": 1794326539.6464717,
-    "seen": 1794326604.8389535,
-    "ast_hash": "025fc4b4f2fc4284c22626fec0133ca8",
+    "mtime": 1794379615.469275,
+    "seen": 1794379766.9035182,
+    "ast_hash": "74bb8182ab38a843d7397b49341161b4",
     "semantic_hash": ""
   },
   "src/components/CommandPalette.tsx": {
@@ -330,10 +330,10 @@
     "semantic_hash": "586baa2409323fc85d89ddf45cda01fd"
   },
   "src/components/SettingsDialog.tsx": {
-    "mtime": 1794280265.5812695,
-    "seen": 1794306757.313594,
-    "ast_hash": "23577b4d21f7a84c706e1c4dbe7f9ce8",
-    "semantic_hash": "23577b4d21f7a84c706e1c4dbe7f9ce8"
+    "mtime": 1794379578.3257377,
+    "seen": 1794379766.9035182,
+    "ast_hash": "c20826dcfa77a1fe0b78deacbb18898e",
+    "semantic_hash": ""
   },
   "src/components/StatusBar.tsx": {
     "mtime": 1793758586.061649,
@@ -444,9 +444,9 @@
     "semantic_hash": ""
   },
   "src/lib/mock.ts": {
-    "mtime": 1794314791.7096963,
-    "seen": 1794315417.888604,
-    "ast_hash": "9865274e4d823f50d44c06ed69628e85",
+    "mtime": 1794379683.8903651,
+    "seen": 1794379766.9035182,
+    "ast_hash": "f93fd91b5ee97c25f0728ff1b5f2ba73",
     "semantic_hash": ""
   },
   "src/lib/supabase.ts": {
