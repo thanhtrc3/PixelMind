@@ -442,6 +442,44 @@ export function createBrowserMock(): PixelMindApi {
       async gitRollback() {
         return { ok: false, error: 'Khôi phục Git chỉ khả dụng trên bản desktop.' }
       },
+      async gitStatus() {
+        return {
+          branch: 'main',
+          clean: true,
+          staged: [],
+          unstaged: [],
+          untracked: [],
+          ahead: 0,
+          behind: 0,
+        }
+      },
+      async gitStage() {
+        return { ok: true }
+      },
+      async gitUnstage() {
+        return { ok: true }
+      },
+      async gitDiscard() {
+        return { ok: true }
+      },
+      async gitCommit(_projectId, _message) {
+        return { ok: true, hash: 'mock-commit' }
+      },
+      async gitBranches() {
+        return [{ name: 'main', current: true, remote: false }]
+      },
+      async gitCheckout() {
+        return { ok: true }
+      },
+      async gitCreateBranch() {
+        return { ok: true }
+      },
+      async gitPush() {
+        return { ok: true }
+      },
+      async gitPull() {
+        return { ok: true }
+      },
       async gitInit() {
         return true
       },
@@ -516,6 +554,9 @@ export function createBrowserMock(): PixelMindApi {
       },
       async trash() {
         return true
+      },
+      async search() {
+        return []
       },
     },
     assets: {

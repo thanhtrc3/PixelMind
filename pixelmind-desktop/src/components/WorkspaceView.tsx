@@ -44,9 +44,10 @@ interface WorkspaceViewProps {
   file: FileContent | null
   fileLoading: boolean
   selectedPath: string | null
+  initialLine?: number | null
   query: string
   onQuery: (value: string) => void
-  onSelectFile: (node: FileNode) => void
+  onSelectFile: (node: FileNode, initialLine?: number) => void
   onRefresh: () => void
   onOpenFolder: () => void
   run: RunState | null
@@ -134,6 +135,7 @@ const WorkspaceView = ({
   file,
   fileLoading,
   selectedPath,
+  initialLine,
   query,
   onQuery,
   onSelectFile,
@@ -590,9 +592,16 @@ const WorkspaceView = ({
                     <FileViewer
                       file={file}
                       loading={fileLoading}
+                      rootPath={project.path}
+                      initialLine={initialLine}
                       onOpenExternal={onOpenFileExternal}
                       onShowInFolder={onShowInFolder}
                       onShowToast={onShowToast}
+                      onRevealInTree={(path) => {
+                        const fileName = path.split(/[\\/]/).pop() || ''
+                        const fileExt = fileName.split('.').pop() || ''
+                        onSelectFile({ path, name: fileName, ext: fileExt, type: 'file', size: 0 })
+                      }}
                     />
                   )}
                 </div>

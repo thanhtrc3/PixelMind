@@ -26,15 +26,26 @@ import {
   detectProject,
   diagnoseProject,
   gitBranch,
+  gitCheckoutBranch,
+  gitCommitMessage,
+  gitCreateNewBranch,
+  gitDiscardPaths,
   gitFetch,
+  gitPullProject,
+  gitPushProject,
   getGitDiffStats,
   gitRevertFiles,
+  gitStagePaths,
+  gitUnstagePaths,
   initGit,
   isDirectory,
+  listGitBranches,
   readFileContent,
   readGitGraph,
+  readGitStatus,
   readTree,
   rollbackGit,
+  searchProjectContent,
   statProject,
   writeFileContent,
 } from './projects'
@@ -82,6 +93,7 @@ import type {
   AiProposeChangeRequest,
   AiToolCallRequest,
 } from '../../shared/ai'
+import type { FileSearchOptions } from '../../shared/api'
 
 // Tắt Same-Origin Policy & Site Isolation cho iframe trong Electron
 app.commandLine.appendSwitch('disable-web-security')
@@ -642,6 +654,151 @@ ipcMain.handle(
   },
 )
 
+ipcMain.handle('project:git-status', async (_e, id: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  if (!project) {
+    return {
+      branch: null,
+      clean: true,
+      staged: [],
+      unstaged: [],
+      untracked: [],
+      ahead: 0,
+      behind: 0,
+    }
+  }
+  return readGitStatus(project.path)
+})
+
+ipcMain.handle('project:git-stage', async (_e, id: string, paths: string[]) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  if (!project) return { ok: false, error: 'Không tìm thấy dự án.' }
+  return gitStagePaths(project.path, paths)
+})
+
+ipcMain.handle('project:git-unstage', async (_e, id: string, paths: string[]) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  if (!project) return { ok: false, error: 'Không tìm thấy dự án.' }
+  return gitUnstagePaths(project.path, paths)
+})
+
+ipcMain.handle('project:git-discard', async (_e, id: string, paths: string[]) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  if (!project) return { ok: false, error: 'Không tìm thấy dự án.' }
+  return gitDiscardPaths(project.path, paths)
+})
+
+ipcMain.handle('project:git-commit', async (_e, id: string, message: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  if (!project) return { ok: false, error: 'Không tìm thấy dự án.' }
+
+  const res = await gitCommitMessage(project.path, message)
+  if (res.ok) {
+    await appendActivity(id, {
+      actor: 'bạn',
+      action: `Tạo commit: ${message.slice(0, 50)}${message.length > 50 ? '…' : ''}`,
+      kind: 'người',
+      status: 'ok',
+    })
+  }
+  return res
+})
+
+ipcMain.handle('project:git-branches', async (_e, id: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  if (!project) return []
+  return listGitBranches(project.path)
+})
+
+ipcMain.handle('project:git-checkout', async (_e, id: string, branchName: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  if (!project) return { ok: false, error: 'Không tìm thấy dự án.' }
+
+  const res = await gitCheckoutBranch(project.path, branchName)
+  if (res.ok) {
+    const fresh = await detectProject(project.path)
+    const updated = await mergeDetected(project, fresh)
+    await patchStore({
+      projects: store.projects.map((p) => (p.id === id ? updated : p)),
+    })
+    await appendActivity(id, {
+      actor: 'bạn',
+      action: `Chuyển sang nhánh “${branchName}”`,
+      kind: 'người',
+      status: 'ok',
+    })
+  }
+  return res
+})
+
+ipcMain.handle('project:git-create-branch', async (_e, id: string, branchName: string, checkout = true) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  if (!project) return { ok: false, error: 'Không tìm thấy dự án.' }
+
+  const res = await gitCreateNewBranch(project.path, branchName, checkout)
+  if (res.ok) {
+    const fresh = await detectProject(project.path)
+    const updated = await mergeDetected(project, fresh)
+    await patchStore({
+      projects: store.projects.map((p) => (p.id === id ? updated : p)),
+    })
+    await appendActivity(id, {
+      actor: 'bạn',
+      action: `Tạo nhánh mới “${branchName}”${checkout ? ' và chuyển sang' : ''}`,
+      kind: 'người',
+      status: 'ok',
+    })
+  }
+  return res
+})
+
+ipcMain.handle('project:git-push', async (_e, id: string, setUpstream = false) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  if (!project) return { ok: false, error: 'Không tìm thấy dự án.' }
+
+  const res = await gitPushProject(project.path, setUpstream)
+  if (res.ok) {
+    await appendActivity(id, {
+      actor: 'bạn',
+      action: 'Đẩy mã nguồn lên GitHub (git push)',
+      kind: 'người',
+      status: 'ok',
+    })
+  }
+  return res
+})
+
+ipcMain.handle('project:git-pull', async (_e, id: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === id)
+  if (!project) return { ok: false, error: 'Không tìm thấy dự án.' }
+
+  const res = await gitPullProject(project.path)
+  if (res.ok) {
+    const fresh = await detectProject(project.path)
+    const updated = await mergeDetected(project, fresh)
+    await patchStore({
+      projects: store.projects.map((p) => (p.id === id ? updated : p)),
+    })
+    await appendActivity(id, {
+      actor: 'bạn',
+      action: 'Cập nhật mã nguồn từ GitHub (git pull)',
+      kind: 'người',
+      status: 'ok',
+    })
+  }
+  return res
+})
+
 ipcMain.handle(
   'project:add-page',
   async (
@@ -992,6 +1149,13 @@ ipcMain.handle('fs:trash', async (_e, target: string) => {
   await shell.trashItem(target)
   return true
 })
+
+ipcMain.handle(
+  'fs:search',
+  async (_e, root: string, query: string, options?: FileSearchOptions) => {
+    return searchProjectContent(root, query, options)
+  },
+)
 
 /* ───────────────────────── IPC: tài nguyên ảnh ───────────────────────── */
 
@@ -1574,7 +1738,12 @@ function getInspectorScript(isActive: boolean) {
           alignItems: style.alignItems || 'stretch',
           justifyContent: style.justifyContent || 'flex-start',
           gap: style.gap || '0px',
+          rowGap: style.rowGap || '0px',
+          columnGap: style.columnGap || '0px',
           flexWrap: style.flexWrap || 'nowrap',
+          gridTemplateColumns: style.gridTemplateColumns || 'none',
+          gridTemplateRows: style.gridTemplateRows || 'none',
+          gridAutoFlow: style.gridAutoFlow || 'row',
           color: style.color || '',
           backgroundColor: style.backgroundColor || '',
           backgroundImage: style.backgroundImage || '',

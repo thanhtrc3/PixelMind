@@ -802,6 +802,72 @@ body:has([data-separator='active']) * {
 .pm-viewer__hd .grow {
   flex: 1;
 }
+
+/* ── Breadcrumb phân cấp đường dẫn tệp ── */
+.pm-viewer__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 25px;
+  padding: 0 10px;
+  background: var(--panel-2, #18191f);
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--text-3);
+  user-select: none;
+  overflow-x: auto;
+  flex: none;
+}
+.pm-viewer__breadcrumb::-webkit-scrollbar {
+  height: 2px;
+}
+.pm-breadcrumb-root-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.pm-breadcrumb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pm-breadcrumb-sep {
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+.pm-breadcrumb-icon {
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+.pm-breadcrumb-text {
+  cursor: pointer;
+  transition: color 0.15s ease;
+  white-space: nowrap;
+}
+.pm-breadcrumb-text.is-folder:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.pm-breadcrumb-text.is-file {
+  color: var(--text);
+  font-weight: 500;
+}
+.pm-breadcrumb-copy-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s;
+}
+.pm-breadcrumb-copy-btn:hover {
+  opacity: 1;
+  color: var(--text);
+}
+
 .pm-viewer__body {
   flex: 1;
   min-height: 0;

@@ -16,7 +16,7 @@ import type {
   Settings,
   StoreData,
 } from '../../shared/types'
-import type { PixelMindApi } from '../../shared/api'
+import type { PixelMindApi, FileSearchOptions } from '../../shared/api'
 import type {
   MutationPreview,
   ProjectScanResult,
@@ -88,6 +88,23 @@ const api: PixelMindApi = {
     gitFetch: (projectId: string) => ipcRenderer.invoke('project:git-fetch', projectId),
     gitRollback: (projectId: string, hash: string) =>
       ipcRenderer.invoke('project:git-rollback', projectId, hash),
+    gitStatus: (projectId: string) => ipcRenderer.invoke('project:git-status', projectId),
+    gitStage: (projectId: string, paths: string[]) =>
+      ipcRenderer.invoke('project:git-stage', projectId, paths),
+    gitUnstage: (projectId: string, paths: string[]) =>
+      ipcRenderer.invoke('project:git-unstage', projectId, paths),
+    gitDiscard: (projectId: string, paths: string[]) =>
+      ipcRenderer.invoke('project:git-discard', projectId, paths),
+    gitCommit: (projectId: string, message: string) =>
+      ipcRenderer.invoke('project:git-commit', projectId, message),
+    gitBranches: (projectId: string) => ipcRenderer.invoke('project:git-branches', projectId),
+    gitCheckout: (projectId: string, branchName: string) =>
+      ipcRenderer.invoke('project:git-checkout', projectId, branchName),
+    gitCreateBranch: (projectId: string, branchName: string, checkout = true) =>
+      ipcRenderer.invoke('project:git-create-branch', projectId, branchName, checkout),
+    gitPush: (projectId: string, setUpstream = false) =>
+      ipcRenderer.invoke('project:git-push', projectId, setUpstream),
+    gitPull: (projectId: string) => ipcRenderer.invoke('project:git-pull', projectId),
     gitInit: (projectId: string): Promise<boolean> => ipcRenderer.invoke('project:git-init', projectId),
     createIndexHtml: (projectId: string): Promise<boolean> =>
       ipcRenderer.invoke('project:create-index-html', projectId),
@@ -115,6 +132,8 @@ const api: PixelMindApi = {
     rename: (oldPath: string, newPath: string): Promise<boolean> =>
       ipcRenderer.invoke('fs:rename', oldPath, newPath),
     trash: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:trash', path),
+    search: (root: string, query: string, options?: FileSearchOptions) =>
+      ipcRenderer.invoke('fs:search', root, query, options),
   },
 
   assets: {

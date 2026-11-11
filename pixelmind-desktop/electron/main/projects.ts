@@ -1,16 +1,24 @@
 import { promises as fs } from 'node:fs'
+import type { Dirent } from 'node:fs'
 import { exec, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { userInfo } from 'node:os'
+import type { FileSearchMatch, FileSearchOptions } from '../../shared/api'
 import type {
   FileContent,
   FileNode,
+  GitActionResult,
+  GitBranchItem,
   GitCommit,
+  GitCommitResult,
+  GitFileChange,
+  GitFileStatusCode,
   GitGraphData,
   GitGraphScope,
   GitRef,
+  GitWorkingTreeStatus,
   PackageManager,
   ProjectDiagnosis,
   ProjectIssue,
@@ -1134,6 +1142,456 @@ export async function rollbackGit(
   }
 }
 
+function cleanGitPath(raw: string): string {
+  let p = raw.trim()
+  if (p.startsWith('"') && p.endsWith('"')) {
+    p = p.slice(1, -1)
+  }
+  return p.replace(/\\/g, '/')
+}
+
+function mapStatusCode(char: string): GitFileStatusCode {
+  switch (char) {
+    case 'M':
+      return 'modified'
+    case 'A':
+      return 'added'
+    case 'D':
+      return 'deleted'
+    case 'R':
+      return 'renamed'
+    case '?':
+      return 'untracked'
+    default:
+      return 'modified'
+  }
+}
+
+/** Đọc chi tiết working tree status (staged, unstaged, untracked). */
+export async function readGitStatus(root: string): Promise<GitWorkingTreeStatus> {
+  const empty: GitWorkingTreeStatus = {
+    branch: null,
+    clean: true,
+    staged: [],
+    unstaged: [],
+    untracked: [],
+    ahead: 0,
+    behind: 0,
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', root, 'status', '--porcelain=v1', '-b', '-uall'],
+      {
+        windowsHide: true,
+        timeout: 8000,
+        maxBuffer: 8 * 1024 * 1024,
+      },
+    )
+
+    const lines = stdout.split(/\r?\n/)
+    let branch: string | null = null
+    let ahead = 0
+    let behind = 0
+    const staged: GitFileChange[] = []
+    const unstaged: GitFileChange[] = []
+    const untracked: GitFileChange[] = []
+
+    for (const rawLine of lines) {
+      if (!rawLine.trim()) continue
+
+      if (rawLine.startsWith('## ')) {
+        const header = rawLine.slice(3).trim()
+        if (header.startsWith('No commits yet on ')) {
+          branch = header.slice('No commits yet on '.length).trim()
+        } else if (header.startsWith('HEAD (no branch)')) {
+          branch = 'HEAD detached'
+        } else {
+          const parts = header.split('...')
+          branch = parts[0]?.trim() || null
+          if (parts[1]) {
+            const aheadMatch = parts[1].match(/ahead\s+(\d+)/)
+            const behindMatch = parts[1].match(/behind\s+(\d+)/)
+            if (aheadMatch) ahead = parseInt(aheadMatch[1], 10) || 0
+            if (behindMatch) behind = parseInt(behindMatch[1], 10) || 0
+          }
+        }
+        continue
+      }
+
+      const x = rawLine[0]
+      const y = rawLine[1]
+      const filePart = rawLine.slice(3).trim()
+
+      if (x === '?' && y === '?') {
+        untracked.push({
+          path: cleanGitPath(filePart),
+          status: 'untracked',
+          staged: false,
+        })
+        continue
+      }
+
+      if (x && x !== ' ' && x !== '?') {
+        let path = filePart
+        let oldPath: string | undefined
+        if (filePart.includes(' -> ')) {
+          const split = filePart.split(' -> ')
+          oldPath = cleanGitPath(split[0])
+          path = cleanGitPath(split[1])
+        } else {
+          path = cleanGitPath(path)
+        }
+        staged.push({
+          path,
+          oldPath,
+          status: mapStatusCode(x),
+          staged: true,
+        })
+      }
+
+      if (y && y !== ' ' && y !== '?') {
+        let path = filePart
+        let oldPath: string | undefined
+        if (filePart.includes(' -> ')) {
+          const split = filePart.split(' -> ')
+          oldPath = cleanGitPath(split[0])
+          path = cleanGitPath(split[1])
+        } else {
+          path = cleanGitPath(path)
+        }
+        unstaged.push({
+          path,
+          oldPath,
+          status: mapStatusCode(y),
+          staged: false,
+        })
+      }
+    }
+
+    if (!branch) {
+      branch = await gitBranch(root)
+    }
+
+    const clean = staged.length === 0 && unstaged.length === 0 && untracked.length === 0
+
+    return {
+      branch,
+      clean,
+      staged,
+      unstaged,
+      untracked,
+      ahead,
+      behind,
+    }
+  } catch {
+    const branch = await gitBranch(root)
+    return { ...empty, branch }
+  }
+}
+
+/** Stage một hoặc nhiều file (`git add`). */
+export async function gitStagePaths(
+  root: string,
+  paths: string[],
+): Promise<GitActionResult> {
+  try {
+    if (paths.length === 0 || paths.includes('.')) {
+      await execFileAsync('git', ['-C', root, 'add', '-A'], {
+        windowsHide: true,
+        timeout: 10_000,
+      })
+    } else {
+      await execFileAsync('git', ['-C', root, 'add', '--', ...paths], {
+        windowsHide: true,
+        timeout: 10_000,
+      })
+    }
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/** Unstage một hoặc nhiều file (`git restore --staged` hoặc `git reset HEAD`). */
+export async function gitUnstagePaths(
+  root: string,
+  paths: string[],
+): Promise<GitActionResult> {
+  try {
+    if (paths.length === 0 || paths.includes('.')) {
+      try {
+        await execFileAsync('git', ['-C', root, 'restore', '--staged', '.'], {
+          windowsHide: true,
+          timeout: 10_000,
+        })
+      } catch {
+        await execFileAsync('git', ['-C', root, 'reset', 'HEAD'], {
+          windowsHide: true,
+          timeout: 10_000,
+        })
+      }
+    } else {
+      try {
+        await execFileAsync('git', ['-C', root, 'restore', '--staged', '--', ...paths], {
+          windowsHide: true,
+          timeout: 10_000,
+        })
+      } catch {
+        await execFileAsync('git', ['-C', root, 'reset', 'HEAD', '--', ...paths], {
+          windowsHide: true,
+          timeout: 10_000,
+        })
+      }
+    }
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/** Huỷ bỏ thay đổi (discard changes): khôi phục file sửa đổi hoặc xoá file untracked. */
+export async function gitDiscardPaths(
+  root: string,
+  paths: string[],
+): Promise<GitActionResult> {
+  try {
+    for (const p of paths) {
+      const full = join(root, p)
+      try {
+        const { stdout } = await execFileAsync('git', ['-C', root, 'ls-files', '--', p], {
+          windowsHide: true,
+          timeout: 4000,
+        })
+        if (stdout.trim()) {
+          try {
+            await execFileAsync('git', ['-C', root, 'restore', '--', p], {
+              windowsHide: true,
+              timeout: 4000,
+            })
+          } catch {
+            await execFileAsync('git', ['-C', root, 'checkout', '--', p], {
+              windowsHide: true,
+              timeout: 4000,
+            })
+          }
+        } else {
+          await fs.rm(full, { force: true, recursive: true })
+        }
+      } catch {
+        await execFileAsync('git', ['-C', root, 'checkout', '--', p], {
+          windowsHide: true,
+          timeout: 4000,
+        })
+      }
+    }
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/** Tạo commit với message. */
+export async function gitCommitMessage(
+  root: string,
+  message: string,
+): Promise<GitCommitResult> {
+  const cleanMsg = message.trim()
+  if (!cleanMsg) {
+    return { ok: false, error: 'Thông điệp commit không được để trống.' }
+  }
+
+  try {
+    await execFileAsync('git', ['-C', root, 'commit', '-m', cleanMsg], {
+      windowsHide: true,
+      timeout: 10_000,
+      maxBuffer: 4 * 1024 * 1024,
+    })
+    const hash = await gitHeadHash(root)
+    return { ok: true, hash: hash ?? undefined }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/** Lấy danh sách toàn bộ nhánh local & remote. */
+export async function listGitBranches(root: string): Promise<GitBranchItem[]> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', root, 'branch', '-a', '--format=%(refname)|%(HEAD)|%(upstream:short)'],
+      {
+        windowsHide: true,
+        timeout: 4000,
+      },
+    )
+
+    const branches: GitBranchItem[] = []
+    const seen = new Set<string>()
+
+    for (const raw of stdout.split(/\r?\n/)) {
+      if (!raw.trim()) continue
+      const [refname, headMark, upstream] = raw.split('|')
+      if (!refname) continue
+
+      let name = refname.trim()
+      let remote = false
+
+      if (name.startsWith('refs/heads/')) {
+        name = name.slice('refs/heads/'.length)
+      } else if (name.startsWith('refs/remotes/')) {
+        name = name.slice('refs/remotes/'.length)
+        remote = true
+        if (name.endsWith('/HEAD')) continue
+      }
+
+      if (seen.has(name)) continue
+      seen.add(name)
+
+      branches.push({
+        name,
+        current: headMark?.trim() === '*',
+        remote,
+        upstream: upstream?.trim() || undefined,
+      })
+    }
+
+    return branches
+  } catch {
+    return []
+  }
+}
+
+/** Checkout / switch sang một nhánh khác. */
+export async function gitCheckoutBranch(
+  root: string,
+  branchName: string,
+): Promise<GitActionResult> {
+  const cleanName = branchName.trim()
+  if (!cleanName) return { ok: false, error: 'Tên nhánh không hợp lệ.' }
+
+  try {
+    await execFileAsync('git', ['-C', root, 'checkout', cleanName], {
+      windowsHide: true,
+      timeout: 10_000,
+    })
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/** Tạo nhánh mới và tuỳ chọn checkout sang nhánh đó. */
+export async function gitCreateNewBranch(
+  root: string,
+  branchName: string,
+  checkout = true,
+): Promise<GitActionResult> {
+  const cleanName = branchName.trim()
+  if (!cleanName || /\s/.test(cleanName)) {
+    return { ok: false, error: 'Tên nhánh không được chứa khoảng trắng hoặc để trống.' }
+  }
+
+  try {
+    if (checkout) {
+      await execFileAsync('git', ['-C', root, 'checkout', '-b', cleanName], {
+        windowsHide: true,
+        timeout: 10_000,
+      })
+    } else {
+      await execFileAsync('git', ['-C', root, 'branch', cleanName], {
+        windowsHide: true,
+        timeout: 10_000,
+      })
+    }
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/** Đẩy commit lên remote repository (GitHub). */
+export async function gitPushProject(
+  root: string,
+  setUpstream = false,
+): Promise<GitActionResult> {
+  try {
+    const branch = await gitBranch(root)
+    if (!branch) return { ok: false, error: 'Không xác định được nhánh hiện tại.' }
+
+    const remotes = await gitRemotes(root)
+    if (remotes.size === 0) {
+      return { ok: false, error: 'Dự án chưa cấu hình remote repository (GitHub).' }
+    }
+    const remoteName = remotes.has('origin') ? 'origin' : Array.from(remotes)[0]
+
+    const args = ['-C', root, 'push']
+    let needsUpstream = setUpstream
+    if (!needsUpstream) {
+      try {
+        await execFileAsync('git', ['-C', root, 'rev-parse', '--abbrev-ref', '@{u}'], {
+          windowsHide: true,
+          timeout: 4000,
+        })
+      } catch {
+        needsUpstream = true
+      }
+    }
+
+    if (needsUpstream) {
+      args.push('-u', remoteName, branch)
+    }
+
+    await execFileAsync('git', args, {
+      windowsHide: true,
+      timeout: 60_000,
+      maxBuffer: 8 * 1024 * 1024,
+    })
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/** Kéo thay đổi mới nhất từ remote repository (git pull). */
+export async function gitPullProject(root: string): Promise<GitActionResult> {
+  try {
+    await execFileAsync('git', ['-C', root, 'pull'], {
+      windowsHide: true,
+      timeout: 60_000,
+      maxBuffer: 8 * 1024 * 1024,
+    })
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
 async function readRepo(root: string): Promise<string> {
   try {
     const config = await fs.readFile(join(root, '.git', 'config'), 'utf8')
@@ -1984,4 +2442,68 @@ export async function gitRevertFiles(root: string, files?: string[]): Promise<bo
   } catch {
     return false
   }
+}
+
+export async function searchProjectContent(
+  root: string,
+  query: string,
+  options?: FileSearchOptions,
+): Promise<FileSearchMatch[]> {
+  const q = (query || '').trim()
+  if (!q || !root) return []
+  const maxResults = Math.min(250, Math.max(1, options?.maxResults ?? 120))
+  const caseSensitive = Boolean(options?.caseSensitive)
+  const target = caseSensitive ? q : q.toLowerCase()
+  const results: FileSearchMatch[] = []
+
+  const walk = async (dir: string) => {
+    if (results.length >= maxResults) return
+    let entries: Dirent[]
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      if (results.length >= maxResults) break
+      const name = entry.name
+      if (entry.isDirectory()) {
+        if (IGNORED_DIRS.has(name) || name.startsWith('.')) continue
+        await walk(join(dir, name))
+      } else if (entry.isFile()) {
+        const ext = extname(name).slice(1).toLowerCase()
+        if (!TEXT_EXT.has(ext)) continue
+        const full = join(dir, name)
+        try {
+          const stat = await fs.stat(full)
+          if (stat.size > 1024 * 1024) continue
+          const content = await fs.readFile(full, 'utf8')
+          const lines = content.split(/\r?\n/)
+          for (let i = 0; i < lines.length; i++) {
+            const lineText = lines[i]
+            const check = caseSensitive ? lineText : lineText.toLowerCase()
+            const idx = check.indexOf(target)
+            if (idx !== -1) {
+              const rel = relative(root, full).replace(/\\/g, '/')
+              results.push({
+                file: rel,
+                fullPath: full,
+                line: i + 1,
+                preview: lineText.trim().slice(0, 300),
+                matchStart: idx,
+                matchEnd: idx + q.length,
+              })
+              if (results.length >= maxResults) break
+            }
+          }
+        } catch {
+          // ignore unreadable files
+        }
+      }
+    }
+  }
+
+  await walk(resolve(root))
+  return results
 }

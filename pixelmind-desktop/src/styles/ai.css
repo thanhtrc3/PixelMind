@@ -1158,6 +1158,50 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.pm-ai-diff__undo-btn {
+  height: 20px;
+  padding: 0 7px;
+  font-size: 10px;
+  gap: 4px;
+  border-radius: 4px;
+  background: rgba(240, 85, 63, 0.12);
+  border: 1px solid rgba(240, 85, 63, 0.35);
+  color: #ffb4a8;
+  margin-left: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  transition: all 0.15s ease;
+}
+.pm-ai-diff__undo-btn:hover:not(:disabled) {
+  background: rgba(240, 85, 63, 0.25);
+  border-color: rgba(240, 85, 63, 0.6);
+  color: #ffffff;
+}
+.pm-ai-diff__undo-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pm-ai-diff__undo-ft-btn {
+  background: rgba(240, 85, 63, 0.12);
+  border: 1px solid rgba(240, 85, 63, 0.35);
+  color: #ffb4a8;
+  transition: all 0.15s ease;
+}
+.pm-ai-diff__undo-ft-btn:hover:not(:disabled) {
+  background: rgba(240, 85, 63, 0.25);
+  border-color: rgba(240, 85, 63, 0.6);
+  color: #ffffff;
+}
+.pm-ai-diff__undone-msg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-3);
+  margin-left: auto;
+}
 
 /* Gợi ý nhanh + composer */
 .pm-ai-quick {

@@ -4,10 +4,17 @@ import * as monaco from 'monaco-editor'
 import {
   AlertTriangle,
   Check,
+  ChevronRight,
   Copy,
   ExternalLink,
+  File as FileIcon,
   FileCode2,
+  FileJson,
+  FileText,
+  FileType2,
+  Folder,
   FolderOpen,
+  Image as ImageIcon,
   Loader2,
   Save,
   Sparkles,
@@ -20,12 +27,24 @@ import { api } from '../lib/bridge'
 // Cấu hình loader dùng monaco-editor cục bộ (không cần tải từ CDN bên ngoài)
 loader.config({ monaco })
 
+const iconFor = (ext: string) => {
+  if (['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'vue', 'svelte', 'astro'].includes(ext)) return FileCode2
+  if (['json', 'jsonc', 'lock'].includes(ext)) return FileJson
+  if (['css', 'scss', 'sass', 'less'].includes(ext)) return FileType2
+  if (['md', 'markdown', 'txt'].includes(ext)) return FileText
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'avif'].includes(ext)) return ImageIcon
+  return FileIcon
+}
+
 interface FileViewerProps {
   file: FileContent | null
   loading: boolean
+  rootPath?: string
+  initialLine?: number | null
   onOpenExternal: (path: string) => void
   onShowInFolder: (path: string) => void
   onShowToast?: (kind: 'ok' | 'err' | 'info', text: string) => void
+  onRevealInTree?: (path: string) => void
 }
 
 /** Chuyển đổi đuôi file sang định danh ngôn ngữ chuẩn của Monaco */
@@ -80,9 +99,12 @@ const getMonacoLanguage = (ext: string): string => {
 const FileViewer = ({
   file,
   loading,
+  rootPath,
+  initialLine,
   onOpenExternal,
   onShowInFolder,
   onShowToast,
+  onRevealInTree,
 }: FileViewerProps) => {
   const [code, setCode] = useState('')
   const [isDirty, setIsDirty] = useState(false)
@@ -95,6 +117,16 @@ const FileViewer = ({
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const monacoInstanceRef = useRef<typeof monaco | null>(null)
   const handleSaveRef = useRef<() => Promise<void>>(async () => {})
+
+  const breadcrumbSegments = useMemo(() => {
+    if (!file?.path) return []
+    const root = rootPath ? rootPath.replace(/\\/g, '/') : ''
+    const current = file.path.replace(/\\/g, '/')
+    const rel = root && current.startsWith(root)
+      ? current.slice(root.length).replace(/^\//, '')
+      : current
+    return rel.split('/').filter(Boolean)
+  }, [file?.path, rootPath])
 
   // Theo dõi theme của PixelMind qua data-theme trên thẻ html
   useEffect(() => {
@@ -171,10 +203,27 @@ const FileViewer = ({
     }
   }
 
+  // Lắng nghe thay đổi initialLine để nhảy tới dòng tương ứng
+  useEffect(() => {
+    if (initialLine && editorRef.current) {
+      editorRef.current.revealLineInCenter(initialLine)
+      editorRef.current.setPosition({ lineNumber: initialLine, column: 1 })
+      editorRef.current.focus()
+    }
+  }, [initialLine, file?.path])
+
   // Callback khi Monaco editor được mount
   const handleEditorDidMount: OnMount = (editor, m) => {
     editorRef.current = editor
     monacoInstanceRef.current = m
+
+    if (initialLine) {
+      setTimeout(() => {
+        editor.revealLineInCenter(initialLine)
+        editor.setPosition({ lineNumber: initialLine, column: 1 })
+        editor.focus()
+      }, 60)
+    }
 
     // Đăng ký phím tắt Ctrl+S / Cmd+S
     editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyS, () => {
@@ -340,6 +389,47 @@ const FileViewer = ({
           <ExternalLink size={12} />
         </button>
       </div>
+
+      {/* ── BREADCRUMB PHÂN CẤP ĐƯỜNG DẪN TỆP ── */}
+      {breadcrumbSegments.length > 0 && (
+        <div className="pm-viewer__breadcrumb">
+          <Folder size={11} className="pm-breadcrumb-root-icon" />
+          {breadcrumbSegments.map((segment, idx) => {
+            const isLast = idx === breadcrumbSegments.length - 1
+            const Icon = isLast ? iconFor(file.ext) : null
+            return (
+              <span key={idx} className="pm-breadcrumb-item">
+                {idx > 0 && <ChevronRight size={10} className="pm-breadcrumb-sep" />}
+                {Icon && <Icon size={11} className="pm-breadcrumb-icon" />}
+                <span
+                  className={`pm-breadcrumb-text ${isLast ? 'is-file' : 'is-folder'}`}
+                  title={isLast ? file.path : segment}
+                  onClick={() => {
+                    if (isLast) {
+                      void handleCopy()
+                    } else if (onRevealInTree) {
+                      onRevealInTree(file.path)
+                    }
+                  }}
+                >
+                  {segment}
+                </span>
+              </span>
+            )
+          })}
+          <span style={{ flex: 1 }} />
+          <button
+            className="pm-breadcrumb-copy-btn"
+            onClick={() => {
+              void navigator.clipboard.writeText(file.path)
+              onShowToast?.('ok', `Đã sao chép đường dẫn: ${file.path}`)
+            }}
+            title="Sao chép toàn bộ đường dẫn"
+          >
+            <Copy size={10} />
+          </button>
+        </div>
+      )}
 
       {/* ── BODY NỘI DUNG TỆP ── */}
       <div

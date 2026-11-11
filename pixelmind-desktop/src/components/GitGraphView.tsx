@@ -38,9 +38,10 @@ interface GitGraphViewProps {
   commits: GitCommit[]
   selectedHash: string | null
   onSelect: (commit: GitCommit) => void
+  onContextMenu?: (commit: GitCommit, position: { x: number; y: number }) => void
 }
 
-const GitGraphView = ({ commits, selectedHash, onSelect }: GitGraphViewProps) => {
+const GitGraphView = ({ commits, selectedHash, onSelect, onContextMenu }: GitGraphViewProps) => {
   const layout = useMemo(() => layoutGitGraph(commits), [commits])
   const graphWidth = Math.max(24, layout.maxLanes * LANE_WIDTH + GRAPH_PADDING * 2)
   const totalHeight = layout.rows.length * ROW_HEIGHT
@@ -125,6 +126,12 @@ const GitGraphView = ({ commits, selectedHash, onSelect }: GitGraphViewProps) =>
               className={`pm-gitgraph-row ${selectedHash === commit.hash ? 'active' : ''}`}
               style={{ paddingLeft: graphWidth + 6 }}
               onClick={() => onSelect(commit)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onSelect(commit)
+                onContextMenu?.(commit, { x: e.clientX, y: e.clientY })
+              }}
               title={`${commit.shortHash} · ${commit.subject}`}
             >
               <span className="pm-gitgraph-row__top">

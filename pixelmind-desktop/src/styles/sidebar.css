@@ -139,6 +139,132 @@
   flex-shrink: 0;
 }
 
+/* ── File search modes (Tên tệp / Nội dung) ── */
+.pm-file-search-modes {
+  display: flex;
+  align-items: center;
+  background: var(--panel-2, #18191f);
+  border: 1px solid var(--line, #2a2e39);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+  width: 100%;
+}
+
+.pm-file-search-mode-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 22px;
+  font-size: 11px;
+  color: var(--text-3, #94a3b8);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pm-file-search-mode-btn:hover {
+  color: var(--text, #f8fafc);
+}
+
+.pm-file-search-mode-btn.on {
+  background: var(--accent, #6d5df5);
+  color: #ffffff;
+  font-weight: 500;
+}
+
+/* ── Content search results ── */
+.pm-content-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px 30px;
+}
+
+.pm-search-file-group {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.pm-search-file-hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: var(--panel-2);
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+  font-size: 11.5px;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.pm-search-file-hd:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.05));
+}
+
+.pm-search-file-ico {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.pm-search-file-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pm-search-file-dir {
+  font-size: 10px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.pm-search-match-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.pm-search-match-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--text-2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  transition: background 0.15s ease;
+}
+
+.pm-search-match-row:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+  color: var(--text);
+}
+
+.pm-search-match-ln {
+  color: var(--text-3);
+  font-size: 10px;
+  flex-shrink: 0;
+  min-width: 28px;
+}
+
+.pm-search-match-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
 /* ══════════════════════════════════════════════════════════════
    1. LAYERS TAB (Cây phân cấp DOM)
    ══════════════════════════════════════════════════════════════ */
@@ -863,6 +989,139 @@
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--panel-2);
+}
+
+/* ── Git Commit Popover (Khi click chuột phải vào commit) ── */
+.pm-git-popover-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 99998;
+  background: transparent;
+}
+
+.pm-git-popover-card {
+  position: fixed;
+  z-index: 99999;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  padding: 14px 16px;
+  background: #181920;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.75), 0 2px 10px rgba(0, 0, 0, 0.5);
+  animation: pm-git-popover-in 0.12s ease-out;
+  display: flex;
+  flex-direction: column;
+  color: #f1f5f9;
+}
+
+@keyframes pm-git-popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.pm-git-popover-card__hd {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.pm-git-popover-card__title {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: #ffffff;
+  word-break: break-word;
+}
+
+.pm-git-popover-card__close {
+  background: transparent;
+  border: none;
+  color: #8e95a5;
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  transition: color 0.15s, background 0.15s;
+}
+
+.pm-git-popover-card__close:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pm-git-popover-card__grid {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  row-gap: 8px;
+  column-gap: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-bottom: 14px;
+}
+
+.pm-git-popover-card__label {
+  color: #8e95a5;
+  font-weight: 500;
+}
+
+.pm-git-popover-card__val {
+  color: #e2e8f0;
+  word-break: break-word;
+}
+
+.pm-git-popover-card__val.mono {
+  font-family: var(--font-mono, 'Consolas', 'Fira Code', monospace);
+  color: #cbd5e1;
+}
+
+.pm-git-popover-card__body {
+  max-height: 110px;
+  overflow-y: auto;
+  margin: 0 0 14px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  font-size: 11px;
+  font-family: var(--font-mono, 'Consolas', monospace);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.pm-git-popover-card__btn-rollback {
+  width: 100%;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.38);
+  color: #ff7e72;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pm-git-popover-card__btn-rollback:hover {
+  background: rgba(239, 68, 68, 0.24);
+  border-color: rgba(239, 68, 68, 0.65);
+  color: #ffffff;
 }
 
 .pm-gitgraph-detail__hd {
@@ -1703,4 +1962,372 @@
   padding-left: 12px;
 }
 
+/* ── Git Panel & Working Tree ─────────────────────────────────────── */
 
+.pm-git-branch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  max-width: 170px;
+}
+
+.pm-git-branch-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.pm-git-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-rotate-180 {
+  transform: rotate(180deg);
+}
+
+.pm-git-branch-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 50;
+  margin-top: 4px;
+  width: 220px;
+  max-height: 240px;
+  background: var(--panel, #1e1e2e);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pm-git-branch-menu__hd {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pm-git-branch-menu__list {
+  overflow-y: auto;
+  max-height: 180px;
+}
+
+.pm-git-branch-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.pm-git-branch-menu__item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.pm-git-branch-menu__item.current {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pm-git-branch-menu__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-git-commit-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-subtle, rgba(0, 0, 0, 0.1));
+}
+
+.pm-git-commit-input {
+  width: 100%;
+  background: var(--bg, #121218);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text);
+  resize: vertical;
+  min-height: 48px;
+  outline: none;
+  font-family: inherit;
+}
+
+.pm-git-commit-input:focus {
+  border-color: var(--accent);
+}
+
+.pm-git-generate-btn {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border: 1px solid var(--accent-line, rgba(99, 102, 241, 0.3));
+  border-radius: 4px;
+  background: var(--accent-soft, rgba(99, 102, 241, 0.15));
+  color: var(--accent, #6366f1);
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pm-git-generate-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.pm-git-split-container {
+  position: relative;
+  width: 100%;
+}
+
+.pm-git-split-btn-group {
+  display: flex;
+  width: 100%;
+}
+
+.pm-git-split-main {
+  flex: 1;
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  justify-content: center;
+  height: 28px !important;
+  font-size: 11px !important;
+  gap: 5px;
+}
+
+.pm-git-split-arrow {
+  padding: 0 8px !important;
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.25) !important;
+  height: 28px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pm-git-commit-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: var(--panel, #1e1e2e);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  overflow: hidden;
+}
+
+.pm-git-commit-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text-2);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.pm-git-commit-menu-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.pm-git-commit-menu-item.active {
+  color: var(--accent);
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.pm-git-commit-btn {
+  align-self: flex-end;
+  height: 24px;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.pm-git-file-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.pm-git-group-hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.pm-git-group-title {
+  font-size: 10px;
+}
+
+.pm-git-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pm-git-tool-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.pm-git-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pm-git-file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.pm-git-file-row:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.pm-git-file-name {
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pm-git-file-dir {
+  font-size: 9.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.pm-git-row-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.12s;
+}
+
+.pm-git-file-row:hover .pm-git-row-btn {
+  opacity: 1;
+}
+
+.pm-git-row-btn:hover {
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+.pm-git-row-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.pm-git-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.pm-git-badge--modified {
+  background: rgba(234, 179, 8, 0.2);
+  color: #eab308;
+}
+
+.pm-git-badge--added,
+.pm-git-badge--untracked {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.pm-git-badge--deleted {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.pm-git-badge--renamed {
+  background: rgba(168, 85, 247, 0.2);
+  color: #a855f7;
+}
+
+.pm-versions-clean {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  font-size: 10.5px;
+  color: var(--text-3);
+  background: var(--bg-subtle, transparent);
+}

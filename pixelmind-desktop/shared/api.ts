@@ -3,9 +3,13 @@ import type {
   DesignTokens,
   FileContent,
   FileNode,
+  GitActionResult,
+  GitBranchItem,
+  GitCommitResult,
   GitGraphData,
   GitGraphScope,
   GitRollbackResult,
+  GitWorkingTreeStatus,
   ProjectDiagnosis,
   ProjectPage,
   ProjectRecord,
@@ -24,6 +28,20 @@ import type {
   ToolboxWriteResult,
 } from './toolbox'
 import type { AiApi } from './ai'
+
+export interface FileSearchMatch {
+  file: string
+  fullPath: string
+  line: number
+  preview: string
+  matchStart?: number
+  matchEnd?: number
+}
+
+export interface FileSearchOptions {
+  caseSensitive?: boolean
+  maxResults?: number
+}
 
 /** Hợp đồng API mà preload (Electron) và bản giả lập trên trình duyệt cùng cài đặt. */
 export interface PixelMindApi {
@@ -69,6 +87,26 @@ export interface PixelMindApi {
     gitFetch(projectId: string): Promise<{ ok: boolean; error?: string }>
     /** Khôi phục mã nguồn về commit đã chọn, có tạo nhánh backup trước. */
     gitRollback(projectId: string, hash: string): Promise<GitRollbackResult>
+    /** Đọc trạng thái Working Tree (staged, unstaged, untracked, ahead, behind). */
+    gitStatus(projectId: string): Promise<GitWorkingTreeStatus>
+    /** Đưa tệp vào staging (git add). */
+    gitStage(projectId: string, paths: string[]): Promise<GitActionResult>
+    /** Bỏ tệp khỏi staging (git restore --staged hoặc git reset HEAD). */
+    gitUnstage(projectId: string, paths: string[]): Promise<GitActionResult>
+    /** Khôi phục tệp về trạng thái gần nhất (git restore hoặc rm nếu untracked). */
+    gitDiscard(projectId: string, paths: string[]): Promise<GitActionResult>
+    /** Tạo commit mới với message. */
+    gitCommit(projectId: string, message: string): Promise<GitCommitResult>
+    /** Đẩy commit lên remote repository (GitHub). */
+    gitPush(projectId: string, setUpstream?: boolean): Promise<GitActionResult>
+    /** Kéo thay đổi mới nhất từ remote repository (git pull). */
+    gitPull(projectId: string): Promise<GitActionResult>
+    /** Lấy danh sách nhánh local và remote. */
+    gitBranches(projectId: string): Promise<GitBranchItem[]>
+    /** Chuyển nhánh (checkout / switch). */
+    gitCheckout(projectId: string, branchName: string): Promise<GitActionResult>
+    /** Tạo nhánh mới (và tuỳ chọn checkout sang nhánh đó). */
+    gitCreateBranch(projectId: string, branchName: string, checkout?: boolean): Promise<GitActionResult>
     gitInit(projectId: string): Promise<boolean>
     createIndexHtml(projectId: string): Promise<boolean>
     addDevScript(projectId: string): Promise<boolean>
@@ -88,6 +126,7 @@ export interface PixelMindApi {
     createDir(path: string): Promise<boolean>
     rename(oldPath: string, newPath: string): Promise<boolean>
     trash(path: string): Promise<boolean>
+    search(root: string, query: string, options?: FileSearchOptions): Promise<FileSearchMatch[]>
   }
   assets: {
     /** Mở hộp thoại chọn ảnh và copy vào thư mục assets/ của dự án. */

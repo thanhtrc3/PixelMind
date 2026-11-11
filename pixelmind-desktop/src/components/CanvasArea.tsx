@@ -184,7 +184,12 @@ export interface RealElementInfo {
     alignItems: string
     justifyContent: string
     gap: string
+    rowGap: string
+    columnGap: string
     flexWrap: string
+    gridTemplateColumns: string
+    gridTemplateRows: string
+    gridAutoFlow: string
     color: string
     backgroundColor: string
     backgroundImage: string
@@ -281,6 +286,98 @@ const SHADOW_PRESETS = [
   { label: 'Đậm (Lg)', val: '0 10px 25px rgba(0,0,0,0.4)' },
   { label: 'Glow Tím', val: '0 0 20px rgba(109, 93, 245, 0.5)' },
 ]
+
+// ─── GRID VISUAL EDITOR: hằng số & tiện ích dùng chung ───
+const GRID_MAX_TRACKS = 12
+const ALIGN_MATRIX_VALUES = ['flex-start', 'center', 'flex-end'] as const
+
+/** Chuẩn hoá giá trị computed của align-items / justify-content về từ khoá của ma trận. */
+const normalizeAlignValue = (value?: string): string => {
+  const v = (value || '').trim().toLowerCase()
+  if (!v || v === 'normal' || v === 'start' || v === 'left') return 'flex-start'
+  if (v === 'end' || v === 'right') return 'flex-end'
+  return v
+}
+
+/** Đếm số track trong giá trị computed của grid-template-columns / grid-template-rows. */
+const countGridTracks = (value?: string): number => {
+  const raw = (value || '').trim()
+  if (!raw || raw === 'none') return 1
+  const repeat = raw.match(/^repeat\(\s*(\d+)\s*,/i)
+  if (repeat) return Math.max(1, Math.min(GRID_MAX_TRACKS, parseInt(repeat[1], 10) || 1))
+  let depth = 0
+  let count = 0
+  let inToken = false
+  for (const ch of raw) {
+    if (ch === '(') depth += 1
+    else if (ch === ')') depth = Math.max(0, depth - 1)
+    if (/\s/.test(ch) && depth === 0) {
+      inToken = false
+    } else if (!inToken) {
+      inToken = true
+      count += 1
+    }
+  }
+  return Math.max(1, Math.min(GRID_MAX_TRACKS, count))
+}
+
+/** Hiển thị grid-template dạng dễ đọc: các track bằng nhau thì gộp thành repeat(n, 1fr). */
+const displayGridTracks = (value: string | undefined, count: number): string => {
+  const raw = (value || '').trim()
+  if (!raw || raw === 'none' || count <= 1) return '1fr'
+  if (/^repeat\(/i.test(raw)) return raw
+  const parts = raw.split(/\s+(?![^(]*\))/).filter(Boolean)
+  if (parts.length === count && parts.every((part) => part === parts[0])) return `repeat(${count}, 1fr)`
+  return raw
+}
+
+function GridTrackInput({
+  label,
+  value,
+  onApply,
+}: {
+  label: string
+  value: string
+  onApply: (value: string) => void
+}) {
+  const [draft, setDraft] = useState(value)
+  useEffect(() => {
+    setDraft(value)
+  }, [value])
+
+  const commit = () => {
+    const next = draft.trim()
+    if (!next || next === value) {
+      setDraft(value)
+      return
+    }
+    onApply(next)
+  }
+
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span className="canvas__inspector-field-lbl">{label}</span>
+      <input
+        className="canvas__grid-input"
+        value={draft}
+        spellCheck={false}
+        placeholder="vd: repeat(3, minmax(0, 1fr))"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commit()
+            ;(e.target as HTMLInputElement).blur()
+          } else if (e.key === 'Escape') {
+            setDraft(value)
+            ;(e.target as HTMLInputElement).blur()
+          }
+        }}
+      />
+    </label>
+  )
+}
 
 const CanvasArea = ({
   url,
@@ -1529,6 +1626,74 @@ const CanvasArea = ({
         setModifiedStyles((prev) => ({ ...prev, ...styles }))
       }
 
+      // ─── Đang chọn nhiều phần tử: áp dụng cùng một thay đổi style cho TẤT CẢ ───
+      const multiTargets = multiSelectionRef.current
+      if (styles && multiTargets.length > 1) {
+        const description = options?.description || `Chỉnh sửa ${multiTargets.length} phần tử`
+        const win = iframeRef.current?.contentWindow
+        const doc = iframeRef.current?.contentDocument
+        const toCssProperty = (key: string) => key.replace(/([A-Z])/g, '-$1').toLowerCase()
+
+        const nextItems = multiTargets.map((item) => {
+          const el = item.uid
+            ? (doc?.querySelector(`[data-pm-uid="${item.uid}"]`) as HTMLElement | null)
+            : null
+
+          // Cập nhật trực tiếp DOM để mọi phần tử đổi ngay, kể cả khi iframe chậm phản hồi.
+          if (el) {
+            for (const [key, value] of Object.entries(styles)) {
+              const property = toCssProperty(key)
+              if (!value) el.style.removeProperty(property)
+              else el.style.setProperty(property, value)
+            }
+          }
+
+          win?.postMessage(
+            {
+              type: 'PM_APPLY_STYLE',
+              payload: { target: item, styles },
+            },
+            '*'
+          )
+
+          const nextStyles = { ...item.computedStyles, ...styles }
+          if (!options?.skipHistory) {
+            editorBuffer.pushAction({
+              type: options?.actionType || 'STYLE',
+              description,
+              target: {
+                tagName: item.tagName,
+                id: item.id,
+                className: item.className,
+                domPath: item.domPath,
+                uid: item.uid,
+                selector: item.selector,
+                textSnippet: item.textSnippet,
+              },
+              before: {
+                styles: { ...item.computedStyles },
+                text: item.textSnippet,
+                rect: { ...item.rect },
+              },
+              after: {
+                styles: nextStyles,
+                text: item.textSnippet,
+                rect: { ...item.rect },
+              },
+              deltaStyles: styles,
+            })
+          }
+
+          return { ...item, computedStyles: nextStyles }
+        })
+
+        setMultiSelection(nextItems)
+        setSelectedEl((prev) =>
+          prev ? { ...prev, computedStyles: { ...prev.computedStyles, ...styles } } : prev
+        )
+        return
+      }
+
       if (iframeRef.current?.contentWindow) {
         iframeRef.current.contentWindow.postMessage(
           {
@@ -1983,24 +2148,88 @@ const CanvasArea = ({
 
   // ─── GHI THAY ĐỔI VÀO MÃ NGUỒN THẬT TRÊN Ổ ĐĨA ───
   const handleSyncCodeToFile = async () => {
-    if (!sourceLoc) {
+    const multiTargets = multiSelectionRef.current
+    const isMultiSave = multiTargets.length > 1
+
+    if (!sourceLoc && !isMultiSave) {
       showToast('Chưa tìm thấy tệp mã nguồn tương ứng!')
       return
     }
 
     setIsSyncingCode(true)
     try {
+      // ─── Lưu nhiều phần tử: ghi cùng bộ style đã sửa vào từng phần tử ───
+      if (isMultiSave) {
+        let saved = 0
+        let failed = 0
+
+        for (const item of multiTargets) {
+          const isPrimary = Boolean(item.uid && item.uid === selectedEl?.uid)
+          let fullPath = isPrimary ? sourceLoc?.fullPath : undefined
+          let lineNumber = isPrimary ? sourceLoc?.lineNumber : undefined
+
+          if (!fullPath && api?.inspect?.locateSource) {
+            try {
+              const loc = await api.inspect.locateSource({
+                projectPath: projectPath || '',
+                textSnippet: item.textSnippet,
+                tagName: item.tagName,
+                className: item.className,
+                currentPath: item.currentPath || currentRouteRef.current,
+                id: item.id,
+                selector: item.selector,
+              })
+              fullPath = loc?.fullPath
+              lineNumber = loc?.lineNumber
+            } catch {}
+          }
+
+          if (!fullPath) {
+            failed += 1
+            continue
+          }
+
+          try {
+            const res = await api.inspect.syncCode({
+              fullPath,
+              // Không đổi nội dung chữ — chỉ ghi style cho từng phần tử.
+              oldText: item.textSnippet,
+              newText: item.textSnippet,
+              styles: modifiedStyles,
+              tagName: item.tagName,
+              lineNumber,
+            })
+            if (res?.success) saved += 1
+            else failed += 1
+          } catch {
+            failed += 1
+          }
+        }
+
+        if (saved > 0) {
+          setModifiedStyles({})
+          showToast(
+            failed > 0
+              ? `Đã lưu ${saved}/${multiTargets.length} phần tử, ${failed} phần tử không tìm thấy mã nguồn.`
+              : `Đã lưu thay đổi cho cả ${saved} phần tử đang chọn!`
+          )
+        } else {
+          showToast('Không tìm thấy mã nguồn của các phần tử đang chọn.')
+        }
+        return
+      }
+
       const res = await api.inspect.syncCode({
-        fullPath: sourceLoc.fullPath,
+        fullPath: sourceLoc!.fullPath,
         oldText: originalStyles?.text || selectedEl?.textSnippet,
         newText: selectedEl?.textSnippet,
         styles: modifiedStyles,
         tagName: selectedEl?.tagName,
-        lineNumber: sourceLoc.lineNumber,
+        lineNumber: sourceLoc!.lineNumber,
       })
 
       if (res?.success) {
-        showToast(`Đã lưu vĩnh viễn vào ${sourceLoc.filePath}!`)
+        showToast(`Đã lưu vĩnh viễn vào ${sourceLoc!.filePath}!`)
         setModifiedStyles({})
       } else {
         showToast(`Lỗi khi lưu tệp: ${res?.error || 'Không xác định'}`)
@@ -2223,6 +2452,35 @@ const CanvasArea = ({
   }, [projectPath, selectedEl, sourceLoc, buildTarget, showToast])
 
   // ─── CĂN LỀ & PHÂN BỔ KHOẢNG CÁCH (MULTI-SELECT ALIGN & DISTRIBUTE) ───
+  /**
+   * Căn ngang cho phần tử đã chiếm hết bề ngang khung cha.
+   * Không thể dịch `left` (khối vẫn rộng bằng cha), nên phải đổi cách căn nội dung.
+   * Lưu ý: nếu phần tử là flex container, nội dung chữ trở thành flex item nên
+   * `text-align` KHÔNG có tác dụng — phải dùng `justify-content`.
+   */
+  const applyFullWidthHorizontalAlign = (
+    el: HTMLElement,
+    align: 'left' | 'center' | 'right',
+    win: Window
+  ): Record<string, string> => {
+    const styles: Record<string, string> = { textAlign: align }
+    const display = win.getComputedStyle(el).display
+
+    if (display === 'flex' || display === 'inline-flex') {
+      styles.justifyContent =
+        align === 'left' ? 'flex-start' : align === 'center' ? 'center' : 'flex-end'
+    } else if (display === 'grid' || display === 'inline-grid') {
+      styles.justifyItems =
+        align === 'left' ? 'start' : align === 'center' ? 'center' : 'end'
+    }
+
+    for (const [key, value] of Object.entries(styles)) {
+      el.style.setProperty(key.replace(/([A-Z])/g, '-$1').toLowerCase(), value)
+    }
+
+    return styles
+  }
+
   type AlignType = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'
   type DistributeType = 'horizontal' | 'vertical'
 
@@ -2284,25 +2542,40 @@ const CanvasArea = ({
 
           const curLeft = parseFloat(computed.left) || 0
           const curTop = parseFloat(computed.top) || 0
+          const isHorizontal = type === 'left' || type === 'center' || type === 'right'
+          // Phần tử đã chiếm hết bề ngang thì dịch left vô nghĩa — căn chữ bên trong thay thế.
+          const isFullWidth = pWidth > 0 && elWidth >= pWidth - 2
 
-          if (computed.position === 'static' || !computed.position) {
+          if (!(isHorizontal && isFullWidth) && (computed.position === 'static' || !computed.position)) {
             nextStyles.position = 'relative'
           }
 
           if (type === 'left') {
             label = 'lề trái khung cha'
-            const deltaX = 0 - currentLeftInParent
-            nextStyles.left = `${Math.round(curLeft + deltaX)}px`
+            if (isFullWidth) {
+              Object.assign(nextStyles, applyFullWidthHorizontalAlign(el, 'left', win))
+            } else {
+              const deltaX = 0 - currentLeftInParent
+              nextStyles.left = `${Math.round(curLeft + deltaX)}px`
+            }
           } else if (type === 'center') {
             label = 'chính giữa ngang khung cha'
-            const targetLeft = Math.round((pWidth - elWidth) / 2)
-            const deltaX = targetLeft - currentLeftInParent
-            nextStyles.left = `${Math.round(curLeft + deltaX)}px`
+            if (isFullWidth) {
+              Object.assign(nextStyles, applyFullWidthHorizontalAlign(el, 'center', win))
+            } else {
+              const targetLeft = Math.round((pWidth - elWidth) / 2)
+              const deltaX = targetLeft - currentLeftInParent
+              nextStyles.left = `${Math.round(curLeft + deltaX)}px`
+            }
           } else if (type === 'right') {
             label = 'lề phải khung cha'
-            const targetLeft = Math.round(pWidth - elWidth)
-            const deltaX = targetLeft - currentLeftInParent
-            nextStyles.left = `${Math.round(curLeft + deltaX)}px`
+            if (isFullWidth) {
+              Object.assign(nextStyles, applyFullWidthHorizontalAlign(el, 'right', win))
+            } else {
+              const targetLeft = Math.round(pWidth - elWidth)
+              const deltaX = targetLeft - currentLeftInParent
+              nextStyles.left = `${Math.round(curLeft + deltaX)}px`
+            }
           } else if (type === 'top') {
             label = 'lề trên khung cha'
             const deltaY = 0 - currentTopInParent
@@ -2365,6 +2638,15 @@ const CanvasArea = ({
 
       if (itemsWithDom.length < 2) return
 
+      // Chiều ngang khả dụng bên trong thẻ cha (trừ padding) để nhận biết phần tử đang chiếm hết bề ngang.
+      const getParentContentWidth = (el: HTMLElement) => {
+        const parent = el.parentElement
+        if (!parent) return 0
+        const cs = win.getComputedStyle(parent)
+        const padding = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+        return Math.max(0, parent.clientWidth - padding)
+      }
+
       const updatedSelection: RealElementInfo[] = []
       let label = ''
 
@@ -2372,12 +2654,20 @@ const CanvasArea = ({
         label = 'lề trái'
         const minLeft = Math.min(...itemsWithDom.map((i) => i.rect.left))
         itemsWithDom.forEach((item) => {
-          const dx = minLeft - item.rect.left
+          const parentWidth = getParentContentWidth(item.el)
+          const isFullWidth = parentWidth > 0 && item.rect.width >= parentWidth - 2
+          const dx = isFullWidth ? 0 : minLeft - item.rect.left
           const newLeft = Math.round(item.curLeft + dx)
-          const styles = { left: `${newLeft}px` }
+          // Khối đã chiếm hết bề ngang thì dịch left không có tác dụng nhìn thấy;
+          // căn chữ bên trong để người dùng vẫn thấy thay đổi.
+          const styles: Record<string, string> = isFullWidth
+            ? applyFullWidthHorizontalAlign(item.el, 'left', win)
+            : { left: `${newLeft}px` }
 
-          item.el.style.left = `${newLeft}px`
-          if (item.computedPosition === 'static') item.el.style.position = 'relative'
+          if (!isFullWidth) {
+            item.el.style.left = `${newLeft}px`
+            if (item.computedPosition === 'static') item.el.style.position = 'relative'
+          }
 
           iframeRef.current?.contentWindow?.postMessage(
             {
@@ -2421,13 +2711,19 @@ const CanvasArea = ({
         const maxRight = Math.max(...itemsWithDom.map((i) => i.rect.right))
         const targetCenter = (minLeft + maxRight) / 2
         itemsWithDom.forEach((item) => {
+          const parentWidth = getParentContentWidth(item.el)
+          const isFullWidth = parentWidth > 0 && item.rect.width >= parentWidth - 2
           const itemCenter = item.rect.left + item.rect.width / 2
-          const dx = targetCenter - itemCenter
+          const dx = isFullWidth ? 0 : targetCenter - itemCenter
           const newLeft = Math.round(item.curLeft + dx)
-          const styles = { left: `${newLeft}px` }
+          const styles: Record<string, string> = isFullWidth
+            ? applyFullWidthHorizontalAlign(item.el, 'center', win)
+            : { left: `${newLeft}px` }
 
-          item.el.style.left = `${newLeft}px`
-          if (item.computedPosition === 'static') item.el.style.position = 'relative'
+          if (!isFullWidth) {
+            item.el.style.left = `${newLeft}px`
+            if (item.computedPosition === 'static') item.el.style.position = 'relative'
+          }
 
           iframeRef.current?.contentWindow?.postMessage(
             {
@@ -2469,12 +2765,18 @@ const CanvasArea = ({
         label = 'lề phải'
         const maxRight = Math.max(...itemsWithDom.map((i) => i.rect.right))
         itemsWithDom.forEach((item) => {
-          const dx = maxRight - item.rect.right
+          const parentWidth = getParentContentWidth(item.el)
+          const isFullWidth = parentWidth > 0 && item.rect.width >= parentWidth - 2
+          const dx = isFullWidth ? 0 : maxRight - item.rect.right
           const newLeft = Math.round(item.curLeft + dx)
-          const styles = { left: `${newLeft}px` }
+          const styles: Record<string, string> = isFullWidth
+            ? applyFullWidthHorizontalAlign(item.el, 'right', win)
+            : { left: `${newLeft}px` }
 
-          item.el.style.left = `${newLeft}px`
-          if (item.computedPosition === 'static') item.el.style.position = 'relative'
+          if (!isFullWidth) {
+            item.el.style.left = `${newLeft}px`
+            if (item.computedPosition === 'static') item.el.style.position = 'relative'
+          }
 
           iframeRef.current?.contentWindow?.postMessage(
             {
@@ -3779,7 +4081,26 @@ const CanvasArea = ({
     showToast('Đã sao chép danh sách class!')
   }
 
+  // ─── GRID VISUAL EDITOR: trạng thái & thao tác ───
+  const isFlexLayout = selectedEl?.computedStyles.display === 'flex'
+  const isGridLayout = selectedEl?.computedStyles.display === 'grid'
+  const gridColCount = countGridTracks(selectedEl?.computedStyles.gridTemplateColumns)
+  const gridRowCount = countGridTracks(selectedEl?.computedStyles.gridTemplateRows)
+  const matrixAlign = normalizeAlignValue(selectedEl?.computedStyles.alignItems)
+  const matrixJustify = normalizeAlignValue(selectedEl?.computedStyles.justifyContent)
 
+  const setGridTracks = (axis: 'columns' | 'rows', nextCount: number) => {
+    const safe = Math.max(1, Math.min(GRID_MAX_TRACKS, nextCount))
+    const template = `repeat(${safe}, minmax(0, 1fr))`
+    handleApplyLiveChange(
+      axis === 'columns' ? { gridTemplateColumns: template } : { gridTemplateRows: template },
+      undefined,
+      {
+        description: `Grid ${axis === 'columns' ? 'cột' : 'hàng'}: ${safe}`,
+        actionType: 'STYLE',
+      }
+    )
+  }
 
   // Tính toán dòng Diff Preview cho Tab Mã nguồn thật
   const diffPreview = (() => {
@@ -5310,30 +5631,68 @@ const CanvasArea = ({
                           ))}
                         </div>
 
-                        {(selectedEl.computedStyles.display === 'flex' || selectedEl.computedStyles.display === 'grid') && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                            {/* Flex Direction */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+                            {/* Ma trận căn chỉnh 3×3: Align Items × Justify Content — luôn hiển thị */}
                             <div>
-                              <span className="canvas__inspector-field-lbl">Hướng sắp xếp (Direction)</span>
-                              <div className="canvas__btn-group">
-                                {[
-                                  { label: 'Ngang ➔', val: 'row', icon: ArrowRight },
-                                  { label: 'Dọc ⬇', val: 'column', icon: ArrowDown },
-                                  { label: 'Đảo ⬅', val: 'row-reverse', icon: ArrowLeft },
-                                  { label: 'Đảo ⬆', val: 'column-reverse', icon: ArrowUp },
-                                ].map((item) => (
-                                  <button
-                                    key={item.val}
-                                    className={`canvas__btn-group-item ${selectedEl.computedStyles.flexDirection === item.val ? 'active' : ''}`}
-                                    onClick={() => handleApplyLiveChange({ flexDirection: item.val })}
-                                  >
-                                    {item.label}
-                                  </button>
-                                ))}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <span className="canvas__inspector-field-lbl">Căn chỉnh 3×3 (Align × Justify)</span>
+                                <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#38bdf8' }}>
+                                  {isFlexLayout || isGridLayout
+                                    ? `${matrixAlign} / ${matrixJustify}`
+                                    : `display: ${selectedEl.computedStyles.display || 'block'}`}
+                                </span>
                               </div>
+                              <div className="canvas__align-matrix">
+                                {ALIGN_MATRIX_VALUES.map((alignValue) =>
+                                  ALIGN_MATRIX_VALUES.map((justifyValue) => {
+                                    const active =
+                                      (isFlexLayout || isGridLayout) &&
+                                      matrixAlign === alignValue &&
+                                      matrixJustify === justifyValue
+                                    const row = alignValue === 'flex-start' ? 'flex-start' : alignValue === 'flex-end' ? 'flex-end' : 'center'
+                                    const column = justifyValue === 'flex-start' ? 'flex-start' : justifyValue === 'flex-end' ? 'flex-end' : 'center'
+                                    return (
+                                      <button
+                                        key={`${alignValue}-${justifyValue}`}
+                                        type="button"
+                                        className={`canvas__align-matrix-cell ${active ? 'active' : ''}`}
+                                        title={`align-items: ${alignValue} · justify-content: ${justifyValue}`}
+                                        aria-label={`Căn ${alignValue} theo trục phụ, ${justifyValue} theo trục chính`}
+                                        onClick={() => {
+                                          const styles: Record<string, string> = {
+                                            alignItems: alignValue,
+                                            justifyContent: justifyValue,
+                                          }
+                                          // Nếu phần tử chưa phải flex/grid, tự bật flex để ma trận có tác dụng.
+                                          if (!isFlexLayout && !isGridLayout) styles.display = 'flex'
+                                          handleApplyLiveChange(styles, undefined, {
+                                            description: `Căn chỉnh ${alignValue} / ${justifyValue}`,
+                                            actionType: 'STYLE',
+                                          })
+                                        }}
+                                      >
+                                        <span className="canvas__align-matrix-box" style={{ alignItems: row, justifyContent: column }}>
+                                          <span className="canvas__align-matrix-dot" />
+                                        </span>
+                                      </button>
+                                    )
+                                  })
+                                )}
+                              </div>
+                              <div className="canvas__align-matrix-caption">
+                                Hàng: align-items · Cột: justify-content
+                              </div>
+                              {!(isFlexLayout || isGridLayout) && (
+                                <div className="canvas__align-matrix-hint">
+                                  Phần tử đang là <b>{selectedEl.computedStyles.display || 'block'}</b>. Bấm một ô
+                                  bất kỳ để tự chuyển sang <b>flex</b> và căn chỉnh các phần tử con.
+                                </div>
+                              )}
                             </div>
 
-                            {/* Align Items */}
+                            {(isFlexLayout || isGridLayout) && (
+                              <>
+                            {/* Align Items — giá trị mở rộng */}
                             <div>
                               <span className="canvas__inspector-field-lbl">Căn trục phụ (Align Items)</span>
                               <div className="canvas__btn-group">
@@ -5342,6 +5701,7 @@ const CanvasArea = ({
                                   { label: 'Giữa', val: 'center' },
                                   { label: 'Cuối', val: 'flex-end' },
                                   { label: 'Giãn', val: 'stretch' },
+                                  { label: 'Baseline', val: 'baseline' },
                                 ].map((item) => (
                                   <button
                                     key={item.val}
@@ -5354,7 +5714,7 @@ const CanvasArea = ({
                               </div>
                             </div>
 
-                            {/* Justify Content */}
+                            {/* Justify Content — giá trị mở rộng */}
                             <div>
                               <span className="canvas__inspector-field-lbl">Căn trục chính (Justify Content)</span>
                               <div className="canvas__btn-group">
@@ -5362,7 +5722,9 @@ const CanvasArea = ({
                                   { label: 'Đầu', val: 'flex-start' },
                                   { label: 'Giữa', val: 'center' },
                                   { label: 'Cuối', val: 'flex-end' },
-                                  { label: 'Khoảng cách', val: 'space-between' },
+                                  { label: 'Space between', val: 'space-between' },
+                                  { label: 'Space around', val: 'space-around' },
+                                  { label: 'Space evenly', val: 'space-evenly' },
                                 ].map((item) => (
                                   <button
                                     key={item.val}
@@ -5395,26 +5757,143 @@ const CanvasArea = ({
                               </div>
                             </div>
 
-                            {/* Flex Wrap */}
-                            <div>
-                              <span className="canvas__inspector-field-lbl">Xuống dòng (Flex Wrap)</span>
-                              <div className="canvas__btn-group">
-                                {[
-                                  { label: 'Không (nowrap)', val: 'nowrap' },
-                                  { label: 'Tự xuống dòng (wrap)', val: 'wrap' },
-                                ].map((item) => (
-                                  <button
-                                    key={item.val}
-                                    className={`canvas__btn-group-item ${selectedEl.computedStyles.flexWrap === item.val ? 'active' : ''}`}
-                                    onClick={() => handleApplyLiveChange({ flexWrap: item.val })}
-                                  >
-                                    {item.label}
-                                  </button>
-                                ))}
+                            {/* Flex Direction */}
+                            {isFlexLayout && (
+                              <div>
+                                <span className="canvas__inspector-field-lbl">Hướng sắp xếp (Direction)</span>
+                                <div className="canvas__btn-group">
+                                  {[
+                                    { label: 'Ngang ➔', val: 'row', icon: ArrowRight },
+                                    { label: 'Dọc ⬇', val: 'column', icon: ArrowDown },
+                                    { label: 'Đảo ⬅', val: 'row-reverse', icon: ArrowLeft },
+                                    { label: 'Đảo ⬆', val: 'column-reverse', icon: ArrowUp },
+                                  ].map((item) => (
+                                    <button
+                                      key={item.val}
+                                      className={`canvas__btn-group-item ${selectedEl.computedStyles.flexDirection === item.val ? 'active' : ''}`}
+                                      onClick={() => handleApplyLiveChange({ flexDirection: item.val })}
+                                    >
+                                      {item.label}
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
-                            </div>
+                            )}
+
+                            {/* Flex Wrap */}
+                            {isFlexLayout && (
+                              <div>
+                                <span className="canvas__inspector-field-lbl">Xuống dòng (Flex Wrap)</span>
+                                <div className="canvas__btn-group">
+                                  {[
+                                    { label: 'Không (nowrap)', val: 'nowrap' },
+                                    { label: 'Tự xuống dòng (wrap)', val: 'wrap' },
+                                    { label: 'Đảo (wrap-reverse)', val: 'wrap-reverse' },
+                                  ].map((item) => (
+                                    <button
+                                      key={item.val}
+                                      className={`canvas__btn-group-item ${selectedEl.computedStyles.flexWrap === item.val ? 'active' : ''}`}
+                                      onClick={() => handleApplyLiveChange({ flexWrap: item.val })}
+                                    >
+                                      {item.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Grid visual editor — chỉ hiện khi display: grid */}
+                            {isGridLayout && (
+                              <div className="canvas__grid-editor">
+                                <div className="canvas__grid-editor-hd">
+                                  <span>Trình chỉnh Grid</span>
+                                  <span className="canvas__grid-editor-size">
+                                    {gridColCount} × {gridRowCount}
+                                  </span>
+                                </div>
+
+                                <div
+                                  className="canvas__grid-preview"
+                                  style={{
+                                    gridTemplateColumns: `repeat(${Math.min(gridColCount, GRID_MAX_TRACKS)}, 1fr)`,
+                                    gridTemplateRows: `repeat(${Math.min(gridRowCount, GRID_MAX_TRACKS)}, 1fr)`,
+                                  }}
+                                >
+                                  {Array.from({ length: gridColCount * gridRowCount }).map((_, index) => (
+                                    <span key={index} className="canvas__grid-preview-cell" />
+                                  ))}
+                                </div>
+
+                                <div className="canvas__grid-steppers">
+                                  <div className="canvas__grid-stepper">
+                                    <span>Cột</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setGridTracks('columns', gridColCount - 1)}
+                                      disabled={gridColCount <= 1}
+                                      aria-label="Giảm số cột"
+                                    >
+                                      −
+                                    </button>
+                                    <b>{gridColCount}</b>
+                                    <button
+                                      type="button"
+                                      onClick={() => setGridTracks('columns', gridColCount + 1)}
+                                      disabled={gridColCount >= GRID_MAX_TRACKS}
+                                      aria-label="Tăng số cột"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                  <div className="canvas__grid-stepper">
+                                    <span>Hàng</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setGridTracks('rows', gridRowCount - 1)}
+                                      disabled={gridRowCount <= 1}
+                                      aria-label="Giảm số hàng"
+                                    >
+                                      −
+                                    </button>
+                                    <b>{gridRowCount}</b>
+                                    <button
+                                      type="button"
+                                      onClick={() => setGridTracks('rows', gridRowCount + 1)}
+                                      disabled={gridRowCount >= GRID_MAX_TRACKS}
+                                      aria-label="Tăng số hàng"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <GridTrackInput
+                                  label="grid-template-columns"
+                                  value={displayGridTracks(selectedEl.computedStyles.gridTemplateColumns, gridColCount)}
+                                  onApply={(value) =>
+                                    handleApplyLiveChange(
+                                      { gridTemplateColumns: value },
+                                      undefined,
+                                      { description: `grid-template-columns: ${value}`, actionType: 'STYLE' }
+                                    )
+                                  }
+                                />
+                                <GridTrackInput
+                                  label="grid-template-rows"
+                                  value={displayGridTracks(selectedEl.computedStyles.gridTemplateRows, gridRowCount)}
+                                  onApply={(value) =>
+                                    handleApplyLiveChange(
+                                      { gridTemplateRows: value },
+                                      undefined,
+                                      { description: `grid-template-rows: ${value}`, actionType: 'STYLE' }
+                                    )
+                                  }
+                                />
+                              </div>
+                            )}
+                              </>
+                            )}
                           </div>
-                        )}
                       </div>
 
                       {/* 3. KHOẢNG CÁCH TRỰC QUAN WEBFLOW & DEVTOOLS BOX MODEL */}
