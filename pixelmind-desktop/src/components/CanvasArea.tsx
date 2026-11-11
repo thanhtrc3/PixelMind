@@ -554,9 +554,9 @@ const CanvasArea = ({
       const sanitized = url.replace(/\[/g, '%5B').replace(/\]/g, '%5D').replace(/\{/g, '%7B').replace(/\}/g, '%7D')
       const parsed = new URL(sanitized)
       if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return sanitized
-      return url
+      return ''
     } catch {
-      return url
+      return ''
     }
   }, [url])
 
@@ -961,9 +961,11 @@ const CanvasArea = ({
           iframeRef.current?.contentWindow?.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
         }
         if (href) {
-          setCurrentLiveUrl(href)
-          onUrlChange?.(href, pathname || '/')
-        } else if (pathname && url) {
+          if (/^https?:/i.test(href)) {
+            setCurrentLiveUrl(href)
+            onUrlChange?.(href, pathname || '/')
+          }
+        } else if (pathname && url && /^https?:/i.test(url)) {
           try {
             const parsed = new URL(url)
             parsed.pathname = pathname
@@ -4310,11 +4312,11 @@ const CanvasArea = ({
                       </div>
                     </div>
                   </div>
-                ) : running && url && isServerReady ? (
+                ) : running && safeCanvasUrl && isServerReady ? (
                   <iframe
                     ref={iframeRef}
                     key={iframeKey}
-                    src={safeCanvasUrl || url}
+                    src={safeCanvasUrl}
                     className="canvas__iframe"
                     title={projectName}
                     style={{
@@ -4357,7 +4359,17 @@ const CanvasArea = ({
                         if (win && win.location) {
                           const href = win.location.href
                           const pathname = win.location.pathname || '/'
-                          if (href && href !== 'about:blank') {
+                          if (href && href.startsWith('chrome-error://')) {
+                            // Máy chủ vừa khởi động lại khi lưu tệp → đợi kết nối sẵn sàng rồi tự nạp lại
+                            if (running) {
+                              setIsServerReady(false)
+                              window.setTimeout(() => {
+                                setIframeKey((k) => k + 1)
+                              }, 500)
+                            }
+                            return
+                          }
+                          if (href && /^https?:/i.test(href)) {
                             setCurrentLiveUrl(href)
                             onUrlChange?.(href, pathname)
                           }
@@ -4767,25 +4779,55 @@ const CanvasArea = ({
             }
           }}
         >
-          {/* SÂN KHẤU: Toàn khung (Full 100%) hoặc Khung thiết bị Artboard */}
-          {viewport === 'responsive' ? (
+          {/* SÂN KHẤU: Giữ nguyên cấu trúc cây để đổi giữa Toàn khung và Mobile/Desktop không tháo/nạp lại iframe */}
+          <div
+            className={viewport === 'responsive' ? 'canvas__responsive-wrap' : 'canvas__transform-layer'}
+            style={
+              viewport === 'responsive'
+                ? {
+                    position: 'absolute',
+                    inset: 0,
+                    width: '100%',
+                    height: '100%',
+                    overflow: 'hidden',
+                    background: '#ffffff',
+                  }
+                : {
+                    transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom / 100})`,
+                  }
+            }
+          >
             <div
-              className="canvas__responsive-wrap"
-              style={{
-                position: 'absolute',
-                inset: 0,
-                width: '100%',
-                height: '100%',
-                overflow: 'hidden',
-                background: '#ffffff',
-              }}
+              className={viewport === 'responsive' ? undefined : 'canvas__frame-wrap'}
+              style={viewport === 'responsive' ? { width: '100%', height: '100%' } : { width: currentVp.w }}
               onClick={(e) => e.stopPropagation()}
             >
+              {viewport !== 'responsive' ? (
+                <div key="frame-bar" className="canvas__frame-bar">
+                  <div className="canvas__frame-dots">
+                    <span className="dot red" />
+                    <span className="dot yellow" />
+                    <span className="dot green" />
+                  </div>
+                  <span className="canvas__frame-url" title={currentLiveUrl || url || ''}>
+                    {(currentLiveUrl || url) ? (currentLiveUrl || url)!.replace(/^https?:\/\//, '') : 'localhost:Chưa khởi động'}
+                  </span>
+                  <span className="canvas__frame-size">
+                    {currentVp.w} × {currentVp.h}
+                  </span>
+                </div>
+              ) : null}
+
               <div
-                className="canvas__frame-content canvas__frame-content--responsive"
+                key="canvas-frame-content"
+                className={
+                  viewport === 'responsive'
+                    ? 'canvas__frame-content canvas__frame-content--responsive'
+                    : 'canvas__frame-content'
+                }
                 style={{
-                  width: '100%',
-                  height: '100%',
+                  width: viewport === 'responsive' ? '100%' : undefined,
+                  height: viewport === 'responsive' ? '100%' : currentVp.h,
                   position: 'relative',
                   overflow: 'hidden',
                 }}
@@ -4799,51 +4841,7 @@ const CanvasArea = ({
                 {renderFrameContent()}
               </div>
             </div>
-          ) : (
-            <div
-              className="canvas__transform-layer"
-              style={{
-                transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom / 100})`,
-              }}
-            >
-              <div
-                className="canvas__frame-wrap"
-                style={{ width: currentVp.w }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="canvas__frame-bar">
-                  <div className="canvas__frame-dots">
-                    <span className="dot red" />
-                    <span className="dot yellow" />
-                    <span className="dot green" />
-                  </div>
-                  <span className="canvas__frame-url" title={currentLiveUrl || url || ''}>
-                    {(currentLiveUrl || url) ? (currentLiveUrl || url)!.replace(/^https?:\/\//, '') : 'localhost:Chưa khởi động'}
-                  </span>
-                  <span className="canvas__frame-size">
-                    {currentVp.w} × {currentVp.h}
-                  </span>
-                </div>
-
-                <div
-                  className="canvas__frame-content"
-                  style={{
-                    height: currentVp.h,
-                    position: 'relative',
-                    overflow: 'hidden',
-                  }}
-                  onDragOver={(e) => {
-                    if (toolboxDrag.current()) {
-                      e.preventDefault()
-                      e.dataTransfer.dropEffect = 'copy'
-                    }
-                  }}
-                >
-                  {renderFrameContent()}
-                </div>
-              </div>
-            </div>
-          )}
+          </div>
 
           {/* Lớp xem ảnh mẫu phủ kín stage nhưng KHÔNG unmount iframe Live bên dưới. */}
           {showReference && referenceAsset && renderReferenceView()}

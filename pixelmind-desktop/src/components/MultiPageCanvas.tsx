@@ -1273,6 +1273,36 @@ export default function MultiPageCanvas({
     }
   }, [previewUrl])
 
+  // Kiểm tra sức khoẻ máy chủ 1 lần trước khi đồng loạt mở các iframe trang con,
+  // tránh xả hàng loạt ERR_CONNECTION_REFUSED và kẹt trắng thẻ khi máy chủ vừa lưu/khởi động lại.
+  const [isPreviewServerReady, setIsPreviewServerReady] = useState(false)
+  const [serverRetryTick, setServerRetryTick] = useState(0)
+
+  useEffect(() => {
+    if (!baseUrl) {
+      setIsPreviewServerReady(false)
+      return
+    }
+    let mounted = true
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const probe = async () => {
+      try {
+        await fetch(baseUrl, { method: 'GET', cache: 'no-store', mode: 'no-cors' })
+        if (mounted) setIsPreviewServerReady(true)
+      } catch {
+        if (!mounted) return
+        setIsPreviewServerReady(false)
+        timer = setTimeout(probe, 400)
+      }
+    }
+    setIsPreviewServerReady(false)
+    void probe()
+    return () => {
+      mounted = false
+      if (timer) clearTimeout(timer)
+    }
+  }, [baseUrl, serverRetryTick])
+
   // Phím tắt bàn phím
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -2014,6 +2044,8 @@ export default function MultiPageCanvas({
       if (!iframe) return
       try {
         const iframeWin = iframe.contentWindow
+        const curHref = iframeWin?.location?.href || ''
+        if (!curHref || !/^https?:/i.test(curHref)) return
         if (iframeWin && iframeWin.localStorage) {
           try {
             if (!iframeWin.localStorage.getItem('bancotuong.token')) {
@@ -3287,7 +3319,7 @@ export default function MultiPageCanvas({
                     />
                   )}
 
-                  {iframeUrl ? (
+                  {iframeUrl && /^https?:/i.test(iframeUrl) && isPreviewServerReady ? (
                     <iframe
                       ref={(el) => {
                         if (el) {
@@ -3300,6 +3332,14 @@ export default function MultiPageCanvas({
                       onLoad={() => {
                         const el = iframeRefs.current.get(win.id)
                         if (el) {
+                          try {
+                            const href = el.contentWindow?.location?.href || ''
+                            if (href.startsWith('chrome-error://')) {
+                              setIsPreviewServerReady(false)
+                              setServerRetryTick((t) => t + 1)
+                              return
+                            }
+                          } catch {}
                           setupIframeEvents(win, el)
                           setTimeout(() => setupIframeEvents(win, el), 600)
                           setTimeout(() => setupIframeEvents(win, el), 1800)
@@ -3316,7 +3356,9 @@ export default function MultiPageCanvas({
                     />
                   ) : (
                     <div style={{ height: '100%', display: 'grid', placeItems: 'center', background: '#f8fafc', color: '#64748b' }}>
-                      <span style={{ fontSize: 12 }}>Chưa có máy chủ xem trước</span>
+                      <span style={{ fontSize: 12 }}>
+                        {iframeUrl ? 'Đang kết nối lại máy chủ...' : 'Chưa có máy chủ xem trước'}
+                      </span>
                     </div>
                   )}
                 </div>

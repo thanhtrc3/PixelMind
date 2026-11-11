@@ -314,13 +314,8 @@ function isInsideProject(projectPath: string, fullPath: string): boolean {
   return file === root || file.startsWith(root + sep)
 }
 
-async function backupFile(projectPath: string, fullPath: string): Promise<string> {
-  const dir = join(projectPath, '.pixelmind', 'backups')
-  await fs.mkdir(dir, { recursive: true })
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const dest = join(dir, `${basename(fullPath)}.${stamp}.bak`)
-  await fs.writeFile(dest, await fs.readFile(fullPath, 'utf8'), 'utf8')
-  return dest
+async function backupFile(_projectPath: string, _fullPath: string): Promise<string> {
+  return ''
 }
 
 async function walkFiles(root: string, limit = 1500): Promise<string[]> {

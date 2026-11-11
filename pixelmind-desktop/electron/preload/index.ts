@@ -2,7 +2,6 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
   AppInfo,
-  BackupSnapshot,
   DesignTokens,
   FileContent,
   FileNode,
@@ -106,11 +105,8 @@ const api: PixelMindApi = {
     tree: (root: string, showHidden = false): Promise<FileNode[]> =>
       ipcRenderer.invoke('fs:tree', root, showHidden),
     read: (path: string): Promise<FileContent> => ipcRenderer.invoke('fs:read', path),
-    write: (
-      path: string,
-      text: string,
-      options?: { projectPath?: string; backup?: boolean; reason?: BackupSnapshot['reason'] },
-    ): Promise<boolean> => ipcRenderer.invoke('fs:write', path, text, options),
+    write: (path: string, text: string): Promise<boolean> =>
+      ipcRenderer.invoke('fs:write', path, text),
     stat: (root: string): Promise<ProjectStat> => ipcRenderer.invoke('fs:stat', root),
     git: (root: string): Promise<string | null> => ipcRenderer.invoke('fs:git', root),
     showInFolder: (path: string): Promise<void> => ipcRenderer.invoke('fs:show', path),
@@ -223,9 +219,6 @@ const api: PixelMindApi = {
       styles?: Record<string, string>
       tagName?: string
       lineNumber?: number
-      projectPath?: string
-      backup?: boolean
-      reason?: BackupSnapshot['reason']
     }) => ipcRenderer.invoke('inspect:sync-code', payload),
     syncNav: (payload: {
       projectPath: string
@@ -250,17 +243,6 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('toolbox:write-file', payload),
     scan: (projectPath: string): Promise<ProjectScanResult> =>
       ipcRenderer.invoke('toolbox:scan', projectPath),
-  },
-  snapshots: {
-    list: (projectPath: string): Promise<BackupSnapshot[]> =>
-      ipcRenderer.invoke('snapshot:list', projectPath),
-    restore: (
-      projectPath: string,
-      backupPath: string,
-      targetPath?: string,
-    ): Promise<{ success: boolean; path?: string; error?: string }> =>
-      ipcRenderer.invoke('snapshot:restore', projectPath, backupPath, targetPath),
-    clear: (projectPath: string): Promise<boolean> => ipcRenderer.invoke('snapshot:clear', projectPath),
   },
   ai: {
     status: (projectPath?: string) => ipcRenderer.invoke('ai:status', projectPath),

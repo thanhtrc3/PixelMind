@@ -1,22 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  ArchiveRestore,
-  Download,
-  GitBranch,
-  History,
-  Loader2,
-  Redo2,
-  RefreshCw,
-  Save,
-  Trash2,
-  TriangleAlert,
-  Undo2,
-  X,
-} from 'lucide-react'
-import type { BackupSnapshot, GitCommit, GitGraphData, GitGraphScope, ProjectRecord } from '@shared/types'
+import { Download, GitBranch, Loader2, RefreshCw, TriangleAlert, Undo2, X } from 'lucide-react'
+import type { GitCommit, GitGraphData, GitGraphScope, ProjectRecord } from '@shared/types'
 import { api, isDesktop } from '../lib/bridge'
 import { editorBuffer } from '../lib/editorBuffer'
-import { formatBytes, formatTime } from '../lib/format'
 import GitGraphView from './GitGraphView'
 import Modal from './Modal'
 
@@ -38,10 +24,6 @@ const VersionsTab = ({ project, branch, onRefresh, onShowToast }: VersionsTabPro
   const [selected, setSelected] = useState<GitCommit | null>(null)
   const [pendingRollback, setPendingRollback] = useState<GitCommit | null>(null)
   const [rollingBack, setRollingBack] = useState(false)
-  const [snapshots, setSnapshots] = useState<BackupSnapshot[]>([])
-  const [snapshotsLoading, setSnapshotsLoading] = useState(false)
-  const [restoringSnapId, setRestoringSnapId] = useState<string | null>(null)
-  const [, forceRamRender] = useState(0)
 
   const toastRef = useRef(onShowToast)
   toastRef.current = onShowToast
@@ -61,47 +43,15 @@ const VersionsTab = ({ project, branch, onRefresh, onShowToast }: VersionsTabPro
     [project.id, scope],
   )
 
-  const loadSnapshots = useCallback(async () => {
-    if (!project.path) return
-    setSnapshotsLoading(true)
-    try {
-      const items = await api.snapshots.list(project.path)
-      setSnapshots(items)
-    } catch {
-      setSnapshots([])
-    } finally {
-      setSnapshotsLoading(false)
-    }
-  }, [project.path])
-
   useEffect(() => {
     void loadGraph(scope)
   }, [loadGraph, scope])
-
-  useEffect(() => {
-    void loadSnapshots()
-  }, [loadSnapshots])
 
   useEffect(() => {
     setSelected(null)
     setPendingRollback(null)
   }, [project.id])
 
-  useEffect(() => {
-    let prevSavedAt = editorBuffer.getLastSavedAt()
-    return editorBuffer.subscribe(() => {
-      forceRamRender((value) => value + 1)
-      const curSavedAt = editorBuffer.getLastSavedAt()
-      if (curSavedAt && curSavedAt !== prevSavedAt) {
-        prevSavedAt = curSavedAt
-        void loadSnapshots()
-      }
-    })
-  }, [loadSnapshots])
-
-  const undoHistory = editorBuffer.getUndoHistory()
-  const redoHistory = editorBuffer.getRedoHistory()
-  const dirtyFiles = editorBuffer.getDirtyFiles()
   const headCommit = graph?.commits.find((commit) => commit.isHead) ?? null
   const currentBranch = graph?.branch ?? branch
 
@@ -123,63 +73,6 @@ const VersionsTab = ({ project, branch, onRefresh, onShowToast }: VersionsTabPro
     }
   }
 
-  const handleSaveRam = async () => {
-    const ok = await editorBuffer.saveAllDirtyFiles((message) => toastRef.current('info', message))
-    toastRef.current(
-      ok ? 'ok' : 'err',
-      ok ? 'Đã lưu toàn bộ thay đổi RAM xuống đĩa.' : 'Một số tệp chưa lưu được xuống đĩa.',
-    )
-    await loadSnapshots()
-  }
-
-  const handleRestoreSnapshot = async (snap: BackupSnapshot) => {
-    if (!snap.originalPath || restoringSnapId) return
-    const confirmed = window.confirm(
-      `Khôi phục tệp “${snap.relativePath}” về bản sao lưu lúc ${formatTime(snap.createdAt)}?`,
-    )
-    if (!confirmed) return
-    setRestoringSnapId(snap.id)
-    try {
-      const res = await api.snapshots.restore(project.path, snap.backupPath, snap.originalPath)
-      if (!res.success) {
-        toastRef.current('err', `Không khôi phục được snapshot: ${res.error ?? 'lỗi không rõ'}`)
-        return
-      }
-      toastRef.current('ok', `Đã khôi phục “${snap.relativePath}” từ bản sao lưu.`)
-      await loadSnapshots()
-      onRefresh()
-    } catch (error) {
-      toastRef.current('err', `Không khôi phục được snapshot: ${errorText(error)}`)
-    } finally {
-      setRestoringSnapId(null)
-    }
-  }
-
-  const handleClearSnapshots = async () => {
-    if (snapshots.length === 0) return
-    if (!window.confirm('Xoá toàn bộ bản sao lưu trong .pixelmind/backups/?')) return
-    const ok = await api.snapshots.clear(project.path)
-    if (ok) {
-      setSnapshots([])
-      toastRef.current('info', 'Đã dọn sạch .pixelmind/backups/.')
-    }
-  }
-
-  const handleUndoTo = (actionId: string, description: string, newerCount: number) => {
-    if (newerCount <= 0) return
-    const confirmed = window.confirm(
-      `Hoàn tác ${newerCount} thao tác để quay về mốc “${description}”?`,
-    )
-    if (!confirmed) return
-    const count = editorBuffer.undoTo(actionId)
-    toastRef.current('ok', `Đã hoàn tác ${count} thao tác trong RAM.`)
-  }
-
-  const handleRedoTo = (actionId: string, description: string) => {
-    const count = editorBuffer.redoTo(actionId)
-    toastRef.current('ok', `Đã làm lại ${count} thao tác: ${description}`)
-  }
-
   const handleRollback = async () => {
     if (!pendingRollback || rollingBack) return
     setRollingBack(true)
@@ -189,9 +82,7 @@ const VersionsTab = ({ project, branch, onRefresh, onShowToast }: VersionsTabPro
         toastRef.current('err', `Không khôi phục được commit: ${result.error ?? 'không rõ lỗi'}`)
         return
       }
-      // `reset --hard` đã bỏ thay đổi tracked trên đĩa; xoá luôn checkpoint RAM
-      // để nội dung cũ không bị ghi đè trở lại khi lưu tệp.
-      const hadRamChanges = dirtyFiles.length > 0 || undoHistory.length > 0
+      const hadRamChanges = editorBuffer.getDirtyFiles().length > 0 || editorBuffer.canUndo()
       editorBuffer.clearAll()
 
       toastRef.current(
@@ -243,168 +134,6 @@ const VersionsTab = ({ project, branch, onRefresh, onShowToast }: VersionsTabPro
         >
           <RefreshCw size={12} className={loading ? 'pm-spin' : ''} />
         </button>
-      </div>
-
-      <div className="pm-versions-section">
-        <div className="pm-versions-section__hd">
-          <History size={13} />
-          <b>Mốc RAM</b>
-          <span className="chip">{undoHistory.length}</span>
-          <span className="pm-grow" />
-          {dirtyFiles.length > 0 && (
-            <button type="button" className="btn sm" onClick={() => void handleSaveRam()}>
-              <Save size={11} /> Lưu {dirtyFiles.length} tệp
-            </button>
-          )}
-        </div>
-
-        {undoHistory.length === 0 && redoHistory.length === 0 ? (
-          <div className="pm-versions-empty">
-            <p className="pm-hint">
-              Chưa có thao tác nào trong RAM. Thay đổi trên canvas sẽ xuất hiện ở đây.
-            </p>
-          </div>
-        ) : (
-          <div className="pm-timeline pm-timeline--versions">
-            {redoHistory
-              .slice()
-              .reverse()
-              .map((action) => (
-                <div key={action.id} className="pm-timeline-item pm-timeline-item--redo">
-                  <span className="pm-timeline-title">{action.description}</span>
-                  <span className="pm-timeline-meta">
-                    {formatTime(action.timestamp)} · đã hoàn tác
-                  </span>
-                  <button
-                    type="button"
-                    className="btn sm ghost"
-                    onClick={() => handleRedoTo(action.id, action.description)}
-                  >
-                    <Redo2 size={11} /> Làm lại
-                  </button>
-                </div>
-              ))}
-            {undoHistory
-              .slice()
-              .reverse()
-              .map((action, reverseIndex) => (
-                <div key={action.id} className="pm-timeline-item">
-                  <span className="pm-timeline-title">{action.description}</span>
-                  <span className="pm-timeline-meta">
-                    {formatTime(action.timestamp)} · {action.sourceLoc?.filePath ?? action.type}
-                  </span>
-                  {reverseIndex > 0 && (
-                    <button
-                      type="button"
-                      className="btn sm ghost"
-                      onClick={() => handleUndoTo(action.id, action.description, reverseIndex)}
-                    >
-                      <Undo2 size={11} /> Quay về mốc
-                    </button>
-                  )}
-                </div>
-              ))}
-            <div className="pm-timeline-item pm-timeline-item--base">
-              <span className="pm-timeline-title">Bắt đầu phiên làm việc</span>
-              <span className="pm-timeline-meta">Trạng thái gốc trong RAM</span>
-            </div>
-          </div>
-        )}
-
-        {dirtyFiles.length > 0 && (
-          <div className="pm-versions-dirty">
-            <Save size={11} />
-            <span>
-              {dirtyFiles.length} tệp đang sửa trong RAM:{' '}
-              {dirtyFiles
-                .slice(0, 3)
-                .map((file) => file.filePath)
-                .join(', ')}
-              {dirtyFiles.length > 3 ? '…' : ''}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* ── Snapshot sao lưu định kỳ (.pixelmind/backups/) ── */}
-      <div className="pm-versions-section">
-        <div className="pm-versions-section__hd">
-          <ArchiveRestore size={13} />
-          <b>Snapshot sao lưu</b>
-          <span className="chip">{snapshots.length}</span>
-          <span className="pm-grow" />
-          <button
-            type="button"
-            className="pm-ibtn"
-            onClick={() => void loadSnapshots()}
-            disabled={snapshotsLoading}
-            title="Làm mới danh sách .pixelmind/backups/"
-          >
-            <RefreshCw size={11} className={snapshotsLoading ? 'pm-spin' : ''} />
-          </button>
-          {snapshots.length > 0 && (
-            <button
-              type="button"
-              className="pm-ibtn"
-              onClick={() => void handleClearSnapshots()}
-              title="Dọn sạch thư mục .pixelmind/backups/"
-            >
-              <Trash2 size={11} />
-            </button>
-          )}
-        </div>
-
-        {snapshots.length === 0 ? (
-          <div className="pm-versions-empty">
-            <p className="pm-hint">
-              Chưa có snapshot nào trong <code>.pixelmind/backups/</code>. Mỗi lần tự lưu hoặc lưu
-              thủ công sẽ tạo bản dự phòng tại đây.
-            </p>
-          </div>
-        ) : (
-          <div className="pm-snapshots-list">
-            {snapshots.slice(0, 10).map((snap) => (
-              <div key={snap.id} className="pm-snapshot-item">
-                <div className="pm-snapshot-item__info">
-                  <div className="pm-snapshot-item__name" title={snap.originalPath || snap.fileName}>
-                    {snap.relativePath}
-                  </div>
-                  <div className="pm-snapshot-item__meta">
-                    <span>{formatTime(snap.createdAt)}</span>
-                    <span>·</span>
-                    <span>{formatBytes(snap.size)}</span>
-                    <span>·</span>
-                    <span className="pm-snapshot-item__reason">
-                      {snap.reason === 'auto-save'
-                        ? 'Auto-Save'
-                        : snap.reason === 'toolbox'
-                          ? 'Toolbox'
-                          : snap.reason === 'code-sync'
-                            ? 'Code Sync'
-                            : 'Lưu tay'}
-                    </span>
-                  </div>
-                </div>
-                {snap.originalPath && (
-                  <button
-                    type="button"
-                    className="btn sm ghost"
-                    onClick={() => void handleRestoreSnapshot(snap)}
-                    disabled={restoringSnapId === snap.id}
-                    title={`Khôi phục ${snap.relativePath} về bản lúc ${formatTime(snap.createdAt)}`}
-                  >
-                    {restoringSnapId === snap.id ? (
-                      <Loader2 size={11} className="pm-spin" />
-                    ) : (
-                      <Undo2 size={11} />
-                    )}
-                    <span>Khôi phục</span>
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       <div className="pm-versions-section">

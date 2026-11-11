@@ -1,6 +1,5 @@
 import type {
   AppInfo,
-  BackupSnapshot,
   DesignTokens,
   FileContent,
   FileNode,
@@ -82,7 +81,7 @@ export interface PixelMindApi {
   fs: {
     tree(root: string, showHidden?: boolean): Promise<FileNode[]>
     read(path: string): Promise<FileContent>
-    write(path: string, text: string, options?: { projectPath?: string; backup?: boolean; reason?: BackupSnapshot['reason'] }): Promise<boolean>
+    write(path: string, text: string): Promise<boolean>
     stat(root: string): Promise<ProjectStat>
     git(root: string): Promise<string | null>
     showInFolder(path: string): Promise<void>
@@ -157,10 +156,7 @@ export interface PixelMindApi {
       styles?: Record<string, string>
       tagName?: string
       lineNumber?: number
-      projectPath?: string
-      backup?: boolean
-      reason?: BackupSnapshot['reason']
-    }): Promise<{ success: boolean; error?: string; oldLine?: string; newLine?: string; backupPath?: string }>
+    }): Promise<{ success: boolean; error?: string; oldLine?: string; newLine?: string }>
     syncNav(payload: {
       projectPath: string
       currentPath?: string
@@ -194,15 +190,6 @@ export interface PixelMindApi {
     writeFile(payload: ToolboxWritePayload): Promise<ToolboxWriteResult>
     /** Quét component / partial / class / asset / route của dự án. */
     scan(projectPath: string): Promise<ProjectScanResult>
-  }
-  snapshots: {
-    list(projectPath: string): Promise<BackupSnapshot[]>
-    restore(
-      projectPath: string,
-      backupPath: string,
-      targetPath?: string,
-    ): Promise<{ success: boolean; path?: string; error?: string }>
-    clear(projectPath: string): Promise<boolean>
   }
   ai: AiApi
   window?: {

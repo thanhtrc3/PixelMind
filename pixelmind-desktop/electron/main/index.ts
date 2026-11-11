@@ -13,7 +13,6 @@ import type {
   StoreData,
   TerminalCreateOptions,
 } from '../../shared/types'
-import type { BackupSnapshot } from '../../shared/types'
 import type { ToolboxMutationPayload, ToolboxWritePayload } from '../../shared/toolbox'
 import {
   DEFAULT_DESIGN_TOKENS,
@@ -42,7 +41,6 @@ import {
 } from './projects'
 import { RunnerManager } from './runner'
 import { TerminalManager } from './terminal'
-import { clearBackups, createFileBackup, listBackups, restoreBackup } from './snapshots'
 import {
   copyPageFile,
   normalizePageRoute,
@@ -947,27 +945,10 @@ ipcMain.handle('fs:tree', async (_e, root: string, showHidden: boolean) => {
 
 ipcMain.handle('fs:read', async (_e, target: string) => readFileContent(target))
 
-ipcMain.handle(
-  'fs:write',
-  async (
-    _e,
-    target: string,
-    text: string,
-    options?: { projectPath?: string; backup?: boolean; reason?: BackupSnapshot['reason'] },
-  ) => {
-    if (options?.backup) {
-      await createFileBackup(target, options.projectPath, options.reason ?? 'manual-save')
-    }
-    await writeFileContent(target, text)
-    return true
-  },
-)
-
-ipcMain.handle('snapshot:list', (_e, projectPath: string) => listBackups(projectPath))
-ipcMain.handle('snapshot:restore', (_e, projectPath: string, backupPath: string, targetPath?: string) =>
-  restoreBackup(projectPath, backupPath, targetPath),
-)
-ipcMain.handle('snapshot:clear', (_e, projectPath: string) => clearBackups(projectPath))
+ipcMain.handle('fs:write', async (_e, target: string, text: string) => {
+  await writeFileContent(target, text)
+  return true
+})
 
 ipcMain.handle('fs:stat', async (_e, root: string) => statProject(root))
 
@@ -2674,8 +2655,9 @@ function getInspectorScript(isActive: boolean) {
 
     function reportUrl() {
       try {
-        var path = window.location.pathname || '/';
         var href = window.location.href || '';
+        if (!/^https?:/i.test(href)) return;
+        var path = window.location.pathname || '/';
         window.parent.postMessage({
           type: 'PM_LOCATION_CHANGE',
           payload: {
@@ -2748,15 +2730,27 @@ function getAllWebFrames(frame: Electron.WebFrameMain): Electron.WebFrameMain[] 
   return result
 }
 
+/** Chỉ lấy các frame con hợp lệ (http/https, chưa bị huỷ) — tránh chọc vào chrome-error:// hoặc frame đã dispose. */
+function getInjectableChildFrames(): Electron.WebFrameMain[] {
+  if (!mainWindow || mainWindow.isDestroyed()) return []
+  const mainFrame = mainWindow.webContents.mainFrame
+  return getAllWebFrames(mainFrame).filter((frame) => {
+    if (frame === mainFrame || frame.isDestroyed()) return false
+    try {
+      const frameUrl = frame.url || ''
+      return frameUrl.startsWith('http://') || frameUrl.startsWith('https://')
+    } catch {
+      return false
+    }
+  })
+}
+
 function injectInspectorIntoAllFrames(enabled: boolean) {
   if (!mainWindow || mainWindow.isDestroyed()) return
   const script = getInspectorScript(enabled)
   try {
-    const all = getAllWebFrames(mainWindow.webContents.mainFrame)
-    for (const frame of all) {
-      if (frame !== mainWindow.webContents.mainFrame) {
-        frame.executeJavaScript(script).catch(() => {})
-      }
+    for (const frame of getInjectableChildFrames()) {
+      frame.executeJavaScript(script).catch(() => {})
     }
   } catch {
     // Frame có thể đang bận hoặc hủy
@@ -2777,11 +2771,8 @@ ipcMain.handle('inspect:reset-original', () => {
     }, '*');
   `;
   try {
-    const all = getAllWebFrames(mainWindow.webContents.mainFrame)
-    for (const frame of all) {
-      if (frame !== mainWindow.webContents.mainFrame) {
-        frame.executeJavaScript(script).catch(() => {})
-      }
+    for (const frame of getInjectableChildFrames()) {
+      frame.executeJavaScript(script).catch(() => {})
     }
   } catch {}
   return true
@@ -2798,11 +2789,8 @@ ipcMain.handle(
       }, '*');
     `;
     try {
-      const all = getAllWebFrames(mainWindow.webContents.mainFrame)
-      for (const frame of all) {
-        if (frame !== mainWindow.webContents.mainFrame) {
-          frame.executeJavaScript(script).catch(() => {})
-        }
+      for (const frame of getInjectableChildFrames()) {
+        frame.executeJavaScript(script).catch(() => {})
       }
     } catch {}
     return true
@@ -3214,9 +3202,6 @@ ipcMain.handle(
       styles,
       tagName,
       lineNumber,
-      projectPath,
-      backup = true,
-      reason = 'code-sync',
     }: {
       fullPath: string
       oldText?: string
@@ -3224,9 +3209,6 @@ ipcMain.handle(
       styles?: Record<string, string>
       tagName?: string
       lineNumber?: number
-      projectPath?: string
-      backup?: boolean
-      reason?: BackupSnapshot['reason']
     }
   ) => {
     try {
@@ -3352,25 +3334,18 @@ ipcMain.handle(
       }
 
       if (modified) {
-        const backupPath = backup
-          ? await createFileBackup(fullPath, projectPath, reason)
-          : undefined
         content = lines.join('\n')
         await fs.writeFile(fullPath, content, 'utf8')
         return {
           success: true,
           updatedLine: tagLineIdx !== -1 ? lines[tagLineIdx] : undefined,
-          backupPath,
         }
       }
 
       if (oldText && newText && oldText !== newText && content.includes(oldText)) {
-        const backupPath = backup
-          ? await createFileBackup(fullPath, projectPath, reason)
-          : undefined
         content = content.replace(oldText, newText)
         await fs.writeFile(fullPath, content, 'utf8')
-        return { success: true, backupPath }
+        return { success: true }
       }
 
       return { success: false, error: 'Không tìm thấy phần tử tương ứng trong tệp mã nguồn' }
@@ -3980,11 +3955,8 @@ ipcMain.handle(
             el.textContent = ${JSON.stringify(cssContent)};
           })();
         `
-        const frames = getAllWebFrames(mainWindow.webContents.mainFrame)
-        for (const frame of frames) {
-          if (frame !== mainWindow.webContents.mainFrame) {
-            frame.executeJavaScript(liveScript).catch(() => {})
-          }
+        for (const frame of getInjectableChildFrames()) {
+          frame.executeJavaScript(liveScript).catch(() => {})
         }
       }
 

@@ -70,14 +70,39 @@ export function killPort(port: number): void {
   } catch {}
 }
 
-/** Quét và cưỡng chế tắt bất kỳ tiến trình binary nào (.exe trong bin/obj của dự án) đang bị kẹt gây khoá file (lỗi MSB3026 / MSB3027) */
+/** Quét và cưỡng chế tắt bất kỳ tiến trình binary nào (.exe trong bin/obj của dự án hoặc dotnet watch rò rỉ cùng dự án) đang bị kẹt gây khoá file / xung đột build. */
 export function killProjectBinaries(projectPath: string): void {
   if (!projectPath || process.platform !== 'win32') return
   try {
-    const escaped = projectPath.replace(/'/g, "''").replace(/\\/g, '\\\\')
-    const psCmd = `Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like '${escaped}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
-    execSync(`powershell -NoProfile -Command "${psCmd}"`, { stdio: 'ignore', timeout: 3500 })
+    const escaped = resolve(projectPath).replace(/'/g, "''")
+    const projName = basename(resolve(projectPath)).replace(/'/g, "''")
+    const psCmd = [
+      `Get-CimInstance Win32_Process | Where-Object {`,
+      `  ($_.ExecutablePath -and $_.ExecutablePath -like '${escaped}*') -or`,
+      `  ($_.Name -eq 'dotnet.exe' -and $_.CommandLine -and (`,
+      `    $_.CommandLine -like '*${escaped}*' -or`,
+      projName ? `    ($_.CommandLine -like '*watch*' -and $_.CommandLine -like '*${projName}*')` : '    $false',
+      `  ))`,
+      `} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+    ].join(' ')
+    execSync(`powershell -NoProfile -Command "${psCmd}"`, { stdio: 'ignore', timeout: 4000 })
   } catch {}
+}
+
+/** Chuẩn hoá lệnh `dotnet watch`: dùng `--non-interactive` để bật Hot Reload mượt, tránh giật dừng máy chủ khi lưu `.cshtml`/`.cs`. */
+function normalizeDotnetCommand(cmd: string): string {
+  if (!/\bdotnet\b/i.test(cmd)) return cmd
+  let out = cmd
+  if (/\bwatch\b/i.test(out)) {
+    out = out.replace(/\s+--no-hot-reload\b/gi, '')
+    if (!/--non-interactive\b/i.test(out)) {
+      out = out.replace(/\bwatch\b/i, 'watch --non-interactive')
+    }
+  }
+  if ((/\brun\b/i.test(out) || /\bwatch\b/i.test(out)) && !/--no-launch-browser\b/i.test(out)) {
+    out = `${out} --no-launch-browser`
+  }
+  return out.replace(/\s+/g, ' ').trim()
 }
 interface Entry {
   state: RunState
@@ -185,20 +210,20 @@ export class RunnerManager {
 
   private buildCommand(manager: PackageManager, script: string, matchedCommand?: string): string {
     if (matchedCommand) {
-      if (manager === 'dotnet' && !matchedCommand.includes('--no-launch-browser')) {
-        return `${matchedCommand} --no-launch-browser`
+      if (manager === 'dotnet') {
+        return normalizeDotnetCommand(matchedCommand)
       }
       return matchedCommand
     }
     if (manager === 'dotnet') {
-      if (script === 'watch' || script === 'dev') return 'dotnet watch --no-launch-browser run'
+      if (script === 'watch' || script === 'dev') return 'dotnet watch --non-interactive --no-launch-browser run'
       if (script === 'run' || script === 'start') return 'dotnet run --no-launch-browser'
       if (script === 'build') return 'dotnet build'
       if (script === 'test') return 'dotnet test'
       if (script.startsWith('dotnet ')) {
-        return script.includes('--no-launch-browser') ? script : `${script} --no-launch-browser`
+        return normalizeDotnetCommand(script)
       }
-      return `dotnet ${script} --no-launch-browser`
+      return normalizeDotnetCommand(`dotnet ${script}`)
     }
     if (manager === 'flutter') {
       if (script === 'dev' || script === 'watch') return 'flutter run -d chrome'
@@ -282,12 +307,7 @@ export class RunnerManager {
     const running = this.runningOf(project.id)
     if (running) return running
 
-    let finalCommand = command
-    if (finalCommand.includes('dotnet') && (finalCommand.includes('run') || finalCommand.includes('watch'))) {
-      if (!finalCommand.includes('--no-launch-browser')) {
-        finalCommand = `${finalCommand} --no-launch-browser`
-      }
-    }
+    const finalCommand = /\bdotnet\b/i.test(command) ? normalizeDotnetCommand(command) : command
 
     return this.launch(project, {
       script: 'tuỳ chỉnh',

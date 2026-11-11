@@ -82,7 +82,7 @@ const getMonacoLanguage = (ext: string): string => {
 const FileViewer = ({
   file,
   loading,
-  projectPath,
+  projectPath: _projectPath,
   autoSave = true,
   onOpenExternal,
   onShowInFolder,
@@ -120,7 +120,7 @@ const FileViewer = ({
     return () => observer.disconnect()
   }, [])
 
-  // Đồng bộ nội dung khi chuyển sang file khác (tự lưu file trước đó nếu Auto-Save đang bật)
+  // Đồng bộ nội dung khi chuyển sang file khác hoặc khi tệp được nạp lại từ đĩa
   useEffect(() => {
     const prevFile = activeFileRef.current
     if (
@@ -133,11 +133,7 @@ const FileViewer = ({
       const pendingCode = codeRef.current
       if (pendingCode !== (prevFile.text ?? '')) {
         prevFile.text = pendingCode
-        void api.fs.write(prevFile.path, pendingCode, {
-          projectPath,
-          backup: true,
-          reason: 'auto-save',
-        })
+        void api.fs.write(prevFile.path, pendingCode)
       }
     }
     if (autoSaveTimerRef.current !== null) {
@@ -156,9 +152,11 @@ const FileViewer = ({
       setLastAutoSavedAt(null)
     }
     setCursorPos({ ln: 1, col: 1, selected: 0 })
-  }, [file?.path, file?.text, file?.binary, autoSave, projectPath])
+    // Chỉ chạy lại khi đối tượng `file` thay đổi (tránh mất dữ liệu khi bật/tắt Auto-Save)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file])
 
-  // Lưu file thật sự xuống đĩa (Ctrl+S / nút Lưu / Auto-Save kèm snapshot .pixelmind/backups/)
+  // Lưu file thật sự xuống đĩa (Ctrl+S / nút Lưu / Auto-Save)
   const handleSave = async (silent = false) => {
     if (!file || saving) return
     if (autoSaveTimerRef.current !== null) {
@@ -169,11 +167,7 @@ const FileViewer = ({
     try {
       // Lấy nội dung mới nhất từ editor nếu có
       const currentCode = editorRef.current ? editorRef.current.getValue() : code
-      await api.fs.write(file.path, currentCode, {
-        projectPath,
-        backup: true,
-        reason: silent ? 'auto-save' : 'manual-save',
-      })
+      await api.fs.write(file.path, currentCode)
       file.text = currentCode
       setCode(currentCode)
       setIsDirty(false)

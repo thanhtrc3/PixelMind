@@ -340,17 +340,6 @@ export interface TerminalExitEvent {
   signal?: number
 }
 
-export interface BackupSnapshot {
-  id: string
-  backupPath: string
-  fileName: string
-  originalPath: string
-  relativePath: string
-  size: number
-  createdAt: number
-  reason: 'auto-save' | 'manual-save' | 'toolbox' | 'code-sync'
-}
-
 export interface AppInfo {
   appVersion: string
   electron: string

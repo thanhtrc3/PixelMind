@@ -109,16 +109,13 @@ class EditorBufferManager {
   private undoRedoHandlers: Set<UndoRedoHandler> = new Set()
   /** Thế hệ tài liệu hiện tại của canvas (tăng mỗi khi iframe tải lại). */
   private documentEpoch = 0
-  private activeProjectPath: string | null = null
   private autoSaveEnabled = true
   private autoSaveDelayMs = 1500
   private autoSaveTimer: number | null = null
   private savingNow = false
   private lastSavedAt: number | null = null
 
-  setProjectPath(projectPath: string | null) {
-    this.activeProjectPath = projectPath
-  }
+  setProjectPath(_projectPath: string | null) {}
 
   setAutoSave(enabled: boolean, delayMs?: number) {
     this.autoSaveEnabled = enabled
@@ -411,7 +408,7 @@ class EditorBufferManager {
   // ─── LƯU TOÀN BỘ FILE CHƯA LƯU XUỐNG Ổ CỨNG (CTRL+S HOẶC AUTO-SAVE / TRƯỚC KHI RUN F5) ───
   async saveAllDirtyFiles(
     showToast?: (msg: string) => void,
-    reason: 'auto-save' | 'manual-save' = 'manual-save',
+    _reason: 'auto-save' | 'manual-save' = 'manual-save',
   ): Promise<boolean> {
     this.clearAutoSaveTimer()
     if (this.dirtyFiles.size === 0) return true
@@ -433,9 +430,6 @@ class EditorBufferManager {
             styles: info.styles,
             tagName: info.tagName,
             lineNumber: info.lineNumber,
-            projectPath: this.activeProjectPath || undefined,
-            backup: true,
-            reason,
           })
 
           if (res?.success) {

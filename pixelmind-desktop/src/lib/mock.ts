@@ -801,17 +801,6 @@ export function createBrowserMock(): PixelMindApi {
         }
       },
     },
-    snapshots: {
-      async list(_projectPath) {
-        return []
-      },
-      async restore(_projectPath, _backupPath, targetPath) {
-        return { success: true, path: targetPath || 'src/App.tsx' }
-      },
-      async clear(_projectPath) {
-        return true
-      },
-    },
     ai: {
       async status() {
         return {

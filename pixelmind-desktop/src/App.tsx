@@ -573,6 +573,7 @@ const App = () => {
   }
 
   const handleUrlChange = (newUrl: string, pathname: string) => {
+    if (newUrl && !/^https?:/i.test(newUrl)) return
     if (pathname && pathname !== targetRouteRef.current) {
       setTargetRoute(pathname)
       targetRouteRef.current = pathname
