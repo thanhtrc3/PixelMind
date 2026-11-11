@@ -10,6 +10,7 @@ import type {
   AiChatHandle,
   AiChatStartRequest,
   AiConfig,
+  AiConversationSummary,
   AiKeyStatus,
   AiModel,
   AiPlanStep,
@@ -776,7 +777,13 @@ const chatHistoryPath = (projectId: string): string =>
     'chats.jsonl',
   )
 
-export async function getChatHistory(projectId: string): Promise<AiChatEntry[]> {
+/** Hội thoại của bản ghi cũ (chưa có conversationId) được gom vào một mã ổn định. */
+const LEGACY_CONVERSATION_ID = 'legacy'
+
+const normalizeConversationId = (entry: AiChatEntry): string =>
+  entry.conversationId || LEGACY_CONVERSATION_ID
+
+const readChatEntries = async (projectId: string): Promise<AiChatEntry[]> => {
   try {
     const text = await fs.readFile(chatHistoryPath(projectId), 'utf8')
     return text
@@ -801,14 +808,80 @@ export async function getChatHistory(projectId: string): Promise<AiChatEntry[]> 
           !(
             entry.role === 'user' &&
             index > 0 &&
+            normalizeConversationId(list[index - 1]) === normalizeConversationId(entry) &&
             list[index - 1].role === 'user' &&
             list[index - 1].text === entry.text
           ),
       )
-      .slice(-200)
   } catch {
     return []
   }
+}
+
+const writeChatEntries = async (
+  projectId: string,
+  entries: AiChatEntry[],
+): Promise<boolean> => {
+  try {
+    const file = chatHistoryPath(projectId)
+    const lines = entries
+      .map((e) => JSON.stringify({ ...e, id: e.id || randomUUID(), at: e.at || Date.now() }))
+      .join('\n')
+    await fs.writeFile(file, lines ? lines + '\n' : '', 'utf8')
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function getChatHistory(
+  projectId: string,
+  conversationId?: string,
+): Promise<AiChatEntry[]> {
+  const entries = await readChatEntries(projectId)
+  const scoped = conversationId
+    ? entries.filter((entry) => normalizeConversationId(entry) === conversationId)
+    : entries
+  return scoped.slice(-200)
+}
+
+/** Danh sách hội thoại của một dự án (mới nhất trước), suy ra từ nhật ký chat. */
+export async function getConversations(projectId: string): Promise<AiConversationSummary[]> {
+  const entries = await readChatEntries(projectId)
+  const map = new Map<string, AiConversationSummary>()
+
+  for (const entry of entries) {
+    const id = normalizeConversationId(entry)
+    const current =
+      map.get(id) ??
+      ({
+        id,
+        title: '',
+        updatedAt: 0,
+        messageCount: 0,
+      } satisfies AiConversationSummary)
+
+    current.messageCount += 1
+    current.updatedAt = Math.max(current.updatedAt, entry.at || 0)
+    if (!current.title && entry.role === 'user' && entry.text.trim()) {
+      current.title = entry.text
+        .replace(/\n*--- THÔNG TIN ĐÍNH KÈM TỪ NGƯỜI DÙNG ---[\s\S]*$/i, '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .slice(0, 80)
+    }
+    if (!current.preview && entry.role === 'assistant' && entry.text.trim()) {
+      current.preview = entry.text.trim().replace(/\s+/g, ' ').slice(0, 120)
+    }
+    map.set(id, current)
+  }
+
+  return [...map.values()]
+    .map((conversation) => ({
+      ...conversation,
+      title: conversation.title || 'New Conversation',
+    }))
+    .sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
 export async function clearChatHistory(projectId: string): Promise<boolean> {
@@ -820,18 +893,42 @@ export async function clearChatHistory(projectId: string): Promise<boolean> {
   }
 }
 
+export async function removeConversation(
+  projectId: string,
+  conversationId: string,
+): Promise<boolean> {
+  if (!projectId || !conversationId) return false
+  const entries = await readChatEntries(projectId)
+  const kept = entries.filter(
+    (entry) => normalizeConversationId(entry) !== conversationId,
+  )
+  if (kept.length === entries.length) return false
+  return writeChatEntries(projectId, kept)
+}
+
 export async function rewriteChatHistory(
   projectId: string,
   entries: AiChatEntry[],
+  conversationId?: string,
 ): Promise<boolean> {
   if (!projectId) return false
   try {
-    const file = chatHistoryPath(projectId)
-    const lines = entries
-      .map((e) => JSON.stringify({ ...e, id: e.id || randomUUID(), at: e.at || Date.now() }))
-      .join('\n')
-    await fs.writeFile(file, lines ? lines + '\n' : '', 'utf8')
-    return true
+    if (!conversationId) {
+      return writeChatEntries(projectId, entries)
+    }
+    // Chỉ thay thế các dòng của hội thoại hiện tại, giữ nguyên hội thoại khác.
+    const existing = await readChatEntries(projectId)
+    const others = existing.filter(
+      (entry) => normalizeConversationId(entry) !== conversationId,
+    )
+    const next = [
+      ...others,
+      ...entries.map((entry) => ({
+        ...entry,
+        conversationId: entry.conversationId || conversationId,
+      })),
+    ].sort((a, b) => (a.at || 0) - (b.at || 0))
+    return writeChatEntries(projectId, next)
   } catch {
     return false
   }
@@ -852,6 +949,10 @@ export function startChat(
     controller.abort()
   }, loopLimitMs)
 
+  const conversationId =
+    request.conversationId?.trim() ||
+    `conv-${Date.now().toString(36)}-${randomUUID().slice(0, 6)}`
+
   const run = async () => {
     const started = Date.now()
     let finalText = ''
@@ -859,13 +960,17 @@ export function startChat(
     let currentPlan: AiPlanStep[] = []
     let planEmitted = false
 
+    // Mọi dòng nhật ký của lượt chat này đều được gắn mã hội thoại.
+    const persist = (entry: Record<string, unknown>) =>
+      persistChat(request.projectId, { conversationId, ...entry })
+
     emit({ type: 'start', id, at: started })
     try {
       const lastUser = [...request.messages].reverse().find((message) => message.role === 'user')
       const userText = (lastUser?.content ?? '').trim()
 
       if (lastUser) {
-        await persistChat(request.projectId, { at: started, role: 'user', text: lastUser.content })
+        await persist({ at: started, role: 'user', text: lastUser.content })
       }
 
       // Cầu nối người dùng chọn tại thời điểm gửi (ưu tiên hơn activeBridge toàn cục).
@@ -1080,7 +1185,7 @@ export function startChat(
           }
 
           if (finalText) {
-            await persistChat(request.projectId, {
+            await persist({
               at: Date.now(),
               role: 'assistant',
               text: finalText,
@@ -1115,7 +1220,7 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
 
 👉 *Bạn có thể thử nhập: "Sửa navbar tối giản hơn", "Đổi màu nút theo theme" hoặc "Thêm thông tin" để xem trước vòng lặp Agent (Plan → Tool Call → Diff) hoạt động trực tiếp!*`
           emit({ type: 'delta', id, text: finalText })
-          await persistChat(request.projectId, {
+          await persist({
             at: Date.now(),
             role: 'assistant',
             text: finalText,
@@ -1175,7 +1280,7 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
 
 💡 *Lưu ý: Để kết nối LLM đám mây trực tiếp, hãy cấu hình khóa API trong Cài đặt hoặc chọn Ollama Local / IDE WebSocket Bridge.*`
         emit({ type: 'delta', id, text: finalText })
-        await persistChat(request.projectId, {
+        await persist({
           at: Date.now(),
           role: 'assistant',
           text: finalText,
@@ -1281,7 +1386,7 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
 
           // Ghi lịch sử trước khi báo done để dữ liệu chắc chắn còn sau khi khởi động lại.
           if (finalText) {
-            await persistChat(request.projectId, {
+            await persist({
               at: Date.now(),
               role: 'assistant',
               text: finalText,
@@ -1376,7 +1481,7 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
       }
 
       if (finalText) {
-        await persistChat(request.projectId, {
+        await persist({
           at: Date.now(),
           role: 'assistant',
           text: finalText,
@@ -1388,7 +1493,7 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
       if (controller.signal.aborted) {
         const partial = streamedText || finalText
         if (partial) {
-          await persistChat(request.projectId, {
+          await persist({
             at: Date.now(),
             role: 'assistant',
             text: partial,

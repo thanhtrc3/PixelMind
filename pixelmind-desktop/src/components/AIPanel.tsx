@@ -12,8 +12,10 @@ import {
   CircleDot,
   Copy,
   Cpu,
+  EllipsisVertical,
   FileCode2,
   Folder,
+  FolderPlus,
   History,
   Image as ImageIcon,
   Layers,
@@ -21,15 +23,18 @@ import {
   MessageSquare,
   Octagon,
   Palette,
+  PanelLeft,
   Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
   Send,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Square,
   Terminal,
+  Trash2,
   Key,
   Undo2,
   Wand2,
@@ -46,6 +51,7 @@ import type {
   AiChatEntry,
   AiContextPack,
   AiContextResult,
+  AiConversationSummary,
   AiCostStats,
   AiPlanStep,
   AiStatus,
@@ -425,6 +431,22 @@ const formatRelativeOrTime = (at?: number, fallback?: string) => {
   return fallback || timeOf(at)
 }
 
+/** Tuổi hội thoại kiểu danh sách chat: 15h, 4d... */
+const conversationAge = (at: number): string => {
+  if (!at) return ''
+  const diffMin = Math.max(1, Math.floor((Date.now() - at) / 60_000))
+  if (diffMin < 60) return `${diffMin}m`
+  const diffHour = Math.floor(diffMin / 60)
+  if (diffHour < 24) return `${diffHour}h`
+  return `${Math.floor(diffHour / 24)}d`
+}
+
+let conversationSeq = 0
+const newConversationId = (): string =>
+  `conv-${Date.now().toString(36)}-${(conversationSeq++).toString(36)}${Math.random()
+    .toString(36)
+    .slice(2, 6)}`
+
 const renderFileBadge = (file: string) => {
   const ext = file.split('.').pop()?.toLowerCase() ?? ''
   if (ext === 'ts') {
@@ -758,6 +780,20 @@ const AIPanel = ({
     }
   }
   const [messages, setMessages] = useState<AiChatMessage[]>([])
+  // ─── HỘI THOẠI (CONVERSATIONS) ───
+  const [conversationId, setConversationId] = useState<string>(() => newConversationId())
+  const [conversations, setConversations] = useState<AiConversationSummary[]>([])
+  const [convListOpen, setConvListOpen] = useState(false)
+  const [convMenuOpen, setConvMenuOpen] = useState(false)
+  const [convLoading, setConvLoading] = useState(false)
+  const [convError, setConvError] = useState<string | null>(null)
+  const [convSort, setConvSort] = useState<'new' | 'old'>('new')
+  const [convMenuPos, setConvMenuPos] = useState<{ top: number; right: number }>({
+    top: 44,
+    right: 10,
+  })
+  const convMenuBtnRef = useRef<HTMLButtonElement>(null)
+  const convInitRef = useRef<string | null>(null)
   const [changes, setChanges] = useState<AiChange[]>([])
   const [undoTarget, setUndoTarget] = useState<{
     message: AiChatMessage
@@ -1137,7 +1173,7 @@ const AIPanel = ({
       return
     }
     try {
-      const entries = await api.ai.chats.history(projectId)
+      const entries = await api.ai.chats.history(projectId, conversationId)
       setMessages(
         entries.map((entry) => ({
           id: entry.id,
@@ -1150,6 +1186,29 @@ const AIPanel = ({
       )
     } catch {
       setMessages([])
+    }
+  }, [projectId, conversationId])
+
+  const loadConversations = useCallback(async (): Promise<AiConversationSummary[]> => {
+    if (!projectId) {
+      setConversations([])
+      return []
+    }
+    setConvLoading(true)
+    setConvError(null)
+    try {
+      if (typeof api.ai.chats.conversations !== 'function') {
+        throw new Error('API hội thoại chưa sẵn sàng')
+      }
+      const list = await api.ai.chats.conversations(projectId)
+      setConversations(list)
+      return list
+    } catch {
+      setConversations([])
+      setConvError('Không tải được danh sách hội thoại. Hãy khởi động lại ứng dụng.')
+      return []
+    } finally {
+      setConvLoading(false)
     }
   }, [projectId])
 
@@ -1168,8 +1227,24 @@ const AIPanel = ({
     void refreshBridges()
     void scanLocalClis()
     void loadChanges()
+  }, [open, refreshStatus, refreshBridges, scanLocalClis, loadChanges])
+
+  // Mở panel: chọn hội thoại gần nhất của dự án (hoặc tạo hội thoại mới).
+  useEffect(() => {
+    if (!open || !projectId) return
+    if (convInitRef.current === projectId) return
+    convInitRef.current = projectId
+    void loadConversations().then((list) => {
+      setConversationId(list[0]?.id ?? newConversationId())
+      setMessages([])
+    })
+  }, [open, projectId, loadConversations])
+
+  // Tải nội dung của hội thoại đang chọn.
+  useEffect(() => {
+    if (!open) return
     void loadHistory()
-  }, [open, refreshStatus, refreshBridges, scanLocalClis, loadChanges, loadHistory])
+  }, [open, loadHistory])
 
   useEffect(() => {
     const off = api.ai.onChatEvent((event) => {
@@ -1221,6 +1296,7 @@ const AIPanel = ({
         void loadChanges()
         void loadToolLogs()
         void loadAuditLogs()
+        void loadConversations()
       } else if (event.type === 'error') {
         setThinking(false)
         setLiveStatus(null)
@@ -1246,7 +1322,7 @@ const AIPanel = ({
       }
     })
     return off
-  }, [loadChanges, onShowToast, loadToolLogs, loadAuditLogs])
+  }, [loadChanges, loadConversations, onShowToast, loadToolLogs, loadAuditLogs])
 
   useEffect(() => {
     if (!thinking) {
@@ -1413,11 +1489,13 @@ const AIPanel = ({
         projectPath,
         tools: true,
         context,
+        conversationId,
         messages: payloadMessages,
         bridge: activeBridge,
         cli: activeBridge === 'cli' ? (selectedCli ?? undefined) : undefined,
       })
       activeChatId.current = handle.id
+      void loadConversations()
     } catch (error) {
       setThinking(false)
       setLiveStatus(null)
@@ -1455,6 +1533,88 @@ const AIPanel = ({
     setThinking(false)
     if (id) void api.ai.cancel(id).catch(() => undefined)
   }
+
+  // ─── ĐIỀU KHIỂN HỘI THOẠI ───
+  const newConversation = useCallback(() => {
+    if (thinking) stopChat()
+    setConversationId(newConversationId())
+    setMessages([])
+    setDraft('')
+    setAttachments([])
+    setRetryText(null)
+    setConvListOpen(false)
+    setConvMenuOpen(false)
+  }, [thinking])
+
+  const selectConversation = useCallback(
+    (id: string) => {
+      if (id === conversationId) {
+        setConvListOpen(false)
+        return
+      }
+      if (thinking) stopChat()
+      setConversationId(id)
+      setMessages([])
+      setConvListOpen(false)
+      setConvMenuOpen(false)
+    },
+    [conversationId, thinking],
+  )
+
+  const deleteConversation = useCallback(
+    async (id: string) => {
+      if (!projectId) return
+      if (!window.confirm('Xoá hội thoại này khỏi lịch sử trò chuyện?')) return
+      try {
+        await api.ai.chats.remove(projectId, id)
+        const list = await loadConversations()
+        if (id === conversationId) {
+          setConversationId(list[0]?.id ?? newConversationId())
+          setMessages([])
+        }
+        onShowToast('ok', 'Đã xoá hội thoại')
+      } catch {
+        onShowToast('err', 'Không thể xoá hội thoại')
+      }
+    },
+    [projectId, conversationId, loadConversations, onShowToast],
+  )
+
+  const clearAllConversations = useCallback(async () => {
+    if (!projectId) return
+    if (!window.confirm('Xoá toàn bộ lịch sử trò chuyện của dự án này?')) return
+    try {
+      await api.ai.chats.clear(projectId)
+      setConversations([])
+      setConversationId(newConversationId())
+      setMessages([])
+      setConvMenuOpen(false)
+      onShowToast('ok', 'Đã xoá toàn bộ lịch sử trò chuyện')
+    } catch {
+      onShowToast('err', 'Không thể xoá lịch sử trò chuyện')
+    }
+  }, [projectId, onShowToast])
+
+  const updateConvMenuPos = useCallback(() => {
+    if (!convMenuBtnRef.current) return
+    const rect = convMenuBtnRef.current.getBoundingClientRect()
+    setConvMenuPos({
+      top: Math.round(rect.bottom + 4),
+      right: Math.max(8, Math.round(window.innerWidth - rect.right)),
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!convMenuOpen) return
+    updateConvMenuPos()
+    const recalc = () => updateConvMenuPos()
+    window.addEventListener('resize', recalc)
+    window.addEventListener('scroll', recalc, true)
+    return () => {
+      window.removeEventListener('resize', recalc)
+      window.removeEventListener('scroll', recalc, true)
+    }
+  }, [convMenuOpen, updateConvMenuPos])
 
   const updateChangeStatus = async (id: string, action: 'accept' | 'reject' | 'undo') => {
     if (!projectId) return
@@ -1922,8 +2082,9 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
           text: m.text,
           at: m.at ?? Date.now(),
           plan: m.plan,
+          conversationId,
         }))
-        await api.ai.chats.rewrite(projectId, remainingEntries)
+        await api.ai.chats.rewrite(projectId, remainingEntries, conversationId)
       }
 
       onShowToast('ok', 'Đã hoàn tác tin nhắn thành công!')
@@ -1939,6 +2100,7 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
     revertFilesChecked,
     projectId,
     projectPath,
+    conversationId,
     loadChanges,
     onApplied,
     messages,
@@ -1993,6 +2155,26 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
   const activeCli = detectedClis.find((cli) => cli.id === selectedCli?.id)
   const cliReady = activeBridge === 'cli' && Boolean(activeCli?.installed && activeCli?.supportsRun)
 
+  const activeConversation = conversations.find((item) => item.id === conversationId)
+  const conversationTitle = activeConversation?.title || 'New Conversation'
+  // Luôn hiển thị hội thoại đang mở, kể cả khi chưa có tin nhắn nào được lưu.
+  const displayConversations = useMemo(() => {
+    const list = conversations.some((item) => item.id === conversationId)
+      ? [...conversations]
+      : [
+          {
+            id: conversationId,
+            title: conversationTitle,
+            updatedAt: Date.now(),
+            messageCount: messages.length,
+          } satisfies AiConversationSummary,
+          ...conversations,
+        ]
+    return list.sort((a, b) =>
+      convSort === 'new' ? b.updatedAt - a.updatedAt : a.updatedAt - b.updatedAt,
+    )
+  }, [conversations, conversationId, conversationTitle, convSort, messages.length])
+
   return (
     <aside className="pm-ai-panel" role="complementary" aria-label="Trợ lý AI">
       {/* ── Đầu panel ── */}
@@ -2000,10 +2182,19 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
         <span className="pm-ai-panel__logo">
           <Sparkles size={14} />
         </span>
-        <div className="pm-ai-panel__title">
-          <b>Trợ lý AI</b>
+        <button
+          className="pm-ai-panel__title"
+          onClick={() => {
+            setConvListOpen((v) => {
+              if (!v) void loadConversations()
+              return !v
+            })
+          }}
+          title={`${conversationTitle} — mở danh sách hội thoại`}
+        >
+          <b>{conversationTitle}</b>
           <span>{projectName ? projectName : 'Chưa mở dự án'}</span>
-        </div>
+        </button>
         <div className="pm-ai-bridge">
           <button
             ref={bridgeBtnRef}
@@ -2253,18 +2444,194 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
             document.body,
           )}
         </div>
-        <button
-          className="pm-ibtn pm-ibtn--danger"
-          style={{ color: '#ef4444', marginRight: 4 }}
-          onClick={() => void handleKillSwitch()}
-          title="Dừng khẩn cấp: Huỷ toàn bộ tác vụ AI, child process và luồng streaming (Kill-switch)"
-        >
-          <Octagon size={14} strokeWidth={2.2} />
-        </button>
-        <button className="pm-ibtn" onClick={onClose} title="Đóng trợ lý AI (Ctrl+Shift+A)">
-          <X size={14} />
-        </button>
+        <div className="pm-ai-hd-actions">
+          <button className="pm-ibtn" onClick={newConversation} title="New Conversation">
+            <Plus size={14} />
+          </button>
+          <button
+            ref={convMenuBtnRef}
+            className={`pm-ibtn ${convMenuOpen ? 'on' : ''}`}
+            onClick={() => {
+              updateConvMenuPos()
+              setConvMenuOpen((v) => !v)
+            }}
+            title="Tuỳ chọn hội thoại"
+          >
+            <EllipsisVertical size={14} />
+          </button>
+          <button
+            className={`pm-ibtn ${convListOpen ? 'on' : ''}`}
+            onClick={() => {
+              setConvListOpen((v) => {
+                if (!v) void loadConversations()
+                return !v
+              })
+            }}
+            title="Danh sách hội thoại"
+          >
+            <PanelLeft size={14} />
+          </button>
+          <button className="pm-ibtn" onClick={onClose} title="Đóng trợ lý AI (Ctrl+Shift+A)">
+            <X size={14} />
+          </button>
+        </div>
       </div>
+
+      {/* ── Drawer: danh sách hội thoại ── */}
+      {convListOpen && (
+        <div className="pm-ai-conv-drawer" role="dialog" aria-label="Conversations">
+          <div className="pm-ai-conv-drawer__hd">
+            <button
+              className="pm-ai-conv-close"
+              onClick={() => setConvListOpen(false)}
+              title="Đóng danh sách hội thoại"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <button className="pm-ai-conv-new" onClick={newConversation}>
+            <Plus size={16} />
+            <span>New Conversation</span>
+          </button>
+
+          <button
+            className="pm-ai-conv-custom"
+            onClick={() => {
+              setConvListOpen(false)
+              onOpenTheme()
+            }}
+          >
+            <Palette size={15} />
+            <span>Customizations</span>
+          </button>
+
+          <div className="pm-ai-conv-sec">
+            <span>Conversations</span>
+            <div className="pm-ai-conv-sec__actions">
+              <button
+                className={convSort === 'old' ? 'is-on' : ''}
+                onClick={() => setConvSort((v) => (v === 'new' ? 'old' : 'new'))}
+                title={convSort === 'new' ? 'Đang xếp mới nhất trước' : 'Đang xếp cũ nhất trước'}
+              >
+                <SlidersHorizontal size={13} />
+              </button>
+              <button onClick={newConversation} title="Tạo hội thoại mới cho dự án hiện tại">
+                <FolderPlus size={13} />
+              </button>
+            </div>
+          </div>
+
+          <div className="pm-ai-conv-list">
+            {convError && <div className="pm-ai-conv-empty is-err">{convError}</div>}
+            {!convError &&
+              displayConversations.map((conversation) => (
+                <div className="pm-ai-conv-row" key={conversation.id}>
+                  <button
+                    className={`pm-ai-conv-item ${conversation.id === conversationId ? 'is-on' : ''}`}
+                    onClick={() => selectConversation(conversation.id)}
+                    title={conversation.title}
+                  >
+                    <span className="pm-ai-conv-item__main">
+                      <span className="pm-ai-conv-item__title">{conversation.title}</span>
+                      <span className="pm-ai-conv-item__sub">
+                        <Folder size={11} />
+                        {projectName || 'Chưa mở dự án'}
+                      </span>
+                    </span>
+                    <span className="pm-ai-conv-item__time">
+                      {conversationAge(conversation.updatedAt)}
+                    </span>
+                  </button>
+                  <button
+                    className="pm-ai-conv-del"
+                    title="Xoá hội thoại"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void deleteConversation(conversation.id)
+                    }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+            {!convError && !convLoading && displayConversations.length === 0 && (
+              <div className="pm-ai-conv-empty">Chưa có hội thoại nào</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Menu ⋮ của hội thoại ── */}
+      {convMenuOpen &&
+        createPortal(
+          <>
+            <div
+              className="pm-ai-popover__scrim"
+              style={{ position: 'fixed', inset: 0, zIndex: 99998, background: 'transparent' }}
+              onClick={() => setConvMenuOpen(false)}
+            />
+            <div
+              className="pm-ai-conv-menu"
+              style={{
+                position: 'fixed',
+                top: convMenuPos.top,
+                right: convMenuPos.right,
+                zIndex: 99999,
+              }}
+            >
+              <button
+                onClick={() => {
+                  newConversation()
+                }}
+              >
+                <Plus size={13} /> New Conversation
+              </button>
+              <button onClick={() => void loadConversations()}>
+                <RefreshCw size={13} /> Làm mới danh sách
+              </button>
+              <button
+                onClick={() => {
+                  setConvMenuOpen(false)
+                  setConvListOpen(true)
+                  void loadConversations()
+                }}
+              >
+                <PanelLeft size={13} /> Mở danh sách hội thoại
+              </button>
+              <div className="pm-ai-conv-menu__sep" />
+              <button
+                className="is-danger"
+                onClick={() => {
+                  setConvMenuOpen(false)
+                  void handleKillSwitch()
+                }}
+              >
+                <Octagon size={13} /> Dừng khẩn cấp AI (Kill-switch)
+              </button>
+              <div className="pm-ai-conv-menu__sep" />
+              <button
+                className="is-danger"
+                onClick={() => {
+                  setConvMenuOpen(false)
+                  void deleteConversation(conversationId)
+                }}
+              >
+                <Trash2 size={13} /> Xoá hội thoại này
+              </button>
+              <button
+                className="is-danger"
+                onClick={() => {
+                  setConvMenuOpen(false)
+                  void clearAllConversations()
+                }}
+              >
+                <Trash2 size={13} /> Xoá toàn bộ lịch sử
+              </button>
+            </div>
+          </>,
+          document.body,
+        )}
 
       {/* ── Tab ── */}
       <div className="pm-ai-tabs">

@@ -231,10 +231,15 @@ const api: PixelMindApi = {
       return () => ipcRenderer.removeListener('ai:chat:event', listener)
     },
     chats: {
-      history: (projectId: string) => ipcRenderer.invoke('ai:chats:history', projectId),
+      history: (projectId: string, conversationId?: string) =>
+        ipcRenderer.invoke('ai:chats:history', projectId, conversationId),
+      conversations: (projectId: string) =>
+        ipcRenderer.invoke('ai:chats:conversations', projectId),
       clear: (projectId: string) => ipcRenderer.invoke('ai:chats:clear', projectId),
-      rewrite: (projectId: string, entries: AiChatEntry[]) =>
-        ipcRenderer.invoke('ai:chats:rewrite', projectId, entries),
+      rewrite: (projectId: string, entries: AiChatEntry[], conversationId?: string) =>
+        ipcRenderer.invoke('ai:chats:rewrite', projectId, entries, conversationId),
+      remove: (projectId: string, conversationId: string) =>
+        ipcRenderer.invoke('ai:chats:remove', projectId, conversationId),
     },
     context: (request: AiContextRequest) => ipcRenderer.invoke('ai:context', request),
     changes: {

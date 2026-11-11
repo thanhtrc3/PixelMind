@@ -257,6 +257,8 @@ export interface AiChatRequest {
   tools?: boolean
   /** Tên hiển thị cho phiên chat, dùng cho nhật ký. */
   title?: string
+  /** Hội thoại đích để ghi nhật ký; bỏ trống thì tạo hội thoại mới. */
+  conversationId?: string
   /** Giới hạn phạm vi: chỉ cho phép sửa tệp này (nếu gọi tool sửa tệp) */
   scopedFile?: string
   /** Cầu nối người dùng chọn tại thời điểm gửi (ưu tiên hơn activeBridge toàn cục). */
@@ -341,6 +343,17 @@ export interface AiChatEntry {
   role: AiMessageRole
   text: string
   plan?: AiPlanStep[]
+  /** Hội thoại mà dòng chat này thuộc về (bản ghi cũ không có trường này). */
+  conversationId?: string
+}
+
+/** Tóm tắt một hội thoại để hiển thị trong danh sách của chatbox. */
+export interface AiConversationSummary {
+  id: string
+  title: string
+  updatedAt: number
+  messageCount: number
+  preview?: string
 }
 
 export interface AiChatStartRequest extends AiChatRequest {
@@ -384,9 +397,11 @@ export interface AiApi {
     status(): Promise<{ online: boolean; latencyMs: number }>
   }
   chats: {
-    history(projectId: string): Promise<AiChatEntry[]>
+    history(projectId: string, conversationId?: string): Promise<AiChatEntry[]>
+    conversations(projectId: string): Promise<AiConversationSummary[]>
     clear(projectId: string): Promise<boolean>
-    rewrite(projectId: string, entries: AiChatEntry[]): Promise<boolean>
+    rewrite(projectId: string, entries: AiChatEntry[], conversationId?: string): Promise<boolean>
+    remove(projectId: string, conversationId: string): Promise<boolean>
   }
   context(request: AiContextRequest): Promise<AiContextResult>
   changes: {

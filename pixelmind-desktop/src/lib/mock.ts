@@ -750,10 +750,16 @@ export function createBrowserMock(): PixelMindApi {
         async history() {
           return []
         },
+        async conversations() {
+          return []
+        },
         async clear() {
           return true
         },
         async rewrite() {
+          return true
+        },
+        async remove() {
           return true
         },
       },

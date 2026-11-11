@@ -39,6 +39,7 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
+  Scan,
   Smartphone,
   Sparkles,
   SlidersHorizontal,
@@ -318,6 +319,9 @@ const CanvasArea = ({
   const [viewport, setViewport] = useState<ViewportKey>('responsive')
   const [tool, setTool] = useState<ToolKey>('select')
   const [zoom, setZoom] = useState(100)
+  const [zoomEditing, setZoomEditing] = useState(false)
+  const [zoomDraft, setZoomDraft] = useState('')
+  const zoomInputRef = useRef<HTMLInputElement>(null)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isPanning, setIsPanning] = useState(false)
   const panStartRef = useRef({ x: 0, y: 0 })
@@ -720,25 +724,54 @@ const CanvasArea = ({
     })
   }, [selectedEl, multiSelection, sourceLoc, onSelectionChange])
 
-  // Zoom to Fit (F)
-  const zoomToFit = useCallback(() => {
-    if (!stageRef.current) return
-    if (viewport === 'responsive') {
-      setZoom(100)
+  // Zoom to Fit (F) — tính theo đúng kích thước sân khấu để khung thiết bị vừa khít.
+  const zoomToFit = useCallback(
+    (vp: ViewportConfig = currentVp) => {
+      const stage = stageRef.current
+      if (!stage) return
+      if (vp.key === 'responsive' || !vp.w || !vp.h) {
+        // Chế độ toàn khung đã phủ 100% sân khấu.
+        setZoom(100)
+        setPan({ x: 0, y: 0 })
+        return
+      }
+      const PADDING = 48 // chừa viền hai bên cho dễ thở
+      const FRAME_BAR = 30 // thanh tiêu đề của khung thiết bị
+      const stageW = stage.clientWidth - PADDING
+      const stageH = stage.clientHeight - PADDING
+      if (stageW <= 0 || stageH <= 0) return
+      const scaleX = stageW / vp.w
+      const scaleY = stageH / (vp.h + FRAME_BAR)
+      const next = Math.round(Math.min(scaleX, scaleY) * 100)
+      setZoom(Math.max(10, Math.min(200, next)))
       setPan({ x: 0, y: 0 })
-      return
+    },
+    [currentVp.key, currentVp.w, currentVp.h],
+  )
+
+  // Nhập % phóng to trực tiếp trên thanh công cụ.
+  const beginZoomEdit = useCallback(() => {
+    setZoomDraft(String(zoom))
+    setZoomEditing(true)
+  }, [zoom])
+
+  const commitZoomEdit = useCallback(() => {
+    const parsed = Number.parseInt(zoomDraft.replace(/[^\d]/g, ''), 10)
+    if (Number.isFinite(parsed)) {
+      const next = Math.max(10, Math.min(200, parsed))
+      setZoom(next)
+      // "Toàn khung" luôn phủ kín 100%, nên đổi % chỉ có ý nghĩa ở khung thiết bị.
+      if (viewport === 'responsive' && next !== 100) setViewport('desktop')
     }
-    const stageW = stageRef.current.clientWidth - 80
-    const stageH = stageRef.current.clientHeight - 80
-    if (stageW <= 0 || stageH <= 0) return
-    const targetW = currentVp.w || 1440
-    const targetH = currentVp.h || 900
-    const scaleX = stageW / targetW
-    const scaleY = stageH / targetH
-    const fitScale = Math.min(scaleX, scaleY, 1)
-    setZoom(Math.max(65, Math.min(100, Math.round(fitScale * 100))))
-    setPan({ x: 0, y: 0 })
-  }, [viewport, currentVp.w, currentVp.h])
+    setZoomEditing(false)
+  }, [zoomDraft, viewport])
+
+  useEffect(() => {
+    if (!zoomEditing) return
+    const input = zoomInputRef.current
+    input?.focus()
+    input?.select()
+  }, [zoomEditing])
 
   // Lắng nghe phím tắt bàn phím
   useEffect(() => {
@@ -4475,8 +4508,8 @@ const CanvasArea = ({
               }}
               title="Bật/Tắt chế độ Soi phần tử (Phím tắt: I)"
               style={{
-                height: 28,
-                padding: '0 10px',
+                height: 24,
+                padding: '0 9px',
                 gap: 6,
                 borderRadius: 6,
                 fontWeight: 650,
@@ -4520,12 +4553,14 @@ const CanvasArea = ({
                 className={`canvas__seg-btn ${viewport === v.key ? 'active' : ''}`}
                 onClick={() => {
                   setViewport(v.key)
-                  if (v.key === 'responsive') {
-                    setZoom(100)
-                    setPan({ x: 0, y: 0 })
-                  }
+                  // Đổi thiết bị thì tự canh vừa khung cho đúng kích thước mới.
+                  zoomToFit(v)
                 }}
-                title={v.key === 'responsive' ? 'Toàn khung (100% full màn hình, chuẩn web)' : `${v.label} · ${v.w} × ${v.h}`}
+                title={
+                  v.key === 'responsive'
+                    ? 'Toàn khung (100% full màn hình, chuẩn web)'
+                    : `${v.label} · ${v.w} × ${v.h}`
+                }
               >
                 <v.icon size={12} />
                 <span>{v.label}</span>
@@ -4621,31 +4656,6 @@ const CanvasArea = ({
               />
               <span style={{ fontSize: 11, fontWeight: 600 }}>Ảnh mẫu</span>
             </button>
-            <button
-              className="canvas__tool-btn"
-              style={{ width: 'auto', padding: '0 8px', gap: 4, display: 'inline-flex' }}
-              title="Hệ thống thiết kế (Design Tokens & Theme Manager)"
-              onClick={() => setIsTokensDialogOpen(true)}
-            >
-              <Palette size={13} style={{ color: 'var(--accent, #6d5df5)' }} />
-              <span style={{ fontSize: 11, fontWeight: 600 }}>Tokens</span>
-            </button>
-            <button
-              className="canvas__tool-btn"
-              title="Tải lại giao diện (Ctrl+R)"
-              onClick={() => setIframeKey((k) => k + 1)}
-            >
-              <RefreshCw size={13} />
-            </button>
-            {url && onOpenExternal && (
-              <button
-                className="canvas__tool-btn"
-                title="Mở trên trình duyệt ngoài"
-                onClick={() => onOpenExternal(url)}
-              >
-                <ExternalLink size={13} />
-              </button>
-            )}
           </div>
 
           <div className="canvas__tools-spacer" />
@@ -4655,17 +4665,52 @@ const CanvasArea = ({
             <button
               className="canvas__tool-btn"
               title="Thu nhỏ (Ctrl -)"
-              onClick={() => setZoom((z) => Math.max(10, z - 10))}
+              onClick={() => {
+                setZoom((z) => Math.max(10, z - 10))
+                if (viewport === 'responsive') setViewport('desktop')
+              }}
             >
               <ZoomOut size={13} />
             </button>
-            <span className="canvas__zoom-badge" onClick={zoomToFit} title="Nhấp để vừa khung (F)">
-              {zoom}%
-            </span>
+            {zoomEditing ? (
+              <>
+                <input
+                  ref={zoomInputRef}
+                  className="canvas__zoom-input"
+                  value={zoomDraft}
+                  inputMode="numeric"
+                  onChange={(e) => setZoomDraft(e.target.value.replace(/[^\d]/g, ''))}
+                  onBlur={commitZoomEdit}
+                  onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      commitZoomEdit()
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setZoomEditing(false)
+                    }
+                  }}
+                  title="Nhập % phóng to (10–200), Enter để áp dụng"
+                />
+                <span className="canvas__zoom-unit">%</span>
+              </>
+            ) : (
+              <span
+                className="canvas__zoom-badge"
+                onClick={beginZoomEdit}
+                title="Nhấp để nhập % phóng to (F: vừa khung)"
+              >
+                {zoom}%
+              </span>
+            )}
             <button
               className="canvas__tool-btn"
               title="Phóng to (Ctrl +)"
-              onClick={() => setZoom((z) => Math.min(200, z + 10))}
+              onClick={() => {
+                setZoom((z) => Math.min(200, z + 10))
+                if (viewport === 'responsive') setViewport('desktop')
+              }}
             >
               <ZoomIn size={13} />
             </button>
@@ -4680,8 +4725,12 @@ const CanvasArea = ({
             >
               1:1
             </button>
-            <button className="canvas__tool-btn" title="Vừa khung nhìn (F)" onClick={zoomToFit}>
-              <Maximize2 size={13} />
+            <button
+              className="canvas__tool-btn"
+              title="Vừa khung nhìn (F) — canh thiết bị vừa khít khu canvas"
+              onClick={() => zoomToFit()}
+            >
+              <Scan size={13} />
             </button>
           </div>
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   ClipboardList,
+  ExternalLink,
   FolderKanban,
   HelpCircle,
   LayoutDashboard,
@@ -33,6 +34,9 @@ interface TopBarProps {
   onPalette: () => void
   onRefresh: () => void
   onTokens?: () => void
+  /** URL giao diện đang chạy để nút Xem trước mở bằng trình duyệt ngoài. */
+  canvasUrl?: string | null
+  onOpenPreview?: (url: string) => void
   isSidebarOpen?: boolean
   onToggleSidebar?: () => void
   isBottomPanelOpen?: boolean
@@ -56,6 +60,8 @@ const TopBar = ({
   onPalette,
   onRefresh,
   onTokens,
+  canvasUrl,
+  onOpenPreview,
   isSidebarOpen,
   onToggleSidebar,
   isBottomPanelOpen,
@@ -253,15 +259,30 @@ const TopBar = ({
           </button>
         )}
 
-        {/* Nút Tải lại cây tệp */}
+        {/* Nút Tải lại: cây tệp + giao diện Canvas */}
         <button
           className="pm-ibtn"
-          onClick={onRefresh}
+          onClick={() => {
+            onRefresh()
+            window.dispatchEvent(new CustomEvent('pixelmind:reload-canvas'))
+          }}
           disabled={!project}
-          title="Tải lại cây tệp (Ctrl+R)"
+          title="Tải lại dự án & giao diện Canvas (Ctrl+R)"
         >
           <RefreshCw size={13} />
         </button>
+
+        {/* Nút Xem trước: chỉ hiện khi giao diện đang chạy và có URL */}
+        {view === 'workspace' && canvasUrl && (
+          <button
+            className="pm-ibtn"
+            onClick={() => onOpenPreview?.(canvasUrl)}
+            disabled={!onOpenPreview}
+            title={`Xem trước trên trình duyệt ngoài\n${canvasUrl}`}
+          >
+            <ExternalLink size={14} />
+          </button>
+        )}
 
         {/* Nút Help (F1) */}
         <button className="pm-ibtn" onClick={onGuide} title="Hướng dẫn sử dụng (F1)">

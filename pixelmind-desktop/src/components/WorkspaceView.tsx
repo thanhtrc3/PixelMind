@@ -12,9 +12,7 @@ import {
   Maximize2,
   Minimize2,
   Boxes,
-  ExternalLink,
   Palette,
-  RefreshCw,
   X,
 } from 'lucide-react'
 import type {
@@ -30,6 +28,7 @@ import type {
 } from '@shared/types'
 import { parseRunError } from '../lib/errorParser'
 import { editorBuffer } from '../lib/editorBuffer'
+import { LAYOUT_KEYS, persistFlag, readStoredFlag } from '../lib/layoutPrefs'
 import WorkspaceSidebar, { type ReferenceAsset, type SidebarTab } from './WorkspaceSidebar'
 import FileViewer from './FileViewer'
 import CanvasArea from './CanvasArea'
@@ -200,10 +199,11 @@ const WorkspaceView = ({
   const canvasUrl = previewUrl ?? run?.url ?? null
 
   const logPanelRef = usePanelRef()
-  const [isLogCollapsed, setIsLogCollapsed] = useState(false)
+  const [isLogCollapsed, setIsLogCollapsed] = useState(() =>
+    readStoredFlag(LAYOUT_KEYS.logCollapsed, false),
+  )
   // Chế độ tập trung toàn màn hình Canvas (ẩn cả cây tệp và sidebar)
   const [focusCanvas, setFocusCanvas] = useState(false)
-  const [openTokensToken, setOpenTokensToken] = useState(0)
   const [localReloadToken, setLocalReloadToken] = useState(0)
   const [isBufferDirty, setIsBufferDirty] = useState(editorBuffer.isDirty())
   const [aiSelection, setAiSelection] = useState<AiSelectedElement | null>(null)
@@ -214,6 +214,25 @@ const WorkspaceView = ({
   useEffect(() => {
     setReferenceAsset(null)
   }, [project?.id])
+
+  // Nút "Tải lại giao diện Canvas" trên menu bar phát sự kiện này.
+  useEffect(() => {
+    const handleReloadCanvas = () => setLocalReloadToken((v) => v + 1)
+    window.addEventListener('pixelmind:reload-canvas', handleReloadCanvas)
+    return () => window.removeEventListener('pixelmind:reload-canvas', handleReloadCanvas)
+  }, [])
+
+  // Ghi nhớ trạng thái thu gọn bảng nhật ký và khôi phục đúng chiều cao khi mở lại app.
+  useEffect(() => persistFlag(LAYOUT_KEYS.logCollapsed, isLogCollapsed), [isLogCollapsed])
+  useEffect(() => {
+    if (!isLogCollapsed || !isBottomPanelOpen) return
+    const id = window.setTimeout(() => {
+      try {
+        logPanelRef.current?.resize('36px')
+      } catch {}
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [isLogCollapsed, isBottomPanelOpen, logPanelRef])
 
   // Đăng ký lắng nghe thay đổi của EditorBuffer (RAM Model chuẩn VS 2022)
   useEffect(() => {
@@ -511,39 +530,9 @@ const WorkspaceView = ({
               })}
               <span style={{ flex: 1 }} />
 
-              {/* Nhóm tiện ích Tokens, Tải lại, Mở ngoài & Chế độ Toàn màn hình Canvas */}
+              {/* Nhóm tiện ích: Chế độ Toàn màn hình Canvas */}
               {activeTab === 'preview' && (
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 4 }}>
-                  <div className="canvas__seg" style={{ padding: '1px 3px', height: 26, display: 'inline-flex', alignItems: 'center' }}>
-                    <button
-                      className="canvas__tool-btn"
-                      style={{ width: 'auto', padding: '0 8px', gap: 4, height: 22, display: 'inline-flex', alignItems: 'center' }}
-                      title="Hệ thống thiết kế (Design Tokens & Theme Manager)"
-                      onClick={() => setOpenTokensToken((v) => v + 1)}
-                    >
-                      <Palette size={13} style={{ color: 'var(--accent, #6d5df5)' }} />
-                      <span style={{ fontSize: 11, fontWeight: 600 }}>Tokens</span>
-                    </button>
-                    <button
-                      className="canvas__tool-btn"
-                      style={{ height: 22, width: 24, padding: 0 }}
-                      title="Tải lại giao diện (Ctrl+R)"
-                      onClick={() => setLocalReloadToken((v) => v + 1)}
-                    >
-                      <RefreshCw size={13} />
-                    </button>
-                    {canvasUrl && onOpenExternal && (
-                      <button
-                        className="canvas__tool-btn"
-                        style={{ height: 22, width: 24, padding: 0 }}
-                        title="Mở trên trình duyệt ngoài"
-                        onClick={() => onOpenExternal(canvasUrl)}
-                      >
-                        <ExternalLink size={13} />
-                      </button>
-                    )}
-                  </div>
-
                   {/* Nút Chế độ tập trung Canvas (Toàn màn hình) */}
                   <button
                     className={`pm-ibtn ${focusCanvas ? 'on' : ''}`}
@@ -596,7 +585,6 @@ const WorkspaceView = ({
                         onSidebarTabChange?.('assets')
                         if (!isSidebarOpen) onToggleSidebar?.()
                       }}
-                      openTokensToken={openTokensToken}
                     />
                   ) : (
                     <FileViewer

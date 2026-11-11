@@ -18,9 +18,9 @@
     "semantic_hash": "aba9bc0b6ff7aa1c66684d0f8efff190"
   },
   "electron/main/ai.ts": {
-    "mtime": 1794379683.8903651,
-    "seen": 1794379766.9035182,
-    "ast_hash": "d97752d100767c66d906dfadf672b7b6",
+    "mtime": 1794381337.5826328,
+    "seen": 1794381364.4704216,
+    "ast_hash": "122adf204d2eecf7fccdc88dc1dcfa78",
     "semantic_hash": ""
   },
   "electron/main/aiApply.ts": {
@@ -78,9 +78,9 @@
     "semantic_hash": "8682bb8ead2f610ea451590cfc8a1e29"
   },
   "electron/main/index.ts": {
-    "mtime": 1794379703.9508839,
-    "seen": 1794379766.9035182,
-    "ast_hash": "ac8aadd124ced1ab877f10b1d688f107",
+    "mtime": 1794380726.9761977,
+    "seen": 1794381264.1975753,
+    "ast_hash": "d115f0c63556bdab28faf56d3cc0da1b",
     "semantic_hash": ""
   },
   "electron/main/pages.ts": {
@@ -114,9 +114,9 @@
     "semantic_hash": ""
   },
   "electron/preload/index.ts": {
-    "mtime": 1794379683.8903651,
-    "seen": 1794379766.9035182,
-    "ast_hash": "d86bc1d1ccec3da82983f821e1e9f85c",
+    "mtime": 1794380726.9337626,
+    "seen": 1794381264.1975753,
+    "ast_hash": "7338fe08ffe6a3b08f9277c66ca05488",
     "semantic_hash": ""
   },
   "package.json": {
@@ -132,9 +132,9 @@
     "semantic_hash": "9b82db47c190fdeee01dc76be975e11a"
   },
   "shared/ai.ts": {
-    "mtime": 1794379683.8903651,
-    "seen": 1794379766.9035182,
-    "ast_hash": "c21fc18bbecd8905a5b7c8c7dd286721",
+    "mtime": 1794380555.824896,
+    "seen": 1794381264.1975753,
+    "ast_hash": "7bfb95e63c92bf6b87fcb1ab01e29af0",
     "semantic_hash": ""
   },
   "shared/api.ts": {
@@ -162,9 +162,9 @@
     "semantic_hash": ""
   },
   "src/App.tsx": {
-    "mtime": 1794315346.3383217,
-    "seen": 1794315417.8876004,
-    "ast_hash": "36611705b085732afe650036724d64fa",
+    "mtime": 1794390791.4078617,
+    "seen": 1794390874.809339,
+    "ast_hash": "59e63ee7cbb62a82b9b4d89e59caa682",
     "semantic_hash": ""
   },
   "src/components/AIDesignImportDialog.tsx": {
@@ -174,9 +174,9 @@
     "semantic_hash": "93b52fb10b10fd95bd8f7aaea5680bda"
   },
   "src/components/AIPanel.tsx": {
-    "mtime": 1794379683.8903651,
-    "seen": 1794379766.9035182,
-    "ast_hash": "51f025d086573958f01dab91f81366ba",
+    "mtime": 1794382161.4248734,
+    "seen": 1794382191.6661947,
+    "ast_hash": "862e85a28e7178505ba312b6503c7514",
     "semantic_hash": ""
   },
   "src/components/AISidecar.tsx": {
@@ -204,9 +204,9 @@
     "semantic_hash": "b62124e7d5a751e922cac5cdb0d66c12"
   },
   "src/components/CanvasArea.tsx": {
-    "mtime": 1794379615.469275,
-    "seen": 1794379766.9035182,
-    "ast_hash": "74bb8182ab38a843d7397b49341161b4",
+    "mtime": 1794392349.6701493,
+    "seen": 1794392370.3431122,
+    "ast_hash": "faa6fe123d009e7124435cddcb556d2f",
     "semantic_hash": ""
   },
   "src/components/CommandPalette.tsx": {
@@ -360,9 +360,9 @@
     "semantic_hash": "a3266960ef60ad1129cd7ace4512b572"
   },
   "src/components/TopBar.tsx": {
-    "mtime": 1794322150.2387228,
-    "seen": 1794322190.663924,
-    "ast_hash": "d95d6124390c6376a5725b9517a3f84c",
+    "mtime": 1794391737.0976412,
+    "seen": 1794391774.5163753,
+    "ast_hash": "5f4a54fbef446aa773387b312854868c",
     "semantic_hash": ""
   },
   "src/components/VisualErrorCard.tsx": {
@@ -378,10 +378,10 @@
     "semantic_hash": ""
   },
   "src/components/WorkspaceView.tsx": {
-    "mtime": 1794280405.5124538,
-    "seen": 1794306757.313594,
-    "ast_hash": "235580afad751c3eb4e77956fa29dbf7",
-    "semantic_hash": "235580afad751c3eb4e77956fa29dbf7"
+    "mtime": 1794390828.2814593,
+    "seen": 1794390874.809339,
+    "ast_hash": "2f52d1ef50c60663e2311ec6b989800b",
+    "semantic_hash": ""
   },
   "src/data/toolbox.ts": {
     "mtime": 1793758586.0654778,
@@ -444,9 +444,9 @@
     "semantic_hash": ""
   },
   "src/lib/mock.ts": {
-    "mtime": 1794379683.8903651,
-    "seen": 1794379766.9035182,
-    "ast_hash": "f93fd91b5ee97c25f0728ff1b5f2ba73",
+    "mtime": 1794381083.2956104,
+    "seen": 1794381264.1975753,
+    "ast_hash": "21409674fa473758f0581acd034e364e",
     "semantic_hash": ""
   },
   "src/lib/supabase.ts": {
@@ -843,6 +843,12 @@
     "mtime": 1794323700.1756546,
     "seen": 1794324356.0448246,
     "ast_hash": "4735f275e7dd8b87b28b7822aa4aad1a",
+    "semantic_hash": ""
+  },
+  "src/lib/layoutPrefs.ts": {
+    "mtime": 1794390745.6354685,
+    "seen": 1794390874.809339,
+    "ast_hash": "d3f725921589d344934da655e8d95fa3",
     "semantic_hash": ""
   },
   "package-lock.json": {

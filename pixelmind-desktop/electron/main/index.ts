@@ -52,6 +52,8 @@ import {
   clearChatHistory,
   rewriteChatHistory,
   getChatHistory,
+  getConversations,
+  removeConversation,
   getStatus,
   listModels,
   startChat,
@@ -3039,12 +3041,24 @@ ipcMain.handle(
 
 ipcMain.handle('ai:cancel', async (_e, id: string) => cancelChat(id))
 
-ipcMain.handle('ai:chats:history', async (_e, projectId: string) => getChatHistory(projectId))
+ipcMain.handle('ai:chats:history', async (_e, projectId: string, conversationId?: string) =>
+  getChatHistory(projectId, conversationId),
+)
+
+ipcMain.handle('ai:chats:conversations', async (_e, projectId: string) =>
+  getConversations(projectId),
+)
 
 ipcMain.handle('ai:chats:clear', async (_e, projectId: string) => clearChatHistory(projectId))
 
-ipcMain.handle('ai:chats:rewrite', async (_e, projectId: string, entries: AiChatEntry[]) =>
-  rewriteChatHistory(projectId, entries),
+ipcMain.handle(
+  'ai:chats:rewrite',
+  async (_e, projectId: string, entries: AiChatEntry[], conversationId?: string) =>
+    rewriteChatHistory(projectId, entries, conversationId),
+)
+
+ipcMain.handle('ai:chats:remove', async (_e, projectId: string, conversationId: string) =>
+  removeConversation(projectId, conversationId),
 )
 
 ipcMain.handle('ai:context', async (_e, request: AiContextRequest) => {

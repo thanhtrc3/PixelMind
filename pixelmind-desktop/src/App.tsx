@@ -43,6 +43,7 @@ import { api, isDesktop } from './lib/bridge'
 import { applyThemeVariables } from './lib/theme'
 import { fileName } from './lib/format'
 import { editorBuffer } from './lib/editorBuffer'
+import { LAYOUT_KEYS, persistFlag, readStoredFlag } from './lib/layoutPrefs'
 import TitleBar from './components/TitleBar'
 import TopBar from './components/TopBar'
 import type { SidebarTab } from './components/WorkspaceSidebar'
@@ -87,9 +88,15 @@ const App = () => {
   const [view, setView] = useState<View>('projects')
   const [projectId, setProjectId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
-  const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(true)
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() =>
+    readStoredFlag(LAYOUT_KEYS.sidebar, true),
+  )
+  const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(() =>
+    readStoredFlag(LAYOUT_KEYS.bottomPanel, true),
+  )
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(() =>
+    readStoredFlag(LAYOUT_KEYS.rightPanel, true),
+  )
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('files')
 
   const [tree, setTree] = useState<FileNode[]>([])
@@ -115,7 +122,9 @@ const App = () => {
 
   const [dialog, setDialog] = useState<DialogId | null>(null)
   const [diagnosisOpen, setDiagnosisOpen] = useState(false)
-  const [aiPanelOpen, setAiPanelOpen] = useState(false)
+  const [aiPanelOpen, setAiPanelOpen] = useState(() =>
+    readStoredFlag(LAYOUT_KEYS.aiPanel, false),
+  )
   const [canvasReloadToken, setCanvasReloadToken] = useState(0)
   const [designOpen, setDesignOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
@@ -143,6 +152,13 @@ const App = () => {
   }
 
   const dismissToast = (id: number) => setToasts((prev) => prev.filter((item) => item.id !== id))
+
+  // Ghi nhớ trạng thái bố cục giữa các lần mở app.
+  // Chỉ lưu bố cục giao diện — canvas/máy chủ vẫn luôn khởi động ở trạng thái tắt.
+  useEffect(() => persistFlag(LAYOUT_KEYS.sidebar, isSidebarOpen), [isSidebarOpen])
+  useEffect(() => persistFlag(LAYOUT_KEYS.bottomPanel, isBottomPanelOpen), [isBottomPanelOpen])
+  useEffect(() => persistFlag(LAYOUT_KEYS.rightPanel, isRightPanelOpen), [isRightPanelOpen])
+  useEffect(() => persistFlag(LAYOUT_KEYS.aiPanel, aiPanelOpen), [aiPanelOpen])
 
   const settingsRef = useRef(settings)
   settingsRef.current = settings
@@ -980,6 +996,7 @@ const App = () => {
       } else if (mod && key === 'r') {
         event.preventDefault()
         void actionsRef.current.refreshProject()
+        window.dispatchEvent(new CustomEvent('pixelmind:reload-canvas'))
       } else if (event.key === 'F5') {
         event.preventDefault()
         if (event.shiftKey) void actionsRef.current.stopRun()
@@ -1379,6 +1396,8 @@ const App = () => {
         onPalette={() => setDialog('palette')}
         onRefresh={() => void refreshProject()}
         onTokens={() => setDialog('tokens')}
+        canvasUrl={view === 'workspace' ? (previewUrl ?? run?.url ?? null) : null}
+        onOpenPreview={(url) => void api.system.openExternal(url)}
         isSidebarOpen={isSidebarOpen}
         onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
         isBottomPanelOpen={isBottomPanelOpen}
