@@ -109,6 +109,65 @@ class EditorBufferManager {
   private undoRedoHandlers: Set<UndoRedoHandler> = new Set()
   /** Thế hệ tài liệu hiện tại của canvas (tăng mỗi khi iframe tải lại). */
   private documentEpoch = 0
+  private activeProjectPath: string | null = null
+  private autoSaveEnabled = true
+  private autoSaveDelayMs = 1500
+  private autoSaveTimer: number | null = null
+  private savingNow = false
+  private lastSavedAt: number | null = null
+
+  setProjectPath(projectPath: string | null) {
+    this.activeProjectPath = projectPath
+  }
+
+  setAutoSave(enabled: boolean, delayMs?: number) {
+    this.autoSaveEnabled = enabled
+    if (typeof delayMs === 'number' && delayMs >= 300) {
+      this.autoSaveDelayMs = delayMs
+    }
+    if (!enabled) {
+      this.clearAutoSaveTimer()
+    } else if (this.dirtyFiles.size > 0) {
+      this.scheduleAutoSave()
+    }
+    this.notify()
+  }
+
+  isAutoSaveEnabled(): boolean {
+    return this.autoSaveEnabled
+  }
+
+  isSaving(): boolean {
+    return this.savingNow
+  }
+
+  getLastSavedAt(): number | null {
+    return this.lastSavedAt
+  }
+
+  private clearAutoSaveTimer() {
+    if (this.autoSaveTimer !== null) {
+      window.clearTimeout(this.autoSaveTimer)
+      this.autoSaveTimer = null
+    }
+  }
+
+  private scheduleAutoSave() {
+    this.clearAutoSaveTimer()
+    if (!this.autoSaveEnabled || this.dirtyFiles.size === 0) return
+    this.autoSaveTimer = window.setTimeout(() => {
+      this.autoSaveTimer = null
+      if (this.autoSaveEnabled && this.dirtyFiles.size > 0) {
+        void this.saveAllDirtyFiles(undefined, 'auto-save')
+      }
+    }, this.autoSaveDelayMs)
+  }
+
+  /** Ép lưu ngay lập tức nếu đang bật Auto-Save và còn buffer chưa ghi (dùng khi rời trang). */
+  async flushAutoSave(): Promise<boolean> {
+    if (!this.autoSaveEnabled || this.dirtyFiles.size === 0) return true
+    return this.saveAllDirtyFiles(undefined, 'auto-save')
+  }
 
   setDocumentEpoch(epoch: number) {
     this.documentEpoch = epoch
@@ -190,6 +249,7 @@ class EditorBufferManager {
 
     this.rebuildDirtyFiles()
     this.notify()
+    this.scheduleAutoSave()
   }
 
   canUndo(): boolean {
@@ -246,6 +306,7 @@ class EditorBufferManager {
     // Tự động tái tính toán lại các thay đổi còn lại cho file mã nguồn
     this.rebuildDirtyFiles()
     this.notify()
+    this.scheduleAutoSave()
     return action
   }
 
@@ -285,6 +346,7 @@ class EditorBufferManager {
     // Tự động cập nhật lại các thay đổi cho file mã nguồn
     this.rebuildDirtyFiles()
     this.notify()
+    this.scheduleAutoSave()
     return action
   }
 
@@ -346,42 +408,61 @@ class EditorBufferManager {
     return done
   }
 
-  // ─── LƯU TOÀN BỘ FILE CHƯA LƯU XUỐNG Ổ CỨNG (CTRL+S HOẶC TRƯỚC KHI RUN F5) ───
-  async saveAllDirtyFiles(showToast?: (msg: string) => void): Promise<boolean> {
+  // ─── LƯU TOÀN BỘ FILE CHƯA LƯU XUỐNG Ổ CỨNG (CTRL+S HOẶC AUTO-SAVE / TRƯỚC KHI RUN F5) ───
+  async saveAllDirtyFiles(
+    showToast?: (msg: string) => void,
+    reason: 'auto-save' | 'manual-save' = 'manual-save',
+  ): Promise<boolean> {
+    this.clearAutoSaveTimer()
     if (this.dirtyFiles.size === 0) return true
+    if (this.savingNow) return true
+
+    this.savingNow = true
+    this.notify()
 
     let allOk = true
     const files = Array.from(this.dirtyFiles.values())
 
-    for (const info of files) {
-      try {
-        const res = await api.inspect.syncCode({
-          fullPath: info.fullPath,
-          oldText: info.oldText,
-          newText: info.newText,
-          styles: info.styles,
-          tagName: info.tagName,
-          lineNumber: info.lineNumber,
-        })
+    try {
+      for (const info of files) {
+        try {
+          const res = await api.inspect.syncCode({
+            fullPath: info.fullPath,
+            oldText: info.oldText,
+            newText: info.newText,
+            styles: info.styles,
+            tagName: info.tagName,
+            lineNumber: info.lineNumber,
+            projectPath: this.activeProjectPath || undefined,
+            backup: true,
+            reason,
+          })
 
-        if (res?.success) {
-          this.dirtyFiles.delete(info.filePath)
-          showToast?.(`💾 Đã lưu vĩnh viễn vào ${info.filePath}`)
-        } else {
+          if (res?.success) {
+            this.dirtyFiles.delete(info.filePath)
+            showToast?.(`💾 Đã lưu vào ${info.filePath}`)
+          } else {
+            allOk = false
+            showToast?.(`Lỗi khi lưu ${info.filePath}: ${res?.error || 'Không xác định'}`)
+          }
+        } catch {
           allOk = false
-          showToast?.(`Lỗi khi lưu ${info.filePath}: ${res?.error || 'Không xác định'}`)
+          showToast?.(`Lỗi khi lưu ${info.filePath}`)
         }
-      } catch (err) {
-        allOk = false
-        showToast?.(`Lỗi khi lưu ${info.filePath}`)
       }
+      if (allOk) {
+        this.lastSavedAt = Date.now()
+      }
+    } finally {
+      this.savingNow = false
+      this.notify()
     }
 
-    this.notify()
     return allOk
   }
 
   clearAll() {
+    this.clearAutoSaveTimer()
     this.undoStack = []
     this.redoStack = []
     this.dirtyFiles.clear()

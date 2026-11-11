@@ -780,6 +780,8 @@ const CanvasArea = ({
       if (target && (['INPUT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable)) {
         return
       }
+      // Chế độ Đa màn hình có bộ phím tắt riêng: không để phím tắt Canvas can thiệp.
+      if (isPageFlowOpen) return
       // Không xử lý phím tắt khi đang mở hộp thoại (diff, tokens, v.v.)
       const hasDialog = Boolean(document.querySelector('.pm-overlay'))
 
@@ -888,7 +890,7 @@ const CanvasArea = ({
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [isInspectMode, selectedEl, multiSelection.length, zoomToFit, showToast, sourceLoc?.fullPath, projectPath, pendingMutation])
+  }, [isInspectMode, selectedEl, multiSelection.length, zoomToFit, showToast, sourceLoc?.fullPath, projectPath, pendingMutation, isPageFlowOpen])
 
   // Xử lý zoom bằng bánh lăn chuột (Ctrl + Wheel)
   const handleWheel = (e: React.WheelEvent) => {
@@ -4477,7 +4479,7 @@ const CanvasArea = ({
       {/* ═══════════════════════════════════════════════
           HÀNG 1: THANH CÔNG CỤ ĐỈNH CANVAS
           ═══════════════════════════════════════════════ */}
-      {isToolbarCollapsed ? (
+      {!isPageFlowOpen && (isToolbarCollapsed ? (
         <div
           className="canvas__tools-collapsed"
           onClick={() => setIsToolbarCollapsed(false)}
@@ -4744,7 +4746,7 @@ const CanvasArea = ({
             <ChevronUp size={13} />
           </button>
         </div>
-      )}
+      ))}
       {/* ═══════════════════════════════════════════════
           THÂN CANVAS: BÊN TRÁI LÀ STAGE, BÊN PHẢI LÀ INSPECTOR SIDE PANEL
           ═══════════════════════════════════════════════ */}

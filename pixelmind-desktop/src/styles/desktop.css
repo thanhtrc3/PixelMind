@@ -941,12 +941,129 @@ body:has([data-separator='active']) * {
   background: #fff;
 }
 
-/* ── Bảng log ────────────────────────────────────────────── */
+/* ── Bảng log & Terminal (PTY) ───────────────────────────── */
 .pm-logs {
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--bg-inset);
+}
+.pm-logs__hd {
+  gap: 6px;
+}
+.pm-logs__tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pm-logs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration-fast) ease;
+}
+.pm-logs__tab:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+.pm-logs__tab.on {
+  color: var(--text);
+  background: var(--panel-3);
+  border-color: var(--line-2);
+}
+.pm-logs__badge {
+  padding: 0 5px;
+  height: 15px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 13px;
+}
+.pm-logs__err-chip {
+  font-size: 9.5px;
+  padding: 0 5px;
+  height: 15px;
+  line-height: 14px;
+}
+.pm-logs__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pm-logs__search {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  background: var(--panel-3);
+  color: var(--text-3);
+}
+.pm-logs__search input {
+  width: 110px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 10.5px;
+  outline: none;
+}
+.pm-logs__search-clr {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.pm-logs__filter-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 5px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.pm-logs__pill {
+  height: 18px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pm-logs__pill.on {
+  background: var(--panel-3);
+  color: var(--text);
+}
+.pm-logs__shell-select {
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  background: var(--panel-3);
+  color: var(--text-2);
+  font-size: 10.5px;
+  outline: none;
+  cursor: pointer;
 }
 .pm-logs__bd {
   flex: 1;
@@ -973,6 +1090,203 @@ body:has([data-separator='active']) * {
   color: var(--text-3);
   font-family: var(--font-sans);
   font-size: 11.5px;
+}
+
+/* ── Terminal tương tác thật (PTY + xterm.js) ───────────── */
+.pm-term {
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--bg-inset);
+}
+.pm-term__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  min-height: 28px;
+}
+.pm-term__tablist {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+}
+.pm-term__session {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-3);
+  font-size: 10.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pm-term__session.on {
+  background: var(--panel-3);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.pm-term__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+}
+.pm-term__dot.is-exited {
+  background: var(--text-3);
+}
+.pm-term__session-title {
+  font-weight: 600;
+}
+.pm-term__backend {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--text-3);
+}
+.pm-term__session-close {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.pm-term__session-close:hover {
+  background: var(--color-error-muted);
+  color: var(--err);
+}
+.pm-term__cwd {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-3);
+}
+.pm-term__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 6px 8px 2px;
+  overflow: hidden;
+}
+.pm-term__xterm-slot {
+  width: 100%;
+  height: 100%;
+}
+.pm-term__xterm-slot .xterm {
+  height: 100%;
+}
+.pm-term__empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.pm-term__cmdbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+.pm-term__prompt {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-text);
+  flex-shrink: 0;
+}
+.pm-term__cmdinput {
+  flex: 1;
+  min-width: 120px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  background: var(--bg-inset);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+}
+.pm-term__cmdinput:focus {
+  border-color: var(--accent);
+}
+.pm-term__snippets {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.pm-term__chip {
+  height: 21px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all var(--duration-fast) ease;
+}
+.pm-term__chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.pm-term__send {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pm-term__send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.pm-term__send:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+@media (max-width: 900px) {
+  .pm-term__snippets,
+  .pm-term__cwd {
+    display: none;
+  }
 }
 
 /* ── Cột phải: chạy + thông tin ──────────────────────────── */

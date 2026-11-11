@@ -224,6 +224,32 @@ const App = () => {
     }
   }, [settings.windowZoom])
 
+  // Nối cài đặt Auto-Save & thư mục dự án hiện tại vào EditorBuffer (timer + backup .pixelmind/backups/)
+  useEffect(() => {
+    editorBuffer.setAutoSave(settings.autoSave !== false)
+  }, [settings.autoSave])
+
+  useEffect(() => {
+    editorBuffer.setProjectPath(project?.path ?? null)
+  }, [project?.path])
+
+  useEffect(() => {
+    if (view !== 'workspace' && settings.autoSave !== false && editorBuffer.isDirty()) {
+      void editorBuffer.flushAutoSave()
+    }
+  }, [view, settings.autoSave])
+
+  const toggleAutoSave = () => {
+    const next = !(settings.autoSave !== false)
+    void updateSettings({ autoSave: next })
+    showToast(
+      'info',
+      next
+        ? 'Đã bật Auto-Save (tự lưu sau 1.5s & sao lưu .pixelmind/backups/)'
+        : 'Đã tắt Auto-Save (nhấn Ctrl+S khi cần lưu)',
+    )
+  }
+
   const updateSettings = async (patch: Partial<Settings>) => {
     setStoreData((prev) => ({ ...prev, settings: { ...prev.settings, ...patch } }))
     try {
@@ -1374,6 +1400,8 @@ const App = () => {
         onStop={() => void stopRun()}
         onRefresh={() => void refreshProject()}
         onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
+        autoSave={settings.autoSave !== false}
+        onToggleAutoSave={toggleAutoSave}
       />
 
       <TopBar

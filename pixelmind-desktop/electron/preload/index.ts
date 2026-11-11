@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
   AppInfo,
+  BackupSnapshot,
   DesignTokens,
   FileContent,
   FileNode,
@@ -15,6 +16,10 @@ import type {
   RunState,
   Settings,
   StoreData,
+  TerminalCreateOptions,
+  TerminalDataEvent,
+  TerminalExitEvent,
+  TerminalSession,
 } from '../../shared/types'
 import type { PixelMindApi } from '../../shared/api'
 import type {
@@ -101,7 +106,11 @@ const api: PixelMindApi = {
     tree: (root: string, showHidden = false): Promise<FileNode[]> =>
       ipcRenderer.invoke('fs:tree', root, showHidden),
     read: (path: string): Promise<FileContent> => ipcRenderer.invoke('fs:read', path),
-    write: (path: string, text: string): Promise<boolean> => ipcRenderer.invoke('fs:write', path, text),
+    write: (
+      path: string,
+      text: string,
+      options?: { projectPath?: string; backup?: boolean; reason?: BackupSnapshot['reason'] },
+    ): Promise<boolean> => ipcRenderer.invoke('fs:write', path, text, options),
     stat: (root: string): Promise<ProjectStat> => ipcRenderer.invoke('fs:stat', root),
     git: (root: string): Promise<string | null> => ipcRenderer.invoke('fs:git', root),
     showInFolder: (path: string): Promise<void> => ipcRenderer.invoke('fs:show', path),
@@ -159,6 +168,28 @@ const api: PixelMindApi = {
     },
   },
 
+  terminal: {
+    create: (options?: TerminalCreateOptions): Promise<TerminalSession> =>
+      ipcRenderer.invoke('terminal:create', options),
+    write: (sessionId: string, data: string): Promise<boolean> =>
+      ipcRenderer.invoke('terminal:write', sessionId, data),
+    resize: (sessionId: string, cols: number, rows: number): Promise<boolean> =>
+      ipcRenderer.invoke('terminal:resize', sessionId, cols, rows),
+    kill: (sessionId: string): Promise<boolean> => ipcRenderer.invoke('terminal:kill', sessionId),
+    killAll: (): Promise<boolean> => ipcRenderer.invoke('terminal:kill-all'),
+    list: (): Promise<TerminalSession[]> => ipcRenderer.invoke('terminal:list'),
+    onData: (cb: (event: TerminalDataEvent) => void) => {
+      const listener = (_e: IpcRendererEvent, event: TerminalDataEvent) => cb(event)
+      ipcRenderer.on('terminal:data', listener)
+      return () => ipcRenderer.removeListener('terminal:data', listener)
+    },
+    onExit: (cb: (event: TerminalExitEvent) => void) => {
+      const listener = (_e: IpcRendererEvent, event: TerminalExitEvent) => cb(event)
+      ipcRenderer.on('terminal:exit', listener)
+      return () => ipcRenderer.removeListener('terminal:exit', listener)
+    },
+  },
+
   system: {
     openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('shell:external', url),
     onMenuAction: (cb: (action: string) => void) => {
@@ -192,6 +223,9 @@ const api: PixelMindApi = {
       styles?: Record<string, string>
       tagName?: string
       lineNumber?: number
+      projectPath?: string
+      backup?: boolean
+      reason?: BackupSnapshot['reason']
     }) => ipcRenderer.invoke('inspect:sync-code', payload),
     syncNav: (payload: {
       projectPath: string
@@ -216,6 +250,17 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('toolbox:write-file', payload),
     scan: (projectPath: string): Promise<ProjectScanResult> =>
       ipcRenderer.invoke('toolbox:scan', projectPath),
+  },
+  snapshots: {
+    list: (projectPath: string): Promise<BackupSnapshot[]> =>
+      ipcRenderer.invoke('snapshot:list', projectPath),
+    restore: (
+      projectPath: string,
+      backupPath: string,
+      targetPath?: string,
+    ): Promise<{ success: boolean; path?: string; error?: string }> =>
+      ipcRenderer.invoke('snapshot:restore', projectPath, backupPath, targetPath),
+    clear: (projectPath: string): Promise<boolean> => ipcRenderer.invoke('snapshot:clear', projectPath),
   },
   ai: {
     status: (projectPath?: string) => ipcRenderer.invoke('ai:status', projectPath),

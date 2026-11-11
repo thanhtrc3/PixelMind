@@ -1,5 +1,6 @@
 import type {
   AppInfo,
+  BackupSnapshot,
   DesignTokens,
   FileContent,
   FileNode,
@@ -15,6 +16,10 @@ import type {
   RunState,
   Settings,
   StoreData,
+  TerminalCreateOptions,
+  TerminalDataEvent,
+  TerminalExitEvent,
+  TerminalSession,
 } from './types'
 import type {
   MutationPreview,
@@ -77,7 +82,7 @@ export interface PixelMindApi {
   fs: {
     tree(root: string, showHidden?: boolean): Promise<FileNode[]>
     read(path: string): Promise<FileContent>
-    write(path: string, text: string): Promise<boolean>
+    write(path: string, text: string, options?: { projectPath?: string; backup?: boolean; reason?: BackupSnapshot['reason'] }): Promise<boolean>
     stat(root: string): Promise<ProjectStat>
     git(root: string): Promise<string | null>
     showInFolder(path: string): Promise<void>
@@ -116,6 +121,16 @@ export interface PixelMindApi {
     onLog(cb: (log: RunLog) => void): () => void
     onState(cb: (state: RunState) => void): () => void
   }
+  terminal: {
+    create(options?: TerminalCreateOptions): Promise<TerminalSession>
+    write(sessionId: string, data: string): Promise<boolean>
+    resize(sessionId: string, cols: number, rows: number): Promise<boolean>
+    kill(sessionId: string): Promise<boolean>
+    killAll(): Promise<boolean>
+    list(): Promise<TerminalSession[]>
+    onData(cb: (event: TerminalDataEvent) => void): () => void
+    onExit(cb: (event: TerminalExitEvent) => void): () => void
+  }
   system: {
     openExternal(url: string): Promise<boolean>
     onMenuAction(cb: (action: string) => void): () => void
@@ -142,7 +157,10 @@ export interface PixelMindApi {
       styles?: Record<string, string>
       tagName?: string
       lineNumber?: number
-    }): Promise<{ success: boolean; error?: string; oldLine?: string; newLine?: string }>
+      projectPath?: string
+      backup?: boolean
+      reason?: BackupSnapshot['reason']
+    }): Promise<{ success: boolean; error?: string; oldLine?: string; newLine?: string; backupPath?: string }>
     syncNav(payload: {
       projectPath: string
       currentPath?: string
@@ -176,6 +194,15 @@ export interface PixelMindApi {
     writeFile(payload: ToolboxWritePayload): Promise<ToolboxWriteResult>
     /** Quét component / partial / class / asset / route của dự án. */
     scan(projectPath: string): Promise<ProjectScanResult>
+  }
+  snapshots: {
+    list(projectPath: string): Promise<BackupSnapshot[]>
+    restore(
+      projectPath: string,
+      backupPath: string,
+      targetPath?: string,
+    ): Promise<{ success: boolean; path?: string; error?: string }>
+    clear(projectPath: string): Promise<boolean>
   }
   ai: AiApi
   window?: {

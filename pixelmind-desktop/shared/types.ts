@@ -305,6 +305,52 @@ export interface RunLog {
   at: number
 }
 
+export type TerminalShell = 'auto' | 'powershell' | 'pwsh' | 'cmd' | 'bash'
+
+export interface TerminalCreateOptions {
+  projectId?: string
+  cwd?: string
+  cols?: number
+  rows?: number
+  shell?: TerminalShell
+  title?: string
+}
+
+export interface TerminalSession {
+  id: string
+  projectId?: string
+  title: string
+  shell: string
+  cwd: string
+  pid: number
+  cols: number
+  rows: number
+  backend: 'pty' | 'pipe'
+  startedAt: number
+}
+
+export interface TerminalDataEvent {
+  sessionId: string
+  data: string
+}
+
+export interface TerminalExitEvent {
+  sessionId: string
+  exitCode: number
+  signal?: number
+}
+
+export interface BackupSnapshot {
+  id: string
+  backupPath: string
+  fileName: string
+  originalPath: string
+  relativePath: string
+  size: number
+  createdAt: number
+  reason: 'auto-save' | 'manual-save' | 'toolbox' | 'code-sync'
+}
+
 export interface AppInfo {
   appVersion: string
   electron: string

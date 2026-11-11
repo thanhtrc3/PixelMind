@@ -454,12 +454,60 @@
   height: 100%;
 }
 
+.pm-titlebar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+  margin-left: auto;
+}
+
+.pm-titlebar__autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 120ms ease;
+  white-space: nowrap;
+}
+
+.pm-titlebar__autosave:hover {
+  border-color: var(--line-2);
+  color: var(--text);
+}
+
+.pm-titlebar__autosave.on {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.38);
+  color: #34d399;
+}
+
+.pm-titlebar__autosave.on.is-saving {
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(99, 102, 241, 0.45);
+  color: var(--accent-text);
+}
+
+.pm-titlebar__autosave-state {
+  padding-left: 4px;
+  border-left: 1px solid currentColor;
+  opacity: 0.9;
+  font-size: 10px;
+}
+
 .pm-titlebar__window-controls {
   display: flex;
   align-items: center;
   gap: 3px;
   -webkit-app-region: no-drag;
-  margin-left: auto;
   padding-right: 6px;
 }
 

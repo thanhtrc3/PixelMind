@@ -23,6 +23,8 @@ loader.config({ monaco })
 interface FileViewerProps {
   file: FileContent | null
   loading: boolean
+  projectPath?: string
+  autoSave?: boolean
   onOpenExternal: (path: string) => void
   onShowInFolder: (path: string) => void
   onShowToast?: (kind: 'ok' | 'err' | 'info', text: string) => void
@@ -80,6 +82,8 @@ const getMonacoLanguage = (ext: string): string => {
 const FileViewer = ({
   file,
   loading,
+  projectPath,
+  autoSave = true,
   onOpenExternal,
   onShowInFolder,
   onShowToast,
@@ -87,6 +91,7 @@ const FileViewer = ({
   const [code, setCode] = useState('')
   const [isDirty, setIsDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
   const [wordWrap, setWordWrap] = useState<'on' | 'off'>('on')
   const [theme, setTheme] = useState<'vs-dark' | 'vs'>('vs-dark')
@@ -94,7 +99,14 @@ const FileViewer = ({
 
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const monacoInstanceRef = useRef<typeof monaco | null>(null)
-  const handleSaveRef = useRef<() => Promise<void>>(async () => {})
+  const handleSaveRef = useRef<(silent?: boolean) => Promise<void>>(async () => {})
+  const autoSaveTimerRef = useRef<number | null>(null)
+  const activeFileRef = useRef<FileContent | null>(file)
+  const dirtyRef = useRef(false)
+  const codeRef = useRef('')
+
+  dirtyRef.current = isDirty
+  codeRef.current = code
 
   // Theo dõi theme của PixelMind qua data-theme trên thẻ html
   useEffect(() => {
@@ -108,36 +120,93 @@ const FileViewer = ({
     return () => observer.disconnect()
   }, [])
 
-  // Đồng bộ nội dung khi chuyển sang file khác
+  // Đồng bộ nội dung khi chuyển sang file khác (tự lưu file trước đó nếu Auto-Save đang bật)
   useEffect(() => {
+    const prevFile = activeFileRef.current
+    if (
+      prevFile &&
+      !prevFile.binary &&
+      prevFile.path !== file?.path &&
+      dirtyRef.current &&
+      autoSave
+    ) {
+      const pendingCode = codeRef.current
+      if (pendingCode !== (prevFile.text ?? '')) {
+        prevFile.text = pendingCode
+        void api.fs.write(prevFile.path, pendingCode, {
+          projectPath,
+          backup: true,
+          reason: 'auto-save',
+        })
+      }
+    }
+    if (autoSaveTimerRef.current !== null) {
+      window.clearTimeout(autoSaveTimerRef.current)
+      autoSaveTimerRef.current = null
+    }
+    activeFileRef.current = file
+
     if (file && !file.binary) {
       setCode(file.text || '')
       setIsDirty(false)
+      setLastAutoSavedAt(null)
     } else {
       setCode('')
       setIsDirty(false)
+      setLastAutoSavedAt(null)
     }
     setCursorPos({ ln: 1, col: 1, selected: 0 })
-  }, [file?.path, file?.text, file?.binary])
+  }, [file?.path, file?.text, file?.binary, autoSave, projectPath])
 
-  // Lưu file thật sự xuống đĩa (Ctrl+S / nút Lưu)
-  const handleSave = async () => {
+  // Lưu file thật sự xuống đĩa (Ctrl+S / nút Lưu / Auto-Save kèm snapshot .pixelmind/backups/)
+  const handleSave = async (silent = false) => {
     if (!file || saving) return
+    if (autoSaveTimerRef.current !== null) {
+      window.clearTimeout(autoSaveTimerRef.current)
+      autoSaveTimerRef.current = null
+    }
     setSaving(true)
     try {
       // Lấy nội dung mới nhất từ editor nếu có
       const currentCode = editorRef.current ? editorRef.current.getValue() : code
-      await api.fs.write(file.path, currentCode)
+      await api.fs.write(file.path, currentCode, {
+        projectPath,
+        backup: true,
+        reason: silent ? 'auto-save' : 'manual-save',
+      })
       file.text = currentCode
       setCode(currentCode)
       setIsDirty(false)
-      onShowToast?.('ok', `Đã lưu tệp ${file.name} xuống đĩa thành công!`)
+      if (silent) {
+        setLastAutoSavedAt(Date.now())
+      } else {
+        setLastAutoSavedAt(null)
+        onShowToast?.('ok', `Đã lưu tệp ${file.name} xuống đĩa thành công!`)
+      }
     } catch (err: any) {
       onShowToast?.('err', `Lỗi khi lưu tệp: ${err?.message || ''}`)
     } finally {
       setSaving(false)
     }
   }
+
+  // Tự động lưu theo timer (1.5s sau khi dừng gõ) khi bật Auto-Save
+  useEffect(() => {
+    if (!autoSave || !isDirty || !file || file.binary || saving) return
+    if (autoSaveTimerRef.current !== null) {
+      window.clearTimeout(autoSaveTimerRef.current)
+    }
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      autoSaveTimerRef.current = null
+      void handleSaveRef.current(true)
+    }, 1500)
+    return () => {
+      if (autoSaveTimerRef.current !== null) {
+        window.clearTimeout(autoSaveTimerRef.current)
+        autoSaveTimerRef.current = null
+      }
+    }
+  }, [autoSave, isDirty, code, file?.path, file?.binary, saving])
 
   // Cập nhật ref để phím tắt trong monaco luôn gọi phiên bản mới nhất của handleSave
   handleSaveRef.current = handleSave
@@ -252,7 +321,7 @@ const FileViewer = ({
 
         {isDirty ? (
           <span className="pm-viewer__dirty-badge" title="Tệp đã chỉnh sửa, bấm Ctrl+S để lưu">
-            ● Chưa lưu
+            ● {autoSave ? 'Chưa lưu (sẽ tự lưu)' : 'Chưa lưu'}
           </span>
         ) : (
           <span
@@ -264,7 +333,9 @@ const FileViewer = ({
               gap: 3,
             }}
           >
-            ✓ Đã lưu
+            {lastAutoSavedAt
+              ? `✓ Tự động lưu lúc ${new Date(lastAutoSavedAt).toLocaleTimeString('vi-VN')}`
+              : '✓ Đã lưu'}
           </span>
         )}
 

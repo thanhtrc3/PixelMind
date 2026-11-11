@@ -7,6 +7,9 @@ import type {
   RunLog,
   RunState,
   Settings,
+  TerminalDataEvent,
+  TerminalExitEvent,
+  TerminalSession,
 } from '@shared/types'
 import type {
   AiChange,
@@ -236,6 +239,9 @@ const writeProjects = (projects: ProjectRecord[]) => {
 export function createBrowserMock(): PixelMindApi {
   const logListeners = new Set<(log: RunLog) => void>()
   const stateListeners = new Set<(state: RunState) => void>()
+  const terminalDataListeners = new Set<(event: TerminalDataEvent) => void>()
+  const terminalExitListeners = new Set<(event: TerminalExitEvent) => void>()
+  const terminalSessions = new Map<string, { session: TerminalSession; line: string }>()
   let currentRun: RunState | null = null
   const timers: number[] = []
   const aiEventListeners = new Set<(event: AiChatEvent) => void>()
@@ -633,6 +639,113 @@ export function createBrowserMock(): PixelMindApi {
         return () => stateListeners.delete(cb)
       },
     },
+    terminal: {
+      async create(options) {
+        const id = `mock-term-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+        const cwd = options?.cwd || DEMO_ROOT
+        const session: TerminalSession = {
+          id,
+          projectId: options?.projectId,
+          title: options?.title || 'Shell (Mô phỏng)',
+          shell: options?.shell || 'powershell',
+          cwd,
+          pid: Math.floor(1000 + Math.random() * 9000),
+          cols: options?.cols ?? 96,
+          rows: options?.rows ?? 18,
+          backend: 'pty',
+          startedAt: Date.now(),
+        }
+        terminalSessions.set(id, { session, line: '' })
+        window.setTimeout(() => {
+          const banner =
+            `\x1b[36mPixelMind Web Terminal (chế độ mô phỏng trình duyệt)\x1b[0m\r\n` +
+            `\x1b[90mGõ "help" để xem các lệnh hỗ trợ hoặc mở bản desktop để dùng PTY thật.\x1b[0m\r\n\r\n` +
+            `\x1b[32mPS ${cwd}>\x1b[0m `
+          terminalDataListeners.forEach((cb) => cb({ sessionId: id, data: banner }))
+        }, 30)
+        return session
+      },
+      async write(sessionId, data) {
+        const entry = terminalSessions.get(sessionId)
+        if (!entry) return false
+        const emit = (out: string) =>
+          terminalDataListeners.forEach((cb) => cb({ sessionId, data: out }))
+        const prompt = `\x1b[32mPS ${entry.session.cwd}>\x1b[0m `
+
+        for (const ch of data) {
+          if (ch === '\x03') {
+            entry.line = ''
+            emit(`^C\r\n${prompt}`)
+          } else if (ch === '\r' || ch === '\n') {
+            const cmd = entry.line.trim()
+            entry.line = ''
+            emit('\r\n')
+            if (cmd === 'cls' || cmd === 'clear') {
+              emit('\x1b[2J\x1b[H' + prompt)
+            } else if (cmd === 'help') {
+              emit('Lệnh thử: help, pwd, ls, dir, git status, echo <text>, clear, exit\r\n' + prompt)
+            } else if (cmd === 'pwd') {
+              emit(`${entry.session.cwd}\r\n${prompt}`)
+            } else if (cmd === 'ls' || cmd === 'dir') {
+              emit('src/  public/  index.html  package.json  README.md  vite.config.ts\r\n' + prompt)
+            } else if (cmd === 'git status') {
+              emit('On branch main\r\nnothing to commit, working tree clean\r\n' + prompt)
+            } else if (cmd.startsWith('echo ')) {
+              emit(`${cmd.slice(5)}\r\n${prompt}`)
+            } else if (cmd === 'exit') {
+              terminalSessions.delete(sessionId)
+              terminalExitListeners.forEach((cb) => cb({ sessionId, exitCode: 0 }))
+              return true
+            } else if (cmd) {
+              emit(`\x1b[33m[Mô phỏng]\x1b[0m Đã nhận lệnh "${cmd}". Chạy app desktop để thực thi shell thật.\r\n${prompt}`)
+            } else {
+              emit(prompt)
+            }
+          } else if (ch === '\x7f' || ch === '\b') {
+            if (entry.line.length > 0) {
+              entry.line = entry.line.slice(0, -1)
+              emit('\b \b')
+            }
+          } else {
+            entry.line += ch
+            emit(ch)
+          }
+        }
+        return true
+      },
+      async resize(sessionId, cols, rows) {
+        const entry = terminalSessions.get(sessionId)
+        if (!entry) return false
+        entry.session.cols = cols
+        entry.session.rows = rows
+        return true
+      },
+      async kill(sessionId) {
+        const existed = terminalSessions.delete(sessionId)
+        if (existed) {
+          terminalExitListeners.forEach((cb) => cb({ sessionId, exitCode: 0 }))
+        }
+        return existed
+      },
+      async killAll() {
+        for (const sessionId of [...terminalSessions.keys()]) {
+          terminalSessions.delete(sessionId)
+          terminalExitListeners.forEach((cb) => cb({ sessionId, exitCode: 0 }))
+        }
+        return true
+      },
+      async list() {
+        return [...terminalSessions.values()].map((item) => item.session)
+      },
+      onData(cb) {
+        terminalDataListeners.add(cb)
+        return () => terminalDataListeners.delete(cb)
+      },
+      onExit(cb) {
+        terminalExitListeners.add(cb)
+        return () => terminalExitListeners.delete(cb)
+      },
+    },
     inspect: {
       async setMode(_enabled) {
         return true
@@ -686,6 +799,17 @@ export function createBrowserMock(): PixelMindApi {
           assets: [],
           routes: [],
         }
+      },
+    },
+    snapshots: {
+      async list(_projectPath) {
+        return []
+      },
+      async restore(_projectPath, _backupPath, targetPath) {
+        return { success: true, path: targetPath || 'src/App.tsx' }
+      },
+      async clear(_projectPath) {
+        return true
       },
     },
     ai: {

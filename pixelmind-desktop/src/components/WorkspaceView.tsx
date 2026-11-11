@@ -590,6 +590,8 @@ const WorkspaceView = ({
                     <FileViewer
                       file={file}
                       loading={fileLoading}
+                      projectPath={project?.path}
+                      autoSave={settings.autoSave !== false}
                       onOpenExternal={onOpenFileExternal}
                       onShowInFolder={onShowInFolder}
                       onShowToast={onShowToast}
@@ -620,6 +622,8 @@ const WorkspaceView = ({
                   <LogPanel
                     logs={logs}
                     run={run}
+                    projectId={project?.id}
+                    projectPath={project?.path}
                     installing={installing}
                     onInstall={onInstall}
                     onRetry={onRun}

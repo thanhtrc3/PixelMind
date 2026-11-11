@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { Minus, Square, X } from 'lucide-react'
+import { Check, Loader2, Minus, Save, Square, X } from 'lucide-react'
 import { api, isDesktop } from '../lib/bridge'
+import { editorBuffer } from '../lib/editorBuffer'
 import type { ProjectRecord } from '@shared/types'
 import AtomLogo from './AtomLogo'
 
@@ -23,6 +24,8 @@ interface TitleBarProps {
   onStop: () => void
   onRefresh: () => void
   onToggleSidebar?: () => void
+  autoSave?: boolean
+  onToggleAutoSave?: () => void
 }
 
 interface MenuDef {
@@ -42,10 +45,23 @@ const TitleBar = ({
   onStop,
   onRefresh,
   onToggleSidebar,
+  autoSave = true,
+  onToggleAutoSave,
 }: TitleBarProps) => {
   const [activeHtmlMenu, setActiveHtmlMenu] = useState<number | null>(null)
   const [isMaximized, setIsMaximized] = useState(false)
+  const [isSavingBuffer, setIsSavingBuffer] = useState(editorBuffer.isSaving())
+  const [dirtyCount, setDirtyCount] = useState(editorBuffer.getDirtyFileCount())
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(editorBuffer.getLastSavedAt())
   const menuButtonsRef = useRef<(HTMLButtonElement | null)[]>([])
+
+  useEffect(() => {
+    return editorBuffer.subscribe(() => {
+      setIsSavingBuffer(editorBuffer.isSaving())
+      setDirtyCount(editorBuffer.getDirtyFileCount())
+      setLastSavedAt(editorBuffer.getLastSavedAt())
+    })
+  }, [])
 
   useEffect(() => {
     const updateMaxState = () => {
@@ -214,8 +230,50 @@ const TitleBar = ({
         {project ? <span>{project.name}</span> : null}
       </div>
 
-      {/* ── 4. Cụm nút điều khiển cửa sổ đồng bộ 100% phong cách với Menu Bar bên trái ── */}
-      <div className="pm-titlebar__window-controls">
+      {/* ── 4. Nút bật/tắt Auto-Save ngay trên TitleBar & điều khiển cửa sổ ── */}
+      <div className="pm-titlebar__right">
+        {onToggleAutoSave && (
+          <button
+            type="button"
+            className={`pm-titlebar__autosave ${autoSave ? 'on' : 'off'} ${
+              isSavingBuffer ? 'is-saving' : ''
+            }`}
+            onClick={onToggleAutoSave}
+            title={
+              autoSave
+                ? `Auto-Save đang BẬT (tự lưu sau 1.5s vào tệp + backup .pixelmind/backups/)${
+                    lastSavedAt
+                      ? ` · Lần lưu gần nhất: ${new Date(lastSavedAt).toLocaleTimeString('vi-VN')}`
+                      : ''
+                  }\nNhấp để tắt Auto-Save`
+                : `Auto-Save đang TẮT${
+                    dirtyCount > 0 ? ` · Còn ${dirtyCount} tệp chưa lưu (bấm Ctrl+S)` : ''
+                  }\nNhấp để bật Auto-Save`
+            }
+            aria-pressed={autoSave}
+            aria-label="Bật hoặc tắt Auto-Save"
+          >
+            {isSavingBuffer ? (
+              <Loader2 size={11} className="spin" />
+            ) : autoSave ? (
+              <Check size={11} />
+            ) : (
+              <Save size={11} />
+            )}
+            <span>Auto Save</span>
+            <span className="pm-titlebar__autosave-state">
+              {isSavingBuffer
+                ? 'Đang lưu…'
+                : autoSave
+                  ? 'Bật'
+                  : dirtyCount > 0
+                    ? `Tắt (${dirtyCount}*)`
+                    : 'Tắt'}
+            </span>
+          </button>
+        )}
+
+        <div className="pm-titlebar__window-controls">
         <button
           className="pm-win-btn"
           onClick={() => api.window?.minimize()}
@@ -240,6 +298,7 @@ const TitleBar = ({
         >
           <X size={13} strokeWidth={2.2} />
         </button>
+        </div>
       </div>
     </div>
   )

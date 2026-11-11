@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Activity,
   ArrowUpRight,
   Compass,
+  Crosshair,
+  Eye,
   LayoutGrid,
   Link2,
   Maximize2,
+  Pause,
+  Play,
+  Plus,
   RefreshCw,
+  RotateCcw,
   Search,
+  SlidersHorizontal,
+  Trash2,
   X,
+  Zap,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
@@ -131,6 +141,174 @@ interface HistoryEntry {
   codeReverts?: CodeRevert[]
 }
 
+/* ── Prototype: sự kiện → hành động (Event / State Machine) ── */
+type PrototypeTrigger =
+  | 'click'
+  | 'dblclick'
+  | 'hover'
+  | 'mouseleave'
+  | 'longpress'
+  | 'contextmenu'
+  | 'focus'
+  | 'blur'
+  | 'scroll'
+  | 'timer'
+  | 'keypress'
+
+type PrototypeActionType =
+  | 'focus'
+  | 'flash'
+  | 'toggle'
+  | 'open'
+  | 'back'
+  | 'highlight_wire'
+  | 'pulse_target'
+  | 'scroll_top'
+  | 'reload'
+  | 'toast'
+
+interface PrototypeInteraction {
+  id: string
+  /** Cửa sổ chứa phần tử nguồn. */
+  parentId: string
+  /** Cửa sổ đích của hành động. */
+  targetId: string
+  /** ID dây nối gắn kèm (nếu tạo trực tiếp từ chuột phải dây). */
+  wireId?: string
+  anchorKey?: string
+  source: WireSource
+  trigger: PrototypeTrigger
+  action: PrototypeActionType
+  enabled: boolean
+  /** Giới hạn số lần chạy tối đa (0 = không giới hạn). */
+  maxRuns: number
+  /** Khoảng nghỉ giữa 2 lần chạy (giây), hoặc chu kỳ lặp đối với trigger Timer. */
+  intervalSec: number
+  /** Độ trễ trước khi thực thi hành động (giây). */
+  delaySec: number
+  /** Phím kích hoạt khi trigger === 'keypress'. */
+  triggerKey?: string
+  /** Thông báo tuỳ chỉnh khi action === 'toast'. */
+  toastText?: string
+}
+
+interface PrototypeEventLog {
+  id: string
+  time: string
+  message: string
+  kind: 'run' | 'skip' | 'done'
+}
+
+const PROTOTYPE_TRIGGERS: Array<{ key: PrototypeTrigger; label: string; hint?: string }> = [
+  { key: 'click', label: 'Nhấp chuột (Click)' },
+  { key: 'dblclick', label: 'Nhấp đúp (Double Click)' },
+  { key: 'hover', label: 'Rê chuột vào (Hover)' },
+  { key: 'mouseleave', label: 'Rời chuột ra (Mouse Leave)' },
+  { key: 'longpress', label: 'Nhấn giữ (Long Press 0.5s)' },
+  { key: 'contextmenu', label: 'Chuột phải phần tử (Right Click)' },
+  { key: 'focus', label: 'Nhận tiêu điểm (Focus)' },
+  { key: 'blur', label: 'Mất tiêu điểm (Blur)' },
+  { key: 'scroll', label: 'Cuộn vào vùng nhìn (Scroll)' },
+  { key: 'timer', label: 'Tự động theo chu kỳ (Timer)' },
+  { key: 'keypress', label: 'Nhấn phím tắt (Key Press)' },
+]
+
+const PROTOTYPE_ACTIONS: Array<{ key: PrototypeActionType; label: string }> = [
+  { key: 'focus', label: 'Chuyển góc nhìn tới đích' },
+  { key: 'flash', label: 'Nhấp nháy cửa sổ đích' },
+  { key: 'toggle', label: 'Ẩn/Hiện cửa sổ đích' },
+  { key: 'open', label: 'Mở toàn màn hình trang đích' },
+  { key: 'back', label: 'Quay lại trang trước đó' },
+  { key: 'highlight_wire', label: 'Phát sáng luồng dây dẫn' },
+  { key: 'pulse_target', label: 'Nháy phần tử nguồn' },
+  { key: 'scroll_top', label: 'Cuộn trang đích lên đầu' },
+  { key: 'reload', label: 'Tải lại trang đích' },
+  { key: 'toast', label: 'Hiện thông báo xem trước' },
+]
+
+function loadPrototypeInteractions(storageKey: string): PrototypeInteraction[] {
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap<PrototypeInteraction>((item) => {
+      const row = item as Partial<PrototypeInteraction>
+      if (
+        !row ||
+        typeof row.id !== 'string' ||
+        typeof row.parentId !== 'string' ||
+        typeof row.targetId !== 'string' ||
+        !PROTOTYPE_TRIGGERS.some((t) => t.key === row.trigger) ||
+        !PROTOTYPE_ACTIONS.some((a) => a.key === row.action)
+      ) {
+        return []
+      }
+      return [
+        {
+          id: row.id,
+          parentId: row.parentId,
+          targetId: row.targetId,
+          wireId: typeof row.wireId === 'string' ? row.wireId : undefined,
+          anchorKey: row.anchorKey,
+          source: row.source ?? {},
+          trigger: row.trigger as PrototypeTrigger,
+          action: row.action as PrototypeActionType,
+          enabled: row.enabled !== false,
+          maxRuns: typeof row.maxRuns === 'number' && row.maxRuns >= 0 ? row.maxRuns : 0,
+          intervalSec:
+            typeof row.intervalSec === 'number' && row.intervalSec >= 0 ? row.intervalSec : 0,
+          delaySec: typeof row.delaySec === 'number' && row.delaySec >= 0 ? row.delaySec : 0,
+          triggerKey: typeof row.triggerKey === 'string' ? row.triggerKey : undefined,
+          toastText: typeof row.toastText === 'string' ? row.toastText : undefined,
+        },
+      ]
+    })
+  } catch {
+    return []
+  }
+}
+
+/** Tìm lại đúng phần tử nguồn trong iframe từ thông tin đã lưu. */
+function findPrototypeElement(
+  doc: Document,
+  matched: Map<string, { childId: string; parentId: string; el: HTMLElement }>,
+  interaction: PrototypeInteraction
+): HTMLElement | null {
+  const matchedEl = interaction.anchorKey ? matched.get(interaction.anchorKey)?.el : null
+  if (matchedEl) return matchedEl
+
+  if (interaction.source.elementId) {
+    const byId = doc.getElementById(interaction.source.elementId)
+    if (byId) return byId
+  }
+
+  const text = (interaction.source.text || '').trim().toLowerCase()
+  if (!text) return null
+  const candidates = Array.from(
+    doc.querySelectorAll<HTMLElement>('a, button, [role="button"], [data-route], [onclick]')
+  )
+  return (
+    candidates.find((el) => (el.textContent || '').trim().toLowerCase() === text) || null
+  )
+}
+
+/** Tìm tương tác click khớp với phần tử vừa bấm trong iframe. */
+function findPrototypeClick(
+  doc: Document,
+  matched: Map<string, { childId: string; parentId: string; el: HTMLElement }>,
+  interactions: PrototypeInteraction[],
+  winId: string,
+  target: HTMLElement
+): PrototypeInteraction | null {
+  for (const interaction of interactions) {
+    if (!interaction.enabled || interaction.parentId !== winId || interaction.trigger !== 'click') continue
+    const el = findPrototypeElement(doc, matched, interaction)
+    if (el && (el === target || el.contains(target) || target.contains(el))) return interaction
+  }
+  return null
+}
+
 /** Dựng hình học dây nối từ tâm nút bấm thực tế trên trang cha tới cửa sổ đích. */
 function computeWireShape(parentWin: CanvasWin, targetWin: CanvasWin, anchor: DetectedAnchor): WireShape | null {
   const isClipped = Boolean(anchor.isClipped)
@@ -223,7 +401,8 @@ type LayoutMode = 'cluster' | 'rings'
 
 const normalizeRoute = (route: string) => {
   const value = (route || '/').trim() || '/'
-  return value.length > 1 ? value.replace(/\/+$/, '') : '/'
+  const collapsed = value.replace(/\/{2,}/g, '/')
+  return collapsed.length > 1 ? collapsed.replace(/\/+$/, '') : '/'
 }
 
 /** Chuẩn hoá route để các mục trang cùng một đích chỉ chiếm một cửa sổ trên bản đồ. */
@@ -822,8 +1001,111 @@ export default function MultiPageCanvas({
   const [isDraggingWin, setIsDraggingWin] = useState(false)
   const maxZRef = useRef(10)
   const [activeWinId, setActiveWinId] = useState<string | null>(null)
+  const [navHistory, setNavHistory] = useState<string[]>([])
+  const navHistoryRef = useRef<string[]>([])
+  const currentWinIdRef = useRef<string | null>(null)
+  const [lastReachedWinId, setLastReachedWinId] = useState<string | null>(null)
   const [hoveredWinId, setHoveredWinId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+
+  // ─── Prototype Editor (mở khi chuột phải vào dây) & Kiểm soát sự kiện ───
+  const prototypeStorageKey = useMemo(
+    () => `pm.prototype:${projectPath || projectName}`,
+    [projectPath, projectName]
+  )
+  const [interactions, setInteractions] = useState<PrototypeInteraction[]>(() =>
+    loadPrototypeInteractions(`pm.prototype:${projectPath || projectName}`)
+  )
+  const [wireProtoTarget, setWireProtoTarget] = useState<{
+    wireId: string
+    sourceKey: string
+    parentId: string
+    parentTitle: string
+    targetId: string
+    targetTitle: string
+    label: string
+    source: WireSource
+    anchorKey?: string
+  } | null>(null)
+  const [showEventController, setShowEventController] = useState(false)
+  const [prototypeRunning, setPrototypeRunning] = useState(true)
+  const [hiddenWinIds, setHiddenWinIds] = useState<Set<string>>(() => new Set())
+  const [flashWinId, setFlashWinId] = useState<string | null>(null)
+  const [flashWireId, setFlashWireId] = useState<string | null>(null)
+  const [protoToast, setProtoToast] = useState<string | null>(null)
+  const [draftTargetId, setDraftTargetId] = useState('')
+  const [draftTrigger, setDraftTrigger] = useState<PrototypeTrigger>('click')
+  const [draftAction, setDraftAction] = useState<PrototypeActionType>('focus')
+  const [draftMaxRuns, setDraftMaxRuns] = useState<number>(1)
+  const [draftIntervalSec, setDraftIntervalSec] = useState<number>(0)
+  const [draftDelaySec, setDraftDelaySec] = useState<number>(0)
+  const [draftTriggerKey, setDraftTriggerKey] = useState<string>('Enter')
+  const [draftToastText, setDraftToastText] = useState<string>('')
+  const [batchMaxRuns, setBatchMaxRuns] = useState<number>(1)
+  const [batchIntervalSec, setBatchIntervalSec] = useState<number>(2)
+  const [batchDelaySec, setBatchDelaySec] = useState<number>(0)
+  const [runCounts, setRunCounts] = useState<Record<string, number>>({})
+  const [eventLogs, setEventLogs] = useState<PrototypeEventLog[]>([])
+
+  const interactionsRef = useRef<PrototypeInteraction[]>(interactions)
+  const prototypeRunningRef = useRef(prototypeRunning)
+  const prototypeBindingsRef = useRef<Map<string, () => void>>(new Map())
+  const flashTimerRef = useRef<number | null>(null)
+  const flashWireTimerRef = useRef<number | null>(null)
+  const protoToastTimerRef = useRef<number | null>(null)
+  const runCountsRef = useRef<Record<string, number>>({})
+  const lastRunAtRef = useRef<Record<string, number>>({})
+  const pendingTimersRef = useRef<Set<number>>(new Set())
+  const executePrototypeActionRef = useRef<(interaction: PrototypeInteraction) => void>(() => {})
+  const triggerPrototypeInteractionRef = useRef<
+    (interaction: PrototypeInteraction, bypassLimits?: boolean) => void
+  >(() => {})
+
+  const appendEventLog = useCallback(
+    (message: string, kind: PrototypeEventLog['kind'] = 'run') => {
+      const time = new Date().toLocaleTimeString('vi-VN', { hour12: false })
+      setEventLogs((prev) => [
+        { id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, time, message, kind },
+        ...prev.slice(0, 14),
+      ])
+    },
+    []
+  )
+
+  // Nạp lại cấu hình khi đổi dự án
+  const prototypeKeyRef = useRef(prototypeStorageKey)
+  useEffect(() => {
+    if (prototypeKeyRef.current === prototypeStorageKey) return
+    prototypeKeyRef.current = prototypeStorageKey
+    setInteractions(loadPrototypeInteractions(prototypeStorageKey))
+    runCountsRef.current = {}
+    lastRunAtRef.current = {}
+    setRunCounts({})
+    setEventLogs([])
+  }, [prototypeStorageKey])
+
+  // Lưu cấu hình Prototype của từng dự án
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(prototypeStorageKey, JSON.stringify(interactions))
+    } catch {
+      // Bỏ qua khi localStorage bị chặn
+    }
+  }, [prototypeStorageKey, interactions])
+
+  // Dọn listener/iframe và timer khi đóng chế độ
+  useEffect(
+    () => () => {
+      prototypeBindingsRef.current.forEach((cleanup) => cleanup())
+      prototypeBindingsRef.current.clear()
+      pendingTimersRef.current.forEach((timerId) => window.clearTimeout(timerId))
+      pendingTimersRef.current.clear()
+      if (flashTimerRef.current !== null) window.clearTimeout(flashTimerRef.current)
+      if (flashWireTimerRef.current !== null) window.clearTimeout(flashWireTimerRef.current)
+      if (protoToastTimerRef.current !== null) window.clearTimeout(protoToastTimerRef.current)
+    },
+    []
+  )
 
   // Dây nối thủ công, các dây tự động đã bị xoá và trạng thái chọn dây
   const [manualWires, setManualWires] = useState<ManualWire[]>([])
@@ -1017,6 +1299,16 @@ export default function MultiPageCanvas({
           e.stopPropagation()
           return
         }
+        if (wireProtoTarget && !isTyping) {
+          setWireProtoTarget(null)
+          e.stopPropagation()
+          return
+        }
+        if (showEventController && !isTyping) {
+          setShowEventController(false)
+          e.stopPropagation()
+          return
+        }
         if (selectedWireId) {
           setSelectedWireId(null)
           e.stopPropagation()
@@ -1035,7 +1327,16 @@ export default function MultiPageCanvas({
     }
     window.addEventListener('keydown', handleKey, true)
     return () => window.removeEventListener('keydown', handleKey, true)
-  }, [onClose, isConnectMode, connectDrag, selectedWireId, deleteWire, undo])
+  }, [
+    onClose,
+    isConnectMode,
+    connectDrag,
+    selectedWireId,
+    deleteWire,
+    undo,
+    wireProtoTarget,
+    showEventController,
+  ])
 
   // Đồng bộ cờ chế độ nối dây để listener trong iframe đọc được giá trị mới nhất
   useEffect(() => {
@@ -1077,38 +1378,335 @@ export default function MultiPageCanvas({
   }, [])
 
   // Chuyển góc nhìn camera mượt mà đến cửa sổ mục tiêu (không làm thay đổi trang chủ)
-  const flyToWindow = useCallback((targetWin: CanvasWin) => {
-    if (!stageRef.current) return
-    const rect = stageRef.current.getBoundingClientRect()
-    const stageW = rect.width > 50 ? rect.width : window.innerWidth
-    const stageH = rect.height > 50 ? rect.height : window.innerHeight
+  const flyToWindow = useCallback(
+    (
+      targetWin: CanvasWin,
+      zoomOverride?: number,
+      options?: { record?: boolean; fromWinId?: string; markEndpoint?: boolean }
+    ) => {
+      if (!stageRef.current) return
+      const rect = stageRef.current.getBoundingClientRect()
+      const stageW = rect.width > 50 ? rect.width : window.innerWidth
+      const stageH = rect.height > 50 ? rect.height : window.innerHeight
 
-    // Zoom vừa vặn cửa sổ để xem to rõ nét chuẩn thông thường
-    const targetZoom = Math.min(0.95, Math.max(0.65, (stageW * 0.8) / targetWin.w))
-    const targetPanX = Math.round(stageW / 2 - targetWin.x * targetZoom)
-    const targetPanY = Math.round(stageH / 2 - targetWin.y * targetZoom)
+      // Ghi lại trang nguồn để nút "Quay lại" lùi đúng một bước vừa đi qua
+      if (options?.record !== false) {
+        const fromId =
+          options?.fromWinId ??
+          currentWinIdRef.current ??
+          windowsRef.current.find((w) => w.isHome)?.id ??
+          null
+        if (fromId && fromId !== targetWin.id) {
+          const prevLast = navHistoryRef.current[navHistoryRef.current.length - 1]
+          if (prevLast !== fromId) {
+            const next = [...navHistoryRef.current, fromId].slice(-60)
+            navHistoryRef.current = next
+            setNavHistory(next)
+          }
+        }
+      }
 
-    setActiveWinId(targetWin.id)
-    setFlyingToWin(targetWin)
-    setIsFlying(true)
+      if (options?.markEndpoint !== false && !targetWin.isHome) {
+        setLastReachedWinId(targetWin.id)
+      }
 
-    setView({
-      zoom: targetZoom,
-      panX: targetPanX,
-      panY: targetPanY,
-    })
+      currentWinIdRef.current = targetWin.id
 
-    maxZRef.current = Math.min(450, maxZRef.current + 2)
-    setWindows((prev) => {
-      const next = prev.map((w) => (w.id === targetWin.id ? { ...w, zIndex: maxZRef.current } : w))
-      windowsRef.current = next
+      // Zoom vừa vặn cửa sổ để xem to rõ nét chuẩn thông thường
+      const targetZoom =
+        typeof zoomOverride === 'number'
+          ? zoomOverride
+          : Math.min(0.95, Math.max(0.65, (stageW * 0.8) / targetWin.w))
+      const targetPanX = Math.round(stageW / 2 - targetWin.x * targetZoom)
+      const targetPanY = Math.round(stageH / 2 - targetWin.y * targetZoom)
+
+      setActiveWinId(targetWin.id)
+      setFlyingToWin(targetWin)
+      setIsFlying(true)
+
+      setView({
+        zoom: targetZoom,
+        panX: targetPanX,
+        panY: targetPanY,
+      })
+
+      maxZRef.current = Math.min(450, maxZRef.current + 2)
+      setWindows((prev) => {
+        const next = prev.map((w) => (w.id === targetWin.id ? { ...w, zIndex: maxZRef.current } : w))
+        windowsRef.current = next
+        return next
+      })
+
+      setTimeout(() => {
+        setIsFlying(false)
+      }, 480)
+    },
+    []
+  )
+
+  /** Lùi lại đúng trang đã xem trước đó; nếu chưa có lịch sử thì lùi theo cấp route. */
+  const navigateBack = useCallback(
+    (currentWin: CanvasWin) => {
+      const next = [...navHistoryRef.current]
+      while (next.length > 0) {
+        const id = next.pop() as string
+        const target = windowsRef.current.find((w) => w.id === id)
+        if (target && target.id !== currentWin.id) {
+          navHistoryRef.current = next
+          setNavHistory(next)
+          flyToWindow(target, undefined, { record: false, markEndpoint: false })
+          return
+        }
+      }
+
+      // Không còn lịch sử: lùi về trang cha gần nhất, rồi tới trang chủ
+      const parentId = getParentWinIdForRoute(currentWin.route, windowsRef.current)
+      const parent =
+        (parentId ? windowsRef.current.find((w) => w.id === parentId) : null) ||
+        windowsRef.current.find((w) => w.isHome)
+      if (parent && parent.id !== currentWin.id) {
+        flyToWindow(parent, undefined, { record: false, markEndpoint: false })
+      }
+    },
+    [flyToWindow]
+  )
+
+  const showWindow = useCallback((winId: string) => {
+    setHiddenWinIds((prev) => {
+      if (!prev.has(winId)) return prev
+      const next = new Set(prev)
+      next.delete(winId)
       return next
     })
-
-    setTimeout(() => {
-      setIsFlying(false)
-    }, 480)
   }, [])
+
+  /** Hiện thông báo xem trước nhanh từ hành động Prototype. */
+  const showProtoToast = useCallback((message: string) => {
+    setProtoToast(message)
+    if (protoToastTimerRef.current !== null) window.clearTimeout(protoToastTimerRef.current)
+    protoToastTimerRef.current = window.setTimeout(() => {
+      setProtoToast(null)
+      protoToastTimerRef.current = null
+    }, 2600)
+  }, [])
+
+  /** Thực thi hành động của một tương tác Prototype. */
+  const executePrototypeAction = useCallback(
+    (interaction: PrototypeInteraction) => {
+      const target = windowsRef.current.find((w) => w.id === interaction.targetId)
+      const parent = windowsRef.current.find((w) => w.id === interaction.parentId)
+
+      if (interaction.action === 'back') {
+        const current = parent || windowsRef.current.find((w) => w.id === activeWinId)
+        if (current) navigateBack(current)
+        return
+      }
+
+      if (interaction.action === 'toast') {
+        const label =
+          interaction.toastText?.trim() ||
+          `${interaction.source.text || parent?.title || 'Nguồn'} → ${target?.title || 'Đích'}`
+        showProtoToast(label)
+        return
+      }
+
+      if (interaction.action === 'pulse_target') {
+        const doc = iframeRefs.current.get(interaction.parentId)?.contentDocument
+        const el = doc
+          ? findPrototypeElement(doc, matchedElementsRef.current, interaction)
+          : null
+        if (el) {
+          const prevTransition = el.style.transition
+          const prevOutline = el.style.outline
+          const prevOutlineOffset = el.style.outlineOffset
+          const prevTransform = el.style.transform
+          el.style.transition = 'outline 0.2s ease, transform 0.2s ease'
+          el.style.outline = '3px solid #a855f7'
+          el.style.outlineOffset = '3px'
+          el.style.transform = 'scale(1.04)'
+          const tId = window.setTimeout(() => {
+            pendingTimersRef.current.delete(tId)
+            el.style.transition = prevTransition
+            el.style.outline = prevOutline
+            el.style.outlineOffset = prevOutlineOffset
+            el.style.transform = prevTransform
+          }, 900)
+          pendingTimersRef.current.add(tId)
+        } else if (parent) {
+          flyToWindow(parent, undefined, { record: false, markEndpoint: false })
+        }
+        return
+      }
+
+      if (interaction.action === 'highlight_wire') {
+        const matchedWire =
+          (interaction.wireId
+            ? wiresRef.current.find((w) => w.id === interaction.wireId)
+            : undefined) ||
+          (interaction.anchorKey
+            ? wiresRef.current.find((w) => w.anchorKey === interaction.anchorKey)
+            : undefined) ||
+          wiresRef.current.find(
+            (w) => w.parentWin.id === interaction.parentId && w.targetWin.id === interaction.targetId
+          )
+        const wireKey = matchedWire?.id || interaction.wireId || ''
+        if (!wireKey) return
+        setFlashWireId(null)
+        window.requestAnimationFrame(() => setFlashWireId(wireKey))
+        if (flashWireTimerRef.current !== null) window.clearTimeout(flashWireTimerRef.current)
+        flashWireTimerRef.current = window.setTimeout(() => {
+          setFlashWireId(null)
+          flashWireTimerRef.current = null
+        }, 1800)
+        return
+      }
+
+      if (!target) return
+
+      if (interaction.action === 'open') {
+        onOpenPage(target.route)
+        onClose()
+        return
+      }
+
+      if (interaction.action === 'reload') {
+        showWindow(target.id)
+        try {
+          iframeRefs.current.get(target.id)?.contentWindow?.location.reload()
+        } catch {
+          // Bỏ qua nếu cross-origin
+        }
+        return
+      }
+
+      if (interaction.action === 'scroll_top') {
+        showWindow(target.id)
+        try {
+          iframeRefs.current.get(target.id)?.contentWindow?.scrollTo({ top: 0, behavior: 'smooth' })
+        } catch {
+          // Bỏ qua nếu cross-origin
+        }
+        flyToWindow(target, undefined, { fromWinId: interaction.parentId })
+        return
+      }
+
+      if (interaction.action === 'toggle') {
+        const isHidden = hiddenWinIds.has(target.id)
+        setHiddenWinIds((prev) => {
+          const next = new Set(prev)
+          if (isHidden) next.delete(target.id)
+          else next.add(target.id)
+          return next
+        })
+        // Vừa hiện lại cửa sổ đang ẩn: đưa camera tới đó luôn
+        if (isHidden) flyToWindow(target, undefined, { fromWinId: interaction.parentId })
+        return
+      }
+
+      // focus / flash: luôn đảm bảo cửa sổ đích đang hiển thị
+      showWindow(target.id)
+
+      if (interaction.action === 'flash') {
+        flyToWindow(target, undefined, { fromWinId: interaction.parentId })
+        // Đặt lại null trước để animation nhấp nháy chạy lại nếu bấm nhiều lần
+        setFlashWinId(null)
+        window.requestAnimationFrame(() => setFlashWinId(target.id))
+        if (flashTimerRef.current !== null) window.clearTimeout(flashTimerRef.current)
+        flashTimerRef.current = window.setTimeout(() => {
+          setFlashWinId(null)
+          flashTimerRef.current = null
+        }, 1800)
+        return
+      }
+
+      flyToWindow(target, undefined, { fromWinId: interaction.parentId })
+    },
+    [activeWinId, flyToWindow, hiddenWinIds, navigateBack, onClose, onOpenPage, showProtoToast, showWindow]
+  )
+
+  executePrototypeActionRef.current = executePrototypeAction
+
+  /** Kiểm tra bộ điều khiển (Bật/tắt, số lần chạy tối đa, khoảng nghỉ, độ trễ) trước khi chạy. */
+  const triggerPrototypeInteraction = useCallback(
+    (interaction: PrototypeInteraction, bypassLimits = false) => {
+      if (!bypassLimits && (!prototypeRunningRef.current || !interaction.enabled)) return
+
+      const used = runCountsRef.current[interaction.id] ?? 0
+      const trigLabel =
+        PROTOTYPE_TRIGGERS.find((t) => t.key === interaction.trigger)?.label.split(' (')[0] ||
+        interaction.trigger
+      const actLabel =
+        PROTOTYPE_ACTIONS.find((a) => a.key === interaction.action)?.label || interaction.action
+
+      if (!bypassLimits && interaction.maxRuns > 0 && used >= interaction.maxRuns) {
+        appendEventLog(
+          `Dừng "${interaction.source.text || trigLabel}" (${used}/${interaction.maxRuns} lần)`,
+          'skip'
+        )
+        return
+      }
+
+      const now = Date.now()
+      const lastAt = lastRunAtRef.current[interaction.id] ?? 0
+      if (
+        !bypassLimits &&
+        interaction.intervalSec > 0 &&
+        lastAt > 0 &&
+        now - lastAt < interaction.intervalSec * 1000
+      ) {
+        return
+      }
+
+      const nextCount = used + 1
+      runCountsRef.current[interaction.id] = nextCount
+      lastRunAtRef.current[interaction.id] = now
+      setRunCounts((prev) => ({ ...prev, [interaction.id]: nextCount }))
+
+      const limitText = interaction.maxRuns > 0 ? `${nextCount}/${interaction.maxRuns}` : `${nextCount}/∞`
+      const runNow = () => {
+        executePrototypeActionRef.current(interaction)
+        appendEventLog(
+          `[${trigLabel}] ${interaction.source.text || 'Dây'} → ${actLabel} (${limitText})`,
+          interaction.maxRuns > 0 && nextCount >= interaction.maxRuns ? 'done' : 'run'
+        )
+      }
+
+      if (!bypassLimits && interaction.delaySec > 0) {
+        const tId = window.setTimeout(() => {
+          pendingTimersRef.current.delete(tId)
+          if (!prototypeRunningRef.current) return
+          runNow()
+        }, interaction.delaySec * 1000)
+        pendingTimersRef.current.add(tId)
+        return
+      }
+
+      runNow()
+    },
+    [appendEventLog]
+  )
+
+  triggerPrototypeInteractionRef.current = triggerPrototypeInteraction
+
+  /** Đặt lại bộ đếm số lần chạy của 1 hoặc toàn bộ quy tắc. */
+  const resetRunCount = useCallback((interactionId: string) => {
+    delete runCountsRef.current[interactionId]
+    delete lastRunAtRef.current[interactionId]
+    setRunCounts((prev) => {
+      const next = { ...prev }
+      delete next[interactionId]
+      return next
+    })
+  }, [])
+
+  const resetAllRunCounts = useCallback(() => {
+    pendingTimersRef.current.forEach((id) => window.clearTimeout(id))
+    pendingTimersRef.current.clear()
+    runCountsRef.current = {}
+    lastRunAtRef.current = {}
+    setRunCounts({})
+    appendEventLog('Đã đặt lại toàn bộ bộ đếm sự kiện', 'run')
+  }, [appendEventLog])
 
   // Tính toán lại vị trí các nút theo thời gian thực khi cuộn trang hoặc co giãn trên mọi cửa sổ cha
   const recomputeAnchors = useCallback(() => {
@@ -1183,6 +1781,233 @@ export default function MultiPageCanvas({
     setDetectedAnchors(grouped)
   }, [])
 
+  /** Gắn listener Hover / Scroll cho các tương tác Prototype bên trong iframe. */
+  const setupPrototypeInteractions = useCallback(
+    (win: CanvasWin, iframe: HTMLIFrameElement | null) => {
+      prototypeBindingsRef.current.get(win.id)?.()
+      prototypeBindingsRef.current.delete(win.id)
+      if (!iframe) return
+
+      let doc: Document | null = null
+      try {
+        doc = iframe.contentDocument
+      } catch {
+        return
+      }
+      if (!doc) return
+
+      const cleanups: Array<() => void> = []
+      prototypeBindingsRef.current.set(win.id, () => {
+        cleanups.forEach((cleanup) => cleanup())
+        cleanups.length = 0
+      })
+
+      if (!prototypeRunningRef.current) return
+
+      const iframeWin = iframe.contentWindow
+      const list = interactionsRef.current.filter(
+        (item) =>
+          item.enabled &&
+          item.parentId === win.id &&
+          item.trigger !== 'click' &&
+          item.trigger !== 'timer'
+      )
+      if (list.length === 0) return
+
+      const matched = matchedElementsRef.current
+      const IORef = (iframeWin as (Window & typeof globalThis) | null)?.IntersectionObserver
+
+      list.forEach((interaction) => {
+        const fire = () => {
+          if (!prototypeRunningRef.current || connectModeRef.current) return
+          triggerPrototypeInteractionRef.current(interaction)
+        }
+
+        if (interaction.trigger === 'keypress') {
+          const expectedKey = (interaction.triggerKey || 'Enter').trim().toLowerCase()
+          const onKeyDown = (e: KeyboardEvent) => {
+            if (!prototypeRunningRef.current || connectModeRef.current) return
+            if (e.key.toLowerCase() === expectedKey) {
+              fire()
+            }
+          }
+          doc?.addEventListener('keydown', onKeyDown)
+          cleanups.push(() => doc?.removeEventListener('keydown', onKeyDown))
+          return
+        }
+
+        const el = findPrototypeElement(doc as Document, matched, interaction)
+        if (!el) return
+
+        if (interaction.trigger === 'hover') {
+          let lastFired = 0
+          const onEnter = () => {
+            const now = Date.now()
+            // Tránh bắn liên tục khi chuột rung trong cùng một vùng
+            if (now - lastFired < 350) return
+            lastFired = now
+            fire()
+          }
+          el.addEventListener('mouseenter', onEnter)
+          cleanups.push(() => el.removeEventListener('mouseenter', onEnter))
+          return
+        }
+
+        if (interaction.trigger === 'mouseleave') {
+          el.addEventListener('mouseleave', fire)
+          cleanups.push(() => el.removeEventListener('mouseleave', fire))
+          return
+        }
+
+        if (interaction.trigger === 'dblclick') {
+          const onDbl = (e: MouseEvent) => {
+            e.preventDefault()
+            e.stopPropagation()
+            fire()
+          }
+          el.addEventListener('dblclick', onDbl)
+          cleanups.push(() => el.removeEventListener('dblclick', onDbl))
+          return
+        }
+
+        if (interaction.trigger === 'contextmenu') {
+          const onCtx = (e: MouseEvent) => {
+            e.preventDefault()
+            e.stopPropagation()
+            fire()
+          }
+          el.addEventListener('contextmenu', onCtx)
+          cleanups.push(() => el.removeEventListener('contextmenu', onCtx))
+          return
+        }
+
+        if (interaction.trigger === 'longpress') {
+          let holdTimer: number | null = null
+          const clearHold = () => {
+            if (holdTimer !== null) {
+              window.clearTimeout(holdTimer)
+              holdTimer = null
+            }
+          }
+          const onDown = () => {
+            clearHold()
+            holdTimer = window.setTimeout(() => {
+              holdTimer = null
+              fire()
+            }, 500)
+          }
+          el.addEventListener('mousedown', onDown)
+          el.addEventListener('mouseup', clearHold)
+          el.addEventListener('mouseleave', clearHold)
+          cleanups.push(() => {
+            clearHold()
+            el.removeEventListener('mousedown', onDown)
+            el.removeEventListener('mouseup', clearHold)
+            el.removeEventListener('mouseleave', clearHold)
+          })
+          return
+        }
+
+        if (interaction.trigger === 'focus') {
+          el.addEventListener('focus', fire)
+          cleanups.push(() => el.removeEventListener('focus', fire))
+          return
+        }
+
+        if (interaction.trigger === 'blur') {
+          el.addEventListener('blur', fire)
+          cleanups.push(() => el.removeEventListener('blur', fire))
+          return
+        }
+
+        // trigger === 'scroll': kích hoạt khi phần tử cuộn vào vùng nhìn
+        if (IORef) {
+          // Nếu phần tử đang hiện sẵn, chờ nó rời khỏi vùng nhìn rồi quay lại mới kích hoạt
+          const initialRect = el.getBoundingClientRect()
+          let wasVisible =
+            initialRect.top < (iframeWin?.innerHeight || 0) && initialRect.bottom > 0
+          const observer = new IORef(
+            (entries) => {
+              entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                  if (!wasVisible) {
+                    wasVisible = true
+                    fire()
+                  }
+                } else {
+                  wasVisible = false
+                }
+              })
+            },
+            { threshold: 0.5 }
+          )
+          observer.observe(el)
+          cleanups.push(() => observer.disconnect())
+          return
+        }
+
+        // Dự phòng khi iframe không hỗ trợ IntersectionObserver
+        let armed = false
+        const checkVisible = () => {
+          const rect = el.getBoundingClientRect()
+          const viewportH = iframeWin?.innerHeight || doc?.documentElement.clientHeight || 0
+          const visible = rect.bottom > 0 && rect.top < viewportH
+          if (visible && armed) {
+            armed = false
+            fire()
+          } else if (!visible) {
+            armed = true
+          }
+        }
+        doc?.addEventListener('scroll', checkVisible, { passive: true })
+        iframeWin?.addEventListener('scroll', checkVisible, { passive: true })
+        checkVisible()
+        cleanups.push(() => {
+          doc?.removeEventListener('scroll', checkVisible)
+          iframeWin?.removeEventListener('scroll', checkVisible)
+        })
+      })
+    },
+    []
+  )
+
+  // Gắn lại listener Prototype khi cấu hình hoặc công tắc "Chạy" thay đổi
+  useEffect(() => {
+    interactionsRef.current = interactions
+    prototypeRunningRef.current = prototypeRunning
+    const winMap = new Map(windowsRef.current.map((win) => [win.id, win]))
+    iframeRefs.current.forEach((iframe, winId) => {
+      const win = winMap.get(winId)
+      if (win) setupPrototypeInteractions(win, iframe)
+    })
+  }, [interactions, prototypeRunning, setupPrototypeInteractions])
+
+  // Bộ hẹn giờ tự động cho các sự kiện trigger === 'timer' (tuân thủ maxRuns & intervalSec)
+  useEffect(() => {
+    if (!prototypeRunning) return
+    const timers: number[] = []
+
+    interactions
+      .filter((item) => item.enabled && item.trigger === 'timer')
+      .forEach((interaction) => {
+        const periodMs = Math.max(1000, Math.round((interaction.intervalSec || 3) * 1000))
+        const intervalId = window.setInterval(() => {
+          if (!prototypeRunningRef.current || connectModeRef.current) return
+          const used = runCountsRef.current[interaction.id] ?? 0
+          if (interaction.maxRuns > 0 && used >= interaction.maxRuns) {
+            window.clearInterval(intervalId)
+            return
+          }
+          triggerPrototypeInteractionRef.current(interaction)
+        }, periodMs)
+        timers.push(intervalId)
+      })
+
+    return () => {
+      timers.forEach((id) => window.clearInterval(id))
+    }
+  }, [interactions, prototypeRunning])
+
   // Thiết lập bắt click & quét vị trí nút bấm trong iframe của từng trang cha
   const setupIframeEvents = useCallback(
     (win: CanvasWin, iframe: HTMLIFrameElement | null) => {
@@ -1223,6 +2048,23 @@ export default function MultiPageCanvas({
             'a, button, [role="button"], input[type="button"], input[type="submit"], [data-route]'
           )
           if (!target) return
+
+          // Prototype Editor: hành động Click do người dùng cấu hình được ưu tiên
+          if (prototypeRunningRef.current) {
+            const clickInteraction = findPrototypeClick(
+              doc,
+              matchedElementsRef.current,
+              interactionsRef.current,
+              win.id,
+              target
+            )
+            if (clickInteraction) {
+              e.preventDefault()
+              e.stopPropagation()
+              triggerPrototypeInteractionRef.current(clickInteraction)
+              return
+            }
+          }
 
           const rawHref = (target.getAttribute('href') || target.getAttribute('data-route') || '').trim()
           const text = (target.textContent || '').trim()
@@ -1306,7 +2148,7 @@ export default function MultiPageCanvas({
           }
 
           if (bestWire && bestScore >= 70) {
-            flyToWindow(bestWire.targetWin)
+            flyToWindow(bestWire.targetWin, undefined, { fromWinId: win.id })
             return
           }
 
@@ -1326,11 +2168,17 @@ export default function MultiPageCanvas({
 
           const targetWin = findMatchingWindow(rawHref, text, windowsRef.current)
           if (targetWin) {
-            flyToWindow(targetWin)
+            flyToWindow(targetWin, undefined, { fromWinId: win.id })
           }
         }
 
-        doc.removeEventListener('click', handleClick, true)
+        const docListeners = doc as Document & {
+          __pmClick?: (e: MouseEvent) => void
+          __pmConnectDown?: (e: PointerEvent) => void
+          __pmScroll?: () => void
+        }
+        if (docListeners.__pmClick) doc.removeEventListener('click', docListeners.__pmClick, true)
+        docListeners.__pmClick = handleClick
         doc.addEventListener('click', handleClick, true)
 
         // 1b. Chế độ nối dây: giữ chuột trên một nút bấm để bắt đầu kéo dây
@@ -1389,7 +2237,10 @@ export default function MultiPageCanvas({
           })
         }
 
-        doc.removeEventListener('pointerdown', handleConnectPointerDown, true)
+        if (docListeners.__pmConnectDown) {
+          doc.removeEventListener('pointerdown', docListeners.__pmConnectDown, true)
+        }
+        docListeners.__pmConnectDown = handleConnectPointerDown
         doc.addEventListener('pointerdown', handleConnectPointerDown, true)
 
         // 2. Tìm tất cả các trang con có cha trực tiếp là cửa sổ này (win.id)
@@ -1520,19 +2371,25 @@ export default function MultiPageCanvas({
             const handleScroll = () => {
               recomputeAnchors()
             }
-            iframeWin.removeEventListener('scroll', handleScroll)
+            if (docListeners.__pmScroll) {
+              iframeWin.removeEventListener('scroll', docListeners.__pmScroll)
+              doc.removeEventListener('scroll', docListeners.__pmScroll)
+              doc.removeEventListener('wheel', docListeners.__pmScroll)
+            }
+            docListeners.__pmScroll = handleScroll
             iframeWin.addEventListener('scroll', handleScroll, { passive: true })
-            doc.removeEventListener('scroll', handleScroll)
             doc.addEventListener('scroll', handleScroll, { passive: true })
-            doc.removeEventListener('wheel', handleScroll)
             doc.addEventListener('wheel', handleScroll, { passive: true })
           }
         }
+
+        // Gắn hành vi Prototype (Hover / Scroll) sau khi đã quét lại anchor
+        setupPrototypeInteractions(win, iframe)
       } catch {
         // Safe cross-origin fallback
       }
     },
-    [flyToWindow, recomputeAnchors]
+    [flyToWindow, recomputeAnchors, setupPrototypeInteractions]
   )
 
   // Áp dụng thuật toán sắp xếp
@@ -1566,9 +2423,9 @@ export default function MultiPageCanvas({
 
       windowsRef.current = computed
       setWindows(computed)
-      fitBounding(computed)
+      fitBounding(computed.filter((win) => !hiddenWinIds.has(win.id)))
     },
-    [pages, fitBounding, detectedAnchors]
+    [pages, fitBounding, detectedAnchors, hiddenWinIds]
   )
 
   // Đồng bộ danh sách cửa sổ khi dự án được thêm/xoá trang trong lúc đang mở.
@@ -1723,7 +2580,10 @@ export default function MultiPageCanvas({
     if (
       (e.target as HTMLElement).closest('.pm-win') ||
       (e.target as HTMLElement).closest('.pm-multi-controls') ||
-      (e.target as HTMLElement).closest('.pm-multi-topbar')
+      (e.target as HTMLElement).closest('.pm-multi-topbar') ||
+      (e.target as HTMLElement).closest('.pm-multi-focus-pill') ||
+      (e.target as HTMLElement).closest('.pm-multi-pin') ||
+      (e.target as HTMLElement).closest('.pm-multi-connect-banner')
     ) {
       return
     }
@@ -1895,6 +2755,189 @@ export default function MultiPageCanvas({
 
   wiresRef.current = wires
 
+  const visibleWindows = useMemo(
+    () => windows.filter((win) => !hiddenWinIds.has(win.id)),
+    [windows, hiddenWinIds]
+  )
+
+  const visibleWires = useMemo(
+    () =>
+      wires.filter(
+        (wire) => !hiddenWinIds.has(wire.parentWin.id) && !hiddenWinIds.has(wire.targetWin.id)
+      ),
+    [wires, hiddenWinIds]
+  )
+
+  /** Mở bảng Prototype gắn trực tiếp với dây nối vừa chuột phải. */
+  const openWirePrototypeEditor = useCallback((wire: Wire) => {
+    setSelectedWireId(wire.id)
+    setShowEventController(false)
+    setWireProtoTarget({
+      wireId: wire.id,
+      sourceKey: wire.anchorKey ? `anchor:${wire.anchorKey}` : `wire:${wire.id}`,
+      parentId: wire.parentWin.id,
+      parentTitle: wire.parentWin.title,
+      targetId: wire.targetWin.id,
+      targetTitle: wire.targetWin.title,
+      label: (wire.source?.text || wire.label || wire.targetWin.title).trim(),
+      source: wire.source ?? {},
+      anchorKey: wire.anchorKey,
+    })
+    setDraftTargetId(wire.targetWin.id)
+    setDraftTrigger('click')
+    setDraftAction('focus')
+    setDraftMaxRuns(1)
+    setDraftIntervalSec(0)
+    setDraftDelaySec(0)
+    setDraftTriggerKey('Enter')
+    setDraftToastText('')
+  }, [])
+
+  /** Kiểm tra tương tác có thuộc về một dây đang chọn hay không. */
+  const isInteractionOnWire = useCallback(
+    (
+      item: PrototypeInteraction,
+      target: NonNullable<typeof wireProtoTarget>
+    ): boolean => {
+      if (item.wireId && item.wireId === target.wireId) return true
+      if (target.anchorKey && item.anchorKey === target.anchorKey) return true
+      return (
+        item.parentId === target.parentId &&
+        item.targetId === target.targetId &&
+        (item.source.text || '') === (target.source.text || '')
+      )
+    },
+    []
+  )
+
+  const wireScopedInteractions = useMemo(() => {
+    if (!wireProtoTarget) return []
+    return interactions.filter((item) => isInteractionOnWire(item, wireProtoTarget))
+  }, [interactions, wireProtoTarget, isInteractionOnWire])
+
+  const addWirePrototypeInteraction = useCallback(() => {
+    if (!wireProtoTarget) return
+    const targetId = draftTargetId || wireProtoTarget.targetId
+    if (!targetId) return
+
+    const safeMaxRuns = Math.max(0, Math.floor(Number.isFinite(draftMaxRuns) ? draftMaxRuns : 1))
+    const safeIntervalSec = Math.max(
+      0,
+      Number.isFinite(draftIntervalSec) ? Math.round(draftIntervalSec * 10) / 10 : 0
+    )
+    const safeDelaySec = Math.max(
+      0,
+      Number.isFinite(draftDelaySec) ? Math.round(draftDelaySec * 10) / 10 : 0
+    )
+
+    const next: PrototypeInteraction = {
+      id: `proto-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      parentId: wireProtoTarget.parentId,
+      targetId,
+      wireId: wireProtoTarget.wireId,
+      anchorKey: wireProtoTarget.anchorKey,
+      source: wireProtoTarget.source,
+      trigger: draftTrigger,
+      action: draftAction,
+      enabled: true,
+      maxRuns: safeMaxRuns,
+      intervalSec: draftIntervalSec > 0 ? safeIntervalSec : draftTrigger === 'timer' ? 3 : 0,
+      delaySec: safeDelaySec,
+      triggerKey: draftTrigger === 'keypress' ? draftTriggerKey.trim() || 'Enter' : undefined,
+      toastText: draftAction === 'toast' ? draftToastText.trim() || undefined : undefined,
+    }
+
+    // Cùng một dây/nguồn + cùng sự kiện thì thay thế cấu hình cũ để tránh trùng
+    setInteractions((prev) => [
+      ...prev.filter(
+        (item) => !(isInteractionOnWire(item, wireProtoTarget) && item.trigger === next.trigger)
+      ),
+      next,
+    ])
+    onNotify?.('ok', `Đã gắn sự kiện cho dây "${wireProtoTarget.label}"`)
+  }, [
+    draftAction,
+    draftDelaySec,
+    draftIntervalSec,
+    draftMaxRuns,
+    draftTargetId,
+    draftToastText,
+    draftTrigger,
+    draftTriggerKey,
+    isInteractionOnWire,
+    onNotify,
+    wireProtoTarget,
+  ])
+
+  const updatePrototypeInteraction = useCallback(
+    (id: string, patch: Partial<PrototypeInteraction>) => {
+      setInteractions((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
+      )
+    },
+    []
+  )
+
+  const removePrototypeInteraction = useCallback((id: string) => {
+    setInteractions((prev) => prev.filter((item) => item.id !== id))
+    resetRunCount(id)
+  }, [resetRunCount])
+
+  const clearPrototypeInteractions = useCallback(() => {
+    setInteractions([])
+    resetAllRunCounts()
+    onNotify?.('info', 'Đã xoá toàn bộ tương tác Prototype')
+  }, [onNotify, resetAllRunCounts])
+
+  const toggleAllInteractions = useCallback(
+    (enabled: boolean) => {
+      setInteractions((prev) => prev.map((item) => ({ ...item, enabled })))
+      appendEventLog(enabled ? 'Đã bật toàn bộ quy tắc sự kiện' : 'Đã tắt toàn bộ quy tắc sự kiện', 'run')
+    },
+    [appendEventLog]
+  )
+
+  const applyBatchLimits = useCallback(() => {
+    const safeMax = Math.max(0, Math.floor(Number.isFinite(batchMaxRuns) ? batchMaxRuns : 1))
+    const safeInterval = Math.max(0, Math.round((Number.isFinite(batchIntervalSec) ? batchIntervalSec : 0) * 10) / 10)
+    const safeDelay = Math.max(0, Math.round((Number.isFinite(batchDelaySec) ? batchDelaySec : 0) * 10) / 10)
+    setInteractions((prev) =>
+      prev.map((item) => ({
+        ...item,
+        maxRuns: safeMax,
+        intervalSec: item.trigger === 'timer' && safeInterval <= 0 ? 3 : safeInterval,
+        delaySec: safeDelay,
+      }))
+    )
+    resetAllRunCounts()
+    onNotify?.('ok', 'Đã áp dụng giới hạn chạy cho toàn bộ sự kiện')
+  }, [batchDelaySec, batchIntervalSec, batchMaxRuns, onNotify, resetAllRunCounts])
+
+  const locateWireForInteraction = useCallback(
+    (item: PrototypeInteraction) => {
+      const parentWin = windowsRef.current.find((w) => w.id === item.parentId)
+      const matchedWire =
+        (item.wireId ? wiresRef.current.find((w) => w.id === item.wireId) : undefined) ||
+        (item.anchorKey ? wiresRef.current.find((w) => w.anchorKey === item.anchorKey) : undefined) ||
+        wiresRef.current.find((w) => w.parentWin.id === item.parentId && w.targetWin.id === item.targetId)
+
+      if (parentWin) {
+        flyToWindow(parentWin, undefined, { record: false, markEndpoint: false })
+      }
+      if (matchedWire) {
+        setSelectedWireId(matchedWire.id)
+        setFlashWireId(null)
+        window.requestAnimationFrame(() => setFlashWireId(matchedWire.id))
+        if (flashWireTimerRef.current !== null) window.clearTimeout(flashWireTimerRef.current)
+        flashWireTimerRef.current = window.setTimeout(() => {
+          setFlashWireId(null)
+          flashWireTimerRef.current = null
+        }, 1800)
+      }
+    },
+    [flyToWindow]
+  )
+
   /** Tìm cửa sổ đích dưới con trỏ khi đang kéo dây. */
   const resolveDropTarget = (clientX: number, clientY: number, excludeId?: string): CanvasWin | null => {
     const stageRect = stageRef.current?.getBoundingClientRect()
@@ -2000,11 +3043,11 @@ export default function MultiPageCanvas({
 
   const portSideMap = useMemo(() => {
     const map: Record<string, 'top' | 'bottom' | 'left' | 'right'> = {}
-    wires.forEach((w) => {
+    visibleWires.forEach((w) => {
       map[w.satId] = w.portSide
     })
     return map
-  }, [wires])
+  }, [visibleWires])
 
   const filteredQuery = searchQuery.trim().toLowerCase()
 
@@ -2023,67 +3066,119 @@ export default function MultiPageCanvas({
     >
       {/* ── TopBar điều khiển ── */}
       <div className="pm-multi-topbar">
-        <div className="pm-multi-topbar__title">
+        <div className="pm-multi-topbar__title" title={`Không gian đa màn hình · ${projectName}`}>
           <span className="pm-multi-topbar__icon">
-            <LayoutGrid size={15} />
+            <LayoutGrid size={14} />
           </span>
           <div className="pm-multi-topbar__text">
-            <b>Không gian Đa màn hình ({projectName})</b>
-            <span>Tự động sắp xếp thông minh · Bấm vào nút để chuyển góc nhìn · Kéo tiêu đề để di chuyển</span>
+            <b>Đa màn hình</b>
+            <span className="pm-multi-topbar__project">{projectName}</span>
           </div>
         </div>
+
+        <span className="pm-multi-chip" title="Số trang đang hiển thị">
+          {visibleWindows.length} trang
+        </span>
+        <span className="pm-multi-chip pm-multi-chip--wires" title="Số liên kết đang hiển thị">
+          {visibleWires.length} liên kết
+        </span>
 
         <div className="pm-multi-topbar__spacer" />
 
         {/* Chuyển đổi chế độ sắp xếp tự động */}
-        <div className="pm-multi-layout-toggles">
+        <div className="pm-segmented pm-multi-layout" role="group" aria-label="Kiểu sắp xếp">
           <button
-            className={`pm-multi-topbar__btn ${layoutMode === 'cluster' ? 'active' : ''}`}
+            className={layoutMode === 'cluster' ? 'on' : ''}
             onClick={() => applyLayout('cluster')}
-            title="Tự động xếp theo cụm chuyên mục (Tránh chồng chéo 100%)"
+            title="Xếp theo cụm chuyên mục, tránh chồng chéo"
           >
-            <LayoutGrid size={12} /> Xếp theo cụm
+            <LayoutGrid size={12} />
+            <span className="pm-multi-btn-label">Theo cụm</span>
           </button>
           <button
-            className={`pm-multi-topbar__btn ${layoutMode === 'rings' ? 'active' : ''}`}
+            className={layoutMode === 'rings' ? 'on' : ''}
             onClick={() => applyLayout('rings')}
-            title="Tự động xếp tỏa tròn nhiều tầng (Không chồng lấn)"
+            title="Xếp tỏa tròn nhiều tầng, không chồng lấn"
           >
-            <Compass size={12} /> Xếp đa vòng
+            <Compass size={12} />
+            <span className="pm-multi-btn-label">Đa vòng</span>
           </button>
         </div>
 
         {/* Ô tìm kiếm trang */}
-        <div className="pm-multi-search-box" style={{ width: 220 }}>
+        <div className="pm-multi-search-box">
           <Search size={12} className="pm-multi-search-icon" />
           <input
             className="pm-multi-search-input"
-            placeholder="Tìm trang (/product, /login)..."
+            placeholder="Tìm trang..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="Tìm trang theo tên hoặc route"
           />
           {searchQuery && (
-            <button className="pm-multi-search-clear" onClick={() => setSearchQuery('')}>
+            <button className="pm-multi-search-clear" onClick={() => setSearchQuery('')} title="Xoá tìm kiếm">
               <X size={11} />
             </button>
           )}
         </div>
 
-        <button className="pm-multi-topbar__btn" onClick={() => fitBounding()} title="Căn vừa toàn bộ các cửa sổ">
-          <Maximize2 size={12} /> Căn vừa
-        </button>
-
-        <button
-          className="pm-multi-topbar__btn"
-          onClick={() => applyLayout(layoutMode)}
-          title="Tự động sắp xếp lại tránh chồng đè"
-        >
-          <RefreshCw size={12} /> Sắp xếp lại
-        </button>
-
-        <button className="pm-multi-topbar__close" onClick={onClose} title="Đóng chế độ đa màn hình (Esc)">
-          <X size={14} />
-        </button>
+        <div className="pm-multi-topbar__actions">
+          <button className="pm-ibtn" onClick={() => fitBounding(visibleWindows)} title="Căn vừa toàn bộ các cửa sổ">
+            <Maximize2 size={13} />
+          </button>
+          <button
+            className="pm-ibtn"
+            onClick={() => applyLayout(layoutMode)}
+            title="Sắp xếp lại, tránh chồng đè"
+          >
+            <RefreshCw size={13} />
+          </button>
+          <button
+            className={`pm-ibtn ${isConnectMode ? 'on' : ''}`}
+            onClick={() => setIsConnectMode((v) => !v)}
+            title={
+              isConnectMode
+                ? 'Thoát chế độ nối dây (Esc)'
+                : 'Nối dây: giữ chuột vào nút bấm rồi kéo sang trang đích'
+            }
+          >
+            <Link2 size={13} />
+          </button>
+          <button
+            className={`pm-ibtn pm-multi-has-count pm-multi-evt-btn ${showEventController ? 'on' : ''} ${
+              prototypeRunning && interactions.some((i) => i.enabled) ? 'is-running' : ''
+            }`}
+            onClick={() => {
+              const next = !showEventController
+              setShowEventController(next)
+              if (next) setWireProtoTarget(null)
+            }}
+            title={
+              prototypeRunning
+                ? `Kiểm soát sự kiện: Đang chạy (${interactions.filter((i) => i.enabled).length}/${interactions.length} quy tắc bật) · Chuột phải vào dây để gắn sự kiện`
+                : `Kiểm soát sự kiện: Đang tạm dừng (${interactions.length} quy tắc)`
+            }
+          >
+            <SlidersHorizontal size={13} />
+            {interactions.length > 0 && (
+              <span className="pm-multi-restore__count">{interactions.length}</span>
+            )}
+          </button>
+          {hiddenWinIds.size > 0 && (
+            <button
+              className="pm-ibtn pm-multi-has-count"
+              onClick={() => setHiddenWinIds(new Set())}
+              title={`Hiện lại ${hiddenWinIds.size} cửa sổ đã ẩn`}
+            >
+              <Eye size={13} />
+              <span className="pm-multi-restore__count">{hiddenWinIds.size}</span>
+            </button>
+          )}
+          <span className="pm-multi-topbar__divider" />
+          <button className="pm-ibtn pm-multi-close" onClick={onClose} title="Đóng chế độ đa màn hình (Esc)">
+            <X size={14} />
+          </button>
+        </div>
       </div>
 
       {/* ── Sân khấu vô cực kéo thả ── */}
@@ -2115,7 +3210,7 @@ export default function MultiPageCanvas({
           }}
         >
           {/* ── 1. CÁC CỬA SỔ DESKTOP (NẰM PHÍA DƯỚI) ── */}
-          {windows.map((win) => {
+          {visibleWindows.map((win) => {
             const isMatch = filteredQuery
               ? win.title.toLowerCase().includes(filteredQuery) || win.route.toLowerCase().includes(filteredQuery)
               : true
@@ -2134,6 +3229,7 @@ export default function MultiPageCanvas({
                   isMatch ? '' : 'is-dimmed',
                   isConnectMode && !win.isHome && win.id !== connectDrag?.parentId ? 'is-wire-target' : '',
                   connectDrag?.hoverTargetId === win.id ? 'is-drop-target' : '',
+                  flashWinId === win.id ? 'is-flash' : '',
                 ].filter(Boolean).join(' ')}
                 style={{
                   left: win.x - win.w / 2,
@@ -2232,7 +3328,7 @@ export default function MultiPageCanvas({
           <svg className="pm-multi-svg" width={10000} height={10000} style={{ left: -5000, top: -5000 }}>
             <g transform="translate(5000, 5000)">
               <defs>
-                {wires.map((w) => (
+                {visibleWires.map((w) => (
                   <marker
                     key={`arrow-${w.id}`}
                     id={`arrow-${w.id}`}
@@ -2248,12 +3344,20 @@ export default function MultiPageCanvas({
                 ))}
               </defs>
 
-              {wires.map((wire) => {
+              {visibleWires.map((wire) => {
                 const isHovered = hoveredWinId === wire.satId || activeWinId === wire.satId
                 const isSelected = selectedWireId === wire.id
+                const isProtoFlash = flashWireId === wire.id
+                const isWireConfigOpen = wireProtoTarget?.wireId === wire.id
+                const ruleCount = interactions.filter(
+                  (item) =>
+                    item.enabled &&
+                    (item.wireId === wire.id ||
+                      (wire.anchorKey && item.anchorKey === wire.anchorKey))
+                ).length
                 return (
                   <g key={wire.id} style={{ cursor: 'pointer' }}>
-                    {/* Vùng bấm rộng để dễ chọn dây */}
+                    {/* Vùng bấm rộng để dễ chọn dây hoặc chuột phải mở Prototype */}
                     <path
                       d={wire.pathD}
                       fill="none"
@@ -2267,20 +3371,27 @@ export default function MultiPageCanvas({
                       }}
                       onDoubleClick={(e) => {
                         e.stopPropagation()
-                        flyToWindow(wire.targetWin)
+                        flyToWindow(wire.targetWin, undefined, { fromWinId: wire.parentWin.id })
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        openWirePrototypeEditor(wire)
                       }}
                     >
-                      <title>{`Dây nối: ${wire.parentWin.title} → ${wire.label} (Bấm để chọn, Delete để xoá)`}</title>
+                      <title>{`Dây nối: ${wire.parentWin.title} → ${wire.label}${
+                        ruleCount > 0 ? ` (${ruleCount} sự kiện Prototype)` : ''
+                      } · Chuột phải để cấu hình Prototype · Click chọn · Delete xoá`}</title>
                     </path>
 
-                    {/* Dây bóng phát sáng khi hover hoặc được chọn */}
+                    {/* Dây bóng phát sáng khi hover, được chọn hoặc kích hoạt hiệu ứng */}
                     <path
                       d={wire.pathD}
-                      className="pm-multi-wire-glow"
+                      className={`pm-multi-wire-glow ${isProtoFlash ? 'is-proto-flash' : ''}`}
                       style={{
-                        stroke: wire.color,
-                        strokeWidth: isSelected ? 11 : isHovered ? 9 : 5,
-                        opacity: isSelected ? 0.8 : isHovered ? 0.55 : 0.28,
+                        stroke: isProtoFlash ? '#a855f7' : wire.color,
+                        strokeWidth: isProtoFlash ? 14 : isSelected || isWireConfigOpen ? 11 : isHovered ? 9 : 5,
+                        opacity: isProtoFlash ? 0.95 : isSelected || isWireConfigOpen ? 0.85 : isHovered ? 0.55 : 0.28,
                       }}
                     />
 
@@ -2290,21 +3401,30 @@ export default function MultiPageCanvas({
                       className={[
                         'pm-multi-wire',
                         isHovered ? 'pm-multi-wire-active' : '',
-                        isSelected ? 'pm-multi-wire-selected' : '',
+                        isSelected || isWireConfigOpen ? 'pm-multi-wire-selected' : '',
+                        isProtoFlash ? 'is-proto-flash' : '',
                       ]
                         .filter(Boolean)
                         .join(' ')}
                       markerEnd={`url(#arrow-${wire.id})`}
                       style={{
-                        stroke: wire.color,
-                        strokeWidth: isSelected ? 3.6 : isHovered ? 3.0 : 2.2,
-                        opacity: isSelected ? 1 : isHovered ? 1 : 0.85,
+                        stroke: isProtoFlash ? '#c084fc' : wire.color,
+                        strokeWidth: isProtoFlash ? 4.4 : isSelected || isWireConfigOpen ? 3.6 : isHovered ? 3.0 : 2.2,
+                        opacity: isSelected || isHovered || isProtoFlash || isWireConfigOpen ? 1 : 0.85,
                       }}
                     />
 
                     {/* Hạt ánh sáng chuyển động dọc dây nối */}
-                    <circle r={isHovered ? 4.5 : 3} fill={wire.color} className="pm-multi-particle">
-                      <animateMotion dur={isHovered ? '2s' : '3.5s'} repeatCount="indefinite" path={wire.pathD} />
+                    <circle
+                      r={isProtoFlash ? 5.5 : isHovered ? 4.5 : ruleCount > 0 ? 3.8 : 3}
+                      fill={isProtoFlash ? '#c084fc' : wire.color}
+                      className="pm-multi-particle"
+                    >
+                      <animateMotion
+                        dur={isProtoFlash ? '0.9s' : isHovered ? '2s' : '3.5s'}
+                        repeatCount="indefinite"
+                        path={wire.pathD}
+                      />
                     </circle>
                   </g>
                 )
@@ -2313,7 +3433,7 @@ export default function MultiPageCanvas({
           </svg>
 
           {/* ── 3. CÁC ĐIỂM GHIM TRÊN NÚT BẤM (NẰM TRÊN NÚT CỦA CỬA SỔ CHA) ── */}
-          {wires
+          {visibleWires
             .filter((wire) => wire.hasAnchor)
             .map((wire) => (
               <div
@@ -2326,10 +3446,15 @@ export default function MultiPageCanvas({
                 }}
                 title={
                   wire.isClipped
-                    ? `Nút bấm mở [${wire.label}] đã cuộn khuất khỏi tầm nhìn (Bấm để chuyển góc nhìn)`
-                    : `Nối từ nút bấm: [${wire.parentWin.title}] -> [${wire.label}] (Bấm để chuyển góc nhìn)`
+                    ? `Nút bấm mở [${wire.label}] đã cuộn khuất khỏi tầm nhìn (Click chuyển góc nhìn · Chuột phải cấu hình Prototype)`
+                    : `Nối từ nút bấm: [${wire.parentWin.title}] -> [${wire.label}] (Click chuyển góc nhìn · Chuột phải cấu hình Prototype)`
                 }
-                onClick={() => flyToWindow(wire.targetWin)}
+                onClick={() => flyToWindow(wire.targetWin, undefined, { fromWinId: wire.parentWin.id })}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  openWirePrototypeEditor(wire)
+                }}
               >
                 <span className="pm-multi-pin-dot" />
               </div>
@@ -2337,63 +3462,121 @@ export default function MultiPageCanvas({
         </div>
 
         {/* ── Thanh điều hướng nhanh khi đang chuyển góc nhìn sang trang khác ── */}
-        {flyingToWin && !flyingToWin.isHome && (
-          <div className="pm-multi-focus-pill">
-            <span>
-              Đang xem: <b>{flyingToWin.title}</b> ({flyingToWin.route})
-            </span>
-            {(() => {
-              const pId = parentMap.get(flyingToWin.id)
-              const parent = pId ? windows.find((w) => w.id === pId) : homeWin
-              return parent ? (
-                <button onClick={() => flyToWindow(parent)}>
-                  ← Quay về {parent.title}
+        {flyingToWin &&
+          (() => {
+            const lastWin = lastReachedWinId
+              ? windows.find((w) => w.id === lastReachedWinId) || null
+              : null
+            if (flyingToWin.isHome && (!lastWin || lastWin.id === homeWin?.id)) {
+              return null
+            }
+
+            const historyBackId = [...navHistory]
+              .reverse()
+              .find((id) => {
+                const win = windows.find((w) => w.id === id)
+                return win ? win.id !== flyingToWin.id : false
+              })
+            const hasHistory = Boolean(historyBackId)
+            const parentId = parentMap.get(flyingToWin.id)
+            const fallback =
+              (parentId ? windows.find((w) => w.id === parentId) : null) || homeWin || null
+            const backWin =
+              (historyBackId ? windows.find((w) => w.id === historyBackId) : fallback) || null
+            const canGoBack = !flyingToWin.isHome && Boolean(backWin && backWin.id !== flyingToWin.id)
+            const isAtLastWin = Boolean(lastWin && lastWin.id === flyingToWin.id)
+
+            return (
+              <div className="pm-multi-focus-pill">
+                <span>
+                  Đang xem: <b>{flyingToWin.title}</b> ({flyingToWin.route})
+                </span>
+                {canGoBack && backWin && (
+                  <button
+                    onClick={() => navigateBack(flyingToWin)}
+                    title={`Lui lại trang liền trước: ${backWin.title} (${backWin.route})`}
+                  >
+                    ← {hasHistory ? 'Quay lại' : 'Quay về'} {backWin.title}
+                  </button>
+                )}
+                {homeWin && !flyingToWin.isHome && (
+                  <button
+                    onClick={() =>
+                      flyToWindow(homeWin, undefined, { record: false, markEndpoint: false })
+                    }
+                    title="Về lại màn hình Trang chủ"
+                  >
+                    Trang chủ
+                  </button>
+                )}
+                {lastWin && (
+                  <button
+                    className={isAtLastWin ? 'is-endpoint-active' : undefined}
+                    onClick={() => {
+                      if (isAtLastWin) {
+                        flyToWindow(lastWin, undefined, { record: false, markEndpoint: false })
+                        return
+                      }
+                      const shouldRecord = !flyingToWin.isHome || navHistory.length === 0
+                      flyToWindow(lastWin, undefined, {
+                        record: shouldRecord,
+                        fromWinId: flyingToWin.id,
+                        markEndpoint: false,
+                      })
+                    }}
+                    title={
+                      isAtLastWin
+                        ? `Đang ở điểm đến cuối cùng vừa mở: ${lastWin.title} (${lastWin.route})`
+                        : `Quay lại nơi cuối cùng đã bấm vào: ${lastWin.title} (${lastWin.route})`
+                    }
+                  >
+                    {isAtLastWin ? `Điểm cuối: ${lastWin.title}` : `Điểm cuối: ${lastWin.title} →`}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setFlyingToWin(null)}
+                  title="Đóng thanh điều hướng nhanh"
+                  aria-label="Đóng thanh điều hướng nhanh"
+                  style={{ padding: '3px 7px' }}
+                >
+                  ×
                 </button>
-              ) : null
-            })()}
-            {homeWin && (
-              <button onClick={() => flyToWindow(homeWin)}>Trang chủ</button>
-            )}
-            <button onClick={() => fitBounding()}>Toàn cảnh</button>
-          </div>
-        )}
+              </div>
+            )
+          })()}
 
         {/* ── Điều khiển Zoom & Căn giữa góc dưới ── */}
-        <div className="pm-multi-controls">
+        <div className="pm-multi-controls" role="group" aria-label="Điều khiển zoom">
           <button
             onClick={() => setView((v) => ({ ...v, zoom: Math.max(0.12, v.zoom * 0.88) }))}
             title="Thu nhỏ (-)"
           >
             <ZoomOut size={13} />
           </button>
-          <span className="zoom-text">{Math.round(view.zoom * 100)}%</span>
+          <button
+            className="pm-multi-controls__zoom"
+            onClick={() => fitBounding(visibleWindows)}
+            title="Căn vừa toàn bộ (Fit)"
+          >
+            {Math.round(view.zoom * 100)}%
+          </button>
           <button
             onClick={() => setView((v) => ({ ...v, zoom: Math.min(2.0, v.zoom * 1.12) }))}
             title="Phóng to (+)"
           >
             <ZoomIn size={13} />
           </button>
-          <button onClick={() => fitBounding()} title="Căn vừa toàn bộ (Fit)">
+          <span className="pm-multi-controls__divider" />
+          <button onClick={() => fitBounding(visibleWindows)} title="Căn vừa toàn bộ (Fit)">
             <Maximize2 size={13} />
           </button>
           <button
-            onClick={() => flyToWindow(homeWin)}
-            title="Về ngay Trang chủ (1:1)"
-            style={{ fontSize: 10, fontWeight: 700, width: 'auto', padding: '0 5px' }}
+            onClick={() => flyToWindow(homeWin, 1, { record: false, markEndpoint: false })}
+            title="Về Trang chủ ở tỉ lệ 1:1"
+            className="pm-multi-controls__ratio"
           >
             1:1
-          </button>
-          <span style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.14)', margin: '0 2px' }} />
-          <button
-            className={isConnectMode ? 'active' : ''}
-            onClick={() => setIsConnectMode((v) => !v)}
-            title={
-              isConnectMode
-                ? 'Thoát chế độ nối dây (Esc)'
-                : 'Bật chế độ nối dây: giữ chuột vào một nút bấm trong trang rồi kéo sang trang đích'
-            }
-          >
-            <Link2 size={13} />
           </button>
         </div>
 
@@ -2445,10 +3628,687 @@ export default function MultiPageCanvas({
           </>
         )}
 
+        {/* ── Thông báo nổi khi chạy hành động Prototype Toast ── */}
+        {protoToast && (
+          <div className="pm-multi-proto-toast" role="status">
+            <Zap size={13} />
+            <span>{protoToast}</span>
+          </div>
+        )}
+
         <div className="pm-multi-hint">
-          Bấm vào dây để chọn · Delete để xoá dây · Ctrl+Z để hoàn tác · Kéo thanh tiêu đề để di chuyển
+          <span>Chuột phải dây: Prototype</span>
+          <span className="pm-multi-hint__sep">·</span>
+          <span>Click dây để chọn</span>
+          <span className="pm-multi-hint__sep">·</span>
+          <span><kbd>Delete</kbd> xoá dây</span>
+          <span className="pm-multi-hint__sep">·</span>
+          <span><kbd>Ctrl</kbd>+<kbd>Z</kbd> hoàn tác</span>
         </div>
       </div>
+
+      {/* ── Bảng Prototype theo dây nối (mở khi chuột phải trực tiếp lên dây hoặc ghim) ── */}
+      {wireProtoTarget && (
+        <aside className="pm-multi-proto pm-multi-proto--wire" aria-label="Prototype theo dây nối">
+          <div className="pm-multi-proto__hd">
+            <span className="pm-multi-proto__title">
+              <Zap size={13} /> Prototype Dây
+            </span>
+            <label className="pm-multi-proto__run" title="Công tắc tổng chạy/dừng toàn bộ sự kiện">
+              <input
+                type="checkbox"
+                checked={prototypeRunning}
+                onChange={(e) => setPrototypeRunning(e.target.checked)}
+              />
+              <span>{prototypeRunning ? 'Đang chạy' : 'Tạm dừng'}</span>
+            </label>
+            <button
+              className="pm-ibtn"
+              onClick={() => setWireProtoTarget(null)}
+              title="Đóng bảng Prototype (Esc)"
+            >
+              <X size={13} />
+            </button>
+          </div>
+
+          <div className="pm-multi-proto__body">
+            <div className="pm-multi-proto__wire-banner">
+              <div className="pm-multi-proto__wire-route">
+                <span>{wireProtoTarget.parentTitle}</span>
+                <span className="pm-multi-proto__arrow">→</span>
+                <b>{wireProtoTarget.targetTitle}</b>
+              </div>
+              <div className="pm-multi-proto__wire-source" title={wireProtoTarget.label}>
+                Nguồn: <b>{wireProtoTarget.label}</b>
+              </div>
+            </div>
+
+            <div className="pm-multi-proto__form">
+              <div className="pm-multi-proto__row">
+                <label className="pm-multi-proto__field">
+                  <span>Sự kiện kích hoạt</span>
+                  <select
+                    value={draftTrigger}
+                    onChange={(e) => setDraftTrigger(e.target.value as PrototypeTrigger)}
+                  >
+                    {PROTOTYPE_TRIGGERS.map((item) => (
+                      <option key={item.key} value={item.key}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="pm-multi-proto__field">
+                  <span>Hành động</span>
+                  <select
+                    value={draftAction}
+                    onChange={(e) => setDraftAction(e.target.value as PrototypeActionType)}
+                  >
+                    {PROTOTYPE_ACTIONS.map((item) => (
+                      <option key={item.key} value={item.key}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {draftTrigger === 'keypress' && (
+                <label className="pm-multi-proto__field">
+                  <span>Phím kích hoạt (VD: Enter, Escape, k)</span>
+                  <input
+                    type="text"
+                    className="pm-multi-proto__input"
+                    value={draftTriggerKey}
+                    onChange={(e) => setDraftTriggerKey(e.target.value)}
+                    placeholder="Enter"
+                  />
+                </label>
+              )}
+
+              {draftAction === 'toast' && (
+                <label className="pm-multi-proto__field">
+                  <span>Nội dung thông báo xem trước</span>
+                  <input
+                    type="text"
+                    className="pm-multi-proto__input"
+                    value={draftToastText}
+                    onChange={(e) => setDraftToastText(e.target.value)}
+                    placeholder={`VD: Đã kích hoạt ${wireProtoTarget.label}`}
+                  />
+                </label>
+              )}
+
+              <label className="pm-multi-proto__field">
+                <span>Cửa sổ đích</span>
+                <select value={draftTargetId} onChange={(e) => setDraftTargetId(e.target.value)}>
+                  {windows.map((win) => (
+                    <option key={win.id} value={win.id}>
+                      {win.title} ({win.route})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="pm-multi-proto__limits">
+                <label className="pm-multi-proto__field" title="0 = chạy không giới hạn">
+                  <span>Số lần (0=∞)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    className="pm-multi-proto__input"
+                    value={draftMaxRuns}
+                    onChange={(e) => setDraftMaxRuns(Math.max(0, Number(e.target.value) || 0))}
+                  />
+                </label>
+                <label
+                  className="pm-multi-proto__field"
+                  title={
+                    draftTrigger === 'timer'
+                      ? 'Chu kỳ lặp lại tự động (giây)'
+                      : 'Thời gian chờ tối thiểu giữa 2 lần chạy (giây)'
+                  }
+                >
+                  <span>{draftTrigger === 'timer' ? 'Chu kỳ (s)' : 'Cách nhau (s)'}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    className="pm-multi-proto__input"
+                    value={draftIntervalSec}
+                    onChange={(e) => setDraftIntervalSec(Math.max(0, Number(e.target.value) || 0))}
+                  />
+                </label>
+                <label className="pm-multi-proto__field" title="Đợi bao nhiêu giây rồi mới chạy">
+                  <span>Độ trễ (s)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    className="pm-multi-proto__input"
+                    value={draftDelaySec}
+                    onChange={(e) => setDraftDelaySec(Math.max(0, Number(e.target.value) || 0))}
+                  />
+                </label>
+              </div>
+
+              <button className="pm-multi-proto__add" onClick={addWirePrototypeInteraction}>
+                <Plus size={12} /> Gắn sự kiện vào dây này
+              </button>
+            </div>
+
+            <div className="pm-multi-proto__section">
+              <span className="pm-multi-proto__section-title">
+                Trên dây này ({wireScopedInteractions.length})
+              </span>
+              <button
+                className="pm-multi-proto__link"
+                onClick={() => {
+                  setWireProtoTarget(null)
+                  setShowEventController(true)
+                }}
+                title="Mở bảng Kiểm soát toàn bộ sự kiện"
+              >
+                <SlidersHorizontal size={11} /> Kiểm soát sự kiện ({interactions.length})
+              </button>
+            </div>
+
+            {wireScopedInteractions.length === 0 ? (
+              <p className="pm-multi-proto__empty">
+                Dây này chưa có sự kiện riêng. Chọn sự kiện, hành động và giới hạn chạy ở trên rồi
+                bấm <b>Gắn sự kiện</b>.
+              </p>
+            ) : (
+              <div className="pm-multi-proto__list">
+                {wireScopedInteractions.map((interaction) => {
+                  const used = runCounts[interaction.id] ?? 0
+                  const limitLabel =
+                    interaction.maxRuns > 0 ? `${used}/${interaction.maxRuns}` : `${used}/∞`
+                  return (
+                    <div
+                      key={interaction.id}
+                      className={`pm-multi-proto__item ${interaction.enabled ? '' : 'is-off'}`}
+                    >
+                      <div className="pm-multi-proto__item-hd">
+                        <span className="pm-multi-proto__badge">{limitLabel}</span>
+                        <div className="pm-multi-proto__item-actions">
+                          <button
+                            className="pm-multi-proto__mini-btn"
+                            onClick={() => triggerPrototypeInteraction(interaction, true)}
+                            title="Chạy thử ngay (bỏ qua giới hạn)"
+                          >
+                            <Play size={10} />
+                          </button>
+                          <button
+                            className="pm-multi-proto__mini-btn"
+                            onClick={() => resetRunCount(interaction.id)}
+                            title="Đặt lại bộ đếm lần chạy"
+                          >
+                            <RotateCcw size={10} />
+                          </button>
+                          <button
+                            className="pm-multi-proto__del"
+                            onClick={() => removePrototypeInteraction(interaction.id)}
+                            title="Xoá sự kiện này"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="pm-multi-proto__row">
+                        <select
+                          className="pm-multi-proto__mini"
+                          value={interaction.trigger}
+                          onChange={(e) =>
+                            updatePrototypeInteraction(interaction.id, {
+                              trigger: e.target.value as PrototypeTrigger,
+                            })
+                          }
+                        >
+                          {PROTOTYPE_TRIGGERS.map((item) => (
+                            <option key={item.key} value={item.key}>
+                              {item.label}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="pm-multi-proto__arrow">→</span>
+                        <select
+                          className="pm-multi-proto__mini"
+                          value={interaction.action}
+                          onChange={(e) =>
+                            updatePrototypeInteraction(interaction.id, {
+                              action: e.target.value as PrototypeActionType,
+                            })
+                          }
+                        >
+                          {PROTOTYPE_ACTIONS.map((item) => (
+                            <option key={item.key} value={item.key}>
+                              {item.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="pm-multi-proto__limits is-compact">
+                        <label title="Giới hạn số lần chạy (0 = vô hạn)">
+                          <span>Lần</span>
+                          <input
+                            type="number"
+                            min={0}
+                            className="pm-multi-proto__input"
+                            value={interaction.maxRuns}
+                            onChange={(e) =>
+                              updatePrototypeInteraction(interaction.id, {
+                                maxRuns: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                          />
+                        </label>
+                        <label title="Khoảng nghỉ / chu kỳ (giây)">
+                          <span>Nghỉ(s)</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            className="pm-multi-proto__input"
+                            value={interaction.intervalSec}
+                            onChange={(e) =>
+                              updatePrototypeInteraction(interaction.id, {
+                                intervalSec: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                          />
+                        </label>
+                        <label title="Độ trễ (giây)">
+                          <span>Trễ(s)</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            className="pm-multi-proto__input"
+                            value={interaction.delaySec}
+                            onChange={(e) =>
+                              updatePrototypeInteraction(interaction.id, {
+                                delaySec: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                          />
+                        </label>
+                        <label className="pm-multi-proto__check" title="Bật/tắt quy tắc này">
+                          <input
+                            type="checkbox"
+                            checked={interaction.enabled}
+                            onChange={(e) =>
+                              updatePrototypeInteraction(interaction.id, {
+                                enabled: e.target.checked,
+                              })
+                            }
+                          />
+                          <span>Bật</span>
+                        </label>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </aside>
+      )}
+
+      {/* ── Bảng Kiểm soát sự kiện: bật/tắt, số lần chạy, khoảng nghỉ & nhật ký ── */}
+      {showEventController && (
+        <aside className="pm-multi-proto pm-multi-proto--ctrl" aria-label="Kiểm soát sự kiện">
+          <div className="pm-multi-proto__hd">
+            <span className="pm-multi-proto__title">
+              <SlidersHorizontal size={13} /> Kiểm soát sự kiện
+            </span>
+            <button
+              className={`pm-multi-proto__master-btn ${prototypeRunning ? 'is-running' : ''}`}
+              onClick={() => setPrototypeRunning((v) => !v)}
+              title={prototypeRunning ? 'Tạm dừng toàn bộ sự kiện' : 'Tiếp tục chạy toàn bộ sự kiện'}
+            >
+              {prototypeRunning ? <Pause size={11} /> : <Play size={11} />}
+              <span>{prototypeRunning ? 'Đang chạy' : 'Tạm dừng'}</span>
+            </button>
+            <button
+              className="pm-ibtn"
+              onClick={() => setShowEventController(false)}
+              title="Đóng Kiểm soát sự kiện (Esc)"
+            >
+              <X size={13} />
+            </button>
+          </div>
+
+          <div className="pm-multi-proto__body">
+            {/* Thanh điều khiển tổng nhanh */}
+            <div className="pm-multi-proto__toolbar">
+              <button
+                className="pm-multi-proto__toolbtn"
+                onClick={resetAllRunCounts}
+                title="Đặt lại bộ đếm số lần đã chạy về 0 cho toàn bộ quy tắc"
+              >
+                <RotateCcw size={11} /> Reset lượt
+              </button>
+              <button
+                className="pm-multi-proto__toolbtn"
+                onClick={() => toggleAllInteractions(true)}
+                disabled={interactions.length === 0}
+                title="Bật toàn bộ quy tắc"
+              >
+                Bật hết
+              </button>
+              <button
+                className="pm-multi-proto__toolbtn"
+                onClick={() => toggleAllInteractions(false)}
+                disabled={interactions.length === 0}
+                title="Tắt toàn bộ quy tắc"
+              >
+                Tắt hết
+              </button>
+              {hiddenWinIds.size > 0 && (
+                <button
+                  className="pm-multi-proto__toolbtn"
+                  onClick={() => setHiddenWinIds(new Set())}
+                  title="Hiện lại các cửa sổ bị ẩn bởi hành động Toggle"
+                >
+                  <Eye size={11} /> Hiện ({hiddenWinIds.size})
+                </button>
+              )}
+            </div>
+
+            {/* Áp dụng giới hạn hàng loạt */}
+            {interactions.length > 0 && (
+              <div className="pm-multi-proto__batch">
+                <div className="pm-multi-proto__section-title">Áp dụng hàng loạt cho mọi quy tắc</div>
+                <div className="pm-multi-proto__limits">
+                  <label className="pm-multi-proto__field" title="0 = không giới hạn">
+                    <span>Tối đa (0=∞)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      className="pm-multi-proto__input"
+                      value={batchMaxRuns}
+                      onChange={(e) => setBatchMaxRuns(Math.max(0, Number(e.target.value) || 0))}
+                    />
+                  </label>
+                  <label className="pm-multi-proto__field" title="Khoảng nghỉ tối thiểu giữa các lần (giây)">
+                    <span>Cách (s)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      className="pm-multi-proto__input"
+                      value={batchIntervalSec}
+                      onChange={(e) => setBatchIntervalSec(Math.max(0, Number(e.target.value) || 0))}
+                    />
+                  </label>
+                  <label className="pm-multi-proto__field" title="Độ trễ trước khi chạy (giây)">
+                    <span>Trễ (s)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      className="pm-multi-proto__input"
+                      value={batchDelaySec}
+                      onChange={(e) => setBatchDelaySec(Math.max(0, Number(e.target.value) || 0))}
+                    />
+                  </label>
+                </div>
+                <button className="pm-multi-proto__apply-btn" onClick={applyBatchLimits}>
+                  Áp dụng &amp; Reset bộ đếm
+                </button>
+              </div>
+            )}
+
+            <div className="pm-multi-proto__section">
+              <span className="pm-multi-proto__section-title">
+                Danh sách quy tắc ({interactions.filter((i) => i.enabled).length}/{interactions.length})
+              </span>
+            </div>
+
+            {interactions.length === 0 ? (
+              <p className="pm-multi-proto__empty">
+                Chưa có quy tắc nào. Hãy <b>chuột phải trực tiếp lên dây nối</b> (hoặc điểm ghim nút
+                bấm) để tạo sự kiện Prototype rồi kiểm soát tại đây.
+              </p>
+            ) : (
+              <div className="pm-multi-proto__list">
+                {interactions.map((interaction) => {
+                  const parent = windows.find((win) => win.id === interaction.parentId)
+                  const target = windows.find((win) => win.id === interaction.targetId)
+                  const label =
+                    (interaction.source.text || '').trim() || interaction.anchorKey || 'Dây nối'
+                  const used = runCounts[interaction.id] ?? 0
+                  const exhausted = interaction.maxRuns > 0 && used >= interaction.maxRuns
+                  const limitBadge =
+                    interaction.maxRuns > 0
+                      ? `${used}/${interaction.maxRuns}${exhausted ? ' · Xong' : ''}`
+                      : `${used}/∞`
+
+                  return (
+                    <div
+                      key={interaction.id}
+                      className={`pm-multi-proto__item ${!interaction.enabled ? 'is-off' : ''} ${
+                        exhausted ? 'is-exhausted' : ''
+                      }`}
+                    >
+                      <div className="pm-multi-proto__item-hd">
+                        <span
+                          className="pm-multi-proto__item-name"
+                          title={`${parent?.title ?? '?'} · ${label} → ${target?.title ?? '?'}`}
+                        >
+                          {parent?.title ?? '?'} · {label}
+                        </span>
+                        <div className="pm-multi-proto__item-actions">
+                          <span className={`pm-multi-proto__badge ${exhausted ? 'is-done' : ''}`}>
+                            {limitBadge}
+                          </span>
+                          <button
+                            className="pm-multi-proto__mini-btn"
+                            onClick={() => locateWireForInteraction(interaction)}
+                            title="Tìm &amp; làm nổi bật dây dẫn trên Canvas"
+                          >
+                            <Crosshair size={10} />
+                          </button>
+                          <button
+                            className="pm-multi-proto__mini-btn"
+                            onClick={() => triggerPrototypeInteraction(interaction, true)}
+                            title="Chạy thử ngay"
+                          >
+                            <Play size={10} />
+                          </button>
+                          <button
+                            className="pm-multi-proto__mini-btn"
+                            onClick={() => resetRunCount(interaction.id)}
+                            title="Reset lượt chạy của quy tắc này"
+                          >
+                            <RotateCcw size={10} />
+                          </button>
+                          <button
+                            className="pm-multi-proto__del"
+                            onClick={() => removePrototypeInteraction(interaction.id)}
+                            title="Xoá quy tắc này"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="pm-multi-proto__row">
+                        <select
+                          className="pm-multi-proto__mini"
+                          value={interaction.trigger}
+                          onChange={(e) =>
+                            updatePrototypeInteraction(interaction.id, {
+                              trigger: e.target.value as PrototypeTrigger,
+                            })
+                          }
+                          title="Sự kiện kích hoạt"
+                        >
+                          {PROTOTYPE_TRIGGERS.map((item) => (
+                            <option key={item.key} value={item.key}>
+                              {item.label}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="pm-multi-proto__arrow">→</span>
+                        <select
+                          className="pm-multi-proto__mini"
+                          value={interaction.action}
+                          onChange={(e) =>
+                            updatePrototypeInteraction(interaction.id, {
+                              action: e.target.value as PrototypeActionType,
+                            })
+                          }
+                          title="Hành động"
+                        >
+                          {PROTOTYPE_ACTIONS.map((item) => (
+                            <option key={item.key} value={item.key}>
+                              {item.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="pm-multi-proto__limits is-compact">
+                        <label title="Giới hạn số lần chạy (0 = vĩnh viễn)">
+                          <span>Lần</span>
+                          <input
+                            type="number"
+                            min={0}
+                            className="pm-multi-proto__input"
+                            value={interaction.maxRuns}
+                            onChange={(e) =>
+                              updatePrototypeInteraction(interaction.id, {
+                                maxRuns: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                          />
+                        </label>
+                        <label title="Mỗi lần chạy cách nhau bao nhiêu giây">
+                          <span>Cách(s)</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            className="pm-multi-proto__input"
+                            value={interaction.intervalSec}
+                            onChange={(e) =>
+                              updatePrototypeInteraction(interaction.id, {
+                                intervalSec: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                          />
+                        </label>
+                        <label title="Độ trễ trước khi chạy (giây)">
+                          <span>Trễ(s)</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            className="pm-multi-proto__input"
+                            value={interaction.delaySec}
+                            onChange={(e) =>
+                              updatePrototypeInteraction(interaction.id, {
+                                delaySec: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                          />
+                        </label>
+                        <label className="pm-multi-proto__check" title="Bật/tắt quy tắc này">
+                          <input
+                            type="checkbox"
+                            checked={interaction.enabled}
+                            onChange={(e) =>
+                              updatePrototypeInteraction(interaction.id, {
+                                enabled: e.target.checked,
+                              })
+                            }
+                          />
+                          <span>Bật</span>
+                        </label>
+                      </div>
+
+                      {interaction.trigger === 'keypress' && (
+                        <input
+                          type="text"
+                          className="pm-multi-proto__input pm-multi-proto__input--sm"
+                          value={interaction.triggerKey || 'Enter'}
+                          onChange={(e) =>
+                            updatePrototypeInteraction(interaction.id, {
+                              triggerKey: e.target.value,
+                            })
+                          }
+                          placeholder="Phím kích hoạt (Enter, Space...)"
+                        />
+                      )}
+
+                      {interaction.action === 'toast' && (
+                        <input
+                          type="text"
+                          className="pm-multi-proto__input pm-multi-proto__input--sm"
+                          value={interaction.toastText || ''}
+                          onChange={(e) =>
+                            updatePrototypeInteraction(interaction.id, {
+                              toastText: e.target.value,
+                            })
+                          }
+                          placeholder="Nội dung thông báo xem trước..."
+                        />
+                      )}
+
+                      {!target && (
+                        <p className="pm-multi-proto__warn">Cửa sổ đích không còn tồn tại.</p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Nhật ký thực thi sự kiện */}
+            <div className="pm-multi-proto__logs">
+              <div className="pm-multi-proto__section">
+                <span className="pm-multi-proto__section-title">
+                  <Activity size={11} /> Nhật ký ({eventLogs.length})
+                </span>
+                {eventLogs.length > 0 && (
+                  <button
+                    className="pm-multi-proto__link"
+                    onClick={() => setEventLogs([])}
+                    title="Xoá nhật ký"
+                  >
+                    Xoá log
+                  </button>
+                )}
+              </div>
+              {eventLogs.length === 0 ? (
+                <p className="pm-multi-proto__empty is-compact">
+                  Chưa có sự kiện nào kích hoạt trong phiên này.
+                </p>
+              ) : (
+                <div className="pm-multi-proto__log-list">
+                  {eventLogs.slice(0, 8).map((log) => (
+                    <div key={log.id} className={`pm-multi-proto__log-row is-${log.kind}`}>
+                      <span className="pm-multi-proto__log-time">{log.time}</span>
+                      <span className="pm-multi-proto__log-msg">{log.message}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {interactions.length > 0 && (
+              <button className="pm-multi-proto__clear" onClick={clearPrototypeInteractions}>
+                <Trash2 size={11} /> Xoá toàn bộ quy tắc
+              </button>
+            )}
+          </div>
+        </aside>
+      )}
     </div>
   )
 }

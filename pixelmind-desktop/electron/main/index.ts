@@ -11,7 +11,9 @@ import type {
   ProjectRecord,
   Settings,
   StoreData,
+  TerminalCreateOptions,
 } from '../../shared/types'
+import type { BackupSnapshot } from '../../shared/types'
 import type { ToolboxMutationPayload, ToolboxWritePayload } from '../../shared/toolbox'
 import {
   DEFAULT_DESIGN_TOKENS,
@@ -39,6 +41,8 @@ import {
   writeFileContent,
 } from './projects'
 import { RunnerManager } from './runner'
+import { TerminalManager } from './terminal'
+import { clearBackups, createFileBackup, listBackups, restoreBackup } from './snapshots'
 import {
   copyPageFile,
   normalizePageRoute,
@@ -120,6 +124,11 @@ let mainWindow: BrowserWindow | null = null
 const runner = new RunnerManager(
   (log) => mainWindow?.webContents.send('run:log', log),
   (state) => mainWindow?.webContents.send('run:state', state),
+)
+
+const terminalManager = new TerminalManager(
+  (event) => mainWindow?.webContents.send('terminal:data', event),
+  (event) => mainWindow?.webContents.send('terminal:exit', event),
 )
 
 const samePath = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase()
@@ -938,10 +947,27 @@ ipcMain.handle('fs:tree', async (_e, root: string, showHidden: boolean) => {
 
 ipcMain.handle('fs:read', async (_e, target: string) => readFileContent(target))
 
-ipcMain.handle('fs:write', async (_e, target: string, text: string) => {
-  await writeFileContent(target, text)
-  return true
-})
+ipcMain.handle(
+  'fs:write',
+  async (
+    _e,
+    target: string,
+    text: string,
+    options?: { projectPath?: string; backup?: boolean; reason?: BackupSnapshot['reason'] },
+  ) => {
+    if (options?.backup) {
+      await createFileBackup(target, options.projectPath, options.reason ?? 'manual-save')
+    }
+    await writeFileContent(target, text)
+    return true
+  },
+)
+
+ipcMain.handle('snapshot:list', (_e, projectPath: string) => listBackups(projectPath))
+ipcMain.handle('snapshot:restore', (_e, projectPath: string, backupPath: string, targetPath?: string) =>
+  restoreBackup(projectPath, backupPath, targetPath),
+)
+ipcMain.handle('snapshot:clear', (_e, projectPath: string) => clearBackups(projectPath))
 
 ipcMain.handle('fs:stat', async (_e, root: string) => statProject(root))
 
@@ -1169,6 +1195,33 @@ ipcMain.handle('run:stop-project', async (_e, projectId: string) => {
 ipcMain.handle('run:stop-all', async () => {
   runner.stopAll()
   return true
+})
+
+/* ───────────────────────── IPC: Terminal tương tác thật (PTY) ───────────────────────── */
+
+ipcMain.handle('terminal:create', (_e, options?: TerminalCreateOptions) => {
+  return terminalManager.create(options)
+})
+
+ipcMain.handle('terminal:write', (_e, sessionId: string, data: string) => {
+  return terminalManager.write(sessionId, data)
+})
+
+ipcMain.handle('terminal:resize', (_e, sessionId: string, cols: number, rows: number) => {
+  return terminalManager.resize(sessionId, cols, rows)
+})
+
+ipcMain.handle('terminal:kill', (_e, sessionId: string) => {
+  return terminalManager.kill(sessionId)
+})
+
+ipcMain.handle('terminal:kill-all', () => {
+  terminalManager.killAll()
+  return true
+})
+
+ipcMain.handle('terminal:list', () => {
+  return terminalManager.list()
 })
 
 ipcMain.handle('shell:external', async (_e, url: string) => {
@@ -3161,6 +3214,9 @@ ipcMain.handle(
       styles,
       tagName,
       lineNumber,
+      projectPath,
+      backup = true,
+      reason = 'code-sync',
     }: {
       fullPath: string
       oldText?: string
@@ -3168,6 +3224,9 @@ ipcMain.handle(
       styles?: Record<string, string>
       tagName?: string
       lineNumber?: number
+      projectPath?: string
+      backup?: boolean
+      reason?: BackupSnapshot['reason']
     }
   ) => {
     try {
@@ -3293,15 +3352,25 @@ ipcMain.handle(
       }
 
       if (modified) {
+        const backupPath = backup
+          ? await createFileBackup(fullPath, projectPath, reason)
+          : undefined
         content = lines.join('\n')
         await fs.writeFile(fullPath, content, 'utf8')
-        return { success: true, updatedLine: tagLineIdx !== -1 ? lines[tagLineIdx] : undefined }
+        return {
+          success: true,
+          updatedLine: tagLineIdx !== -1 ? lines[tagLineIdx] : undefined,
+          backupPath,
+        }
       }
 
       if (oldText && newText && oldText !== newText && content.includes(oldText)) {
+        const backupPath = backup
+          ? await createFileBackup(fullPath, projectPath, reason)
+          : undefined
         content = content.replace(oldText, newText)
         await fs.writeFile(fullPath, content, 'utf8')
-        return { success: true }
+        return { success: true, backupPath }
       }
 
       return { success: false, error: 'Không tìm thấy phần tử tương ứng trong tệp mã nguồn' }
@@ -3993,18 +4062,27 @@ if (!gotLock) {
 
   app.on('window-all-closed', () => {
     runner.stopAll()
+    terminalManager.killAll()
     if (process.platform !== 'darwin') app.quit()
   })
 
-  app.on('before-quit', () => runner.stopAll())
+  app.on('before-quit', () => {
+    runner.stopAll()
+    terminalManager.killAll()
+  })
 
-  process.on('exit', () => runner.stopAll())
+  process.on('exit', () => {
+    runner.stopAll()
+    terminalManager.killAll()
+  })
   process.on('SIGINT', () => {
     runner.stopAll()
+    terminalManager.killAll()
     process.exit(0)
   })
   process.on('SIGTERM', () => {
     runner.stopAll()
+    terminalManager.killAll()
     process.exit(0)
   })
 }
