@@ -753,6 +753,9 @@ export function createBrowserMock(): PixelMindApi {
         async clear() {
           return true
         },
+        async rewrite() {
+          return true
+        },
       },
       async context(request: AiContextRequest) {
         const pack = {
@@ -832,6 +835,12 @@ export function createBrowserMock(): PixelMindApi {
             target.undoneAt = Date.now()
           }
           return aiChanges.filter((change) => change.projectId === projectId)
+        },
+        async diffStats() {
+          return []
+        },
+        async gitRevert() {
+          return true
         },
       },
       tools: {

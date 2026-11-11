@@ -1942,3 +1942,46 @@ export async function gitBranch(root: string): Promise<string | null> {
     }
   }
 }
+
+export async function getGitDiffStats(
+  root: string,
+): Promise<Array<{ file: string; added: number; removed: number }>> {
+  if (!root) return []
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', root, 'diff', '--numstat'], {
+      windowsHide: true,
+      timeout: 4000,
+    })
+    const list: Array<{ file: string; added: number; removed: number }> = []
+    for (const line of stdout.split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      const parts = trimmed.split(/\s+/)
+      if (parts.length >= 3) {
+        const added = parseInt(parts[0], 10) || 0
+        const removed = parseInt(parts[1], 10) || 0
+        const file = parts.slice(2).join(' ')
+        list.push({ file, added, removed })
+      }
+    }
+    return list
+  } catch {
+    return []
+  }
+}
+
+export async function gitRevertFiles(root: string, files?: string[]): Promise<boolean> {
+  if (!root) return false
+  try {
+    const args = ['-C', root, 'checkout', '--']
+    if (files && files.length > 0) {
+      args.push(...files)
+    } else {
+      args.push('.')
+    }
+    await execFileAsync('git', args, { windowsHide: true, timeout: 5000 })
+    return true
+  } catch {
+    return false
+  }
+}

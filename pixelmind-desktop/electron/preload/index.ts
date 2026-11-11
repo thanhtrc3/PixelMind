@@ -26,6 +26,7 @@ import type {
 } from '../../shared/toolbox'
 import type {
   AiBridgeKind,
+  AiChatEntry,
   AiChatEvent,
   AiChatStartRequest,
   AiCliEvent,
@@ -232,6 +233,8 @@ const api: PixelMindApi = {
     chats: {
       history: (projectId: string) => ipcRenderer.invoke('ai:chats:history', projectId),
       clear: (projectId: string) => ipcRenderer.invoke('ai:chats:clear', projectId),
+      rewrite: (projectId: string, entries: AiChatEntry[]) =>
+        ipcRenderer.invoke('ai:chats:rewrite', projectId, entries),
     },
     context: (request: AiContextRequest) => ipcRenderer.invoke('ai:context', request),
     changes: {
@@ -243,6 +246,9 @@ const api: PixelMindApi = {
         ipcRenderer.invoke('ai:changes:reject', projectId, changeId),
       undo: (projectId: string, changeId: string) =>
         ipcRenderer.invoke('ai:changes:undo', projectId, changeId),
+      diffStats: (projectPath: string) => ipcRenderer.invoke('ai:changes:diff-stats', projectPath),
+      gitRevert: (projectPath: string, files?: string[]) =>
+        ipcRenderer.invoke('ai:changes:git-revert', projectPath, files),
     },
     tools: {
       list: () => ipcRenderer.invoke('ai:tools:list'),

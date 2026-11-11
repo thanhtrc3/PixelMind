@@ -820,6 +820,23 @@ export async function clearChatHistory(projectId: string): Promise<boolean> {
   }
 }
 
+export async function rewriteChatHistory(
+  projectId: string,
+  entries: AiChatEntry[],
+): Promise<boolean> {
+  if (!projectId) return false
+  try {
+    const file = chatHistoryPath(projectId)
+    const lines = entries
+      .map((e) => JSON.stringify({ ...e, id: e.id || randomUUID(), at: e.at || Date.now() }))
+      .join('\n')
+    await fs.writeFile(file, lines ? lines + '\n' : '', 'utf8')
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function startChat(
   request: AiChatStartRequest,
   emit: (event: AiChatEvent) => void,

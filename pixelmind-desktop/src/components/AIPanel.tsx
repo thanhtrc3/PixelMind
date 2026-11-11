@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AlertTriangle,
+  Atom,
   BoxSelect,
   Bug,
   Check,
@@ -42,6 +43,7 @@ import type {
   AiBridgeKind,
   AiBridgeStatus,
   AiChange,
+  AiChatEntry,
   AiContextPack,
   AiContextResult,
   AiCostStats,
@@ -84,9 +86,17 @@ interface AiChatMessage {
   role: 'user' | 'assistant' | 'system'
   text: string
   time: string
+  at?: number
   failed?: boolean
   plan?: AiPlanStep[]
   attachments?: AiAttachment[]
+}
+
+export interface AiUndoItem {
+  file: string
+  added: number
+  removed: number
+  changeId?: string
 }
 
 interface AIPanelProps {
@@ -404,6 +414,48 @@ const timeOf = (at: number) => {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
+const formatRelativeOrTime = (at?: number, fallback?: string) => {
+  if (!at) return fallback || ''
+  const diffSec = Math.floor((Date.now() - at) / 1000)
+  if (diffSec < 60) return 'Vừa xong'
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHour = Math.floor(diffMin / 60)
+  if (diffHour < 24) return `${diffHour}h ago`
+  return fallback || timeOf(at)
+}
+
+const renderFileBadge = (file: string) => {
+  const ext = file.split('.').pop()?.toLowerCase() ?? ''
+  if (ext === 'ts') {
+    return <span className="pm-ai-undo-file-badge is-ts">TS</span>
+  }
+  if (ext === 'tsx' || ext === 'jsx') {
+    return (
+      <span className="pm-ai-undo-file-badge is-tsx" title="React">
+        <Atom size={13} style={{ color: '#38bdf8' }} />
+      </span>
+    )
+  }
+  if (ext === 'css' || ext === 'scss' || ext === 'less') {
+    return <span className="pm-ai-undo-file-badge is-css">&#123;&#125;</span>
+  }
+  if (ext === 'js') {
+    return <span className="pm-ai-undo-file-badge is-js">JS</span>
+  }
+  if (ext === 'cs') {
+    return <span className="pm-ai-undo-file-badge is-cs">C#</span>
+  }
+  if (ext === 'html' || ext === 'cshtml' || ext === 'razor') {
+    return <span className="pm-ai-undo-file-badge is-code">&lt;&gt;</span>
+  }
+  return (
+    <span className="pm-ai-undo-file-badge is-code">
+      <FileCode2 size={12} />
+    </span>
+  )
+}
+
 const StepTimeline = ({ steps, compact = false }: { steps: AiStep[]; compact?: boolean }) => (
   <div className={`pm-ai-steps ${compact ? 'is-compact' : ''}`}>
     {steps.map((step, index) => (
@@ -707,6 +759,14 @@ const AIPanel = ({
   }
   const [messages, setMessages] = useState<AiChatMessage[]>([])
   const [changes, setChanges] = useState<AiChange[]>([])
+  const [undoTarget, setUndoTarget] = useState<{
+    message: AiChatMessage
+    index: number
+    items: AiUndoItem[]
+    affectedChanges: AiChange[]
+  } | null>(null)
+  const [revertFilesChecked, setRevertFilesChecked] = useState(true)
+  const [undoing, setUndoing] = useState(false)
   const [toolLogs, setToolLogs] = useState<AiToolLogEntry[]>([])
   const [contexts, setContexts] = useState<ContextOption[]>(DEFAULT_CONTEXT_OPTIONS)
   const [draft, setDraft] = useState('')
@@ -1084,6 +1144,8 @@ const AIPanel = ({
           role: entry.role,
           text: entry.text,
           time: timeOf(entry.at),
+          at: entry.at,
+          plan: entry.plan,
         })),
       )
     } catch {
@@ -1303,11 +1365,13 @@ const AIPanel = ({
         : parts.join('\n\n')
     }
 
+    const nowMs = Date.now()
     const userMessage: AiChatMessage = {
       id: `local-user-${msgId.current}`,
       role: 'user',
       text: text || (currentAttachments.length > 0 ? `Đã đính kèm ${currentAttachments.length} mục` : ''),
       time,
+      at: nowMs,
       attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
     }
     const history = messages
@@ -1325,7 +1389,7 @@ const AIPanel = ({
     setMessages((prev) => [
       ...prev.filter((message) => !message.failed),
       ...(addUser ? [userMessage] : []),
-      { id: replyId, role: 'assistant', text: '', time },
+      { id: replyId, role: 'assistant', text: '', time, at: nowMs },
     ])
     setThinking(true)
     setLiveStatus({ text: 'Đang gửi yêu cầu…', phase: 'prepare' })
@@ -1729,6 +1793,173 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
     }
   }
 
+  const handleCopyMessage = useCallback(
+    async (text: string) => {
+      if (!text) return
+      try {
+        await navigator.clipboard.writeText(text)
+        onShowToast('ok', 'Đã sao chép nội dung tin nhắn!')
+      } catch (err) {
+        onShowToast('err', `Không thể sao chép: ${(err as Error).message}`)
+      }
+    },
+    [onShowToast],
+  )
+
+  const handleOpenUndo = useCallback(
+    async (targetMsg: AiChatMessage, targetIndex: number) => {
+      const targetAt = targetMsg.at ?? 0
+      let currentChanges = changes
+      if (projectId) {
+        try {
+          currentChanges = await api.ai.changes.list(projectId)
+          setChanges(currentChanges)
+        } catch {
+          // keep current
+        }
+      }
+
+      let affected = currentChanges.filter((chg) => {
+        if (chg.status !== 'accepted' && chg.status !== 'pending') return false
+        if (targetAt && chg.createdAt) {
+          return chg.createdAt >= targetAt - 2000
+        }
+        return true
+      })
+
+      if (affected.length === 0 && currentChanges.length > 0) {
+        affected = currentChanges.filter(
+          (chg) => chg.status === 'accepted' || chg.status === 'pending',
+        )
+      }
+
+      const items: AiUndoItem[] = []
+      for (const chg of affected) {
+        const fileName = chg.file.split(/[\\/]/).pop() || chg.file
+        items.push({
+          file: fileName,
+          added: chg.removed ?? 0,
+          removed: chg.added ?? 0,
+          changeId: chg.id,
+        })
+      }
+
+      if (items.length === 0 && projectPath) {
+        try {
+          const diffs = await api.ai.changes.diffStats?.(projectPath)
+          if (diffs && diffs.length > 0) {
+            for (const d of diffs) {
+              const fileName = d.file.split(/[\\/]/).pop() || d.file
+              items.push({
+                file: fileName,
+                added: d.removed ?? 0,
+                removed: d.added ?? 0,
+              })
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      setUndoTarget({
+        message: targetMsg,
+        index: targetIndex,
+        items,
+        affectedChanges: affected,
+      })
+      setRevertFilesChecked(true)
+    },
+    [changes, projectId, projectPath],
+  )
+
+  const handleConfirmUndo = useCallback(async () => {
+    if (!undoTarget || undoing) return
+    setUndoing(true)
+    try {
+      const { message, index, affectedChanges, items } = undoTarget
+
+      // 1. Revert file changes if checked
+      if (revertFilesChecked) {
+        if (projectId && affectedChanges.length > 0) {
+          for (const chg of [...affectedChanges].reverse()) {
+            try {
+              if (chg.status === 'accepted') {
+                await api.ai.changes.undo(projectId, chg.id)
+              } else if (chg.status === 'pending') {
+                await api.ai.changes.reject(projectId, chg.id)
+              }
+            } catch (err) {
+              console.warn('[AI] Failed to revert change', chg.id, err)
+            }
+          }
+        }
+        if (projectPath && items.some((it) => !it.changeId)) {
+          try {
+            await api.ai.changes.gitRevert?.(projectPath)
+          } catch (err) {
+            console.warn('[AI] Failed to git revert', err)
+          }
+        }
+        await loadChanges()
+        onApplied?.()
+      }
+
+      // 2. Truncate chat messages to before this message
+      const remainingMessages = messages.slice(0, index)
+      setMessages(remainingMessages)
+
+      // 3. If target was user message, restore prompt to draft input
+      if (message.role === 'user' && message.text) {
+        setDraft(message.text)
+      }
+
+      // 4. Rewrite chat history on backend
+      if (projectId) {
+        const remainingEntries: AiChatEntry[] = remainingMessages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          text: m.text,
+          at: m.at ?? Date.now(),
+          plan: m.plan,
+        }))
+        await api.ai.chats.rewrite(projectId, remainingEntries)
+      }
+
+      onShowToast('ok', 'Đã hoàn tác tin nhắn thành công!')
+      setUndoTarget(null)
+    } catch (err) {
+      onShowToast('err', `Không thể hoàn tác: ${(err as Error).message}`)
+    } finally {
+      setUndoing(false)
+    }
+  }, [
+    undoTarget,
+    undoing,
+    revertFilesChecked,
+    projectId,
+    projectPath,
+    loadChanges,
+    onApplied,
+    messages,
+    onShowToast,
+  ])
+
+  useEffect(() => {
+    if (!undoTarget) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setUndoTarget(null)
+      } else if (e.key === 'Enter' && !undoing) {
+        e.preventDefault()
+        void handleConfirmUndo()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [undoTarget, undoing, handleConfirmUndo])
+
   const fixStepsFor = (): AiStep[] => [
     { label: 'Đọc log và xác định lỗi', status: loopStage !== 'idle' ? 'done' : 'pending' },
     {
@@ -2084,7 +2315,7 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
                 </div>
               )}
 
-              {messages.map((message) => (
+              {messages.map((message, index) => (
                 <div key={message.id} className={`pm-ai-msg is-${message.role}`}>
                   {message.role === 'assistant' && (
                     <span className="pm-ai-avatar">
@@ -2152,7 +2383,31 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
                         ))}
                       </div>
                     )}
-                    <span className="pm-ai-msg__time">{message.time}</span>
+                    <div className="pm-ai-msg__ft">
+                      <span className="pm-ai-msg__time">
+                        {formatRelativeOrTime(message.at, message.time)}
+                      </span>
+                      {message.text && (
+                        <div className="pm-ai-msg__actions">
+                          <button
+                            type="button"
+                            className="pm-ai-msg__btn"
+                            title="Sao chép nội dung tin nhắn"
+                            onClick={() => handleCopyMessage(message.text)}
+                          >
+                            <Copy size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            className="pm-ai-msg__btn"
+                            title="Hoàn tác (Undo) từ tin nhắn này"
+                            onClick={() => handleOpenUndo(message, index)}
+                          >
+                            <Undo2 size={11} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -3020,6 +3275,81 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
         </span>
         <span className={`pm-ai-dot is-${cliReady ? 'local' : configured ? 'online' : 'offline'}`} />
       </div>
+
+      {undoTarget && (
+        <div className="pm-ai-undo-overlay" onClick={() => setUndoTarget(null)}>
+          <div
+            className="pm-ai-undo-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="pm-ai-undo-dialog__hd">
+              <h3 className="pm-ai-undo-dialog__title">Confirm Undo</h3>
+              <button
+                type="button"
+                className="pm-ai-undo-dialog__close"
+                onClick={() => setUndoTarget(null)}
+                title="Đóng (Esc)"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="pm-ai-undo-dialog__desc">
+              {undoTarget.items.length === 0
+                ? 'This undo action will not make any code changes.'
+                : 'Confirming this undo action will make the following changes:'}
+            </div>
+
+            <label className="pm-ai-undo-check">
+              <input
+                type="checkbox"
+                checked={revertFilesChecked}
+                onChange={(e) => setRevertFilesChecked(e.target.checked)}
+              />
+              <span>Revert file changes</span>
+            </label>
+
+            {revertFilesChecked && undoTarget.items.length > 0 && (
+              <div className="pm-ai-undo-files">
+                {undoTarget.items.map((item, idx) => (
+                  <div key={`${item.file}-${idx}`} className="pm-ai-undo-file-row">
+                    {renderFileBadge(item.file)}
+                    <span className="pm-ai-undo-file-name" title={item.file}>
+                      {item.file}
+                    </span>
+                    <span className="pm-ai-undo-file-stats">
+                      <span className="pm-ai-undo-diff-add">+{item.added}</span>
+                      <span className="pm-ai-undo-diff-del">-{item.removed}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="pm-ai-undo-dialog__ft">
+              <button
+                type="button"
+                className="pm-ai-undo-btn-cancel"
+                onClick={() => setUndoTarget(null)}
+                disabled={undoing}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="pm-ai-undo-btn-confirm"
+                onClick={() => void handleConfirmUndo()}
+                disabled={undoing}
+              >
+                {undoing ? 'Reverting…' : 'Confirm'}
+                <span className="pm-ai-undo-enter">↵</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   )
 }
