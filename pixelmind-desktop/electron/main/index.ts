@@ -1415,35 +1415,74 @@ function getInspectorScript(isActive: boolean) {
         right: Math.max(state.sx, e.clientX),
         bottom: Math.max(state.sy, e.clientY)
       };
+      var boxW = box.right - box.left;
+      var boxH = box.bottom - box.top;
+      var boxArea = boxW * boxH;
       var hits = collectMarqueeHits(box);
       if (hits.length === 0) {
         setMultiSelected([], false, null);
         return;
       }
 
-      // Ưu tiên các phần tử nằm trọn trong vùng kéo, rồi chỉ giữ phần tử
-      // ngoài cùng (cha chưa nằm trọn trong vùng) để tránh chọn cả cây con.
-      var fully = hits.filter(function(el) {
+      // 1. Loại bỏ các thẻ layout / container quá lớn bao trùm toàn bộ trang
+      // nếu chúng có phần tử con cụ thể hơn cũng nằm trong vùng kéo
+      var nonContainers = hits.filter(function(el) {
         var r = el.getBoundingClientRect();
-        return r.left >= box.left - 1 && r.top >= box.top - 1 && r.right <= box.right + 1 && r.bottom <= box.bottom + 1;
+        var elArea = r.width * r.height;
+        var tag = el.tagName.toUpperCase();
+        var isBigWrapper = (tag === 'SECTION' || tag === 'MAIN' || tag === 'ARTICLE' || tag === 'DIV' || tag === 'FORM' || tag === 'NAV');
+        if (isBigWrapper && elArea > boxArea * 2.2 && (r.width > boxW + 40 || r.height > boxH + 40)) {
+          for (var c = 0; c < hits.length; c++) {
+            if (hits[c] !== el && el.contains(hits[c])) {
+              return false;
+            }
+          }
+        }
+        return true;
       });
 
+      var candidates = nonContainers.length > 0 ? nonContainers : hits;
+
+      // 2. Lấy các phần tử giao với vùng kéo (không bắt buộc 100% lọt lòng)
+      var validHits = candidates.filter(function(el) {
+        var r = el.getBoundingClientRect();
+        if (r.width < 1 || r.height < 1) return false;
+        var cx = (r.left + r.right) / 2;
+        var cy = (r.top + r.bottom) / 2;
+        if (cx >= box.left && cx <= box.right && cy >= box.top && cy <= box.bottom) return true;
+        var ix = Math.max(0, Math.min(r.right, box.right) - Math.max(r.left, box.left));
+        var iy = Math.max(0, Math.min(r.bottom, box.bottom) - Math.max(r.top, box.top));
+        var inter = ix * iy;
+        return inter > 0 && (inter / (r.width * r.height) >= 0.15 || inter / boxArea >= 0.05);
+      });
+
+      if (validHits.length === 0) validHits = candidates;
+
+      // 3. Chọn các phần tử có nội dung thực tế (h1..h6, p, a, button, input, span, v.v.)
       var picked = [];
-      if (fully.length > 0) {
-        for (var f = 0; f < fully.length; f++) {
-          var parentEl = fully[f].parentElement;
-          if (!parentEl || fully.indexOf(parentEl) === -1) picked.push(fully[f]);
+      for (var f = 0; f < validHits.length; f++) {
+        var el = validHits[f];
+        var tag = el.tagName.toUpperCase();
+        var isTextOrControl = (tag === 'H1' || tag === 'H2' || tag === 'H3' || tag === 'H4' || tag === 'H5' || tag === 'H6' ||
+          tag === 'P' || tag === 'BUTTON' || tag === 'A' || tag === 'SPAN' || tag === 'INPUT' || tag === 'LABEL' ||
+          tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'LI' || tag === 'IMG' || tag === 'SVG' || tag === 'I' || tag === 'B' || tag === 'STRONG');
+
+        if (isTextOrControl) {
+          picked.push(el);
+        } else {
+          // Với thẻ div / khác: chỉ chọn nếu nó không chứa thẻ con nào khác trong validHits
+          var hasChild = false;
+          for (var k = 0; k < validHits.length; k++) {
+            if (validHits[k] !== el && el.contains(validHits[k])) {
+              hasChild = true;
+              break;
+            }
+          }
+          if (!hasChild) picked.push(el);
         }
       }
 
-      // Vùng kéo quá nhỏ/không bao trọn phần tử nào: chọn phần tử ở tâm vùng kéo.
-      if (picked.length === 0) {
-        var centerEl = document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2);
-        if (centerEl && centerEl !== document.body && centerEl !== document.documentElement && !centerEl.hasAttribute('data-pm-marquee')) {
-          picked = [centerEl];
-        }
-      }
-      if (picked.length === 0) picked = hits;
+      if (picked.length === 0) picked = validHits;
 
       var next = setMultiSelected(picked, false, null);
       if (next.length > 0) lastSelected = next[next.length - 1];
@@ -1498,11 +1537,11 @@ function getInspectorScript(isActive: boolean) {
       var rect = el.getBoundingClientRect();
       var style = window.getComputedStyle(el);
       var isLeaf = el.children.length === 0;
-      var rawText = isLeaf ? (el.innerText || el.textContent || '').trim() : '';
+      var rawText = (el.innerText || el.textContent || '').trim();
       if (!rawText && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) {
         rawText = el.getAttribute('placeholder') || el.getAttribute('name') || el.getAttribute('type') || el.value || '';
       }
-      var snippet = rawText.length > 60 ? rawText.slice(0, 60) + '…' : rawText;
+      var snippet = rawText.length > 80 ? rawText.slice(0, 80) + '…' : rawText;
 
       return {
         uid: uid,

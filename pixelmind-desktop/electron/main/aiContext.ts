@@ -162,7 +162,7 @@ export async function buildContextPack(request: AiContextRequest): Promise<AiCon
       id: selection.id,
       className: selection.className,
       text: selection.text
-        ? sanitizeUntrustedContent(redactSecrets(clamp(selection.text, 500).text))
+        ? sanitizeUntrustedContent(redactSecrets(clamp(selection.text, 2500).text))
         : undefined,
       selector: selection.selector,
       outerHTML: selection.outerHTML
