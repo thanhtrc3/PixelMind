@@ -45,6 +45,7 @@ import {
   X,
 } from 'lucide-react'
 import type { FileContent, FileNode, ProjectPage, ProjectRecord, DesignTokens } from '@shared/types'
+import type { FileSearchMatch } from '../../shared/api'
 import { DEFAULT_DESIGN_TOKENS, tokenToCssVarName } from '@shared/designTokens'
 import type { RealElementInfo } from './CanvasArea'
 import { editorBuffer } from '../lib/editorBuffer'
@@ -94,7 +95,7 @@ interface WorkspaceSidebarProps {
   selectedPath: string | null
   query: string
   onQuery: (value: string) => void
-  onSelectFile: (node: FileNode) => void
+  onSelectFile: (node: FileNode, initialLine?: number) => void
   onRefresh: () => void
   onOpenFolder: () => void
   activeTab: SidebarTab
@@ -351,6 +352,58 @@ export const WorkspaceSidebar = ({
   const [pagesSearch, setPagesSearch] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [fileHeaderDialog, setFileHeaderDialog] = useState<'new-file' | 'new-folder' | null>(null)
+
+  // ── Tìm kiếm nội dung toàn văn bản trong dự án (Full-text Grep) ──
+  const [fileSearchMode, setFileSearchMode] = useState<'name' | 'content'>('name')
+  const [contentQuery, setContentQuery] = useState('')
+  const [contentMatches, setContentMatches] = useState<FileSearchMatch[]>([])
+  const [isSearchingContent, setIsSearchingContent] = useState(false)
+  const [caseSensitive, setCaseSensitive] = useState(false)
+
+  const handleContentSearch = useCallback(
+    async (text: string, cs = caseSensitive) => {
+      const q = text.trim()
+      if (!q || !project?.path) {
+        setContentMatches([])
+        setIsSearchingContent(false)
+        return
+      }
+      setIsSearchingContent(true)
+      try {
+        const results = await api.fs.search(project.path, q, { caseSensitive: cs, maxResults: 150 })
+        setContentMatches(results)
+      } catch {
+        setContentMatches([])
+      } finally {
+        setIsSearchingContent(false)
+      }
+    },
+    [project?.path, caseSensitive],
+  )
+
+  useEffect(() => {
+    if (fileSearchMode !== 'content') return
+    const timer = setTimeout(() => {
+      void handleContentSearch(contentQuery)
+    }, 280)
+    return () => clearTimeout(timer)
+  }, [contentQuery, fileSearchMode, handleContentSearch])
+
+  const groupedContentMatches = useMemo(() => {
+    const map = new Map<string, FileSearchMatch[]>()
+    for (const match of contentMatches) {
+      const list = map.get(match.file) || []
+      list.push(match)
+      map.set(match.file, list)
+    }
+    return Array.from(map.entries()).map(([file, matches]) => ({
+      file,
+      fullPath: matches[0].fullPath,
+      name: file.split(/[\\/]/).pop() || file,
+      ext: (file.split('.').pop() || '').toLowerCase(),
+      matches,
+    }))
+  }, [contentMatches])
 
   const togglePageGroup = (groupKey: string) => {
     setCollapsedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }))
@@ -1490,21 +1543,161 @@ export const WorkspaceSidebar = ({
               </div>
             </div>
 
-            <div className="pm-ws-filter">
-              <div className="pm-searchbox" style={{ width: '100%' }}>
-                <Search size={12} />
-                <input
-                  value={query}
-                  placeholder="Lọc theo tên tệp…"
-                  style={{ width: '100%' }}
-                  onChange={(e) => onQuery(e.target.value)}
-                  onKeyDown={(e) => e.stopPropagation()}
-                />
+            <div className="pm-ws-filter" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {/* Chế độ tìm kiếm: Tên tệp / Nội dung toàn văn bản */}
+              <div className="pm-file-search-modes">
+                <button
+                  className={`pm-file-search-mode-btn ${fileSearchMode === 'name' ? 'on' : ''}`}
+                  onClick={() => setFileSearchMode('name')}
+                  title="Lọc theo tên tệp trong cây thư mục"
+                >
+                  <FileText size={11} />
+                  <span>Tên tệp</span>
+                </button>
+                <button
+                  className={`pm-file-search-mode-btn ${fileSearchMode === 'content' ? 'on' : ''}`}
+                  onClick={() => setFileSearchMode('content')}
+                  title="Tìm kiếm văn bản trong nội dung toàn bộ tệp dự án (Grep)"
+                >
+                  <Search size={11} />
+                  <span>Nội dung</span>
+                </button>
               </div>
+
+              {fileSearchMode === 'name' ? (
+                <div className="pm-searchbox" style={{ width: '100%' }}>
+                  <Search size={12} />
+                  <input
+                    value={query}
+                    placeholder="Lọc theo tên tệp…"
+                    style={{ width: '100%' }}
+                    onChange={(e) => onQuery(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  />
+                  {query && (
+                    <button className="pm-searchbox__clear" onClick={() => onQuery('')}>
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div className="pm-searchbox" style={{ width: '100%' }}>
+                    <Search size={12} />
+                    <input
+                      value={contentQuery}
+                      placeholder="Tìm chuỗi trong toàn bộ tệp…"
+                      style={{ width: '100%' }}
+                      onChange={(e) => setContentQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation()
+                        if (e.key === 'Enter') void handleContentSearch(contentQuery)
+                      }}
+                    />
+                    {isSearchingContent ? (
+                      <Loader2 size={11} className="spin" />
+                    ) : contentQuery ? (
+                      <button className="pm-searchbox__clear" onClick={() => setContentQuery('')}>
+                        <X size={11} />
+                      </button>
+                    ) : null}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 2px' }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text-3)', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={caseSensitive}
+                        onChange={(e) => {
+                          setCaseSensitive(e.target.checked)
+                          void handleContentSearch(contentQuery, e.target.checked)
+                        }}
+                      />
+                      <span>Khớp chữ hoa/thường (Aa)</span>
+                    </label>
+                    {contentMatches.length > 0 && (
+                      <span style={{ fontSize: 10, color: 'var(--accent)' }}>
+                        {contentMatches.length} kết quả
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="pm-ws-bd">
-              {treeLoading ? (
+              {fileSearchMode === 'content' ? (
+                <div className="pm-content-search-results">
+                  {isSearchingContent ? (
+                    <div className="pm-row pm-muted" style={{ padding: 16, gap: 8, fontSize: 11.5 }}>
+                      <Loader2 size={13} className="spin" /> Đang tìm kiếm trong các tệp…
+                    </div>
+                  ) : !contentQuery.trim() ? (
+                    <div className="pm-hint" style={{ padding: '20px 14px', lineHeight: 1.6 }}>
+                      Nhập từ khóa hoặc chuỗi cần tìm trong mã nguồn toàn bộ dự án (nhấn Enter hoặc chờ tự động tìm).
+                    </div>
+                  ) : groupedContentMatches.length === 0 ? (
+                    <div className="pm-hint" style={{ padding: '20px 14px' }}>
+                      Không tìm thấy kết quả nào chứa "{contentQuery}".
+                    </div>
+                  ) : (
+                    groupedContentMatches.map((item) => (
+                      <div key={item.file} className="pm-search-file-group">
+                        <div
+                          className="pm-search-file-hd"
+                          onClick={() => {
+                            onSelectFile(
+                              {
+                                path: item.fullPath,
+                                name: item.name,
+                                ext: item.ext,
+                                type: 'file',
+                                size: 0,
+                              },
+                              item.matches[0]?.line,
+                            )
+                          }}
+                          title={item.file}
+                        >
+                          <FileCode2 size={12} className="pm-search-file-ico" />
+                          <span className="pm-search-file-name">{item.name}</span>
+                          <span className="pm-search-file-dir">
+                            {item.file.includes('/') || item.file.includes('\\')
+                              ? item.file.split(/[\\/]/).slice(0, -1).join('/')
+                              : ''}
+                          </span>
+                          <span className="pm-badge" style={{ fontSize: 9, padding: '0 4px', height: 16 }}>
+                            {item.matches.length}
+                          </span>
+                        </div>
+                        <div className="pm-search-match-list">
+                          {item.matches.map((m, idx) => (
+                            <div
+                              key={`${m.line}-${idx}`}
+                              className="pm-search-match-row"
+                              onClick={() => {
+                                onSelectFile(
+                                  {
+                                    path: m.fullPath,
+                                    name: item.name,
+                                    ext: item.ext,
+                                    type: 'file',
+                                    size: 0,
+                                  },
+                                  m.line,
+                                )
+                              }}
+                              title={`Dòng ${m.line}: ${m.preview}`}
+                            >
+                              <span className="pm-search-match-ln">{m.line}:</span>
+                              <span className="pm-search-match-text">{m.preview}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : treeLoading ? (
                 <div className="pm-row pm-muted" style={{ padding: 12, gap: 7, fontSize: 11.5 }}>
                   <Loader2 size={12} className="spin" /> Đang đọc thư mục…
                 </div>
@@ -1949,6 +2142,7 @@ export const WorkspaceSidebar = ({
               <VersionsTab
                 project={project}
                 branch={branch}
+                onSelectFile={onSelectFile}
                 onRefresh={onRefresh}
                 onShowToast={onShowToast}
               />

@@ -108,7 +108,9 @@ const App = () => {
   const [file, setFile] = useState<FileContent | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [initialLine, setInitialLine] = useState<number | null>(null)
   const [openPaths, setOpenPaths] = useState<string[]>([])
+  const [recentPaths, setRecentPaths] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<'file' | 'preview'>('preview')
 
   const [run, setRun] = useState<RunState | null>(null)
@@ -143,6 +145,36 @@ const App = () => {
     () => storeData.projects.find((item) => item.id === projectId) ?? null,
     [storeData.projects, projectId],
   )
+
+  /* ── Quản lý danh sách tệp mở gần đây (Recent files) ─── */
+  useEffect(() => {
+    if (!projectId) {
+      setRecentPaths([])
+      return
+    }
+    try {
+      const raw = localStorage.getItem(`pm.recent_files.${projectId}`)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) setRecentPaths(parsed)
+      } else {
+        setRecentPaths([])
+      }
+    } catch {
+      setRecentPaths([])
+    }
+  }, [projectId])
+
+  const addRecentPath = (filePath: string) => {
+    if (!projectId || !filePath) return
+    setRecentPaths((prev) => {
+      const next = [filePath, ...prev.filter((p) => p !== filePath)].slice(0, 30)
+      try {
+        localStorage.setItem(`pm.recent_files.${projectId}`, JSON.stringify(next))
+      } catch {}
+      return next
+    })
+  }
 
   /* ── Tiện ích nhỏ ─────────────────────────────────────── */
 
@@ -338,6 +370,7 @@ const App = () => {
       setOpenPaths([])
       setFile(null)
       setSelectedPath(null)
+      setInitialLine(null)
       setActiveTab('preview')
       setQuery('')
       setLogs([])
@@ -601,24 +634,31 @@ const App = () => {
 
   /* ── Tệp ──────────────────────────────────────────────── */
 
-  const openFile = async (node: FileNode) => {
+  const openFile = async (
+    node: FileNode | { path: string; name?: string; ext?: string; type?: 'file' },
+    line?: number,
+  ) => {
     setSelectedPath(node.path)
     setActiveTab('file')
     setFileLoading(true)
+    setInitialLine(line ?? null)
+    addRecentPath(node.path)
     try {
       const content = await api.fs.read(node.path)
       setFile(content)
       setOpenPaths((prev) => (prev.includes(node.path) ? prev : [...prev, node.path]))
     } catch (error) {
       setFile(null)
-      showToast('err', `Không đọc được tệp ${node.name}: ${errorMessage(error)}`)
+      showToast('err', `Không đọc được tệp ${node.name || node.path}: ${errorMessage(error)}`)
     } finally {
       setFileLoading(false)
     }
   }
 
-  const selectTab = (path: string) => {
+  const selectTab = (path: string, line?: number) => {
     setActiveTab('file')
+    setInitialLine(line ?? null)
+    addRecentPath(path)
     if (path === selectedPath) return
     setSelectedPath(path)
     setFileLoading(true)
@@ -997,7 +1037,7 @@ const App = () => {
       const mod = event.ctrlKey || event.metaKey
       const key = event.key.toLowerCase()
 
-      if (mod && key === 'k') {
+      if (mod && (key === 'k' || key === 'p')) {
         event.preventDefault()
         setDialog((prev) => (prev === 'palette' ? null : 'palette'))
       } else if (mod && key === 'b') {
@@ -1020,6 +1060,8 @@ const App = () => {
         event.preventDefault()
         if (event.shiftKey) void actionsRef.current.handleExitToProjects()
         else void actionsRef.current.openFolder()
+      } else if (mod && event.shiftKey && key === 'r') {
+        window.location.reload()
       } else if (mod && key === 'r') {
         event.preventDefault()
         void actionsRef.current.refreshProject()
@@ -1492,9 +1534,10 @@ const App = () => {
               file={file}
               fileLoading={fileLoading}
               selectedPath={selectedPath}
+              initialLine={initialLine}
               query={query}
               onQuery={setQuery}
-              onSelectFile={(node) => void openFile(node)}
+              onSelectFile={(node, line) => void openFile(node, line)}
               onRefresh={() => void refreshProject()}
               onOpenFolder={() => void openFolder()}
               run={run}
@@ -1680,7 +1723,20 @@ const App = () => {
         />
       )}
 
-      {dialog === 'palette' && <CommandPalette commands={commands} onClose={() => setDialog(null)} />}
+      {dialog === 'palette' && (
+        <CommandPalette
+          commands={commands}
+          recentPaths={recentPaths}
+          treeNodes={tree}
+          rootPath={project?.path}
+          onOpenFile={(path) => {
+            const fileName = path.split(/[\\/]/).pop() || ''
+            const fileExt = fileName.split('.').pop() || ''
+            void openFile({ path, name: fileName, ext: fileExt, type: 'file' })
+          }}
+          onClose={() => setDialog(null)}
+        />
+      )}
 
       {designOpen && (
         <AIDesignImportDialog

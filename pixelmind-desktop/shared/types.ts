@@ -177,6 +177,43 @@ export interface GitRollbackResult {
   project?: ProjectRecord
 }
 
+export type GitFileStatusCode = 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed'
+
+export interface GitFileChange {
+  path: string
+  oldPath?: string
+  status: GitFileStatusCode
+  staged: boolean
+}
+
+export interface GitWorkingTreeStatus {
+  branch: string | null
+  clean: boolean
+  staged: GitFileChange[]
+  unstaged: GitFileChange[]
+  untracked: GitFileChange[]
+  ahead: number
+  behind: number
+}
+
+export interface GitBranchItem {
+  name: string
+  current: boolean
+  remote: boolean
+  upstream?: string
+}
+
+export interface GitCommitResult {
+  ok: boolean
+  hash?: string
+  error?: string
+}
+
+export interface GitActionResult {
+  ok: boolean
+  error?: string
+}
+
 export type ActivityStatus = 'ok' | 'warn' | 'err' | 'info'
 export type ActivityKind = 'người' | 'hệ thống' | 'AI'
 

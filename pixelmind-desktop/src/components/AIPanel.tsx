@@ -517,6 +517,19 @@ const DiffBlock = ({
         <b className="is-del">−{change.removed}</b>
       </span>
       <span className={`pm-ai-status is-${change.status}`}>{STATUS_LABEL[change.status]}</span>
+      {change.status === 'accepted' && (
+        <button
+          className="btn sm pm-ai-diff__undo-btn"
+          onClick={(e) => {
+            e.stopPropagation()
+            onUndo(change.id)
+          }}
+          disabled={busy}
+          title="Hoàn tác thay đổi này về trạng thái trước đó"
+        >
+          <Undo2 size={11} /> Hoàn tác
+        </button>
+      )}
     </div>
     <div className="pm-ai-diff__body">
       {change.diff.map((line, index) => (
@@ -529,7 +542,7 @@ const DiffBlock = ({
       ))}
     </div>
     <div className="pm-ai-diff__ft">
-      <span className="pm-ai-diff__reason">{change.summary}</span>
+      <span className="pm-ai-diff__reason">{change.summary || 'Thay đổi mã nguồn'}</span>
       {change.status === 'pending' && (
         <>
           <button className="btn sm" onClick={() => onReject(change.id)} disabled={busy}>
@@ -541,9 +554,19 @@ const DiffBlock = ({
         </>
       )}
       {change.status === 'accepted' && (
-        <button className="btn sm" onClick={() => onUndo(change.id)} disabled={busy}>
+        <button
+          className="btn sm pm-ai-diff__undo-ft-btn"
+          onClick={() => onUndo(change.id)}
+          disabled={busy}
+          title="Hoàn tác thay đổi này về trạng thái trước đó"
+        >
           <Undo2 size={11} /> Hoàn tác
         </button>
+      )}
+      {change.status === 'undone' && (
+        <span className="pm-ai-diff__undone-msg">
+          <Check size={11} /> Đã hoàn tác tệp
+        </span>
       )}
     </div>
   </div>
