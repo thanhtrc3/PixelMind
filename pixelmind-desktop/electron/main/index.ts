@@ -3397,6 +3397,21 @@ async function readProjectDesignTokens(projectPath: string): Promise<DesignToken
   return DEFAULT_DESIGN_TOKENS
 }
 
+/** Dự án đã có bộ token PixelMind chưa (tokens.json / variables.css / tailwind.tokens.js). */
+async function projectHasPixelMindTokens(projectPath: string): Promise<boolean> {
+  if (!projectPath) return false
+  if (await fileExists(join(projectPath, '.pixelmind', 'tokens.json'))) return true
+  if (await fileExists(join(projectPath, 'tailwind.tokens.js'))) return true
+  const cssDir = await findProjectCssDir(projectPath).catch(() => projectPath)
+  for (const candidate of [join(cssDir, 'variables.css'), join(projectPath, 'variables.css')]) {
+    try {
+      const text = await fs.readFile(candidate, 'utf8')
+      if (text.includes('--color-primary') || text.includes('--spacing-1:')) return true
+    } catch {}
+  }
+  return false
+}
+
 /** Tìm thư mục gốc dự án từ đường dẫn file nguồn (nếu renderer không truyền projectPath). */
 async function resolveProjectRoot(fullPath: string, explicit?: string): Promise<string | null> {
   if (explicit) return explicit
@@ -3451,7 +3466,7 @@ async function detectTailwindVersion(root: string | null): Promise<'v3' | 'v4' |
   }
 
   const cssDirs = [await findProjectCssDir(root).catch(() => root), root]
-  const cssNames = ['global.css', 'app.css', 'index.css', 'site.css', 'main.css', 'styles.css', 'tailwind.css']
+  const cssNames = ['global.css', 'globals.css', 'app.css', 'index.css', 'site.css', 'main.css', 'styles.css', 'tailwind.css']
   const contents: string[] = []
   for (const dir of cssDirs) {
     for (const name of cssNames) {
@@ -3569,7 +3584,10 @@ ipcMain.handle(
             styleMode === 'tailwind' ? 'v3' : await detectTailwindVersion(projectRoot)
 
           if (tailwindVersion && projectRoot) {
-            const tokens = await readProjectDesignTokens(projectRoot)
+            const hasTokens = await projectHasPixelMindTokens(projectRoot)
+            const tokens = hasTokens
+              ? await readProjectDesignTokens(projectRoot)
+              : { colors: [], typography: [], spacing: [], radius: [] }
             const conversion = stylesToTailwindClasses(finalStyles, tokens, {
               arbitraryValues: true,
             })
@@ -4231,7 +4249,7 @@ ipcMain.handle(
       await fs.writeFile(targetCssPath, cssContent, 'utf8')
 
       // Tự động kiểm tra file CSS chính (site.css, main.css, style.css...) để nhúng @import nếu chưa có
-      const mainCssNames = ['site.css', 'main.css', 'app.css', 'style.css', 'global.css']
+      const mainCssNames = ['site.css', 'main.css', 'app.css', 'style.css', 'global.css', 'globals.css', 'index.css']
       for (const name of mainCssNames) {
         const fullMain = join(cssDir, name)
         try {
