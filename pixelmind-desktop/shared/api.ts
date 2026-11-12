@@ -195,7 +195,19 @@ export interface PixelMindApi {
       styles?: Record<string, string>
       tagName?: string
       lineNumber?: number
-    }): Promise<{ success: boolean; error?: string; oldLine?: string; newLine?: string }>
+      projectPath?: string
+      styleMode?: 'inline' | 'tailwind' | 'auto'
+    }): Promise<{
+      success: boolean
+      error?: string
+      oldLine?: string
+      newLine?: string
+      updatedLine?: string
+      mode?: 'inline' | 'tailwind'
+      tailwindVersion?: 'v3' | 'v4'
+      appliedClasses?: string[]
+      residualStyles?: Record<string, string>
+    }>
     syncNav(payload: {
       projectPath: string
       currentPath?: string

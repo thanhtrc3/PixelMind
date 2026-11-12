@@ -96,6 +96,7 @@ export interface DirtyFileInfo {
   oldText?: string
   newText?: string
   styles: Record<string, string>
+  projectPath?: string
 }
 
 type BufferListener = () => void
@@ -206,6 +207,7 @@ class EditorBufferManager {
         tagName: act.target.tagName,
         oldText: act.before.text,
         styles: {},
+        projectPath: act.projectPath,
       }
 
       const deltaStyles: Record<string, string> = act.deltaStyles ? { ...act.deltaStyles } : {}
@@ -220,6 +222,7 @@ class EditorBufferManager {
       this.dirtyFiles.set(act.sourceLoc.filePath, {
         ...existing,
         newText: act.after.text ?? existing.newText,
+        projectPath: existing.projectPath ?? act.projectPath,
         styles: {
           ...existing.styles,
           ...deltaStyles,
@@ -430,6 +433,7 @@ class EditorBufferManager {
             styles: info.styles,
             tagName: info.tagName,
             lineNumber: info.lineNumber,
+            projectPath: info.projectPath,
           })
 
           if (res?.success) {

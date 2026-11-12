@@ -2202,6 +2202,7 @@ const CanvasArea = ({
               styles: modifiedStyles,
               tagName: item.tagName,
               lineNumber,
+              projectPath: projectPath || undefined,
             })
             if (res?.success) saved += 1
             else failed += 1
@@ -2230,6 +2231,7 @@ const CanvasArea = ({
         styles: modifiedStyles,
         tagName: selectedEl?.tagName,
         lineNumber: sourceLoc!.lineNumber,
+        projectPath: projectPath || undefined,
       })
 
       if (res?.success) {

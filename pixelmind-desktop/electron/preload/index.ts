@@ -238,6 +238,8 @@ const api: PixelMindApi = {
       styles?: Record<string, string>
       tagName?: string
       lineNumber?: number
+      projectPath?: string
+      styleMode?: 'inline' | 'tailwind' | 'auto'
     }) => ipcRenderer.invoke('inspect:sync-code', payload),
     syncNav: (payload: {
       projectPath: string
