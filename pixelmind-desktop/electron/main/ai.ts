@@ -10,7 +10,9 @@ import type {
   AiChatHandle,
   AiChatStartRequest,
   AiConfig,
+  AiContextPack,
   AiConversationSummary,
+  AiImageAttachment,
   AiKeyStatus,
   AiModel,
   AiPlanStep,
@@ -480,8 +482,12 @@ interface StreamResult {
   usage?: { promptTokens?: number; completionTokens?: number }
 }
 
+type LocalMessageContent =
+  | string
+  | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>
+
 type LocalMessage =
-  | { role: 'system' | 'user'; content: string }
+  | { role: 'system' | 'user'; content: LocalMessageContent }
   | {
       role: 'assistant'
       content: string | null
@@ -723,6 +729,7 @@ const SYSTEM_PROMPT = `Bạn là trợ lý lập trình tích hợp trong PixelM
 - QUAN TRỌNG: Sau khi gọi tool apply_patch hoặc hoàn thành các bước, hãy LUÔN LUÔN viết một câu trả lời bằng lời giải thích bạn đã sửa gì và nhắc người dùng mở tab "Thay đổi" để duyệt bản vá.
 - Bạn KHÔNG có quyền chạy lệnh terminal tuỳ ý. Chỉ dùng các tool nội bộ được cung cấp.
 - Mọi thay đổi mã nguồn phải thực hiện qua tool apply_patch hoặc sync_nav để tạo diff cho người dùng duyệt.
+- TỐI ƯU VÒNG LẶP: Có thể gọi NHIỀU tool read_file / search_project cùng lúc trong 1 lượt để tiết kiệm vòng lặp. Ngay khi đã đọc đủ ngữ cảnh/tệp mục tiêu, hãy gọi apply_patch để tạo bản vá ngay, tránh tìm kiếm lặp đi lặp lại.
 - Khi người dùng yêu cầu sửa nhiều tệp (2-3 tệp) hoặc tác vụ có nhiều bước:
   1. Hãy lập kế hoạch tiến độ rõ ràng bằng danh sách checklist:
      - [ ] Bước 1: Đọc và phân tích...
@@ -934,6 +941,66 @@ export async function rewriteChatHistory(
   }
 }
 
+/** Thu gọn context pack trước khi đưa vào stdin của CLI agent (tránh tốn hàng nghìn token JSON thừa). */
+function compactCliContext(pack?: AiContextPack): string {
+  if (!pack) return ''
+  const compact: Record<string, unknown> = {
+    project: pack.project,
+  }
+  if (pack.selection) {
+    const sel = pack.selection
+    const styleEntries = sel.computedStyles ? Object.entries(sel.computedStyles).slice(0, 14) : []
+    compact.selection = {
+      tag: sel.tag,
+      ...(sel.id ? { id: sel.id } : {}),
+      ...(sel.className ? { className: sel.className } : {}),
+      ...(sel.selector ? { selector: sel.selector } : {}),
+      ...(sel.text ? { text: sel.text.slice(0, 500) } : {}),
+      ...(sel.outerHTML ? { outerHTML: sel.outerHTML.slice(0, 1500) } : {}),
+      ...(styleEntries.length ? { computedStyles: Object.fromEntries(styleEntries) } : {}),
+    }
+  }
+  if (pack.source) {
+    compact.source = {
+      filePath: pack.source.filePath,
+      ...(pack.source.lineNumber ? { lineNumber: pack.source.lineNumber } : {}),
+      text: pack.source.text.slice(0, 8000),
+    }
+  }
+  if (pack.errors) compact.errors = pack.errors.slice(0, 2500)
+  // Chỉ gửi danh sách tệp dự án nếu chưa xác định được tệp nguồn cụ thể.
+  if (!pack.source?.filePath && pack.projectIndex?.length) {
+    compact.projectIndex = pack.projectIndex.slice(0, 80)
+  }
+  return `Ngữ cảnh dự án (JSON gọn):\n${JSON.stringify(compact)}`
+}
+
+/** Lưu tạm ảnh đính kèm (data URL) ra đĩa để truyền cờ `--file` cho CLI agent. */
+async function materializeTempImages(
+  images?: AiImageAttachment[],
+): Promise<{ files: string[]; cleanup: () => Promise<void> }> {
+  if (!images?.length) return { files: [], cleanup: async () => {} }
+  const dir = join(app.getPath('temp'), 'pixelmind-ai-images')
+  await fs.mkdir(dir, { recursive: true })
+  const created: string[] = []
+  for (let i = 0; i < images.length && i < 6; i++) {
+    const img = images[i]
+    const match = /^data:image\/([a-z0-9+.-]+);base64,(.+)$/i.exec(img.dataUrl || '')
+    if (!match) continue
+    const extRaw = match[1].toLowerCase().replace('jpeg', 'jpg').replace(/[^a-z0-9]/g, '')
+    const ext = extRaw || 'png'
+    const file = join(dir, `att-${Date.now().toString(36)}-${i}-${randomUUID().slice(0, 6)}.${ext}`)
+    await fs.writeFile(file, Buffer.from(match[2], 'base64'))
+    created.push(file)
+  }
+  return {
+    files: created,
+    cleanup: async () => {
+      await Promise.all(created.map((file) => fs.unlink(file).catch(() => {})))
+    },
+  }
+}
+
 export function startChat(
   request: AiChatStartRequest,
   emit: (event: AiChatEvent) => void,
@@ -942,9 +1009,9 @@ export function startChat(
   const controller = new AbortController()
   controllers.set(id, controller)
 
-  // Giới hạn thời gian toàn bộ agent loop: CLI agent cần lâu hơn API (10 phút).
+  // Giới hạn thời gian toàn bộ agent loop: CLI agent tối đa 10 phút, API loop tối đa 4 phút.
   const requestedBridge = request.bridge ?? activeBridgeKind
-  const loopLimitMs = requestedBridge === 'cli' ? 10 * 60_000 : 120_000
+  const loopLimitMs = requestedBridge === 'cli' ? 10 * 60_000 : 240_000
   const loopTimeout = setTimeout(() => {
     controller.abort()
   }, loopLimitMs)
@@ -1050,15 +1117,17 @@ export function startChat(
                 `${message.role === 'user' ? 'Người dùng' : 'Trợ lý'}: ${message.content}`,
             )
             .join('\n\n')
-          const contextText = request.context
-            ? `Gói ngữ cảnh dự án (JSON):\n${JSON.stringify(request.context, null, 2)}`
-            : ''
-          const scopeHeader = `[CHÚ Ý: Chỉ sửa trong phạm vi dự án đang mở tại "${projectPath}". Tuyệt đối không can thiệp vào ứng dụng PixelMind Desktop.]`
+          const contextText = compactCliContext(request.context)
+          const scopeHeader = `[CHÚ Ý: Chỉ sửa trong phạm vi dự án đang mở tại "${projectPath}". Tuyệt đối không can thiệp vào ứng dụng PixelMind Desktop. Đi thẳng vào tệp liên quan và trả lời ngắn gọn để phản hồi nhanh.]`
           const prompt = sessionId
             ? `${scopeHeader}\n\n${userText}`
             : [scopeHeader, integration.preamble, contextText, transcript, `Người dùng: ${userText}`]
                 .filter(Boolean)
                 .join('\n\n')
+
+          const tempImages = def.supportsImages
+            ? await materializeTempImages(request.images)
+            : { files: [] as string[], cleanup: async () => {} }
 
           emit({
             type: 'delta',
@@ -1095,6 +1164,7 @@ export function startChat(
               projectPath,
               model: requested?.model,
               sessionId,
+              imagePaths: tempImages.files.length ? tempImages.files : undefined,
               extraArgs: integration.extraArgs,
               extraEnv: mergedCliEnv,
             },
@@ -1126,8 +1196,8 @@ export function startChat(
                   text:
                     cliEvt.tool.status === 'running'
                       ? `Đang chạy tool: ${cliEvt.tool.name}…`
-                      : `Tool ${cliEvt.tool.name} ${cliEvt.tool.status === 'ok' ? 'xong' : 'lỗi'}`,
-                  phase: 'tool',
+                      : `Đang phân tích kết quả ${cliEvt.tool.name} (${cliEvt.tool.status === 'ok' ? 'xong' : 'lỗi'})…`,
+                  phase: cliEvt.tool.status === 'running' ? 'tool' : 'wait',
                 })
               } else if (cliEvt.type === 'session' && cliEvt.sessionId) {
                 if (agentSessions.get(sessionKey) !== cliEvt.sessionId) {
@@ -1175,8 +1245,13 @@ export function startChat(
 
           const abortHandler = () => stopCliAgent(handle.id)
           controller.signal.addEventListener('abort', abortHandler, { once: true })
-          const code = await handle.done
-          controller.signal.removeEventListener('abort', abortHandler)
+          let code: number | null = null
+          try {
+            code = await handle.done
+          } finally {
+            controller.signal.removeEventListener('abort', abortHandler)
+            await tempImages.cleanup()
+          }
 
           finalText = streamedText.trim()
           if (code !== 0 && !finalText) {
@@ -1294,20 +1369,52 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
       if (request.context) {
         messages.push({
           role: 'system',
-          content: `Gói ngữ cảnh dự án (JSON):\n${JSON.stringify(request.context, null, 2)}`,
+          content: `Gói ngữ cảnh dự án (JSON):\n${JSON.stringify(request.context)}`,
         })
       }
-      for (const message of request.messages) {
-        if (message.role === 'system') continue
-        messages.push({ role: message.role, content: message.content })
-      }
+      const filteredHistory = request.messages.filter((message) => message.role !== 'system')
+      const apiImages = (request.images ?? []).filter(
+        (img) => typeof img.dataUrl === 'string' && img.dataUrl.startsWith('data:image/'),
+      )
+      filteredHistory.forEach((message, index) => {
+        const isLastUser = message.role === 'user' && index === filteredHistory.length - 1
+        if (isLastUser && apiImages.length > 0) {
+          messages.push({
+            role: 'user',
+            content: [
+              { type: 'text', text: message.content },
+              ...apiImages.slice(0, 6).map((img) => ({
+                type: 'image_url' as const,
+                image_url: { url: img.dataUrl },
+              })),
+            ],
+          })
+        } else {
+          messages.push({ role: message.role, content: message.content })
+        }
+      })
 
       const toolsEnabled = request.tools !== false
 
       const executedTools: Array<{ name: string; ok: boolean; detail?: string }> = []
+      const MAX_AGENT_ROUNDS = 16
+      let nudgedToPatch = false
 
-      // Cho phép vòng lặp Agent tối đa 8 rounds để hoàn thành tác vụ đa tệp (2-3 tệp)
-      for (let round = 0; round < 8; round += 1) {
+      // Cho phép vòng lặp Agent đủ số bước để tìm, đọc nhiều tệp và tạo diff apply_patch hoàn chỉnh.
+      for (let round = 0; round < MAX_AGENT_ROUNDS; round += 1) {
+        if (
+          toolsEnabled &&
+          !nudgedToPatch &&
+          round >= MAX_AGENT_ROUNDS - 2 &&
+          !executedTools.some((t) => (t.name === 'apply_patch' || t.name === 'sync_nav') && t.ok)
+        ) {
+          nudgedToPatch = true
+          messages.push({
+            role: 'system',
+            content:
+              'Sắp chạm giới hạn vòng lặp tool. Hãy gọi ngay apply_patch để tạo bản vá thay đổi từ thông tin đã đọc, hoặc trả lời rõ nguyên nhân nếu không thể sửa.',
+          })
+        }
         const result = await streamCompletion(
           config,
           keyValue,
@@ -1473,7 +1580,7 @@ Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấ
 
 👉 **Bước tiếp theo:** Bạn hãy mở tab **"Thay đổi"** ở phía trên để xem trước (Diff) và bấm **"Duyệt"** để áp dụng vào dự án nhé!`
         } else if (executedTools.length > 0) {
-          finalText = `Tôi đã hoàn thành các bước tra cứu và phân tích mã nguồn liên quan.`
+          finalText = `⚠️ AI đã chạy hết ${MAX_AGENT_ROUNDS} lượt tra cứu nhưng chưa kịp gọi \`apply_patch\` để tạo bản vá. Bạn hãy nhắn **"tiếp tục sửa tệp vừa đọc"** hoặc chuyển sang **OpenCode CLI** để thực hiện tiếp nhé.`
         } else {
           finalText = `Tôi đã hoàn thành xử lý yêu cầu của bạn.`
         }

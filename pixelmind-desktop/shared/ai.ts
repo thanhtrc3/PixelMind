@@ -248,11 +248,18 @@ export interface AiToolCall {
   arguments: string
 }
 
+export interface AiImageAttachment {
+  name: string
+  dataUrl: string
+}
+
 export interface AiChatRequest {
   projectId?: string
   projectPath?: string
   messages: AiChatMessage[]
   context?: AiContextPack
+  /** Ảnh đính kèm dạng data URL để truyền cho CLI agent hỗ trợ nhận ảnh (--file). */
+  images?: AiImageAttachment[]
   /** Cho phép mô hình gọi tool nội bộ (mặc định true). */
   tools?: boolean
   /** Tên hiển thị cho phiên chat, dùng cho nhật ký. */

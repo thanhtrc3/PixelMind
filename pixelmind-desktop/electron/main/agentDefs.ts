@@ -54,15 +54,16 @@ export const AGENT_DEFS: AgentDef[] = [
     modelsArgs: ['models'],
     streamFormat: 'opencode-json',
     promptViaStdin: true,
-    supportsImages: false,
+    supportsImages: true,
     supportsRun: true,
-    buildArgs: ({ prompt: _prompt, model, sessionId }) => [
+    buildArgs: ({ prompt: _prompt, model, sessionId, imagePaths }) => [
       'run',
       '--format',
       'json',
       '--auto',
       ...stdinModel(model),
       ...(sessionId ? ['-s', sessionId] : []),
+      ...(imagePaths?.length ? imagePaths.flatMap((file) => ['-f', file]) : []),
     ],
   },
   {

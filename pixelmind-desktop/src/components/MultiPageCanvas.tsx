@@ -3241,7 +3241,46 @@ export default function MultiPageCanvas({
             transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
           }}
         >
-          {/* ── 1. CÁC CỬA SỔ DESKTOP (NẰM PHÍA DƯỚI) ── */}
+          {/* ── 1. LỚP BẮT CHUỘT CỦA DÂY NỐI (NẰM DƯỚI CỬA SỔ) ──
+              Đặt z-index thấp hơn cửa sổ để phần dây nằm trên trang không chặn click.
+              Khi bật chế độ Nối dây thì nâng lên trên cửa sổ để chọn/xoá dây được. */}
+          <svg
+            className="pm-multi-svg-hit"
+            width={10000}
+            height={10000}
+            style={{ left: -5000, top: -5000, zIndex: isConnectMode ? 505 : 4 }}
+          >
+            <g transform="translate(5000, 5000)">
+              {visibleWires.map((wire) => (
+                <path
+                  key={`hit-${wire.id}`}
+                  d={wire.pathD}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={14}
+                  style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedWireId((prev) => (prev === wire.id ? null : wire.id))
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation()
+                    flyToWindow(wire.targetWin, undefined, { fromWinId: wire.parentWin.id })
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    openWirePrototypeEditor(wire)
+                  }}
+                >
+                  <title>{`Dây nối: ${wire.parentWin.title} → ${wire.label} · Click chọn · Chuột phải cấu hình Prototype · Delete xoá`}</title>
+                </path>
+              ))}
+            </g>
+          </svg>
+
+          {/* ── 2. CÁC CỬA SỔ DESKTOP (NẰM PHÍA DƯỚI) ── */}
           {visibleWindows.map((win) => {
             const isMatch = filteredQuery
               ? win.title.toLowerCase().includes(filteredQuery) || win.route.toLowerCase().includes(filteredQuery)
@@ -3366,7 +3405,7 @@ export default function MultiPageCanvas({
             )
           })}
 
-          {/* ── 2. LỚP DÂY NỐI SVG BẮT NGUỒN TỪ THÀNH PHẦN NÚT BẤM (NẰM TRÊN CÁC TRANG) ── */}
+          {/* ── 3. LỚP DÂY NỐI SVG BẮT NGUỒN TỪ THÀNH PHẦN NÚT BẤM (NẰM TRÊN CÁC TRANG) ── */}
           <svg className="pm-multi-svg" width={10000} height={10000} style={{ left: -5000, top: -5000 }}>
             <g transform="translate(5000, 5000)">
               <defs>
@@ -3384,103 +3423,75 @@ export default function MultiPageCanvas({
                     <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill={w.color} />
                   </marker>
                 ))}
+
+                {/* Mask làm mờ phần dây nằm đè lên cửa sổ trang */}
+                <mask
+                  id="pm-wire-over-window-mask"
+                  maskUnits="userSpaceOnUse"
+                  x={-5000}
+                  y={-5000}
+                  width={10000}
+                  height={10000}
+                >
+                  <rect x={-5000} y={-5000} width={10000} height={10000} fill="#ffffff" />
+                  {visibleWindows.map((win) => (
+                    <rect
+                      key={`wire-mask-${win.id}`}
+                      x={win.x - win.w / 2}
+                      y={win.y - win.h / 2}
+                      width={win.w}
+                      height={win.h}
+                      fill="#8a8a8a"
+                    />
+                  ))}
+                </mask>
               </defs>
 
-              {visibleWires.map((wire) => {
-                const isHovered = hoveredWinId === wire.satId || activeWinId === wire.satId
-                const isSelected = selectedWireId === wire.id
-                const isProtoFlash = flashWireId === wire.id
-                const isWireConfigOpen = wireProtoTarget?.wireId === wire.id
-                const ruleCount = interactions.filter(
-                  (item) =>
-                    item.enabled &&
-                    (item.wireId === wire.id ||
-                      (wire.anchorKey && item.anchorKey === wire.anchorKey))
-                ).length
-                return (
-                  <g key={wire.id} style={{ cursor: 'pointer' }}>
-                    {/* Vùng bấm rộng để dễ chọn dây hoặc chuột phải mở Prototype */}
-                    <path
-                      d={wire.pathD}
-                      fill="none"
-                      stroke="transparent"
-                      strokeWidth={14}
-                      style={{ pointerEvents: 'stroke' }}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedWireId((prev) => (prev === wire.id ? null : wire.id))
-                      }}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation()
-                        flyToWindow(wire.targetWin, undefined, { fromWinId: wire.parentWin.id })
-                      }}
-                      onContextMenu={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        openWirePrototypeEditor(wire)
-                      }}
-                    >
-                      <title>{`Dây nối: ${wire.parentWin.title} → ${wire.label}${
-                        ruleCount > 0 ? ` (${ruleCount} sự kiện Prototype)` : ''
-                      } · Chuột phải để cấu hình Prototype · Click chọn · Delete xoá`}</title>
-                    </path>
-
-                    {/* Dây bóng phát sáng khi hover, được chọn hoặc kích hoạt hiệu ứng */}
-                    <path
-                      d={wire.pathD}
-                      className={`pm-multi-wire-glow ${isProtoFlash ? 'is-proto-flash' : ''}`}
-                      style={{
-                        stroke: isProtoFlash ? '#a855f7' : wire.color,
-                        strokeWidth: isProtoFlash ? 14 : isSelected || isWireConfigOpen ? 11 : isHovered ? 9 : 5,
-                        opacity: isProtoFlash ? 0.95 : isSelected || isWireConfigOpen ? 0.85 : isHovered ? 0.55 : 0.28,
-                      }}
-                    />
-
-                    {/* Dây nối chính */}
-                    <path
-                      d={wire.pathD}
-                      className={[
-                        'pm-multi-wire',
-                        isHovered ? 'pm-multi-wire-active' : '',
-                        isSelected || isWireConfigOpen ? 'pm-multi-wire-selected' : '',
-                        isProtoFlash ? 'is-proto-flash' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      markerEnd={`url(#arrow-${wire.id})`}
-                      style={{
-                        stroke: isProtoFlash ? '#c084fc' : wire.color,
-                        strokeWidth: isProtoFlash ? 4.4 : isSelected || isWireConfigOpen ? 3.6 : isHovered ? 3.0 : 2.2,
-                        opacity: isSelected || isHovered || isProtoFlash || isWireConfigOpen ? 1 : 0.85,
-                      }}
-                    />
-
-                    {/* Hạt ánh sáng chuyển động dọc dây nối */}
-                    <circle
-                      r={isProtoFlash ? 5.5 : isHovered ? 4.5 : ruleCount > 0 ? 3.8 : 3}
-                      fill={isProtoFlash ? '#c084fc' : wire.color}
-                      className="pm-multi-particle"
-                    >
-                      <animateMotion
-                        dur={isProtoFlash ? '0.9s' : isHovered ? '2s' : '3.5s'}
-                        repeatCount="indefinite"
-                        path={wire.pathD}
+              <g mask={isConnectMode ? undefined : 'url(#pm-wire-over-window-mask)'}>
+                {visibleWires.map((wire) => {
+                  const isHovered = hoveredWinId === wire.satId || activeWinId === wire.satId
+                  const isSelected = selectedWireId === wire.id
+                  const isProtoFlash = flashWireId === wire.id
+                  const isWireConfigOpen = wireProtoTarget?.wireId === wire.id
+                  return (
+                    <g key={wire.id}>
+                      {/* Dây nối chính — nét mảnh, không glow/hạt chuyển động */}
+                      <path
+                        d={wire.pathD}
+                        className={[
+                          'pm-multi-wire',
+                          isHovered ? 'pm-multi-wire-active' : '',
+                          isSelected || isWireConfigOpen ? 'pm-multi-wire-selected' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        markerEnd={`url(#arrow-${wire.id})`}
+                        style={{
+                          stroke: isProtoFlash ? '#c084fc' : wire.color,
+                          strokeWidth: isProtoFlash
+                            ? 3.6
+                            : isSelected || isWireConfigOpen
+                              ? 3.2
+                              : isHovered
+                                ? 2.6
+                                : 1.8,
+                          opacity: isSelected || isHovered || isProtoFlash || isWireConfigOpen ? 1 : 0.85,
+                        }}
                       />
-                    </circle>
-                  </g>
-                )
-              })}
+                    </g>
+                  )
+                })}
+              </g>
             </g>
           </svg>
 
-          {/* ── 3. CÁC ĐIỂM GHIM TRÊN NÚT BẤM (NẰM TRÊN NÚT CỦA CỬA SỔ CHA) ── */}
+          {/* ── 4. CÁC ĐIỂM GHIM TRÊN NÚT BẤM (NẰM TRÊN NÚT CỦA CỬA SỔ CHA) ── */}
           {visibleWires
             .filter((wire) => wire.hasAnchor)
             .map((wire) => (
               <div
                 key={`pin-${wire.id}`}
-                className={`pm-multi-pin ${wire.isClipped ? 'is-clipped' : ''}`}
+                className={`pm-multi-pin ${wire.isClipped ? 'is-clipped' : ''} ${isConnectMode ? '' : 'is-idle'}`}
                 style={{
                   left: wire.srcPoint.x,
                   top: wire.srcPoint.y,

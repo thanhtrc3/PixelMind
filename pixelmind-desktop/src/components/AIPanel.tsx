@@ -594,9 +594,32 @@ const AIPanel = ({
   onOpenTheme,
   onOpenSettings,
   onApplied,
-  onShowToast,
+  onShowToast: _onShowToast,
 }: AIPanelProps) => {
   const [tab, setTab] = useState<AiTab>(initialTab || 'chat')
+  const [chatNotice, setChatNotice] = useState<{
+    id: number
+    kind: 'ok' | 'info' | 'err'
+    text: string
+  } | null>(null)
+  const noticeTimerRef = useRef<number | null>(null)
+
+  const notifyChat = useCallback((kind: 'ok' | 'info' | 'err', text: string) => {
+    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current)
+    const id = Date.now() + Math.random()
+    setChatNotice({ id, kind, text })
+    noticeTimerRef.current = window.setTimeout(() => {
+      setChatNotice((prev) => (prev?.id === id ? null : prev))
+      noticeTimerRef.current = null
+    }, 3200)
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current)
+    },
+    [],
+  )
 
   useEffect(() => {
     if (initialTab) {
@@ -644,16 +667,16 @@ const AIPanel = ({
     if (!projectId) return
     const val = Number(budgetInput)
     if (!Number.isFinite(val) || val <= 0) {
-      onShowToast('err', 'Hạn mức ngân sách không hợp lệ')
+      notifyChat('err', 'Hạn mức ngân sách không hợp lệ')
       return
     }
     try {
       const updated = await api.ai.cost.setBudget(projectId, val)
       setCostStats(updated)
       setIsEditingBudget(false)
-      onShowToast('ok', `Đã cập nhật hạn mức ngân sách: ${val.toLocaleString()} tokens`)
+      notifyChat('ok', `Đã cập nhật hạn mức ngân sách: ${val.toLocaleString()} tokens`)
     } catch {
-      onShowToast('err', 'Không thể lưu hạn mức ngân sách')
+      notifyChat('err', 'Không thể lưu hạn mức ngân sách')
     }
   }
 
@@ -661,9 +684,9 @@ const AIPanel = ({
     try {
       await api.ai.audit.clear(projectId)
       setAuditLogs([])
-      onShowToast('ok', 'Đã xoá lịch sử thao tác AI')
+      notifyChat('ok', 'Đã xoá lịch sử thao tác AI')
     } catch {
-      onShowToast('err', 'Không thể xoá lịch sử audit')
+      notifyChat('err', 'Không thể xoá lịch sử audit')
     }
   }
 
@@ -671,9 +694,9 @@ const AIPanel = ({
     try {
       await api.ai.cost.reset(projectId)
       void loadSecurityData()
-      onShowToast('ok', 'Đã đặt lại bộ đếm token và chi phí')
+      notifyChat('ok', 'Đã đặt lại bộ đếm token và chi phí')
     } catch {
-      onShowToast('err', 'Không thể đặt lại chi phí')
+      notifyChat('err', 'Không thể đặt lại chi phí')
     }
   }
   const [bridgeOpen, setBridgeOpen] = useState(false)
@@ -743,10 +766,10 @@ const AIPanel = ({
       } catch {
         // vẫn giữ lựa chọn cục bộ
       }
-      onShowToast('ok', `Đã chọn ${cli.name}`)
+      notifyChat('ok', `Đã chọn ${cli.name}`)
       void loadCliModels(cli.id)
     },
-    [loadCliModels, onShowToast],
+    [loadCliModels, notifyChat],
   )
 
   const handleSaveApiKey = async () => {
@@ -756,11 +779,11 @@ const AIPanel = ({
     try {
       const res = await api.ai.saveKey(key)
       setApiKeyInput('')
-      onShowToast('ok', `Đã lưu khoá API (${res.masked})!`)
+      notifyChat('ok', `Đã lưu khoá API (${res.masked})!`)
       void refreshStatus()
       void refreshBridges()
     } catch (err) {
-      onShowToast('err', `Lỗi lưu khoá: ${(err as Error).message}`)
+      notifyChat('err', `Lỗi lưu khoá: ${(err as Error).message}`)
     } finally {
       setIsSavingKey(false)
     }
@@ -796,10 +819,10 @@ const AIPanel = ({
       }
       const updated = await api.ai.bridges.setActive(kind)
       setBridges((prev) => prev.map((b) => (b.kind === kind ? updated : b)))
-      onShowToast('ok', `Đã chuyển sang ${updated.name} (${updated.status})`)
+      notifyChat('ok', `Đã chuyển sang ${updated.name} (${updated.status})`)
       void refreshStatus()
     } catch {
-      onShowToast('err', 'Không thể đổi cầu nối AI')
+      notifyChat('err', 'Không thể đổi cầu nối AI')
     }
   }
   const [messages, setMessages] = useState<AiChatMessage[]>([])
@@ -830,6 +853,9 @@ const AIPanel = ({
   const [contexts, setContexts] = useState<ContextOption[]>(DEFAULT_CONTEXT_OPTIONS)
   const [draft, setDraft] = useState('')
   const [thinking, setThinking] = useState(false)
+  const cliMutatedRef = useRef(false)
+  const onAppliedRef = useRef(onApplied)
+  onAppliedRef.current = onApplied
   const [liveStatus, setLiveStatus] = useState<{
     text: string
     phase: 'prepare' | 'spawn' | 'wait' | 'tool' | 'stream'
@@ -927,7 +953,7 @@ const AIPanel = ({
     setAttachments((prev) => [...prev, ...newAtts])
     e.target.value = ''
     setAddMenuOpen(false)
-    onShowToast('ok', `Đã đính kèm ${newAtts.length} tệp`)
+    notifyChat('ok', `Đã đính kèm ${newAtts.length} tệp`)
   }
 
   const handleFolderSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -949,7 +975,7 @@ const AIPanel = ({
     ])
     e.target.value = ''
     setAddMenuOpen(false)
-    onShowToast('ok', `Đã đính kèm thư mục "${folderName}"`)
+    notifyChat('ok', `Đã đính kèm thư mục "${folderName}"`)
   }
 
   const handleImagesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -976,21 +1002,21 @@ const AIPanel = ({
     setAttachments((prev) => [...prev, ...newAtts])
     e.target.value = ''
     setAddMenuOpen(false)
-    onShowToast('ok', `Đã đính kèm ${newAtts.length} ảnh`)
+    notifyChat('ok', `Đã đính kèm ${newAtts.length} ảnh`)
   }
 
   const handlePickElement = () => {
     setWaitingPickMode('single')
     setAddMenuOpen(false)
     window.dispatchEvent(new CustomEvent('pixelmind:enable-inspect', { detail: { mode: 'single' } }))
-    onShowToast('info', '✏️ Cây bút: Hãy nhấp vào 1 phần tử trên Canvas để đính kèm vào câu hỏi.')
+    notifyChat('info', '✏️ Cây bút: Hãy nhấp vào 1 phần tử trên Canvas để đính kèm vào câu hỏi.')
   }
 
   const handlePickArea = () => {
     setWaitingPickMode('area')
     setAddMenuOpen(false)
     window.dispatchEvent(new CustomEvent('pixelmind:enable-inspect', { detail: { mode: 'area' } }))
-    onShowToast('info', '⬚ Cây bút: Hãy kéo chuột khoanh 1 vùng trên Canvas để đính kèm các phần tử.')
+    notifyChat('info', '⬚ Cây bút: Hãy kéo chuột khoanh 1 vùng trên Canvas để đính kèm các phần tử.')
   }
 
   const removeAttachment = (id: string) => {
@@ -1017,7 +1043,7 @@ const AIPanel = ({
                 size: file.size,
               },
             ])
-            onShowToast('ok', 'Đã dán ảnh từ clipboard vào câu hỏi!')
+            notifyChat('ok', 'Đã dán ảnh từ clipboard vào câu hỏi!')
           }
           reader.readAsDataURL(file)
         }
@@ -1054,7 +1080,7 @@ const AIPanel = ({
         },
       ])
       setWaitingPickMode(null)
-      onShowToast('ok', `Đã đính kèm phần tử ${name} vào câu hỏi!`)
+      notifyChat('ok', `Đã đính kèm phần tử ${name} vào câu hỏi!`)
     }
 
     const handleAreaPicked = (e: Event) => {
@@ -1088,7 +1114,7 @@ const AIPanel = ({
         },
       ])
       setWaitingPickMode(null)
-      onShowToast('ok', `Đã đính kèm ${name} vào câu hỏi!`)
+      notifyChat('ok', `Đã đính kèm ${name} vào câu hỏi!`)
     }
 
     window.addEventListener('pixelmind:element-picked', handleElementPicked)
@@ -1097,7 +1123,7 @@ const AIPanel = ({
       window.removeEventListener('pixelmind:element-picked', handleElementPicked)
       window.removeEventListener('pixelmind:area-picked', handleAreaPicked)
     }
-  }, [onShowToast])
+  }, [notifyChat])
 
   const loadToolLogs = useCallback(async () => {
     if (!projectId) {
@@ -1128,13 +1154,13 @@ const AIPanel = ({
     try {
       const res = await api.ai.killSwitch()
       setThinking(false)
-      onShowToast('ok', `Dừng khẩn cấp: Đã dừng ${res.count} tiến trình AI`)
+      notifyChat('ok', `Dừng khẩn cấp: Đã dừng ${res.count} tiến trình AI`)
       void loadToolLogs()
       void loadAuditLogs()
     } catch (err) {
-      onShowToast('err', `Lỗi dừng khẩn cấp: ${(err as Error).message}`)
+      notifyChat('err', `Lỗi dừng khẩn cấp: ${(err as Error).message}`)
     }
-  }, [onShowToast, loadToolLogs, loadAuditLogs])
+  }, [notifyChat, loadToolLogs, loadAuditLogs])
 
   useEffect(() => {
     if (tab === 'tasks') {
@@ -1270,9 +1296,12 @@ const AIPanel = ({
   }, [open, loadHistory])
 
   useEffect(() => {
+    let reloadTimer: number | null = null
     const off = api.ai.onChatEvent((event) => {
       if (event.id !== activeChatId.current) return
-      if (event.type === 'delta') {
+      if (event.type === 'start') {
+        cliMutatedRef.current = false
+      } else if (event.type === 'delta') {
         if (event.text && !event.text.startsWith('▶')) setLiveStatus(null)
         setMessages((prev) =>
           prev.map((message) =>
@@ -1305,22 +1334,41 @@ const AIPanel = ({
         )
       } else if (event.type === 'tool') {
         if (event.status !== 'running') {
-          onShowToast(
-            event.status === 'ok' ? 'ok' : 'err',
-            `Tool ${event.name}: ${event.detail ?? event.status}`,
-          )
-          if (event.status === 'ok') void loadChanges()
+          if (event.status === 'ok') {
+            void loadChanges()
+            if (
+              !/^(read|view|grep|ripgrep|glob|find|ls|list|search|tree|stat|head|tail|cat|web_search|fetch|read_file|search_project|apply_patch)$/i.test(
+                event.name.trim(),
+              )
+            ) {
+              cliMutatedRef.current = true
+            }
+          }
+          setLiveStatus({
+            text: `Đang tổng hợp kết quả ${event.name}…`,
+            phase: 'wait',
+          })
         }
       } else if (event.type === 'done') {
         setThinking(false)
         setLiveStatus(null)
         setRetryText(null)
         activeChatId.current = null
+        if (cliMutatedRef.current) {
+          cliMutatedRef.current = false
+          if (reloadTimer !== null) window.clearTimeout(reloadTimer)
+          // Chờ nhẹ để CLI ghi đĩa / Hot Reload áp dụng xong rồi tự làm mới Canvas & cây tệp.
+          reloadTimer = window.setTimeout(() => {
+            reloadTimer = null
+            onAppliedRef.current?.()
+          }, 900)
+        }
         void loadChanges()
         void loadToolLogs()
         void loadAuditLogs()
         void loadConversations()
       } else if (event.type === 'error') {
+        cliMutatedRef.current = false
         setThinking(false)
         setLiveStatus(null)
         activeChatId.current = null
@@ -1338,14 +1386,17 @@ const AIPanel = ({
           ),
         )
         setRetryText(lastPromptRef.current || null)
-        onShowToast('err', event.message)
+        notifyChat('err', event.message)
         void loadChanges()
         void loadToolLogs()
         void loadAuditLogs()
       }
     })
-    return off
-  }, [loadChanges, loadConversations, onShowToast, loadToolLogs, loadAuditLogs])
+    return () => {
+      if (reloadTimer !== null) window.clearTimeout(reloadTimer)
+      off()
+    }
+  }, [loadChanges, loadConversations, notifyChat, loadToolLogs, loadAuditLogs])
 
   useEffect(() => {
     if (!thinking) {
@@ -1381,7 +1432,7 @@ const AIPanel = ({
 
   const buildContext = async (): Promise<AiContextPack | undefined> => {
     if (!projectPath) {
-      onShowToast('err', 'Chưa mở dự án — không thể đóng gói ngữ cảnh.')
+      notifyChat('err', 'Chưa mở dự án — không thể đóng gói ngữ cảnh.')
       return undefined
     }
     const result = await api.ai.context({
@@ -1498,7 +1549,7 @@ const AIPanel = ({
     try {
       context = await buildContext()
     } catch (error) {
-      onShowToast('info', `Không đóng gói được ngữ cảnh: ${(error as Error).message}`)
+      notifyChat('info', `Không đóng gói được ngữ cảnh: ${(error as Error).message}`)
     }
 
     const payloadMessages =
@@ -1506,12 +1557,17 @@ const AIPanel = ({
         ? [...history, { role: 'user' as const, content: augmentedText }]
         : history
 
+    const payloadImages = currentAttachments
+      .filter((a) => a.type === 'image' && typeof a.dataUrl === 'string' && a.dataUrl.startsWith('data:image/'))
+      .map((a) => ({ name: a.name, dataUrl: a.dataUrl! }))
+
     try {
       const handle = await api.ai.chat({
         projectId,
         projectPath,
         tools: true,
         context,
+        images: payloadImages.length > 0 ? payloadImages : undefined,
         conversationId,
         messages: payloadMessages,
         bridge: activeBridge,
@@ -1531,7 +1587,7 @@ const AIPanel = ({
         ),
       )
       setRetryText(text)
-      onShowToast('err', message)
+      notifyChat('err', message)
     }
   }
 
@@ -1595,12 +1651,12 @@ const AIPanel = ({
           setConversationId(list[0]?.id ?? newConversationId())
           setMessages([])
         }
-        onShowToast('ok', 'Đã xoá hội thoại')
+        notifyChat('ok', 'Đã xoá hội thoại')
       } catch {
-        onShowToast('err', 'Không thể xoá hội thoại')
+        notifyChat('err', 'Không thể xoá hội thoại')
       }
     },
-    [projectId, conversationId, loadConversations, onShowToast],
+    [projectId, conversationId, loadConversations, notifyChat],
   )
 
   const clearAllConversations = useCallback(async () => {
@@ -1612,11 +1668,11 @@ const AIPanel = ({
       setConversationId(newConversationId())
       setMessages([])
       setConvMenuOpen(false)
-      onShowToast('ok', 'Đã xoá toàn bộ lịch sử trò chuyện')
+      notifyChat('ok', 'Đã xoá toàn bộ lịch sử trò chuyện')
     } catch {
-      onShowToast('err', 'Không thể xoá lịch sử trò chuyện')
+      notifyChat('err', 'Không thể xoá lịch sử trò chuyện')
     }
-  }, [projectId, onShowToast])
+  }, [projectId, notifyChat])
 
   const updateConvMenuPos = useCallback(() => {
     if (!convMenuBtnRef.current) return
@@ -1646,7 +1702,7 @@ const AIPanel = ({
       const list = await api.ai.changes[action](projectId, id)
       setChanges(list)
       if (action !== 'reject') onApplied?.()
-      onShowToast(
+      notifyChat(
         action === 'reject' ? 'info' : 'ok',
         action === 'accept'
           ? 'Đã ghi thay đổi vào mã nguồn và tải lại canvas.'
@@ -1655,7 +1711,7 @@ const AIPanel = ({
             : 'Đã từ chối thay đổi.',
       )
     } catch (error) {
-      onShowToast('err', (error as Error).message)
+      notifyChat('err', (error as Error).message)
     } finally {
       setBusyChange(false)
     }
@@ -1671,9 +1727,9 @@ const AIPanel = ({
       }
       setChanges(list)
       onApplied?.()
-      onShowToast('ok', `Đã áp dụng ${pending.length} thay đổi vào mã nguồn.`)
+      notifyChat('ok', `Đã áp dụng ${pending.length} thay đổi vào mã nguồn.`)
     } catch (error) {
-      onShowToast('err', (error as Error).message)
+      notifyChat('err', (error as Error).message)
       void loadChanges()
     } finally {
       setBusyChange(false)
@@ -1686,7 +1742,7 @@ const AIPanel = ({
       await buildContext()
       setShowPack(true)
     } catch (error) {
-      onShowToast('err', (error as Error).message)
+      notifyChat('err', (error as Error).message)
     } finally {
       setPackLoading(false)
     }
@@ -1709,9 +1765,9 @@ const AIPanel = ({
       await api.store.updateSettings({ aiProvider: provider, ...defaults })
       setBridgeOpen(false)
       await refreshStatus()
-      onShowToast('ok', `Đã chuyển sang ${provider === 'ollama' ? 'Ollama (local)' : 'OpenAI-compatible'}.`)
+      notifyChat('ok', `Đã chuyển sang ${provider === 'ollama' ? 'Ollama (local)' : 'OpenAI-compatible'}.`)
     } catch (error) {
-      onShowToast('err', (error as Error).message)
+      notifyChat('err', (error as Error).message)
     }
   }
 
@@ -1908,7 +1964,7 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
         success = true
         setLoopStage('success')
         addLog(`\n🎉 [4/4 Verify] SỬA THÀNH CÔNG LỖI BUILD Ở LẦN THỬ ${attempt}!`)
-        onShowToast('ok', `🎉 Đã sửa thành công lỗi build sau lần thử ${attempt}!`)
+        notifyChat('ok', `🎉 Đã sửa thành công lỗi build sau lần thử ${attempt}!`)
         break
       } else {
         addLog(`[4/4 Verify] Lần thử ${attempt} chưa thành công.`)
@@ -1921,11 +1977,11 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
       if (killSwitchRef.current) {
         setLoopStage('aborted')
         addLog(`\n🛑 Vòng lặp tự sửa đã bị dừng bởi người dùng (Kill-switch).`)
-        onShowToast('info', 'Đã kích hoạt Kill-switch dừng vòng lặp tự sửa.')
+        notifyChat('info', 'Đã kích hoạt Kill-switch dừng vòng lặp tự sửa.')
       } else {
         setLoopStage('failed')
         addLog(`\n❌ ĐÃ HẾT ${maxAttempts} LẦN THỬ TỰ ĐỘNG! DỪNG LẠI VÀ BÁO "CẦN NGƯỜI XEM".`)
-        onShowToast('err', 'Đã hết 3 lần thử tự động nhưng chưa khắc phục được. Cần người xem!')
+        notifyChat('err', 'Đã hết 3 lần thử tự động nhưng chưa khắc phục được. Cần người xem!')
       }
     }
 
@@ -1948,7 +2004,7 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
       ...prev,
       `[${new Date().toLocaleTimeString()}] 🛑 Kill-switch: Đã dừng vòng lặp ngay lập tức.`,
     ])
-    onShowToast('info', 'Đã kích hoạt Kill-switch dừng vòng lặp.')
+    notifyChat('info', 'Đã kích hoạt Kill-switch dừng vòng lặp.')
   }
 
   /**
@@ -1956,7 +2012,7 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
    */
   const handleRollback = async () => {
     if (appliedChangeIds.length === 0 || !projectId) {
-      onShowToast('info', 'Không có thay đổi nào để rollback.')
+      notifyChat('info', 'Không có thay đổi nào để rollback.')
       return
     }
     try {
@@ -1965,14 +2021,14 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
       }
       setAppliedChangeIds([])
       onApplied?.()
-      onShowToast('ok', 'Đã rollback thành công toàn bộ mã nguồn về snapshot ban đầu!')
+      notifyChat('ok', 'Đã rollback thành công toàn bộ mã nguồn về snapshot ban đầu!')
       setLoopLogs((prev) => [
         ...prev,
         `[${new Date().toLocaleTimeString()}] ↩ Đã rollback thành công toàn bộ tệp về snapshot ban đầu!`,
       ])
       await loadChanges()
     } catch (err) {
-      onShowToast('err', `Lỗi rollback: ${(err as Error).message}`)
+      notifyChat('err', `Lỗi rollback: ${(err as Error).message}`)
     }
   }
 
@@ -1981,12 +2037,12 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
       if (!text) return
       try {
         await navigator.clipboard.writeText(text)
-        onShowToast('ok', 'Đã sao chép nội dung tin nhắn!')
+        notifyChat('ok', 'Đã sao chép nội dung tin nhắn!')
       } catch (err) {
-        onShowToast('err', `Không thể sao chép: ${(err as Error).message}`)
+        notifyChat('err', `Không thể sao chép: ${(err as Error).message}`)
       }
     },
-    [onShowToast],
+    [notifyChat],
   )
 
   const handleOpenUndo = useCallback(
@@ -2110,10 +2166,10 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
         await api.ai.chats.rewrite(projectId, remainingEntries, conversationId)
       }
 
-      onShowToast('ok', 'Đã hoàn tác tin nhắn thành công!')
+      notifyChat('ok', 'Đã hoàn tác tin nhắn thành công!')
       setUndoTarget(null)
     } catch (err) {
-      onShowToast('err', `Không thể hoàn tác: ${(err as Error).message}`)
+      notifyChat('err', `Không thể hoàn tác: ${(err as Error).message}`)
     } finally {
       setUndoing(false)
     }
@@ -2127,7 +2183,7 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
     loadChanges,
     onApplied,
     messages,
-    onShowToast,
+    notifyChat,
   ])
 
   useEffect(() => {
@@ -2429,19 +2485,29 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
                             prev ? { ...prev, model: e.target.value || undefined } : prev,
                           )
                         }
-                        title="Model truyền xuống CLI (để trống = mặc định của CLI)"
+                        title="Model truyền xuống CLI (ưu tiên các model flash / mini / haiku để phản hồi nhanh)"
                       >
                         <option value="">Mặc định của CLI</option>
-                        {cliModels.map((model) => (
-                          <option key={model} value={model}>
-                            {model}
-                          </option>
-                        ))}
+                        {[...cliModels]
+                          .sort((a, b) => {
+                            const fastRe = /(flash|mini|haiku|nano|lite|spark|lightning)/i
+                            const aFast = fastRe.test(a) ? 0 : 1
+                            const bFast = fastRe.test(b) ? 0 : 1
+                            return aFast - bFast || a.localeCompare(b)
+                          })
+                          .map((model) => {
+                            const isFast = /(flash|mini|haiku|nano|lite|spark|lightning)/i.test(model)
+                            return (
+                              <option key={model} value={model}>
+                                {isFast ? `⚡ ${model} (Nhanh)` : model}
+                              </option>
+                            )
+                          })}
                       </select>
                     </div>
                     <div className="pm-ai-bridge__key-hint">
-                      Skills được stage tự động vào <code>.pixelmind/skills</code>; MCP server
-                      cấu hình trong <code>.pixelmind/mcp.json</code>.
+                      Mẹo tăng tốc: chọn model có <code>flash</code> / <code>mini</code> /{' '}
+                      <code>haiku</code> thay cho Mặc định nếu OpenCode phản hồi chậm.
                     </div>
                   </div>
                 )}
@@ -2688,6 +2754,23 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
             ? `AI Gateway đã cấu hình · khoá ${status?.key.masked || 'từ môi trường'} · thay đổi phải được duyệt`
             : status?.error ?? 'Chưa cấu hình AI Gateway — mở Cài đặt để nhập provider/model và đặt khoá qua .env.'}
       </div>
+
+      {chatNotice && (
+        <div className={`pm-ai-notice is-${chatNotice.kind}`} role="status">
+          {chatNotice.kind === 'ok' && <Check size={12} />}
+          {chatNotice.kind === 'err' && <AlertTriangle size={12} />}
+          {chatNotice.kind === 'info' && <Sparkles size={12} />}
+          <span>{chatNotice.text}</span>
+          <button
+            type="button"
+            className="pm-ai-notice__close"
+            onClick={() => setChatNotice(null)}
+            title="Đóng thông báo"
+          >
+            <X size={11} />
+          </button>
+        </div>
+      )}
 
       {/* ── Thân panel ── */}
       <div className="pm-ai-panel__body">

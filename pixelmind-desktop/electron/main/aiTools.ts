@@ -208,6 +208,12 @@ const runSearch = async (
   const lowered = query.toLowerCase()
   const results: string[] = []
   for (const rel of files) {
+    if (rel.toLowerCase().includes(lowered)) {
+      results.push(`[FILE] ${rel}`)
+      if (results.length >= maxResults) break
+    }
+  }
+  for (const rel of files) {
     if (results.length >= maxResults) break
     let text = ''
     try {

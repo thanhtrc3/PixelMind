@@ -252,34 +252,26 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   pointer-events: none;
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.55));
   transition: stroke-width 150ms ease, opacity 150ms ease;
 }
 
-.pm-multi-wire-glow {
-  fill: none;
-  stroke-linecap: round;
-  opacity: 0.35;
-  filter: blur(4px);
+/* Lớp bắt chuột của dây nối — nằm dưới cửa sổ nên phần dây trên trang không chặn click */
+.pm-multi-svg-hit {
+  position: absolute;
+  top: 0;
+  left: 0;
   pointer-events: none;
+  overflow: visible;
 }
 
 .pm-multi-wire-active {
-  stroke-width: 3.2 !important;
+  stroke-width: 2.6 !important;
   opacity: 1 !important;
-  filter: drop-shadow(0 0 8px currentColor) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.65));
 }
 
 .pm-multi-wire-selected {
+  stroke-width: 3.2 !important;
   opacity: 1 !important;
-  filter: drop-shadow(0 0 7px currentColor) drop-shadow(0 0 16px currentColor)
-    drop-shadow(0 2px 8px rgba(0, 0, 0, 0.65));
-}
-
-/* Hạt ánh sáng chuyển động dọc theo dây nối */
-.pm-multi-particle {
-  pointer-events: none;
-  filter: drop-shadow(0 0 6px currentColor);
 }
 
 /* Điểm ghim xuất phát trên nút bấm */
@@ -293,6 +285,16 @@
   cursor: pointer;
   pointer-events: auto;
   padding: 4px;
+}
+
+.pm-multi-pin.is-idle {
+  pointer-events: none;
+  opacity: 0.3;
+}
+
+.pm-multi-pin.is-idle .pm-multi-pin-dot {
+  animation: none;
+  box-shadow: none;
 }
 
 .pm-multi-pin-dot {
@@ -1153,9 +1155,7 @@
   box-shadow: 0 0 6px #22c55e;
 }
 
-.pm-multi-wire.is-proto-flash,
-.pm-multi-wire-glow.is-proto-flash {
-  filter: drop-shadow(0 0 8px #c084fc);
+.pm-multi-wire.is-proto-flash {
   transition: stroke 0.2s ease, opacity 0.2s ease;
 }
 
