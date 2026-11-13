@@ -60,6 +60,8 @@ const getIcon = (name: string) => {
   }
 }
 
+const STORAGE_KEY_LAST_DIR = 'pm.template.last_parent_dir'
+
 const TemplateGalleryDialog = ({
   onClose,
   onSelectFolder,
@@ -70,7 +72,13 @@ const TemplateGalleryDialog = ({
     PROJECT_TEMPLATES[0],
   )
   const [projectName, setProjectName] = useState('MyAwesomeApp')
-  const [parentDir, setParentDir] = useState('')
+  const [parentDir, setParentDir] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY_LAST_DIR) || ''
+    } catch {
+      return ''
+    }
+  })
   const [busy, setBusy] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
@@ -84,6 +92,9 @@ const TemplateGalleryDialog = ({
       if (folder) {
         setParentDir(folder)
         setErrorMsg(null)
+        try {
+          localStorage.setItem(STORAGE_KEY_LAST_DIR, folder)
+        } catch {}
       }
     } catch {}
   }
@@ -106,6 +117,11 @@ const TemplateGalleryDialog = ({
     setBusy(true)
     setErrorMsg(null)
     try {
+      // Lưu lại thư mục này cho lần tạo dự án sau
+      try {
+        localStorage.setItem(STORAGE_KEY_LAST_DIR, parentDir.trim())
+      } catch {}
+
       const res = await onCreateProject({
         templateId: selectedTemplate.id,
         parentDir: parentDir.trim(),
@@ -242,11 +258,10 @@ const TemplateGalleryDialog = ({
                 </div>
               </label>
 
-              {parentDir && projectName && (
+              {parentDir && projectName.trim() && (
                 <div className="pm-template-preview-path">
-                  Đường dẫn hoàn chỉnh:
-                  <br />
-                  <code>
+                  <div className="label">Đường dẫn đầy đủ:</div>
+                  <code className="path-text">
                     {parentDir.replace(/[\\/]+$/, '')}\{projectName.trim()}
                   </code>
                 </div>
