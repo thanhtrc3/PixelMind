@@ -305,6 +305,14 @@
   cursor: default;
 }
 
+/* D2-06 — Tắt lưới nền Canvas theo setting canvasGrid */
+[data-canvas-grid="false"] .canvas__stage,
+.canvas__stage.no-grid,
+[data-canvas-grid="false"] .canvas__reference-canvas,
+.canvas__reference-canvas.no-grid {
+  background-image: none !important;
+}
+
 .canvas__stage.tool-pan {
   cursor: grab;
 }

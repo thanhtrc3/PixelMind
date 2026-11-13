@@ -280,6 +280,8 @@ interface CanvasAreaProps {
   hoverOutline?: boolean
   /** D2-05 — Đồng bộ lựa chọn Canvas với cây Layers */
   syncCanvasToTree?: boolean
+  /** D2-06 — Bật/tắt lưới chấm nền trên vùng Canvas */
+  canvasGrid?: boolean
 }
 
 const COLOR_SWATCHES = [
@@ -438,6 +440,7 @@ const CanvasArea = ({
   onSplitPositionChange: propOnSplitPositionChange,
   hoverOutline = true,
   syncCanvasToTree: _syncCanvasToTree = true,
+  canvasGrid = true,
 }: CanvasAreaProps) => {
 
   const [currentLiveUrl, setCurrentLiveUrl] = useState<string | null>(url ?? null)
@@ -4469,7 +4472,7 @@ const CanvasArea = ({
 
         <div
           ref={referenceCanvasRef}
-          className={`canvas__reference-canvas ${isReferenceDragging ? 'is-dragging' : ''}`}
+          className={`canvas__reference-canvas ${!canvasGrid ? 'no-grid' : ''} ${isReferenceDragging ? 'is-dragging' : ''}`}
           onWheel={handleReferenceWheel}
           onMouseDown={handleReferenceMouseDown}
           onMouseMove={handleReferenceMouseMove}
@@ -5304,7 +5307,7 @@ const CanvasArea = ({
       <div className="canvas__body">
         {/* SÂN KHẤU VÔ CỰC (Bên trái) */}
         <div
-          className={`canvas__stage tool-${tool} ${isPanning ? 'is-panning' : ''}`}
+          className={`canvas__stage ${!canvasGrid ? 'no-grid' : ''} tool-${tool} ${isPanning ? 'is-panning' : ''}`}
           ref={stageRef}
           onWheel={handleWheel}
           onMouseDown={handleMouseDown}

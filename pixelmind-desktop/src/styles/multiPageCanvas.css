@@ -25,6 +25,12 @@
   container-type: inline-size;
 }
 
+/* D2-06 — Tắt lưới Multi-Page Canvas theo setting canvasGrid */
+[data-canvas-grid="false"] .pm-multi-canvas,
+.pm-multi-canvas.no-grid {
+  background-image: radial-gradient(circle at 50% 0%, var(--accent-soft), transparent 62%) !important;
+}
+
 /* ── Thanh công cụ đỉnh ── */
 .pm-multi-topbar {
   flex-shrink: 0;

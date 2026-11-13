@@ -839,6 +839,7 @@ const WorkspaceView = ({
                       onSplitPositionChange={setSplitPosition}
                       hoverOutline={settings.hoverOutline !== false}
                       syncCanvasToTree={settings.syncCanvasToTree !== false}
+                      canvasGrid={settings.canvasGrid !== false}
                     />
                   ) : (
                     <FileViewer
