@@ -28,6 +28,7 @@ import type {
 } from '@shared/types'
 import { parseRunError } from '../lib/errorParser'
 import type { FileSearchRange } from '../../shared/api'
+import { toWorkspaceCanvasSettings } from '../lib/canvasSettings'
 import { editorBuffer } from '../lib/editorBuffer'
 import {
   LAYOUT_KEYS,
@@ -726,6 +727,7 @@ const WorkspaceView = ({
                     <CanvasArea
                       url={canvasUrl}
                       running={run?.status === 'running' || run?.status === 'starting'}
+                      canvasSettings={toWorkspaceCanvasSettings(settings)}
                       projectName={project.name}
                       projectPath={project.path}
                       error={parsedError}

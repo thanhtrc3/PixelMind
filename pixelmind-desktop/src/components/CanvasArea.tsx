@@ -58,6 +58,7 @@ import {
   Strikethrough as StrikethroughIcon,
 } from 'lucide-react'
 import type { ParsedError } from '../lib/errorParser'
+import type { CanvasSettings } from '../lib/canvasSettings'
 import { formatBytes } from '../lib/format'
 import VisualErrorCard from './VisualErrorCard'
 import DesignTokensDialog from './DesignTokensDialog'
@@ -231,6 +232,7 @@ export interface RealElementInfo {
 interface CanvasAreaProps {
   url: string | null
   running: boolean
+  canvasSettings: CanvasSettings
   projectName: string
   projectPath?: string
   error?: ParsedError | null

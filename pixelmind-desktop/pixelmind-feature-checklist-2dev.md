@@ -83,8 +83,8 @@ Không thể cam kết “không bao giờ xung đột” nếu cả hai cùng s
 - [ ] **D1-04 — Lọc tìm kiếm theo include/exclude glob.** Cho phép giới hạn phần mở rộng/thư mục được tìm và loại trừ thư mục/tệp; mặc định tiếp tục bỏ qua thư mục build/dependency. **Nghiệm thu:** tìm chỉ trong `*.tsx`, loại `src/generated/**`, xác nhận không quét `node_modules`.
 - [ ] **D1-05 — Tìm nội dung từ Command Palette.** Thêm truy vấn nội dung có cú pháp dễ nhận biết, hiển thị kết quả giới hạn kèm file/dòng và mở đúng vị trí trong editor. **Nghiệm thu:** tìm một đoạn code từ palette, mở đúng file và dòng; xử lý trạng thái không có kết quả.
 - [ ] **D1-06 — Khôi phục kích thước các panel Workspace.** Lưu và khôi phục kích thước sidebar, panel phải, panel dưới và AI panel theo dự án; bảo vệ giá trị lỗi/ngoài giới hạn. **Nghiệm thu:** đổi kích thước, khởi động lại ứng dụng và kiểm tra panel về đúng kích thước đã lưu.
-- [ ] **D1-07 — Khôi phục các file tab đang mở.** Lưu danh sách tab theo dự án và tab đang chọn; khi khôi phục, xử lý file đã bị xóa/không còn truy cập được. **Nghiệm thu:** mở nhiều file, khởi động lại, kiểm tra tab hợp lệ khôi phục và tab lỗi không làm treo Workspace.
-- [ ] **D1-08 — Truyền cấu hình Settings vào Workspace/Canvas.** Hoàn thiện đường truyền các tùy chọn `smartGuides`, `hoverOutline`, `syncCanvasToTree` qua điểm tích hợp để Dev 2 tiêu thụ; không tự triển khai hành vi Canvas trong phần việc này. **Nghiệm thu:** thay đổi setting được cập nhật tức thời và không cần khởi động lại.
+- [x] **D1-07 — Khôi phục các file tab đang mở.** Lưu danh sách tab theo dự án và tab đang chọn; khi khôi phục, xử lý file đã bị xóa/không còn truy cập được. **Nghiệm thu:** mở nhiều file, khởi động lại, kiểm tra tab hợp lệ khôi phục và tab lỗi không làm treo Workspace.
+- [x] **D1-08 — Truyền cấu hình Settings vào Workspace/Canvas.** Hoàn thiện đường truyền các tùy chọn `smartGuides`, `hoverOutline`, `syncCanvasToTree` qua điểm tích hợp để Dev 2 tiêu thụ; không tự triển khai hành vi Canvas trong phần việc này. **Nghiệm thu:** thay đổi setting được cập nhật tức thời và không cần khởi động lại.
 
 ### P1 — Quản lý thông báo, template và tài nguyên
 
