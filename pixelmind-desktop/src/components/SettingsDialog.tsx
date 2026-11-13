@@ -370,7 +370,10 @@ const SettingsDialog = ({
               <div className="pm-setting">
                 <div className="pm-setting__txt">
                   <b>Xác nhận khi thoát lúc máy chủ đang chạy</b>
-                  <span>Cảnh báo nếu bạn đóng ứng dụng trong khi tiến trình máy chủ dev vẫn đang hoạt động.</span>
+                  <span>
+                    Hỏi trước khi đóng cửa sổ hoặc thoát ứng dụng khi máy chủ dev vẫn đang chạy. Chọn “Ở lại” sẽ giữ
+                    nguyên máy chủ và cổng mạng; chọn “Thoát” mới dừng tiến trình và giải phóng cổng.
+                  </span>
                 </div>
                 <div className="pm-setting__ctrl">
                   <button

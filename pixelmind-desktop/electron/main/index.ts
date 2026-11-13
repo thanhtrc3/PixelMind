@@ -53,6 +53,7 @@ import {
   writeFileContent,
 } from './projects'
 import { RunnerManager } from './runner'
+import { decideQuit } from './quitGuard'
 import { TerminalManager } from './terminal'
 import {
   copyPageFile,
@@ -147,6 +148,77 @@ const terminalManager = new TerminalManager(
   (event) => mainWindow?.webContents.send('terminal:data', event),
   (event) => mainWindow?.webContents.send('terminal:exit', event),
 )
+
+/* ── Chặn thoát khi dev server còn chạy (Settings → confirmQuitRunning) ── */
+let allowWindowClose = false
+let quitApproved = false
+let quitPromptOpen = false
+
+/** Số tiến trình máy chủ đang chạy hoặc đang khởi động. */
+function countRunningProcesses(): number {
+  return runner.list().filter((state) => state.status === 'running' || state.status === 'starting').length
+}
+
+async function confirmQuitWithUser(runningCount: number): Promise<boolean> {
+  const running = runner.list().filter((state) => state.status === 'running' || state.status === 'starting')
+  const names = running
+    .map((state) => state.script)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(', ')
+  const options = {
+    type: 'warning' as const,
+    title: 'Máy chủ vẫn đang chạy',
+    message: `Còn ${runningCount} tiến trình máy chủ đang chạy`,
+    detail:
+      `${names ? `Tiến trình: ${names}\n\n` : ''}` +
+      'Nếu thoát, PixelMind sẽ dừng các tiến trình này và giải phóng cổng mạng. ' +
+      'Chọn “Ở lại” để tiếp tục làm việc mà không dừng máy chủ.',
+    buttons: ['Ở lại', 'Thoát và dừng máy chủ'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  }
+  const result = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options)
+  // Chỉ nút thứ hai mới đồng ý thoát; Esc / đóng hộp thoại = ở lại.
+  return result.response === 1
+}
+
+/** Hỏi xác nhận trước khi đóng cửa sổ hoặc thoát ứng dụng. */
+async function requestQuitApproval(): Promise<boolean> {
+  const decision = await decideQuit({
+    readConfirmSetting: async () => (await readStore()).settings.confirmQuitRunning,
+    countRunning: countRunningProcesses,
+    confirmExit: confirmQuitWithUser,
+  })
+  if (!decision.allow) {
+    // "Ở lại": không dừng runner, không đóng cửa sổ.
+    console.info(`[quit] Người dùng chọn ở lại (${decision.reason}).`)
+  }
+  return decision.allow
+}
+
+/** Bắt đầu một lượt xin phép thoát (chống mở nhiều hộp thoại cùng lúc). */
+function handleQuitAttempt(): void {
+  if (quitPromptOpen) return
+  quitPromptOpen = true
+  void (async () => {
+    try {
+      const allow = await requestQuitApproval()
+      if (!allow) return
+      quitApproved = true
+      allowWindowClose = true
+      if (mainWindow) mainWindow.close()
+      else app.quit()
+    } catch (error) {
+      console.error('[quit] Không xác nhận được yêu cầu thoát:', error)
+    } finally {
+      quitPromptOpen = false
+    }
+  })()
+}
 
 const samePath = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase()
 
@@ -407,12 +479,16 @@ function createWindow() {
     }
   })
 
-  mainWindow.on('close', () => {
-    runner.stopAll()
+  mainWindow.on('close', (event) => {
+    // Đã xác nhận thoát → cho đóng; ngược lại hỏi trước khi dừng máy chủ.
+    if (allowWindowClose) return
+    event.preventDefault()
+    handleQuitAttempt()
   })
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    allowWindowClose = false
   })
 
   const devUrl = process.env['ELECTRON_RENDERER_URL']
@@ -4403,7 +4479,13 @@ if (!gotLock) {
     if (process.platform !== 'darwin') app.quit()
   })
 
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
+    // Thoát bằng menu/⌘Q/Ctrl+Q khi chưa xác nhận → hỏi trước, giữ nguyên server nếu ở lại.
+    if (!quitApproved) {
+      event.preventDefault()
+      handleQuitAttempt()
+      return
+    }
     runner.stopAll()
     terminalManager.killAll()
   })
