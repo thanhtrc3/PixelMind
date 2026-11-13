@@ -276,6 +276,8 @@ interface CanvasAreaProps {
   splitPosition?: number
   onToggleSplitCompare?: (enabled: boolean) => void
   onSplitPositionChange?: (pos: number) => void
+  /** D2-04 — Bật/tắt viền xanh bao quanh phần tử khi rê chuột (Hover Outline) */
+  hoverOutline?: boolean
 }
 
 const COLOR_SWATCHES = [
@@ -432,6 +434,7 @@ const CanvasArea = ({
   splitPosition: propSplitPosition,
   onToggleSplitCompare: propOnToggleSplitCompare,
   onSplitPositionChange: propOnSplitPositionChange,
+  hoverOutline = true,
 }: CanvasAreaProps) => {
 
   const [currentLiveUrl, setCurrentLiveUrl] = useState<string | null>(url ?? null)
@@ -564,6 +567,13 @@ const CanvasArea = ({
       preAiStylesRef.current = null
     }
   }, [selectedEl])
+
+  // D2-04 — Tự động xóa khung viền hover ngay khi setting hoverOutline bị tắt
+  useEffect(() => {
+    if (!hoverOutline) {
+      setHoverEl(null)
+    }
+  }, [hoverOutline])
 
   // Tính toán vị trí hiển thị nổi của AI Sidecar bám sát phần tử đang chọn
   const sidecarPos = useMemo(() => {
@@ -1351,7 +1361,11 @@ const CanvasArea = ({
           })
         })()
       } else if (e.data.type === 'PM_HOVER_ELEMENT') {
-        setHoverEl(e.data.payload)
+        if (!hoverOutline) {
+          if (hoverEl) setHoverEl(null)
+        } else {
+          setHoverEl(e.data.payload)
+        }
       } else if (e.data.type === 'PM_SELECT_ELEMENT') {
         if (e.data.payload) {
           const payload = e.data.payload as RealElementInfo
@@ -4523,8 +4537,8 @@ const CanvasArea = ({
                   />
                 )}
 
-                {/* Khung viền hover phần tử khi soi */}
-                {isInspectMode && hoverEl && (!selectedEl || hoverEl.uid !== selectedEl.uid) && (
+                {/* D2-04: Khung viền hover phần tử khi soi (chỉ hiển thị khi hoverOutline bật) */}
+                {isInspectMode && hoverOutline && hoverEl && (!selectedEl || hoverEl.uid !== selectedEl.uid) && (
                   <div
                     className="canvas__inspect-hover"
                     style={{

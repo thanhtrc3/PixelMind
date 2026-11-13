@@ -836,6 +836,7 @@ const WorkspaceView = ({
                       isSplitCompare={isSplitCompare}
                       splitPosition={splitPosition}
                       onSplitPositionChange={setSplitPosition}
+                      hoverOutline={settings.hoverOutline !== false}
                     />
                   ) : (
                     <FileViewer
