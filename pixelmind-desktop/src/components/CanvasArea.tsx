@@ -57,6 +57,7 @@ import {
   ZoomOut,
   Underline as UnderlineIcon,
   Strikethrough as StrikethroughIcon,
+  Pipette,
 } from 'lucide-react'
 import type { ParsedError } from '../lib/errorParser'
 import { formatBytes } from '../lib/format'
@@ -66,6 +67,13 @@ import MutationDiffDialog from './MutationDiffDialog'
 import CanvasSplitSlider from './canvas/CanvasSplitSlider'
 import { MultiViewportStage } from './canvas/MultiViewportStage'
 import { SmartGuidesOverlay } from './canvas/SmartGuidesOverlay'
+import EyedropperResultModal from './canvas/EyedropperResultModal'
+import {
+  pickColorWithEyeDropper,
+  normalizeHex,
+  hexToRgba,
+  type ColorPickResult,
+} from '../lib/colorUtils'
 import {
   collectCandidateRects,
   calculateMoveSnap,
@@ -73,8 +81,16 @@ import {
   type RectBox,
   type SmartGuideLine,
 } from '../lib/smartSnapping'
+import {
+  PSEUDO_STATES,
+  extractPseudoStyles,
+  applyPseudoStateToElement,
+  restoreElementFromPseudoState,
+  type PseudoStateKey,
+  type PseudoSnapshot,
+} from '../lib/pseudoStates'
 import AISidecar from './AISidecar'
-import type { DesignTokens, ProjectPage } from '@shared/types'
+import type { DesignTokens, ProjectPage, ColorToken } from '@shared/types'
 import type {
   ElementMutationTarget,
   InsertPlacement,
@@ -632,6 +648,15 @@ const CanvasArea = ({
   // D2-07 — Smart guides & snapping khi kéo Move / Resize
   const [smartGuides, setSmartGuides] = useState<SmartGuideLine[]>([])
   const candidateRectsRef = useRef<RectBox[]>([])
+  // D2-11 — State Switcher (Giả lập trạng thái :hover, :focus, :active, :disabled)
+  const [activePseudoState, setActivePseudoState] = useState<PseudoStateKey>('default')
+  const pseudoSnapshotRef = useRef<PseudoSnapshot | null>(null)
+  const lastSelectedUidRef = useRef<string | undefined>(undefined)
+  // D2-12 — Eyedropper (Ống hút màu trên Canvas)
+  const [eyedropperResult, setEyedropperResult] = useState<ColorPickResult | null>(null)
+  const [eyedropperError, setEyedropperError] = useState<string | null>(null)
+  const [isPickingColor, setIsPickingColor] = useState(false)
+  const handlePickColorRef = useRef<(targetProperty?: 'color' | 'backgroundColor' | 'borderColor') => Promise<void>>(() => Promise.resolve())
   const [dropTargetHover, setDropTargetHover] = useState<{
     uid: string
     tagName: string
@@ -1082,7 +1107,10 @@ const CanvasArea = ({
       else if (key === 'C') setTool('comment')
       else if (key === 'M') setTool('measure')
       else if (key === 'F') zoomToFit()
-      else if (key === 'I') {
+      else if (key === 'E') {
+        e.preventDefault()
+        void handlePickColorRef.current()
+      } else if (key === 'I') {
         const next = !isInspectMode
         setIsInspectMode(next)
         if (!next) {
@@ -1097,6 +1125,11 @@ const CanvasArea = ({
           next ? 'Phím I' : undefined,
         )
       } else if (e.key === 'Escape') {
+        if (eyedropperResult || eyedropperError) {
+          setEyedropperResult(null)
+          setEyedropperError(null)
+          return
+        }
         if (isSidecarOpen) {
           setIsSidecarOpen(false)
           return
@@ -1128,7 +1161,7 @@ const CanvasArea = ({
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [isInspectMode, isSidecarOpen, selectedEl, multiSelection.length, zoomToFit, showToast, sourceLoc?.fullPath, projectPath, pendingMutation, isPageFlowOpen])
+  }, [isInspectMode, isSidecarOpen, selectedEl, multiSelection.length, zoomToFit, showToast, sourceLoc?.fullPath, projectPath, pendingMutation, isPageFlowOpen, eyedropperResult, eyedropperError])
 
   // Xử lý zoom bằng bánh lăn chuột (Ctrl + Wheel)
   const handleWheel = (e: React.WheelEvent) => {
@@ -1806,7 +1839,7 @@ const CanvasArea = ({
           )
 
           const nextStyles = { ...item.computedStyles, ...styles }
-          if (!options?.skipHistory) {
+          if (!options?.skipHistory && activePseudoState === 'default') {
             editorBuffer.pushAction({
               type: options?.actionType || 'STYLE',
               description,
@@ -1865,7 +1898,9 @@ const CanvasArea = ({
         )
       }
 
-      api.inspect.applyStyle({ styles, textContent }).catch(() => { })
+      if (activePseudoState === 'default') {
+        api.inspect.applyStyle({ styles, textContent }).catch(() => { })
+      }
 
       const beforeSnapshot: ElementSnapshot = {
         styles: { ...selectedEl.computedStyles },
@@ -1888,7 +1923,7 @@ const CanvasArea = ({
         }
       })
 
-      if (!options?.skipHistory) {
+      if (!options?.skipHistory && activePseudoState === 'default') {
         editorBuffer.pushAction({
           type: options?.actionType || (textContent !== undefined ? 'TEXT' : 'STYLE'),
           description: options?.description || `Chỉnh sửa <${selectedEl.tagName.toLowerCase()}>`,
@@ -4418,6 +4453,180 @@ const CanvasArea = ({
     showToast('Đã sao chép danh sách class!')
   }
 
+  // D2-11 — State Switcher: Giả lập trạng thái tương tác (:hover, :focus, :active, :disabled)
+  const handleTogglePseudoState = useCallback((targetState: PseudoStateKey) => {
+    if (!selectedEl) return
+    const win = iframeRef.current?.contentWindow
+    const doc = win?.document || iframeRef.current?.contentDocument
+    if (!doc) return
+
+    const el = (selectedEl.uid ? doc.querySelector(`[data-pm-uid="${selectedEl.uid}"]`) : null) as HTMLElement | null
+      || (selectedEl.selector ? doc.querySelector(selectedEl.selector) : null) as HTMLElement | null
+
+    // 1. Nếu đang có snapshot trước đó, khôi phục lại phần tử trước
+    if (pseudoSnapshotRef.current && el) {
+      restoreElementFromPseudoState(el, pseudoSnapshotRef.current)
+    }
+
+    // 2. Nếu bấm lại chính state đang bật hoặc bấm 'default' -> trở về Normal
+    if (targetState === 'default' || targetState === activePseudoState) {
+      if (pseudoSnapshotRef.current) {
+        setSelectedEl((prev) =>
+          prev ? { ...prev, computedStyles: { ...prev.computedStyles, ...pseudoSnapshotRef.current!.originalStyles } } : prev
+        )
+        pseudoSnapshotRef.current = null
+      }
+      setActivePseudoState('default')
+      return
+    }
+
+    if (!el) return
+
+    // 3. Lưu snapshot trước khi áp dụng pseudo state mới
+    const snapshot: PseudoSnapshot = pseudoSnapshotRef.current || {
+      uid: selectedEl.uid,
+      selector: selectedEl.selector,
+      inlineCssText: el.style.cssText,
+      originalStyles: { ...selectedEl.computedStyles },
+      hadDisabledAttr: el.hasAttribute('disabled'),
+    }
+    pseudoSnapshotRef.current = snapshot
+
+    // 4. Trích xuất CSS rules tương ứng với pseudo state
+    const pseudoStyles = extractPseudoStyles(doc, el, targetState)
+
+    // 5. Áp dụng lên DOM phần tử
+    applyPseudoStateToElement(el, targetState, pseudoStyles)
+
+    // 6. Cập nhật state & computedStyles để Inspector hiển thị đúng
+    setActivePseudoState(targetState)
+    setSelectedEl((prev) =>
+      prev ? { ...prev, computedStyles: { ...prev.computedStyles, ...pseudoStyles } } : prev
+    )
+  }, [selectedEl, activePseudoState])
+
+  // Tự động hoàn nguyên trạng thái khi bỏ chọn hoặc đổi sang phần tử khác
+  useEffect(() => {
+    const currentUid = selectedEl?.uid || selectedEl?.domPath
+    if (lastSelectedUidRef.current !== currentUid) {
+      if (pseudoSnapshotRef.current) {
+        try {
+          const doc = iframeRef.current?.contentDocument
+          if (doc) {
+            const el = (pseudoSnapshotRef.current.uid
+              ? doc.querySelector(`[data-pm-uid="${pseudoSnapshotRef.current.uid}"]`)
+              : null) as HTMLElement | null
+              || (pseudoSnapshotRef.current.selector
+                ? doc.querySelector(pseudoSnapshotRef.current.selector)
+                : null) as HTMLElement | null
+            if (el) {
+              restoreElementFromPseudoState(el, pseudoSnapshotRef.current)
+            }
+          }
+        } catch { }
+        pseudoSnapshotRef.current = null
+        setActivePseudoState('default')
+      }
+      lastSelectedUidRef.current = currentUid
+    }
+  }, [selectedEl?.uid, selectedEl?.domPath])
+
+  // Hoàn nguyên trạng thái khi chuyển route hoặc reload iframe
+  useEffect(() => {
+    if (pseudoSnapshotRef.current) {
+      try {
+        const doc = iframeRef.current?.contentDocument
+        if (doc) {
+          const el = (pseudoSnapshotRef.current.uid
+            ? doc.querySelector(`[data-pm-uid="${pseudoSnapshotRef.current.uid}"]`)
+            : null) as HTMLElement | null
+          if (el) {
+            restoreElementFromPseudoState(el, pseudoSnapshotRef.current)
+          }
+        }
+      } catch { }
+      pseudoSnapshotRef.current = null
+    }
+    setActivePseudoState('default')
+  }, [currentRoute, reloadToken])
+
+  // D2-12 — Lưu màu hút được thành Design Token của dự án
+  const handleSaveColorToken = useCallback(
+    async (name: string, value: string) => {
+      if (!projectPath) {
+        showToast('Cần mở dự án để lưu Design Token', 'err')
+        return
+      }
+      const currentTokens: DesignTokens = projectTokens || {
+        colors: [],
+        spacing: [],
+        typography: [],
+        radius: [],
+        breakpoints: [],
+      }
+      const newColorToken: ColorToken = {
+        id: 'c_picked_' + Math.random().toString(36).slice(2, 9),
+        name: name.trim(),
+        value: value.trim(),
+        category: 'brand',
+      }
+      const updatedTokens: DesignTokens = {
+        ...currentTokens,
+        colors: [...(currentTokens.colors || []), newColorToken],
+      }
+
+      try {
+        if (api?.tokens?.save) {
+          await api.tokens.save({ projectPath, tokens: updatedTokens })
+        }
+        setProjectTokens(updatedTokens)
+        showToast(`Đã lưu token màu "${name}" thành công!`, 'ok')
+      } catch {
+        showToast('Lỗi khi lưu Design Token vào tệp dự án', 'err')
+      }
+    },
+    [projectPath, projectTokens, showToast]
+  )
+
+  // D2-12 — Hút màu trực tiếp qua Eyedropper API
+  const handlePickColor = useCallback(
+    async (targetProperty?: 'color' | 'backgroundColor' | 'borderColor') => {
+      setIsPickingColor(true)
+      setEyedropperError(null)
+      try {
+        const res = await pickColorWithEyeDropper()
+        if (!res) {
+          // Người dùng nhấn Esc hoặc click hủy
+          return
+        }
+
+        if (targetProperty && selectedEl) {
+          // Nếu gọi từ nút hút màu cạnh thuộc tính trong Inspector
+          handleApplyLiveChange(
+            { [targetProperty]: res.hex },
+            undefined,
+            { description: `Hút màu ${res.hex} vào ${targetProperty}` }
+          )
+          showToast(`Đã áp dụng màu ${res.hex.toUpperCase()} vào ${targetProperty}!`, 'ok')
+        } else {
+          // Nếu kích hoạt từ Toolbar hoặc phím tắt E
+          setEyedropperResult(res)
+        }
+      } catch (err: any) {
+        if (err?.name === 'NotAllowedError' || err?.message === 'PERMISSION_DENIED') {
+          setEyedropperError('PERMISSION_DENIED')
+        } else {
+          setEyedropperError('UNSUPPORTED')
+        }
+      } finally {
+        setIsPickingColor(false)
+      }
+    },
+    [selectedEl, handleApplyLiveChange, showToast]
+  )
+
+  handlePickColorRef.current = handlePickColor
+
   // ─── GRID VISUAL EDITOR: trạng thái & thao tác ───
   const isFlexLayout = selectedEl?.computedStyles.display === 'flex'
   const isGridLayout = selectedEl?.computedStyles.display === 'grid'
@@ -4646,6 +4855,20 @@ const CanvasArea = ({
           >
             <Sparkles size={11} />
             <span>AI</span>
+          </button>
+
+          {/* D2-11: Nút bật/tắt nhanh trạng thái :hover ngay trên khung viền chọn */}
+          <button
+            type="button"
+            className={`canvas__inspect-state-btn ${activePseudoState !== 'default' ? 'is-active' : ''}`}
+            style={selectedEl.rect.top < 26 ? { top: 2, right: 62 } : undefined}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleTogglePseudoState(activePseudoState === 'hover' ? 'default' : 'hover')
+            }}
+            title={activePseudoState !== 'default' ? `Đang giả lập :${activePseudoState} (Bấm để về Normal)` : 'Bật giả lập :hover'}
+          >
+            <span>{activePseudoState !== 'default' ? `:${activePseudoState}` : ':hov'}</span>
           </button>
 
           <span
@@ -5006,6 +5229,20 @@ const CanvasArea = ({
                       >
                         <Sparkles size={11} />
                         <span>AI</span>
+                      </button>
+
+                      {/* D2-11: Nút bật/tắt nhanh trạng thái :hover ngay trên khung viền chọn */}
+                      <button
+                        type="button"
+                        className={`canvas__inspect-state-btn ${activePseudoState !== 'default' ? 'is-active' : ''}`}
+                        style={selectedEl.rect.top < 26 ? { top: 2, right: 62 } : undefined}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleTogglePseudoState(activePseudoState === 'hover' ? 'default' : 'hover')
+                        }}
+                        title={activePseudoState !== 'default' ? `Đang giả lập :${activePseudoState} (Bấm để về Normal)` : 'Bật giả lập :hover'}
+                      >
+                        <span>{activePseudoState !== 'default' ? `:${activePseudoState}` : ':hov'}</span>
                       </button>
 
                       <span
@@ -5393,6 +5630,15 @@ const CanvasArea = ({
                 <t.icon size={13} />
               </button>
             ))}
+
+            {/* D2-12: Nút Ống hút màu (Eyedropper) */}
+            <button
+              className={`canvas__seg-btn icon-only ${isPickingColor || eyedropperResult ? 'active' : ''}`}
+              onClick={() => handlePickColor()}
+              title="Ống hút màu trên Canvas (Phím tắt: E)"
+            >
+              <Pipette size={13} />
+            </button>
 
             <button
               className={`canvas__seg-btn icon-only ${isPageFlowOpen ? 'active' : ''}`}
@@ -6006,6 +6252,7 @@ const CanvasArea = ({
                                   fontSize: 10.5,
                                   color: '#cbd5e1',
                                   fontFamily: 'monospace',
+                                  lineHeight: 1.2,
                                 }}
                               >
                                 .{cls}
@@ -6017,6 +6264,31 @@ const CanvasArea = ({
                             Không có class CSS riêng
                           </span>
                         )}
+
+                        {/* D2-11 — State Switcher (Giả lập trạng thái tương tác) */}
+                        <div className="canvas__inspector-state-switcher">
+                          <div className="canvas__inspector-state-label">
+                            <span>Giả lập trạng thái:</span>
+                            {activePseudoState !== 'default' && (
+                              <span className="canvas__inspector-state-badge">
+                                Active: :{activePseudoState}
+                              </span>
+                            )}
+                          </div>
+                          <div className="canvas__inspector-state-btns">
+                            {PSEUDO_STATES.map((s) => (
+                              <button
+                                key={s.key}
+                                type="button"
+                                className={`canvas__inspector-state-btn ${activePseudoState === s.key ? 'is-active' : ''}`}
+                                title={s.title}
+                                onClick={() => handleTogglePseudoState(s.key)}
+                              >
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </div>
 
                       {/* 1. NỘI DUNG VĂN BẢN TRỰC TIẾP */}
@@ -7342,6 +7614,14 @@ const CanvasArea = ({
                             <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#ffffff' }}>
                               {selectedEl.computedStyles.color}
                             </span>
+                            <button
+                              type="button"
+                              className="canvas__inspector-pipette-btn"
+                              title="Hút màu trực tiếp từ màn hình vào Màu chữ (E)"
+                              onClick={() => handlePickColor('color')}
+                            >
+                              <Pipette size={11} />
+                            </button>
                           </div>
                           <div className="canvas__swatch-row">
                             {COLOR_SWATCHES.map((hex) => (
@@ -7406,6 +7686,14 @@ const CanvasArea = ({
                             <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#ffffff' }}>
                               {selectedEl.computedStyles.backgroundColor || 'transparent'}
                             </span>
+                            <button
+                              type="button"
+                              className="canvas__inspector-pipette-btn"
+                              title="Hút màu trực tiếp từ màn hình vào Màu nền (E)"
+                              onClick={() => handlePickColor('backgroundColor')}
+                            >
+                              <Pipette size={11} />
+                            </button>
                           </div>
                           <div className="canvas__swatch-row">
                             {COLOR_SWATCHES.map((hex) => (
@@ -7544,6 +7832,14 @@ const CanvasArea = ({
                                 <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#ffffff' }}>
                                   {selectedEl.computedStyles.borderColor || '#6d5df5'}
                                 </span>
+                                <button
+                                  type="button"
+                                  className="canvas__inspector-pipette-btn"
+                                  title="Hút màu trực tiếp từ màn hình vào Màu viền (E)"
+                                  onClick={() => handlePickColor('borderColor')}
+                                >
+                                  <Pipette size={11} />
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -8030,6 +8326,34 @@ const CanvasArea = ({
           onClose={() => setIsTokensDialogOpen(false)}
           showToast={showToast}
           onTokensUpdated={(t) => setProjectTokens(t)}
+        />
+      )}
+
+      {/* D2-12 — Eyedropper (Hộp thoại kết quả hút màu & hướng dẫn cấp quyền) */}
+      {(eyedropperResult || eyedropperError) && (
+        <EyedropperResultModal
+          result={eyedropperResult}
+          error={eyedropperError}
+          hasSelectedElement={Boolean(selectedEl)}
+          onClose={() => {
+            setEyedropperResult(null)
+            setEyedropperError(null)
+          }}
+          onApplyStyle={(prop, val) => {
+            if (selectedEl) {
+              handleApplyLiveChange({ [prop]: val }, undefined, {
+                description: `Hút màu ${val} vào ${prop}`,
+              })
+              showToast(`Đã áp dụng màu ${val.toUpperCase()} vào ${prop}!`, 'ok')
+              setEyedropperResult(null)
+            }
+          }}
+          onSaveToken={handleSaveColorToken}
+          onRetryWithFallback={(color) => {
+            const hex = normalizeHex(color)
+            setEyedropperError(null)
+            setEyedropperResult({ hex, rgba: hexToRgba(hex, 1) })
+          }}
         />
       )}
 
