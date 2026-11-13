@@ -351,6 +351,13 @@ export class RunnerManager {
     },
   ): Promise<RunState> {
     // Dọn dẹp dứt điểm toàn bộ tiến trình cũ đang chạy của dự án này (nếu có)
+    const previousEntries = Array.from(this.entries.values()).filter((e) => e.state.projectId === project.id)
+    for (const prev of previousEntries) {
+      if (prev.state.url) {
+        const m = prev.state.url.match(/:(\d{2,5})/)
+        if (m) killPort(parseInt(m[1], 10))
+      }
+    }
     this.stopOfProject(project.id)
     killProjectBinaries(project.path)
 

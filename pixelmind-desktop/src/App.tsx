@@ -850,6 +850,15 @@ const App = () => {
       const res = await api.run.efDatabaseUpdate(project.id)
       if (res.ok) {
         showToast('ok', '✨ Đã tạo và cập nhật Database thành công! Đang khởi động lại...')
+        try {
+          if (run) {
+            await api.run.stop(run.id)
+          } else if (api.run?.stopOfProject) {
+            await api.run.stopOfProject(project.id)
+          }
+        } catch {}
+        setRun(null)
+        await new Promise((r) => setTimeout(r, 600))
         await startRun()
       } else {
         showToast('err', `Cập nhật database thất bại: ${res.error || 'không rõ lỗi'}`)
