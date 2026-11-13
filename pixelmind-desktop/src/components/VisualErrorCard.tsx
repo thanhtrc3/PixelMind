@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronUp,
+  Database,
   FileCode2,
   Lightbulb,
   Loader2,
@@ -16,6 +17,8 @@ interface VisualErrorCardProps {
   error: ParsedError
   installing?: boolean
   onInstall?: () => void
+  updatingDb?: boolean
+  onDatabaseUpdate?: () => void
   onRetry?: () => void
   onOpenFile?: (file: string) => void
   showRawLogs?: boolean
@@ -28,6 +31,8 @@ const errorBadgeLabel = (type: ParsedError['type']) => {
   switch (type) {
     case 'missing_package':
       return 'Thiếu gói thư viện'
+    case 'database_error':
+      return 'Lỗi Cơ sở dữ liệu'
     case 'port_in_use':
       return 'Trùng cổng mạng'
     case 'electron_cache_lock':
@@ -51,6 +56,8 @@ const VisualErrorCard = ({
   error,
   installing = false,
   onInstall,
+  updatingDb = false,
+  onDatabaseUpdate,
   onRetry,
   onOpenFile,
   showRawLogs = false,
@@ -118,6 +125,31 @@ const VisualErrorCard = ({
               ) : (
                 <>
                   <Zap size={12} /> {error.actionLabel || 'Cài đặt thư viện ngay'}
+                </>
+              )}
+            </button>
+          )}
+
+          {error.actionKind === 'ef_database_update' && onDatabaseUpdate && (
+            <button
+              className="btn primary sm"
+              onClick={onDatabaseUpdate}
+              disabled={updatingDb}
+              style={{
+                gap: 5,
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                border: 'none',
+                color: '#fff',
+                fontWeight: 600,
+              }}
+            >
+              {updatingDb ? (
+                <>
+                  <Loader2 size={12} className="pm-spin" /> Đang cập nhật database...
+                </>
+              ) : (
+                <>
+                  <Database size={12} /> {error.actionLabel || 'Tạo Database (dotnet ef database update)'}
                 </>
               )}
             </button>

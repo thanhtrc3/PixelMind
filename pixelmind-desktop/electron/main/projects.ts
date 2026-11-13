@@ -1681,6 +1681,55 @@ export async function gitCloneRepository(
   }
 }
 
+/** Chạy dotnet ef database update, tự động cài dotnet-ef tool nếu máy tính chưa có. */
+export async function runEfDatabaseUpdate(
+  projectPath: string,
+): Promise<{ ok: boolean; output?: string; error?: string }> {
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      'dotnet',
+      ['ef', 'database', 'update'],
+      {
+        cwd: projectPath,
+        windowsHide: true,
+        timeout: 120_000,
+        maxBuffer: 8 * 1024 * 1024,
+      },
+    )
+    return { ok: true, output: `${stdout}\n${stderr}`.trim() }
+  } catch (err: any) {
+    const rawMsg = err.message || String(err)
+    // Nếu hệ thống thiếu công cụ dòng lệnh dotnet-ef
+    if (
+      /could not be found/i.test(rawMsg) ||
+      /dotnet-ef/i.test(rawMsg) ||
+      /is not recognized/i.test(rawMsg)
+    ) {
+      try {
+        await execFileAsync('dotnet', ['tool', 'install', '--global', 'dotnet-ef'], {
+          cwd: projectPath,
+          windowsHide: true,
+          timeout: 60_000,
+        })
+        const retryRes = await execFileAsync(
+          'dotnet',
+          ['ef', 'database', 'update'],
+          {
+            cwd: projectPath,
+            windowsHide: true,
+            timeout: 120_000,
+            maxBuffer: 8 * 1024 * 1024,
+          },
+        )
+        return { ok: true, output: `${retryRes.stdout}\n${retryRes.stderr}`.trim() }
+      } catch (retryErr: any) {
+        return { ok: false, error: retryErr.message || rawMsg }
+      }
+    }
+    return { ok: false, error: rawMsg }
+  }
+}
+
 async function readRepo(root: string): Promise<string> {
   try {
     const config = await fs.readFile(join(root, '.git', 'config'), 'utf8')

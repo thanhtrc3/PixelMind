@@ -189,6 +189,7 @@ export interface PixelMindApi {
   run: {
     start(projectId: string, script: string): Promise<RunState>
     install(projectId: string): Promise<RunState>
+    efDatabaseUpdate(projectId: string): Promise<{ ok: boolean; output?: string; error?: string }>
     startCommand(projectId: string, command: string): Promise<RunState>
     stop(runId: string): Promise<boolean>
     stopOfProject?(projectId: string): Promise<boolean>

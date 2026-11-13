@@ -4,3 +4,4 @@ export const parseRepoNameFromUrl = (url: string): string => {
   const lastPart = clean.split('/').pop() || ''
   return lastPart.replace(/\.git$/i, '').replace(/[/\\:*?"<>|]/g, '-').trim()
 }
+

@@ -87,6 +87,8 @@ interface WorkspaceViewProps {
   onOpenFileExternal: (path: string) => void
   onOpenDiagnosis?: () => void
   onInstall?: () => void
+  updatingDb?: boolean
+  onDatabaseUpdate?: () => void
   onCreateIndexHtml?: () => void
   onAddDevScript?: () => void
   activeTab: 'file' | 'preview'
@@ -163,6 +165,8 @@ const WorkspaceView = ({
   onOpenFileExternal,
   onOpenDiagnosis,
   onInstall,
+  updatingDb = false,
+  onDatabaseUpdate,
   onCreateIndexHtml,
   onAddDevScript,
   activeTab,
@@ -736,6 +740,8 @@ const WorkspaceView = ({
                       onStop={onStop}
                       onOpenExternal={onOpenExternal}
                       onInstall={onInstall}
+                      updatingDb={updatingDb}
+                      onDatabaseUpdate={onDatabaseUpdate}
                       onCreateIndexHtml={onCreateIndexHtml}
                       onAddDevScript={onAddDevScript}
                       onUrlChange={onUrlChange}
@@ -800,6 +806,8 @@ const WorkspaceView = ({
                     projectPath={project?.path}
                     installing={installing}
                     onInstall={onInstall}
+                    updatingDb={updatingDb}
+                    onDatabaseUpdate={onDatabaseUpdate}
                     onRetry={onRun}
                     onOpenFile={(target) => {
                       const match = tabs.find((t) => t.toLowerCase().endsWith(target.toLowerCase()))

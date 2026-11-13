@@ -103,3 +103,4 @@ export function parseNotifications(raw: string | null): AppNotification[] {
     return []
   }
 }
+

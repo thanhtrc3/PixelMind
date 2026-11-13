@@ -178,6 +178,8 @@ const api: PixelMindApi = {
     start: (projectId: string, script: string): Promise<RunState> =>
       ipcRenderer.invoke('run:start', projectId, script),
     install: (projectId: string): Promise<RunState> => ipcRenderer.invoke('run:install', projectId),
+    efDatabaseUpdate: (projectId: string): Promise<{ ok: boolean; output?: string; error?: string }> =>
+      ipcRenderer.invoke('run:ef-database-update', projectId),
     startCommand: (projectId: string, command: string): Promise<RunState> =>
       ipcRenderer.invoke('run:start-command', projectId, command),
     stop: (runId: string): Promise<boolean> => ipcRenderer.invoke('run:stop', runId),

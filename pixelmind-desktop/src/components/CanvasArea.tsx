@@ -237,10 +237,12 @@ interface CanvasAreaProps {
   projectPath?: string
   error?: ParsedError | null
   installing?: boolean
+  updatingDb?: boolean
   onRun?: () => void
   onStop?: () => void
   onOpenExternal?: (url: string) => void
   onInstall?: () => void
+  onDatabaseUpdate?: () => void
   onCreateIndexHtml?: () => void
   onAddDevScript?: () => void
   onUrlChange?: (url: string, pathname: string) => void
@@ -388,10 +390,12 @@ const CanvasArea = ({
   projectPath,
   error,
   installing = false,
+  updatingDb = false,
   onRun,
   onStop: _onStop,
   onOpenExternal,
   onInstall,
+  onDatabaseUpdate,
   onCreateIndexHtml: _onCreateIndexHtml,
   onAddDevScript: _onAddDevScript,
   onUrlChange,
@@ -4554,6 +4558,8 @@ const CanvasArea = ({
                       error={error}
                       installing={installing}
                       onInstall={onInstall}
+                      updatingDb={updatingDb}
+                      onDatabaseUpdate={onDatabaseUpdate}
                       onRetry={onRun}
                       onAskAI={onOpenAIPanel}
                     />

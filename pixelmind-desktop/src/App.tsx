@@ -152,6 +152,7 @@ const App = () => {
   const [designOpen, setDesignOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const [updatingDb, setUpdatingDb] = useState(false)
   const [addPageOpen, setAddPageOpen] = useState(false)
   const [pageToEdit, setPageToEdit] = useState<ProjectPage | null>(null)
   const [pageToDelete, setPageToDelete] = useState<ProjectPage | null>(null)
@@ -834,6 +835,29 @@ const App = () => {
     } catch (error) {
       setInstalling(false)
       showToast('err', `Không thể bắt đầu cài đặt: ${errorMessage(error)}`)
+    }
+  }
+
+  const handleDatabaseUpdate = async () => {
+    if (!project) return
+    setUpdatingDb(true)
+    showToast('info', 'Đang cập nhật database (dotnet ef database update)...')
+    try {
+      if (!api.run.efDatabaseUpdate) {
+        showToast('err', 'Tính năng chỉ hỗ trợ trên bản desktop.')
+        return
+      }
+      const res = await api.run.efDatabaseUpdate(project.id)
+      if (res.ok) {
+        showToast('ok', '✨ Đã tạo và cập nhật Database thành công! Đang khởi động lại...')
+        await startRun()
+      } else {
+        showToast('err', `Cập nhật database thất bại: ${res.error || 'không rõ lỗi'}`)
+      }
+    } catch (err: any) {
+      showToast('err', `Lỗi khi chạy database update: ${errorMessage(err)}`)
+    } finally {
+      setUpdatingDb(false)
     }
   }
 
@@ -1682,6 +1706,8 @@ const App = () => {
               previewUrl={previewUrl}
               onOpenDiagnosis={() => setDiagnosisOpen(true)}
               onInstall={() => void handleInstall()}
+              updatingDb={updatingDb}
+              onDatabaseUpdate={() => void handleDatabaseUpdate()}
               onCreateIndexHtml={() => void handleCreateIndexHtml()}
               onAddDevScript={() => void handleAddDevScript()}
               activeTab={activeTab}

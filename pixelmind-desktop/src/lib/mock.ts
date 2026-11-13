@@ -614,6 +614,9 @@ export function createBrowserMock(): PixelMindApi {
         )
         return currentRun
       },
+      async efDatabaseUpdate() {
+        return { ok: true, output: 'Done. Applied all migrations.' }
+      },
       async start(projectId, script) {
         clear()
         currentRun = {

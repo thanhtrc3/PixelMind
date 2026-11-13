@@ -77,3 +77,4 @@ describe('notifications helper', () => {
     assert.deepEqual(parseNotifications('{"some": "object"}'), [])
   })
 })
+

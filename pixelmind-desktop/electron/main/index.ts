@@ -51,6 +51,7 @@ import {
   readGitStatus,
   readTree,
   rollbackGit,
+  runEfDatabaseUpdate,
   searchProjectContent,
   statProject,
   writeFileContent,
@@ -1600,6 +1601,23 @@ ipcMain.handle('run:stop-project', async (_e, projectId: string) => {
 ipcMain.handle('run:stop-all', async () => {
   runner.stopAll()
   return true
+})
+
+ipcMain.handle('run:ef-database-update', async (_e, projectId: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === projectId)
+  if (!project) return { ok: false, error: 'Không tìm thấy dự án trong danh sách.' }
+
+  const res = await runEfDatabaseUpdate(project.path)
+  if (res.ok) {
+    await appendActivity(projectId, {
+      actor: 'bạn',
+      action: 'Chạy cập nhật Database (dotnet ef database update)',
+      kind: 'người',
+      status: 'ok',
+    })
+  }
+  return res
 })
 
 /* ───────────────────────── IPC: Terminal tương tác thật (PTY) ───────────────────────── */
