@@ -22,6 +22,7 @@ import {
   ChevronUp,
   ClipboardPaste,
   Code2,
+  Columns3,
   Copy,
   ExternalLink,
   Globe,
@@ -63,6 +64,15 @@ import VisualErrorCard from './VisualErrorCard'
 import DesignTokensDialog from './DesignTokensDialog'
 import MutationDiffDialog from './MutationDiffDialog'
 import CanvasSplitSlider from './canvas/CanvasSplitSlider'
+import { MultiViewportStage } from './canvas/MultiViewportStage'
+import { SmartGuidesOverlay } from './canvas/SmartGuidesOverlay'
+import {
+  collectCandidateRects,
+  calculateMoveSnap,
+  calculateResizeSnap,
+  type RectBox,
+  type SmartGuideLine,
+} from '../lib/smartSnapping'
 import AISidecar from './AISidecar'
 import type { DesignTokens, ProjectPage } from '@shared/types'
 import type {
@@ -81,7 +91,7 @@ import type { ReferenceAsset } from './WorkspaceSidebar'
 import type { AiSelectedElement } from '../lib/aiMock'
 
 export type CanvasMode = 'reference' | 'live' | 'compare' | 'overlay' | 'diff'
-export type ViewportKey = 'responsive' | 'mobile' | 'tablet' | 'desktop' | 'wide'
+export type ViewportKey = 'responsive' | 'mobile' | 'tablet' | 'desktop' | 'wide' | 'multi'
 export type ToolKey = 'select' | 'pan' | 'rect' | 'text' | 'comment' | 'measure'
 export type HandleDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
@@ -120,6 +130,7 @@ const VIEWPORTS: ViewportConfig[] = [
   { key: 'tablet', label: 'Tablet', icon: Tablet, w: 768, h: 1024 },
   { key: 'desktop', label: 'Desktop', icon: Monitor, w: 1440, h: 900 },
   { key: 'wide', label: 'Rộng', icon: MonitorUp, w: 1920, h: 1080 },
+  { key: 'multi', label: 'Song song', icon: Columns3, w: 2650, h: 1050 },
 ]
 
 
@@ -452,6 +463,7 @@ const CanvasArea = ({
   }, [url])
 
   const [viewport, setViewport] = useState<ViewportKey>('responsive')
+  const [multiActiveFrame, setMultiActiveFrame] = useState<'mobile' | 'tablet' | 'desktop'>('desktop')
   const [tool, setTool] = useState<ToolKey>('select')
   const [zoom, setZoom] = useState(100)
   const [zoomEditing, setZoomEditing] = useState(false)
@@ -617,6 +629,9 @@ const CanvasArea = ({
   const [inspectorTab, setInspectorTab] = useState<'design' | 'code' | 'attrs'>('design')
   const [modifiedStyles, setModifiedStyles] = useState<Record<string, string>>({})
   const [isMovingEl, setIsMovingEl] = useState(false)
+  // D2-07 — Smart guides & snapping khi kéo Move / Resize
+  const [smartGuides, setSmartGuides] = useState<SmartGuideLine[]>([])
+  const candidateRectsRef = useRef<RectBox[]>([])
   const [dropTargetHover, setDropTargetHover] = useState<{
     uid: string
     tagName: string
@@ -1931,6 +1946,11 @@ const CanvasArea = ({
     e.stopPropagation()
     if (!selectedEl) return
 
+    const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+    const parentRect = selectedEl.parent?.rect || null
+    const containerSize = { width: currentVp.w, height: currentVp.h }
+    candidateRectsRef.current = collectCandidateRects(doc, selectedEl.uid, parentRect, containerSize)
+
     resizeStartRef.current = {
       startX: e.clientX,
       startY: e.clientY,
@@ -1977,6 +1997,22 @@ const CanvasArea = ({
         newTop = resizingEl.startTop + (resizingEl.startHeight - newHeight)
       }
 
+      // D2-07: Tính snapping và smart guides khi co giãn
+      const bypass = e.altKey || e.ctrlKey
+      const snap = calculateResizeSnap(
+        resizingEl.handle,
+        { left: newLeft, top: newTop, width: newWidth, height: newHeight },
+        candidateRectsRef.current,
+        6,
+        bypass
+      )
+
+      newWidth = snap.width
+      newHeight = snap.height
+      newTop = snap.top
+      newLeft = snap.left
+      setSmartGuides(snap.guides)
+
       setSelectedEl((prev) => {
         if (!prev) return null
         return {
@@ -2008,6 +2044,7 @@ const CanvasArea = ({
 
     const handleMouseUp = () => {
       setResizingEl(null)
+      setSmartGuides([])
       const initial = resizeStartRef.current
       if (!selectedEl || !initial.startWidth) return
 
@@ -2061,6 +2098,7 @@ const CanvasArea = ({
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
+      setSmartGuides([])
     }
   }, [resizingEl, zoom, handleApplyLiveChange, selectedEl, sourceLoc])
 
@@ -2074,10 +2112,14 @@ const CanvasArea = ({
     const curLeft = parseInt(selectedEl.computedStyles.left || '0') || 0
     const curTop = parseInt(selectedEl.computedStyles.top || '0') || 0
 
+    const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+    const parentRect = selectedEl.parent?.rect || null
+    const containerSize = { width: currentVp.w, height: currentVp.h }
+    candidateRectsRef.current = collectCandidateRects(doc, selectedEl.uid, parentRect, containerSize)
+
     let domOldParentUid = selectedEl.parent?.uid || ''
     let domOldIndex = -1
     try {
-      const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
       if (doc && selectedEl.uid) {
         const el = doc.querySelector(`[data-pm-uid="${selectedEl.uid}"]`)
         if (el && el.parentElement) {
@@ -2115,12 +2157,47 @@ const CanvasArea = ({
       const curPos = selectedEl?.computedStyles?.position
       const isAbsolute = curPos === 'absolute' || curPos === 'fixed'
 
+      // D2-07: Tính snapping và smart guides khi kéo di chuyển
+      const initialRect = moveStartRef.current.beforeRect ?? selectedEl?.rect
+      if (!initialRect) return
+
+      const proposedRect = {
+        left: initialRect.left + dx,
+        top: initialRect.top + dy,
+        width: initialRect.width,
+        height: initialRect.height,
+      }
+      const bypass = e.altKey || e.ctrlKey
+      const snap = calculateMoveSnap(
+        proposedRect,
+        candidateRectsRef.current,
+        6,
+        bypass
+      )
+
+      setSmartGuides(snap.guides)
+
+      // Cập nhật selectedEl.rect để khung viền chọn hiển thị bám sát vị trí snap
+      setSelectedEl((prev) => {
+        if (!prev) return null
+        return {
+          ...prev,
+          rect: {
+            ...prev.rect,
+            left: Math.round(snap.left),
+            top: Math.round(snap.top),
+          },
+        }
+      })
+
       // Chỉ cập nhật toạ độ left/top đối với phần tử định vị tuyệt đối (absolute/fixed).
       // Với phần tử trong luồng tự nhiên (form, flex, grid), không ép position: relative và toạ độ âm
       // để tránh phá vỡ bố cục gốc của trang.
       if (isAbsolute) {
-        const nextLeft = Math.round(moveStartRef.current.initialLeft + dx)
-        const nextTop = Math.round(moveStartRef.current.initialTop + dy)
+        const snapDeltaX = snap.left - initialRect.left
+        const snapDeltaY = snap.top - initialRect.top
+        const nextLeft = Math.round(moveStartRef.current.initialLeft + snapDeltaX)
+        const nextTop = Math.round(moveStartRef.current.initialTop + snapDeltaY)
         handleApplyLiveChange(
           {
             position: curPos,
@@ -2152,6 +2229,7 @@ const CanvasArea = ({
 
     const handleMouseUp = (e: MouseEvent) => {
       setIsMovingEl(false)
+      setSmartGuides([])
       setDropTargetHover(null)
       const initial = moveStartRef.current
       if (!selectedEl) return
@@ -2232,6 +2310,7 @@ const CanvasArea = ({
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
+      setSmartGuides([])
     }
   }, [isMovingEl, zoom, handleApplyLiveChange, selectedEl, sourceLoc])
 
@@ -4247,6 +4326,7 @@ const CanvasArea = ({
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
+      setSmartGuides([])
     }
   }, [isResizingSidebar])
 
@@ -4500,6 +4580,135 @@ const CanvasArea = ({
       </div>
     )
   }
+
+  const renderInspectOverlays = () => (
+    <>
+      {/* D2-04: Khung viền hover phần tử khi soi (chỉ hiển thị khi hoverOutline bật) */}
+      {isInspectMode && hoverOutline && hoverEl && (!selectedEl || hoverEl.uid !== selectedEl.uid) && (
+        <div
+          className="canvas__inspect-hover"
+          style={{
+            top: hoverEl.rect.top,
+            left: hoverEl.rect.left,
+            width: hoverEl.rect.width,
+            height: hoverEl.rect.height,
+          }}
+        >
+          <span
+            className="canvas__inspect-hover-tag"
+            style={
+              hoverEl.rect.top < 24
+                ? { top: 2, left: 2, borderRadius: 3, boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }
+                : undefined
+            }
+          >
+            {hoverEl.tagName}
+            {hoverEl.className ? `.${hoverEl.className.split(/\s+/)[0]}` : ''} · {Math.round(hoverEl.rect.width)} × {Math.round(hoverEl.rect.height)}
+          </span>
+        </div>
+      )}
+
+      {/* Khung viền phần tử ĐÃ CHỌN (Selection Box) */}
+      {isInspectMode && selectedEl && (
+        <div
+          className="canvas__inspect-selected"
+          style={{
+            top: selectedEl.rect.top,
+            left: selectedEl.rect.left,
+            width: selectedEl.rect.width,
+            height: selectedEl.rect.height,
+          }}
+        >
+          {/* Nút kéo di chuyển vị trí phần tử */}
+          <div
+            className="canvas__inspect-move-bar"
+            style={selectedEl.rect.top < 26 ? { top: 2, right: 2 } : undefined}
+            onMouseDown={handleStartElementMove}
+            title="Bấm giữ và kéo để di chuyển vị trí phần tử"
+          >
+            <Move size={12} strokeWidth={2.4} />
+          </div>
+
+          {/* D2-03: Nút mở AI Sidecar trên góc khung viền chọn */}
+          <button
+            type="button"
+            className={`canvas__inspect-ai-btn ${isSidecarOpen ? 'active' : ''}`}
+            style={selectedEl.rect.top < 26 ? { top: 2, right: 28 } : undefined}
+            onClick={(e) => {
+              e.stopPropagation()
+              setIsSidecarOpen((open) => !open)
+            }}
+            title={
+              isSidecarOpen
+                ? 'Đóng trợ lý AI (Esc)'
+                : 'Nhờ AI sửa phần tử này (Ctrl+K hoặc Shift+A)'
+            }
+          >
+            <Sparkles size={11} />
+            <span>AI</span>
+          </button>
+
+          <span
+            className="canvas__inspect-selected-tag"
+            style={
+              selectedEl.rect.top < 24
+                ? { top: 2, left: 2, borderRadius: 3, boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }
+                : undefined
+            }
+          >
+            {selectedEl.tagName}
+            {selectedEl.id ? `#${selectedEl.id}` : ''}
+          </span>
+          <span className="canvas__inspect-selected-size">
+            {Math.round(selectedEl.rect.width)} × {Math.round(selectedEl.rect.height)}
+          </span>
+
+          {RESIZE_HANDLES.map((h) => (
+            <span
+              key={h.key}
+              className={`canvas__inspect-handle ${h.key}`}
+              onMouseDown={(e) => handleStartElementResize(e, h.key)}
+              title={`Kéo để thay đổi kích thước (${h.label})`}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* D2-03: Component AI Sidecar gắn vào phần tử đang chọn */}
+      {isInspectMode && isSidecarOpen && selectedEl && (
+        <AISidecar
+          x={sidecarPos.x}
+          y={sidecarPos.y}
+          label={`<${selectedEl.tagName.toLowerCase()}${selectedEl.id ? `#${selectedEl.id}` : ''}>`}
+          detail={
+            sourceLoc
+              ? `${sourceLoc.filePath}:${sourceLoc.lineNumber}`
+              : selectedEl.className
+              ? `.${selectedEl.className.split(' ').filter(Boolean).slice(0, 3).join('.')}`
+              : selectedEl.selector
+          }
+          projectId={projectId}
+          projectPath={projectPath}
+          projectName={projectName}
+          currentRoute={currentRoute}
+          selectedEl={selectedEl}
+          sourceLoc={sourceLoc}
+          initialExpanded={true}
+          onClose={() => setIsSidecarOpen(false)}
+          onOpenPanel={() => onOpenAIPanel?.()}
+          onShowToast={(kind, text) => showToast(text, kind === 'err' ? 'err' : kind === 'ok' ? 'ok' : 'info')}
+          onPreview={handleAiPreview}
+          onUndo={handleAiUndo}
+          onSyncCode={handleAiSyncCode}
+        />
+      )}
+
+      {/* D2-07: Smart guides và snapping khi kéo Move / Resize */}
+      {isInspectMode && smartGuides.length > 0 && (
+        <SmartGuidesOverlay guides={smartGuides} />
+      )}
+    </>
+  )
 
   const renderFrameContent = () => (
     <>
@@ -4853,6 +5062,11 @@ const CanvasArea = ({
                     onUndo={handleAiUndo}
                     onSyncCode={handleAiSyncCode}
                   />
+                )}
+
+                {/* D2-07: Smart guides và snapping khi kéo Move / Resize */}
+                {isInspectMode && smartGuides.length > 0 && (
+                  <SmartGuidesOverlay guides={smartGuides} />
                 )}
 
                 {error ? (
@@ -5339,50 +5553,68 @@ const CanvasArea = ({
                   }
             }
           >
-            <div
-              className={viewport === 'responsive' ? undefined : 'canvas__frame-wrap'}
-              style={viewport === 'responsive' ? { width: '100%', height: '100%' } : { width: currentVp.w }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {viewport !== 'responsive' ? (
-                <div key="frame-bar" className="canvas__frame-bar">
-                  <div className="canvas__frame-dots">
-                    <span className="dot red" />
-                    <span className="dot yellow" />
-                    <span className="dot green" />
-                  </div>
-                  <span className="canvas__frame-url" title={currentLiveUrl || url || ''}>
-                    {(currentLiveUrl || url) ? (currentLiveUrl || url)!.replace(/^https?:\/\//, '') : 'localhost:Chưa khởi động'}
-                  </span>
-                  <span className="canvas__frame-size">
-                    {currentVp.w} × {currentVp.h}
-                  </span>
-                </div>
-              ) : null}
-
+            {viewport === 'multi' ? (
+              <MultiViewportStage
+                safeCanvasUrl={safeCanvasUrl}
+                projectName={projectName}
+                running={running}
+                isServerReady={isServerReady}
+                globalIframeKey={iframeKey}
+                activeFrame={multiActiveFrame}
+                onSelectActiveFrame={setMultiActiveFrame}
+                onFocusSingle={(vp) => {
+                  setViewport(vp)
+                  zoomToFit(VIEWPORTS.find((v) => v.key === vp))
+                }}
+                primaryIframeRef={iframeRef}
+                renderPrimaryOverlays={renderInspectOverlays}
+              />
+            ) : (
               <div
-                key="canvas-frame-content"
-                className={
-                  viewport === 'responsive'
-                    ? 'canvas__frame-content canvas__frame-content--responsive'
-                    : 'canvas__frame-content'
-                }
-                style={{
-                  width: viewport === 'responsive' ? '100%' : undefined,
-                  height: viewport === 'responsive' ? '100%' : currentVp.h,
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
-                onDragOver={(e) => {
-                  if (toolboxDrag.current()) {
-                    e.preventDefault()
-                    e.dataTransfer.dropEffect = 'copy'
-                  }
-                }}
+                className={viewport === 'responsive' ? undefined : 'canvas__frame-wrap'}
+                style={viewport === 'responsive' ? { width: '100%', height: '100%' } : { width: currentVp.w }}
+                onClick={(e) => e.stopPropagation()}
               >
-                {renderFrameContent()}
+                {viewport !== 'responsive' ? (
+                  <div key="frame-bar" className="canvas__frame-bar">
+                    <div className="canvas__frame-dots">
+                      <span className="dot red" />
+                      <span className="dot yellow" />
+                      <span className="dot green" />
+                    </div>
+                    <span className="canvas__frame-url" title={currentLiveUrl || url || ''}>
+                      {(currentLiveUrl || url) ? (currentLiveUrl || url)!.replace(/^https?:\/\//, '') : 'localhost:Chưa khởi động'}
+                    </span>
+                    <span className="canvas__frame-size">
+                      {currentVp.w} × {currentVp.h}
+                    </span>
+                  </div>
+                ) : null}
+
+                <div
+                  key="canvas-frame-content"
+                  className={
+                    viewport === 'responsive'
+                      ? 'canvas__frame-content canvas__frame-content--responsive'
+                      : 'canvas__frame-content'
+                  }
+                  style={{
+                    width: viewport === 'responsive' ? '100%' : undefined,
+                    height: viewport === 'responsive' ? '100%' : currentVp.h,
+                    position: 'relative',
+                    overflow: 'hidden',
+                  }}
+                  onDragOver={(e) => {
+                    if (toolboxDrag.current()) {
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = 'copy'
+                    }
+                  }}
+                >
+                  {renderFrameContent()}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Lớp xem ảnh mẫu phủ kín stage nhưng KHÔNG unmount iframe Live bên dưới. */}

@@ -2137,4 +2137,118 @@
   box-shadow: 0 0 0 3px rgba(109, 93, 245, 0.4), 0 4px 14px rgba(0, 0, 0, 0.5);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   SMART GUIDES & SNAPPING (D2-07)
+   ═══════════════════════════════════════════════════════════════ */
+.canvas__smart-guides-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 46;
+}
+
+.canvas__smart-guide-line {
+  position: absolute;
+  background-color: #f43f5e;
+  box-shadow: 0 0 6px rgba(244, 63, 94, 0.7);
+  pointer-events: none;
+}
+
+.canvas__smart-guide-line.is-vertical {
+  transform: translateX(-50%);
+}
+
+.canvas__smart-guide-line.is-horizontal {
+  transform: translateY(-50%);
+}
+
+.canvas__smart-guide-badge {
+  position: absolute;
+  transform: translate(6px, -50%);
+  background: rgba(15, 23, 42, 0.92);
+  color: #fda4af;
+  border: 1px solid rgba(244, 63, 94, 0.45);
+  font-size: 10px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  line-height: 1.4;
+  z-index: 47;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MULTI-VIEWPORT ĐỒNG THỜI (D2-09)
+   ═══════════════════════════════════════════════════════════════ */
+.canvas__multi-viewport-container {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 36px;
+  padding: 24px;
+}
+
+.canvas__multi-frame-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  filter: drop-shadow(0 20px 50px rgba(0, 0, 0, 0.65));
+  transition: transform 180ms ease, filter 180ms ease;
+  user-select: none;
+}
+
+.canvas__multi-frame-wrap.is-active {
+  filter: drop-shadow(0 20px 60px rgba(109, 93, 245, 0.45));
+}
+
+.canvas__multi-frame-wrap.is-active .canvas__multi-frame-bar {
+  border-color: var(--accent, #6d5df5);
+  box-shadow: 0 0 0 1px rgba(109, 93, 245, 0.6), 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+.canvas__multi-frame-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.canvas__multi-frame-icon {
+  color: var(--accent, #6d5df5);
+}
+
+.canvas__multi-frame-size {
+  background: var(--panel-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+}
+
+.canvas__multi-frame-content {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05),
+              0 25px 60px -15px rgba(0, 0, 0, 0.85);
+  transition: box-shadow 180ms ease;
+}
+
+.canvas__multi-frame-wrap.is-active .canvas__multi-frame-content {
+  box-shadow: 0 0 0 2px var(--accent, #6d5df5),
+              0 25px 60px -15px rgba(0, 0, 0, 0.85);
+}
+
+.canvas__frame--mobile-round {
+  border-radius: 24px;
+}
+
+
+
 
