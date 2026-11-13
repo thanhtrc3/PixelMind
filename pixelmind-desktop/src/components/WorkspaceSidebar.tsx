@@ -40,12 +40,14 @@ import {
   Table,
   Target,
   Trash2,
+  TriangleAlert,
   Type,
   Undo2,
   X,
 } from 'lucide-react'
 import type { FileContent, FileNode, ProjectPage, ProjectRecord, DesignTokens } from '@shared/types'
 import type { FileSearchMatch } from '../../shared/api'
+import { compileSearchQuery } from '../../shared/search'
 import { DEFAULT_DESIGN_TOKENS, tokenToCssVarName } from '@shared/designTokens'
 import type { RealElementInfo } from './CanvasArea'
 import { editorBuffer } from '../lib/editorBuffer'
@@ -359,18 +361,31 @@ export const WorkspaceSidebar = ({
   const [contentMatches, setContentMatches] = useState<FileSearchMatch[]>([])
   const [isSearchingContent, setIsSearchingContent] = useState(false)
   const [caseSensitive, setCaseSensitive] = useState(false)
+  const [regexMode, setRegexMode] = useState(false)
+  const [wholeWord, setWholeWord] = useState(false)
+
+  /** Lỗi biểu thức chính quy — hiển thị ngay khi gõ, không cần chờ kết quả. */
+  const searchQueryError = useMemo(() => {
+    if (fileSearchMode !== 'content' || !contentQuery.trim()) return null
+    return compileSearchQuery(contentQuery, { caseSensitive, regex: regexMode, wholeWord }).error
+  }, [contentQuery, fileSearchMode, caseSensitive, regexMode, wholeWord])
 
   const handleContentSearch = useCallback(
-    async (text: string, cs = caseSensitive) => {
+    async (text: string) => {
       const q = text.trim()
-      if (!q || !project?.path) {
+      if (!q || !project?.path || searchQueryError) {
         setContentMatches([])
         setIsSearchingContent(false)
         return
       }
       setIsSearchingContent(true)
       try {
-        const results = await api.fs.search(project.path, q, { caseSensitive: cs, maxResults: 150 })
+        const results = await api.fs.search(project.path, q, {
+          caseSensitive,
+          regex: regexMode,
+          wholeWord,
+          maxResults: 150,
+        })
         setContentMatches(results)
       } catch {
         setContentMatches([])
@@ -378,7 +393,7 @@ export const WorkspaceSidebar = ({
         setIsSearchingContent(false)
       }
     },
-    [project?.path, caseSensitive],
+    [project?.path, caseSensitive, regexMode, wholeWord, searchQueryError],
   )
 
   useEffect(() => {
@@ -1607,19 +1622,44 @@ export const WorkspaceSidebar = ({
                       <input
                         type="checkbox"
                         checked={caseSensitive}
-                        onChange={(e) => {
-                          setCaseSensitive(e.target.checked)
-                          void handleContentSearch(contentQuery, e.target.checked)
-                        }}
+                        onChange={(e) => setCaseSensitive(e.target.checked)}
                       />
                       <span>Khớp chữ hoa/thường (Aa)</span>
                     </label>
-                    {contentMatches.length > 0 && (
+                    {contentMatches.length > 0 && !searchQueryError && (
                       <span style={{ fontSize: 10, color: 'var(--accent)' }}>
                         {contentMatches.length} kết quả
                       </span>
                     )}
                   </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 2px' }}>
+                    <button
+                      className={`pm-search-chip ${regexMode ? 'on' : ''}`}
+                      onClick={() => setRegexMode((v) => !v)}
+                      title="Biểu thức chính quy (Regex) — tìm theo từng dòng, ví dụ: onClick=\{[^}]+\}"
+                      aria-pressed={regexMode}
+                    >
+                      .*
+                    </button>
+                    <button
+                      className={`pm-search-chip ${wholeWord ? 'on' : ''}`}
+                      onClick={() => setWholeWord((v) => !v)}
+                      title="Chỉ khớp từ trọn vẹn — “cat” không khớp “category”"
+                      aria-pressed={wholeWord}
+                    >
+                      ab
+                    </button>
+                    <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 2 }}>
+                      {regexMode ? 'Regex' : 'Chuỗi thường'}
+                      {wholeWord ? ' · Từ trọn vẹn' : ''}
+                    </span>
+                  </div>
+                  {searchQueryError && (
+                    <div className="pm-search-error" role="alert">
+                      <TriangleAlert size={11} />
+                      <span>{searchQueryError}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1634,10 +1674,17 @@ export const WorkspaceSidebar = ({
                   ) : !contentQuery.trim() ? (
                     <div className="pm-hint" style={{ padding: '20px 14px', lineHeight: 1.6 }}>
                       Nhập từ khóa hoặc chuỗi cần tìm trong mã nguồn toàn bộ dự án (nhấn Enter hoặc chờ tự động tìm).
+                      Bật <b>.*</b> để tìm bằng regex, bật <b>ab</b> để chỉ khớp từ trọn vẹn.
+                    </div>
+                  ) : searchQueryError ? (
+                    <div className="pm-hint" style={{ padding: '20px 14px', lineHeight: 1.6, color: 'var(--color-danger-text, #f87171)' }}>
+                      {searchQueryError}
                     </div>
                   ) : groupedContentMatches.length === 0 ? (
                     <div className="pm-hint" style={{ padding: '20px 14px' }}>
-                      Không tìm thấy kết quả nào chứa "{contentQuery}".
+                      {regexMode || wholeWord
+                        ? 'Không có dòng nào khớp biểu thức/từ trọn vẹn đang tìm.'
+                        : `Không tìm thấy kết quả nào chứa "${contentQuery}".`}
                     </div>
                   ) : (
                     groupedContentMatches.map((item) => (

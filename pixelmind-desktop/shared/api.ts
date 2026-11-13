@@ -45,6 +45,10 @@ export interface FileSearchMatch {
 export interface FileSearchOptions {
   caseSensitive?: boolean
   maxResults?: number
+  /** Coi truy vấn là biểu thức chính quy (RegExp). */
+  regex?: boolean
+  /** Chỉ khớp khi từ trọn vẹn. */
+  wholeWord?: boolean
 }
 
 /** Hợp đồng API mà preload (Electron) và bản giả lập trên trình duyệt cùng cài đặt. */

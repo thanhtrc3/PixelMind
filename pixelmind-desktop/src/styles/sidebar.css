@@ -178,6 +178,53 @@
 }
 
 /* ── Content search results ── */
+.pm-search-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  color: var(--text-3, #94a3b8);
+  background: var(--panel-2, #18191f);
+  border: 1px solid var(--line, #2a2e39);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pm-search-chip:hover {
+  color: var(--text, #f8fafc);
+  border-color: var(--accent, #6d5df5);
+}
+
+.pm-search-chip.on {
+  background: var(--accent, #6d5df5);
+  border-color: var(--accent, #6d5df5);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.pm-search-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 5px 7px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--color-danger-text, #f87171);
+  background: color-mix(in srgb, var(--color-danger-text, #f87171) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger-text, #f87171) 35%, transparent);
+  border-radius: 5px;
+}
+
+.pm-search-error svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
 .pm-content-search-results {
   display: flex;
   flex-direction: column;

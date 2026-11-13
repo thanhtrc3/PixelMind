@@ -6,6 +6,7 @@ import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { userInfo } from 'node:os'
 import type { FileSearchMatch, FileSearchOptions } from '../../shared/api'
+import { compileSearchQuery, firstMatchInLine } from '../../shared/search'
 import type {
   FileContent,
   FileNode,
@@ -2452,8 +2453,17 @@ export async function searchProjectContent(
   const q = (query || '').trim()
   if (!q || !root) return []
   const maxResults = Math.min(250, Math.max(1, options?.maxResults ?? 120))
-  const caseSensitive = Boolean(options?.caseSensitive)
-  const target = caseSensitive ? q : q.toLowerCase()
+  const compiled = compileSearchQuery(q, {
+    caseSensitive: Boolean(options?.caseSensitive),
+    regex: Boolean(options?.regex),
+    wholeWord: Boolean(options?.wholeWord),
+  })
+  // Regex sai → ném lỗi rõ ràng để giao diện hiển thị thay vì im lặng trả rỗng.
+  if (!compiled.regex) {
+    if (compiled.error) throw new Error(compiled.error)
+    return []
+  }
+  const matcher = compiled.regex
   const results: FileSearchMatch[] = []
 
   const walk = async (dir: string) => {
@@ -2482,20 +2492,22 @@ export async function searchProjectContent(
           const lines = content.split(/\r?\n/)
           for (let i = 0; i < lines.length; i++) {
             const lineText = lines[i]
-            const check = caseSensitive ? lineText : lineText.toLowerCase()
-            const idx = check.indexOf(target)
-            if (idx !== -1) {
-              const rel = relative(root, full).replace(/\\/g, '/')
-              results.push({
-                file: rel,
-                fullPath: full,
-                line: i + 1,
-                preview: lineText.trim().slice(0, 300),
-                matchStart: idx,
-                matchEnd: idx + q.length,
-              })
-              if (results.length >= maxResults) break
-            }
+            const hit = firstMatchInLine(lineText, matcher)
+            if (!hit) continue
+            const rel = relative(root, full).replace(/\\/g, '/')
+            const leading = lineText.length - lineText.trimStart().length
+            const preview = lineText.trim().slice(0, 300)
+            const matchStart = Math.max(0, Math.min(preview.length, hit.index - leading))
+            const matchEnd = Math.max(matchStart, Math.min(preview.length, matchStart + hit.length))
+            results.push({
+              file: rel,
+              fullPath: full,
+              line: i + 1,
+              preview,
+              matchStart,
+              matchEnd,
+            })
+            if (results.length >= maxResults) break
           }
         } catch {
           // ignore unreadable files
