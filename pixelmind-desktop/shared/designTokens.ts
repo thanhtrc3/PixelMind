@@ -48,11 +48,32 @@ export const DEFAULT_DESIGN_TOKENS: DesignTokens = {
     { id: 'r_xl', name: 'xl (Rất lớn)', value: '16px' },
     { id: 'r_full', name: 'full (Tròn/Viên thuốc)', value: '9999px' },
   ],
+  breakpoints: [
+    { id: 'bp_xs', name: 'xs (Mobile nhỏ)', minWidth: 375, maxWidth: 639, icon: 'mobile', description: 'Điện thoại di động màn hình nhỏ' },
+    { id: 'bp_sm', name: 'sm (Mobile lớn)', minWidth: 640, maxWidth: 767, icon: 'mobile', description: 'Điện thoại ngang, phablet' },
+    { id: 'bp_md', name: 'md (Tablet)', minWidth: 768, maxWidth: 1023, icon: 'tablet', description: 'Máy tính bảng iPad/Tablet' },
+    { id: 'bp_lg', name: 'lg (Laptop/Desktop)', minWidth: 1024, maxWidth: 1279, icon: 'desktop', description: 'Màn hình máy tính xách tay & PC' },
+    { id: 'bp_xl', name: 'xl (Desktop lớn)', minWidth: 1280, maxWidth: 1535, icon: 'desktop', description: 'Màn hình máy tính độ phân giải cao' },
+    { id: 'bp_2xl', name: '2xl (Ultra Wide)', minWidth: 1536, icon: 'wide', description: 'Màn hình siêu rộng & TV' },
+  ],
+  customVars: [
+    { id: 'v_header_h', name: '--header-height', value: '64px', category: 'layout', scope: ':root', description: 'Chiều cao thanh điều hướng chính' },
+    { id: 'v_sidebar_w', name: '--sidebar-width', value: '280px', category: 'layout', scope: ':root', description: 'Độ rộng sidebar tiện ích' },
+    { id: 'v_shadow_sm', name: '--shadow-sm', value: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', category: 'effect', scope: ':root', description: 'Đổ bóng nhẹ cho nút bấm & thẻ' },
+    { id: 'v_shadow_md', name: '--shadow-md', value: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', category: 'effect', scope: ':root', description: 'Đổ bóng vừa cho menu/dropdown' },
+    { id: 'v_z_modal', name: '--z-modal', value: '9999', category: 'z-index', scope: ':root', description: 'Thứ tự lớp hiển thị hộp thoại' },
+  ],
 }
 
 /** Chuyển token ID thành tên biến CSS W3C chuẩn */
-export function tokenToCssVarName(type: 'color' | 'font' | 'spacing' | 'radius', id: string): string {
-  const clean = id.replace(/^[a-z]_/, '').replace(/_/g, '-')
+export function tokenToCssVarName(
+  type: 'color' | 'font' | 'spacing' | 'radius' | 'breakpoint' | 'custom',
+  id: string,
+): string {
+  if (type === 'custom') {
+    return id.startsWith('--') ? id : `--${id.replace(/^v_/, '').replace(/_/g, '-')}`
+  }
+  const clean = id.replace(/^[a-z]+_/, '').replace(/_/g, '-')
   switch (type) {
     case 'color':
       return `--color-${clean}`
@@ -62,6 +83,8 @@ export function tokenToCssVarName(type: 'color' | 'font' | 'spacing' | 'radius',
       return `--spacing-${clean}`
     case 'radius':
       return `--radius-${clean}`
+    case 'breakpoint':
+      return `--breakpoint-${clean}`
   }
 }
 
@@ -83,9 +106,28 @@ export function generateVariablesCss(tokens: DesignTokens): string {
     .map((r) => `  ${tokenToCssVarName('radius', r.id)}: ${r.value};`)
     .join('\n')
 
+  const breakpoints = tokens.breakpoints || DEFAULT_DESIGN_TOKENS.breakpoints || []
+  const bpLines = breakpoints
+    .map((b) => `  ${tokenToCssVarName('breakpoint', b.id)}: ${b.minWidth}px; /* ${b.name} */`)
+    .join('\n')
+
+  const customVars = tokens.customVars || DEFAULT_DESIGN_TOKENS.customVars || []
+  const customLines = customVars
+    .map((v) => `  ${v.name.startsWith('--') ? v.name : `--${v.name}`}: ${v.value};${v.description ? ` /* ${v.description} */` : ''}`)
+    .join('\n')
+
+  const mediaBlocks = breakpoints
+    .map(
+      (b) => `/* Breakpoint ${b.name}: ${b.minWidth}px */
+@media (min-width: ${b.minWidth}px) {
+  /* Style thích ứng cho màn hình từ ${b.name} trở lên */
+}`,
+    )
+    .join('\n\n')
+
   return `/* ═══════════════════════════════════════════════════════════════
    PixelMind Design Tokens — Hệ thống quy chuẩn thiết kế dự án
-   Tự động sinh bởi PixelMind Theme Manager
+   Tự động sinh bởi PixelMind Theme & Design Tokens Manager
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
@@ -100,7 +142,18 @@ ${spacingLines}
 
   /* ── 4. Bán kính bo góc (Border Radius Scale) ── */
 ${radiusLines}
+
+  /* ── 5. Điểm ngắt Responsive (Breakpoints) ── */
+${bpLines}
+
+  /* ── 6. Biến CSS tùy biến (Custom Variables) ── */
+${customLines}
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   Media Queries mẫu theo hệ thống Breakpoints chuẩn
+   ═══════════════════════════════════════════════════════════════ */
+${mediaBlocks}
 `
 }
 
@@ -154,6 +207,13 @@ export function generateTailwindTokensConfig(
     radiusObj[tokenIdToTailwindKey(r.id)] = radiusValue(r.id, r.value)
   }
 
+  const screensObj: Record<string, string> = {}
+  const breakpoints = tokens.breakpoints || DEFAULT_DESIGN_TOKENS.breakpoints || []
+  for (const b of breakpoints) {
+    const key = b.id.replace(/^bp_/, '').replace(/_/g, '-')
+    screensObj[key] = `${b.minWidth}px`
+  }
+
   return `/**
  * PixelMind Design Tokens for Tailwind CSS (v3)
  * Nhúng vào tailwind.config.js:
@@ -168,6 +228,7 @@ module.exports = {
   fontSize: ${JSON.stringify(fontObj, null, 4)},
   spacing: ${JSON.stringify(spacingObj, null, 4)},
   borderRadius: ${JSON.stringify(radiusObj, null, 4)},
+  screens: ${JSON.stringify(screensObj, null, 4)},
 };
 `
 }
@@ -225,6 +286,21 @@ export function parseVariablesCss(cssText: string): Partial<DesignTokens> {
     })
   }
   if (colors.length > 0) result.colors = colors
+
+  // Breakpoints
+  const bpMatches = cssText.matchAll(/--breakpoint-([a-zA-Z0-9_-]+)\s*:\s*([0-9]+)px;/g)
+  const breakpoints = []
+  for (const m of bpMatches) {
+    const minWidth = parseInt(m[2], 10)
+    breakpoints.push({
+      id: `bp_${m[1].replace(/-/g, '_')}`,
+      name: m[1],
+      minWidth,
+      icon: (minWidth <= 640 ? 'mobile' : minWidth <= 1024 ? 'tablet' : minWidth <= 1440 ? 'desktop' : 'wide') as 'mobile' | 'tablet' | 'desktop' | 'wide',
+    })
+  }
+  if (breakpoints.length > 0) result.breakpoints = breakpoints
+
   return result
 }
 

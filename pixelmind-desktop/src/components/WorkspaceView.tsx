@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import {
+  Columns2,
   FileCode2,
   FileText,
   FolderOpen,
@@ -13,6 +14,7 @@ import {
   Minimize2,
   Boxes,
   Palette,
+  SlidersHorizontal,
   X,
 } from 'lucide-react'
 import type {
@@ -211,6 +213,45 @@ const WorkspaceView = ({
   const [aiSelection, setAiSelection] = useState<AiSelectedElement | null>(null)
   const [referenceAsset, setReferenceAsset] = useState<ReferenceAsset | null>(null)
   const [aiInitialTab, setAiInitialTab] = useState<AiTab>('chat')
+
+  // Chế độ so sánh thiết kế: Overlay, Ảnh mẫu và Split Slider (chuyển lên cạnh nút Toàn màn hình)
+  const [overlayImage, setOverlayImage] = useState<string | null>(() => {
+    try {
+      return window.localStorage.getItem('pm.canvasOverlay')
+    } catch {
+      return null
+    }
+  })
+  const [overlayVisible, setOverlayVisible] = useState(true)
+  const [overlayOpacity, setOverlayOpacity] = useState(50)
+  const overlayFileInputRef = useRef<HTMLInputElement>(null)
+
+  const [showReference, setShowReference] = useState(false)
+  const [isSplitCompare, setIsSplitCompare] = useState(false)
+  const [splitPosition, setSplitPosition] = useState(50)
+
+  const handleOverlayFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const b64 = reader.result as string
+      try {
+        window.localStorage.setItem('pm.canvasOverlay', b64)
+      } catch {}
+      setOverlayImage(b64)
+      setOverlayVisible(true)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleClearOverlay = () => {
+    try {
+      window.localStorage.removeItem('pm.canvasOverlay')
+    } catch {}
+    setOverlayImage(null)
+    setIsSplitCompare(false)
+  }
 
   // Đổi dự án thì bỏ ảnh mẫu cũ để tránh hiển thị nhầm ảnh của dự án trước.
   useEffect(() => {
@@ -532,9 +573,208 @@ const WorkspaceView = ({
               })}
               <span style={{ flex: 1 }} />
 
-              {/* Nhóm tiện ích: Chế độ Toàn màn hình Canvas */}
+              {/* Nhóm tiện ích: So sánh thiết kế (Overlay, Ảnh mẫu, Split Slider) & Toàn màn hình */}
               {activeTab === 'preview' && (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 4 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, margin: '0 6px' }}>
+                  <input
+                    type="file"
+                    ref={overlayFileInputRef}
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={handleOverlayFileSelect}
+                  />
+
+                  {/* 1. Nút Overlay (Chỉ icon) */}
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <button
+                      type="button"
+                      className={`pm-ibtn ${overlayImage && overlayVisible ? 'on' : ''}`}
+                      onClick={() => {
+                        if (!overlayImage) {
+                          overlayFileInputRef.current?.click()
+                        } else {
+                          setOverlayVisible((v) => !v)
+                        }
+                      }}
+                      title={
+                        overlayImage
+                          ? overlayVisible
+                            ? `Lớp phủ Overlay (${overlayOpacity}%) · Nhấp để ẩn`
+                            : 'Hiện lớp phủ Overlay'
+                          : 'Tải ảnh thiết kế lên để làm lớp phủ Overlay'
+                      }
+                    >
+                      <Layers size={14} />
+                    </button>
+                    {overlayImage && overlayVisible && (
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 3,
+                          background: 'rgba(255,255,255,0.06)',
+                          borderRadius: 4,
+                          padding: '2px 4px',
+                        }}
+                      >
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={overlayOpacity}
+                          onChange={(e) => setOverlayOpacity(Number(e.target.value))}
+                          style={{ width: 48, accentColor: 'var(--accent, #6d5df5)', cursor: 'pointer', height: 4 }}
+                          title={`Độ mờ đục Overlay: ${overlayOpacity}%`}
+                        />
+                        <button
+                          type="button"
+                          className="pm-ibtn"
+                          title="Chọn ảnh thiết kế khác"
+                          onClick={() => overlayFileInputRef.current?.click()}
+                          style={{ width: 20, height: 20, minWidth: 20, padding: 0 }}
+                        >
+                          <SlidersHorizontal size={11} />
+                        </button>
+                        <button
+                          type="button"
+                          className="pm-ibtn"
+                          title="Xoá ảnh overlay"
+                          onClick={handleClearOverlay}
+                          style={{ width: 20, height: 20, minWidth: 20, padding: 0, color: 'var(--text-3)' }}
+                        >
+                          <X size={11} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2. Nút Ảnh mẫu (Chỉ icon) */}
+                  <button
+                    type="button"
+                    className={`pm-ibtn ${showReference ? 'on' : ''}`}
+                    style={{
+                      color: referenceAsset ? 'var(--accent, #6d5df5)' : undefined,
+                    }}
+                    title={
+                      referenceAsset
+                        ? showReference
+                          ? 'Đóng xem ảnh mẫu (Quay lại Live)'
+                          : `Xem ảnh mẫu thiết kế: ${referenceAsset.name}`
+                        : 'Chọn ảnh mẫu trong tab Assets'
+                    }
+                    onClick={() => {
+                      if (!referenceAsset) {
+                        onSidebarTabChange?.('assets')
+                        if (!isSidebarOpen) onToggleSidebar?.()
+                        return
+                      }
+                      setShowReference((open) => !open)
+                      if (!showReference) setIsSplitCompare(false)
+                    }}
+                  >
+                    <ImageIcon size={14} />
+                  </button>
+
+                  {/* 3. Nút So sánh (Split Slider) (Chỉ icon) */}
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <button
+                      type="button"
+                      className={`pm-ibtn ${isSplitCompare ? 'on' : ''}`}
+                      title={
+                        isSplitCompare
+                          ? `Đang bật so sánh chia đôi (${Math.round(splitPosition)}%) · Nhấp để tắt`
+                          : 'So sánh chia đôi Before / After giữa Live và Ảnh mẫu (Split Slider)'
+                      }
+                      onClick={() => {
+                        if (!isSplitCompare) {
+                          if (!referenceAsset && !overlayImage) {
+                            onSidebarTabChange?.('assets')
+                            if (!isSidebarOpen) onToggleSidebar?.()
+                            return
+                          }
+                          setIsSplitCompare(true)
+                          setShowReference(false)
+                        } else {
+                          setIsSplitCompare(false)
+                        }
+                      }}
+                    >
+                      <Columns2 size={14} />
+                    </button>
+                    {isSplitCompare && (
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 2,
+                          background: 'rgba(255,255,255,0.06)',
+                          borderRadius: 4,
+                          padding: '2px 4px',
+                        }}
+                      >
+                        <button
+                          type="button"
+                          style={{
+                            height: 20,
+                            minWidth: 26,
+                            fontSize: 10,
+                            padding: '0 4px',
+                            fontWeight: splitPosition === 25 ? 700 : 500,
+                            color: splitPosition === 25 ? '#ffffff' : 'var(--text-2)',
+                            background: splitPosition === 25 ? 'var(--accent, #6d5df5)' : 'transparent',
+                            border: 'none',
+                            borderRadius: 3,
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => setSplitPosition(25)}
+                          title="Chia tỷ lệ 25% Thiết kế / 75% Live"
+                        >
+                          25%
+                        </button>
+                        <button
+                          type="button"
+                          style={{
+                            height: 20,
+                            minWidth: 26,
+                            fontSize: 10,
+                            padding: '0 4px',
+                            fontWeight: splitPosition === 50 ? 700 : 500,
+                            color: splitPosition === 50 ? '#ffffff' : 'var(--text-2)',
+                            background: splitPosition === 50 ? 'var(--accent, #6d5df5)' : 'transparent',
+                            border: 'none',
+                            borderRadius: 3,
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => setSplitPosition(50)}
+                          title="Chia đều 50% / 50%"
+                        >
+                          50%
+                        </button>
+                        <button
+                          type="button"
+                          style={{
+                            height: 20,
+                            minWidth: 26,
+                            fontSize: 10,
+                            padding: '0 4px',
+                            fontWeight: splitPosition === 75 ? 700 : 500,
+                            color: splitPosition === 75 ? '#ffffff' : 'var(--text-2)',
+                            background: splitPosition === 75 ? 'var(--accent, #6d5df5)' : 'transparent',
+                            border: 'none',
+                            borderRadius: 3,
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => setSplitPosition(75)}
+                          title="Chia tỷ lệ 75% Thiết kế / 25% Live"
+                        >
+                          75%
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <span style={{ width: 1, height: 16, background: 'var(--line, rgba(255,255,255,0.1))', margin: '0 4px' }} />
+
                   {/* Nút Chế độ tập trung Canvas (Toàn màn hình) */}
                   <button
                     className={`pm-ibtn ${focusCanvas ? 'on' : ''}`}
@@ -587,6 +827,14 @@ const WorkspaceView = ({
                         onSidebarTabChange?.('assets')
                         if (!isSidebarOpen) onToggleSidebar?.()
                       }}
+                      showReference={showReference}
+                      onToggleReference={setShowReference}
+                      overlayImage={overlayImage}
+                      overlayVisible={overlayVisible}
+                      overlayOpacity={overlayOpacity}
+                      isSplitCompare={isSplitCompare}
+                      splitPosition={splitPosition}
+                      onSplitPositionChange={setSplitPosition}
                     />
                   ) : (
                     <FileViewer

@@ -88,11 +88,31 @@ export interface RadiusToken {
   value: string
 }
 
+export interface BreakpointToken {
+  id: string
+  name: string
+  minWidth: number
+  maxWidth?: number
+  icon?: 'mobile' | 'tablet' | 'desktop' | 'wide'
+  description?: string
+}
+
+export interface CustomCssVarToken {
+  id: string
+  name: string
+  value: string
+  category?: 'layout' | 'effect' | 'z-index' | 'color' | 'other'
+  scope?: string
+  description?: string
+}
+
 export interface DesignTokens {
   colors: ColorToken[]
   typography: TypographyToken[]
   spacing: SpacingToken[]
   radius: RadiusToken[]
+  breakpoints?: BreakpointToken[]
+  customVars?: CustomCssVarToken[]
   updatedAt?: number
 }
 

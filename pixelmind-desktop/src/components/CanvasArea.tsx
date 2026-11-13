@@ -62,6 +62,7 @@ import { formatBytes } from '../lib/format'
 import VisualErrorCard from './VisualErrorCard'
 import DesignTokensDialog from './DesignTokensDialog'
 import MutationDiffDialog from './MutationDiffDialog'
+import CanvasSplitSlider from './canvas/CanvasSplitSlider'
 import type { DesignTokens, ProjectPage } from '@shared/types'
 import type {
   ElementMutationTarget,
@@ -259,6 +260,20 @@ interface CanvasAreaProps {
   onOpenAssets?: () => void
   /** Kích hoạt mở DesignTokensDialog từ thanh công cụ bên ngoài */
   openTokensToken?: number
+  /** Chế độ xem ảnh mẫu toàn màn hình */
+  showReference?: boolean
+  onToggleReference?: (show: boolean) => void
+  /** Ảnh overlay thiết kế */
+  overlayImage?: string | null
+  overlayVisible?: boolean
+  overlayOpacity?: number
+  onToggleOverlay?: (visible: boolean) => void
+  onOverlayOpacityChange?: (opacity: number) => void
+  /** Chế độ Split Slider so sánh Before / After (D2-01) */
+  isSplitCompare?: boolean
+  splitPosition?: number
+  onToggleSplitCompare?: (enabled: boolean) => void
+  onSplitPositionChange?: (pos: number) => void
 }
 
 const COLOR_SWATCHES = [
@@ -401,8 +416,19 @@ const CanvasArea = ({
   reloadToken = 0,
   referenceAsset = null,
   onClearReference,
-  onOpenAssets,
+  onOpenAssets: _onOpenAssets,
   openTokensToken = 0,
+  showReference: propShowReference,
+  onToggleReference: propOnToggleReference,
+  overlayImage: propOverlayImage,
+  overlayVisible: propOverlayVisible,
+  overlayOpacity: propOverlayOpacity,
+  onToggleOverlay: _propOnToggleOverlay,
+  onOverlayOpacityChange: _propOnOverlayOpacityChange,
+  isSplitCompare: propIsSplitCompare,
+  splitPosition: propSplitPosition,
+  onToggleSplitCompare: propOnToggleSplitCompare,
+  onSplitPositionChange: propOnSplitPositionChange,
 }: CanvasAreaProps) => {
 
   const [currentLiveUrl, setCurrentLiveUrl] = useState<string | null>(url ?? null)
@@ -452,50 +478,69 @@ const CanvasArea = ({
     }
   }, [openTokensToken])
 
+  // Lắng nghe yêu cầu đổi viewport từ Breakpoint Manager trong Design Tokens
+  useEffect(() => {
+    const handleSetVpWidth = (e: Event) => {
+      const custom = e as CustomEvent<number>
+      const w = custom.detail
+      if (typeof w === 'number') {
+        if (w <= 640) setViewport('mobile')
+        else if (w <= 1024) setViewport('tablet')
+        else if (w <= 1440) setViewport('desktop')
+        else setViewport('wide')
+      }
+    }
+    window.addEventListener('pm:set-viewport-width', handleSetVpWidth)
+    return () => window.removeEventListener('pm:set-viewport-width', handleSetVpWidth)
+  }, [])
+
   // Chặng 7 — Design Overlay so sánh (Ảnh thiết kế chồng lên canvas iframe với thanh trượt opacity)
-  const [overlayImage, setOverlayImage] = useState<string | null>(() => {
+  const [internalOverlayImage, setInternalOverlayImage] = useState<string | null>(() => {
     try {
       return window.localStorage.getItem('pm.canvasOverlay')
     } catch {
       return null
     }
   })
-  const [overlayVisible, setOverlayVisible] = useState(true)
-  const [overlayOpacity, setOverlayOpacity] = useState(50)
-  const overlayFileInputRef = useRef<HTMLInputElement>(null)
+  const [internalOverlayVisible] = useState(true)
+  const [internalOverlayOpacity] = useState(50)
+
+  const effectiveOverlayImage = propOverlayImage !== undefined ? propOverlayImage : internalOverlayImage
+  const effectiveOverlayVisible = propOverlayVisible !== undefined ? propOverlayVisible : internalOverlayVisible
+  const effectiveOverlayOpacity = propOverlayOpacity !== undefined ? propOverlayOpacity : internalOverlayOpacity
 
   useEffect(() => {
     const handleOverlayUpdated = () => {
       try {
         const img = window.localStorage.getItem('pm.canvasOverlay')
-        setOverlayImage(img)
-        if (img) setOverlayVisible(true)
+        setInternalOverlayImage(img)
       } catch {}
     }
     window.addEventListener('pm:overlay-updated', handleOverlayUpdated)
     return () => window.removeEventListener('pm:overlay-updated', handleOverlayUpdated)
   }, [])
 
-  const handleOverlayFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const b64 = reader.result as string
-      try {
-        window.localStorage.setItem('pm.canvasOverlay', b64)
-      } catch {}
-      setOverlayImage(b64)
-      setOverlayVisible(true)
+  // D2-01 — Split slider so sánh Live với ảnh mẫu (Before / After)
+  const [internalSplitCompare, setInternalSplitCompare] = useState(false)
+  const [internalSplitPosition, setInternalSplitPosition] = useState(50)
+
+  const effectiveIsSplitCompare = propIsSplitCompare !== undefined ? propIsSplitCompare : internalSplitCompare
+  const effectiveSplitPosition = propSplitPosition !== undefined ? propSplitPosition : internalSplitPosition
+
+  const setSplitCompareState = (enabled: boolean) => {
+    if (propOnToggleSplitCompare) {
+      propOnToggleSplitCompare(enabled)
+    } else {
+      setInternalSplitCompare(enabled)
     }
-    reader.readAsDataURL(file)
   }
 
-  const handleClearOverlay = () => {
-    try {
-      window.localStorage.removeItem('pm.canvasOverlay')
-    } catch {}
-    setOverlayImage(null)
+  const updateSplitPosition = (pos: number) => {
+    if (propOnSplitPositionChange) {
+      propOnSplitPositionChange(pos)
+    } else {
+      setInternalSplitPosition(pos)
+    }
   }
 
   // ─── STATE SOI PHẦN TỬ THẬT (VISUAL INSPECTOR) ───
@@ -569,7 +614,18 @@ const CanvasArea = ({
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false)
 
   // ─── CHẾ ĐỘ XEM ẢNH MẪU (REFERENCE VIEW) ───
-  const [showReference, setShowReference] = useState(false)
+  const [internalShowReference, setInternalShowReference] = useState(false)
+  const effectiveShowReference = propShowReference !== undefined ? propShowReference : internalShowReference
+
+  const toggleReference = (open: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof open === 'function' ? open(effectiveShowReference) : open
+    if (propOnToggleReference) {
+      propOnToggleReference(next)
+    } else {
+      setInternalShowReference(next)
+    }
+  }
+
   const [referenceZoom, setReferenceZoom] = useState(100)
   const [referencePan, setReferencePan] = useState({ x: 0, y: 0 })
   const [referenceSize, setReferenceSize] = useState<{ w: number; h: number } | null>(null)
@@ -579,23 +635,23 @@ const CanvasArea = ({
 
   useEffect(() => {
     if (!referenceAsset) {
-      setShowReference(false)
+      toggleReference(false)
       return
     }
-    setShowReference(true)
+    toggleReference(true)
     setReferenceSize(null)
     setReferenceZoom(100)
     setReferencePan({ x: 0, y: 0 })
   }, [referenceAsset])
 
   useEffect(() => {
-    if (!showReference) return
+    if (!effectiveShowReference) return
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowReference(false)
+      if (e.key === 'Escape') toggleReference(false)
     }
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [showReference])
+  }, [effectiveShowReference])
 
   const fitReference = (size = referenceSize) => {
     const container = referenceCanvasRef.current
@@ -4203,7 +4259,7 @@ const CanvasArea = ({
           <button
             className="canvas__tool-btn"
             title="Quay lại giao diện Live (Esc)"
-            onClick={() => setShowReference(false)}
+            onClick={() => toggleReference(false)}
           >
             <Monitor size={13} />
           </button>
@@ -4211,7 +4267,7 @@ const CanvasArea = ({
             className="canvas__tool-btn canvas__tool-btn--danger"
             title="Bỏ ảnh mẫu"
             onClick={() => {
-              setShowReference(false)
+              toggleReference(false)
               onClearReference?.()
             }}
           >
@@ -4252,23 +4308,33 @@ const CanvasArea = ({
 
   const renderFrameContent = () => (
     <>
-      {/* Chặng 7 — Overlay so sánh ảnh thiết kế gốc lên canvas */}
-      {overlayImage && overlayVisible && (
-        <div
-          className="canvas__design-overlay"
-          style={{
-            position: 'absolute',
-            inset: 0,
-            backgroundImage: `url(${overlayImage})`,
-            backgroundSize: 'contain',
-            backgroundRepeat: 'no-repeat',
-            backgroundPosition: 'top center',
-            opacity: overlayOpacity / 100,
-            pointerEvents: 'none',
-            zIndex: 35,
-            transition: 'opacity 0.1s ease',
-          }}
+      {/* Chặng 7 & D2-01 — Split slider so sánh Live với ảnh mẫu */}
+      {effectiveIsSplitCompare && (referenceAsset?.dataUrl || effectiveOverlayImage) ? (
+        <CanvasSplitSlider
+          imageSrc={referenceAsset?.dataUrl || effectiveOverlayImage!}
+          imageName={referenceAsset?.name || 'Ảnh thiết kế'}
+          splitPosition={effectiveSplitPosition}
+          onSplitChange={updateSplitPosition}
+          onClose={() => setSplitCompareState(false)}
         />
+      ) : (
+        effectiveOverlayImage && effectiveOverlayVisible && (
+          <div
+            className="canvas__design-overlay"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundImage: `url(${effectiveOverlayImage})`,
+              backgroundSize: 'contain',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'top center',
+              opacity: effectiveOverlayOpacity / 100,
+              pointerEvents: 'none',
+              zIndex: 35,
+              transition: 'opacity 0.1s ease',
+            }}
+          />
+        )
       )}
 
                 {(isPanActive || isPanning) && (
@@ -4907,96 +4973,6 @@ const CanvasArea = ({
 
           <div className="canvas__tools-spacer" />
 
-          {/* Nhóm 3: Overlay So sánh Thiết kế (Chặng 7) */}
-          <div className="canvas__seg" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <input
-              type="file"
-              ref={overlayFileInputRef}
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={handleOverlayFileSelect}
-            />
-            <button
-              className={`canvas__seg-btn ${overlayImage && overlayVisible ? 'active' : ''}`}
-              onClick={() => {
-                if (!overlayImage) {
-                  overlayFileInputRef.current?.click()
-                } else {
-                  setOverlayVisible((v) => !v)
-                }
-              }}
-              title={
-                overlayImage
-                  ? overlayVisible
-                    ? 'Ẩn ảnh thiết kế overlay (Click để ẩn/hiện)'
-                    : 'Hiện ảnh thiết kế overlay'
-                  : 'Tải ảnh thiết kế lên để so sánh overlay trực tiếp trên canvas'
-              }
-            >
-              <Layers size={12} />
-              <span>Overlay{overlayImage ? (overlayVisible ? ` ${overlayOpacity}%` : ' (Tắt)') : ''}</span>
-            </button>
-            {overlayImage && overlayVisible && (
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '0 4px' }}>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={overlayOpacity}
-                  onChange={(e) => setOverlayOpacity(Number(e.target.value))}
-                  style={{ width: 64, accentColor: 'var(--accent)', cursor: 'pointer', height: 4 }}
-                  title={`Độ mờ đục: ${overlayOpacity}% (Kéo để so sánh trước/sau)`}
-                />
-              </div>
-            )}
-            {overlayImage && (
-              <>
-                <button
-                  className="canvas__tool-btn"
-                  title="Chọn ảnh thiết kế khác"
-                  onClick={() => overlayFileInputRef.current?.click()}
-                  style={{ width: 22, height: 22 }}
-                >
-                  <SlidersHorizontal size={11} />
-                </button>
-                <button
-                  className="canvas__tool-btn"
-                  title="Xoá ảnh overlay thiết kế"
-                  onClick={handleClearOverlay}
-                  style={{ width: 22, height: 22, color: 'var(--text-3)' }}
-                >
-                  <X size={11} />
-                </button>
-              </>
-            )}
-            <button
-              className={`canvas__tool-btn ${showReference ? 'active' : ''}`}
-              style={{ width: 'auto', padding: '0 8px', gap: 4, display: 'inline-flex' }}
-              title={
-                referenceAsset
-                  ? showReference
-                    ? 'Quay lại giao diện Live'
-                    : `Xem ảnh mẫu: ${referenceAsset.name}`
-                  : 'Chọn ảnh mẫu trong tab Assets'
-              }
-              onClick={() => {
-                if (!referenceAsset) {
-                  onOpenAssets?.()
-                  return
-                }
-                setShowReference((open) => !open)
-              }}
-            >
-              <ImageIcon
-                size={13}
-                style={{ color: referenceAsset ? 'var(--accent, #6d5df5)' : undefined }}
-              />
-              <span style={{ fontSize: 11, fontWeight: 600 }}>Ảnh mẫu</span>
-            </button>
-          </div>
-
-          <div className="canvas__tools-spacer" />
-
           {/* Nhóm 4: Zoom */}
           <div className="canvas__seg">
             <button
@@ -5167,7 +5143,7 @@ const CanvasArea = ({
           </div>
 
           {/* Lớp xem ảnh mẫu phủ kín stage nhưng KHÔNG unmount iframe Live bên dưới. */}
-          {showReference && referenceAsset && renderReferenceView()}
+          {effectiveShowReference && referenceAsset && renderReferenceView()}
 
           {isInspectMode && multiSelection.length >= 2 && (
             <div

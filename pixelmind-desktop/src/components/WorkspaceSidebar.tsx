@@ -419,7 +419,9 @@ export const WorkspaceSidebar = ({
   const [tokens, setTokens] = useState<DesignTokens | null>(null)
   const [tokensLoading, setTokensLoading] = useState(false)
   const [tokenSearch, setTokenSearch] = useState('')
-  const [tokenSubtab, setTokenSubtab] = useState<'colors' | 'typography' | 'spacing' | 'radius'>('colors')
+  const [tokenSubtab, setTokenSubtab] = useState<
+    'colors' | 'typography' | 'spacing' | 'radius' | 'breakpoints' | 'custom'
+  >('colors')
   const [colorCategory, setColorCategory] = useState<'all' | 'brand' | 'background' | 'status' | 'neutral'>('all')
   const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null)
 
@@ -2221,8 +2223,8 @@ export const WorkspaceSidebar = ({
                 </div>
               )}
 
-              {/* Phân nhóm: Màu, Chữ, Khoảng cách, Bo góc */}
-              <div className="pm-design-subnav">
+              {/* Phân nhóm: Màu, Chữ, Khoảng cách, Bo góc, Màn hình, Biến */}
+              <div className="pm-design-subnav" style={{ flexWrap: 'wrap', gap: 2 }}>
                 <button
                   type="button"
                   className={`pm-design-subnav__btn ${tokenSubtab === 'colors' ? 'active' : ''}`}
@@ -2250,6 +2252,22 @@ export const WorkspaceSidebar = ({
                   onClick={() => setTokenSubtab('radius')}
                 >
                   Góc ({tokens?.radius?.length ?? 0})
+                </button>
+                <button
+                  type="button"
+                  className={`pm-design-subnav__btn ${tokenSubtab === 'breakpoints' ? 'active' : ''}`}
+                  onClick={() => setTokenSubtab('breakpoints')}
+                  title="Điểm ngắt kích thước màn hình responsive"
+                >
+                  Màn hình ({(tokens?.breakpoints || []).length})
+                </button>
+                <button
+                  type="button"
+                  className={`pm-design-subnav__btn ${tokenSubtab === 'custom' ? 'active' : ''}`}
+                  onClick={() => setTokenSubtab('custom')}
+                  title="Các biến CSS tùy biến của dự án"
+                >
+                  Biến ({(tokens?.customVars || []).length})
                 </button>
               </div>
 
@@ -2674,6 +2692,125 @@ export const WorkspaceSidebar = ({
                                 </div>
                                 <div className="pm-token-metric-code">
                                   <code>var({varName})</code>
+                                </div>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+
+                    {/* 5. ĐIỂM NGẮT (BREAKPOINTS) */}
+                    {tokenSubtab === 'breakpoints' && (
+                      <div className="pm-token-metric-list">
+                        {(tokens?.breakpoints || []).length === 0 ? (
+                          <div className="pm-design-empty">Chưa có breakpoint nào</div>
+                        ) : (
+                          (tokens?.breakpoints || []).map((bp) => {
+                            const varName = tokenToCssVarName('breakpoint', bp.id)
+                            const isCopied = copiedTokenId === bp.id
+                            return (
+                              <div
+                                key={bp.id}
+                                className={`pm-token-metric-card ${isCopied ? 'copied' : ''}`}
+                                onClick={() => {
+                                  window.dispatchEvent(
+                                    new CustomEvent('pm:set-viewport-width', { detail: bp.minWidth }),
+                                  )
+                                  onShowToast('info', `Đã chuyển thử kích thước sang ${bp.minWidth}px`)
+                                }}
+                                title={`Mốc ${bp.name} (≥${bp.minWidth}px)\nNhấp để xem thử trên Canvas`}
+                              >
+                                <div className="pm-token-metric-header">
+                                  <span className="pm-token-metric-name">{bp.name}</span>
+                                  <span className="pm-token-metric-val">≥ {bp.minWidth}px</span>
+                                  <div className="pm-token-card-actions">
+                                    <button
+                                      type="button"
+                                      className="pm-token-copy-btn"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        navigator.clipboard.writeText(`var(${varName})`)
+                                        setCopiedTokenId(bp.id)
+                                        onShowToast('ok', `Đã sao chép var(${varName})`)
+                                        setTimeout(() => setCopiedTokenId(null), 1500)
+                                      }}
+                                      title="Sao chép mã biến CSS"
+                                    >
+                                      {isCopied ? (
+                                        <Check size={12} style={{ color: 'var(--color-success)' }} />
+                                      ) : (
+                                        <Copy size={11} />
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="pm-token-metric-code">
+                                  <code>var({varName})</code>
+                                  <span style={{ marginLeft: 'auto', fontSize: '9.5px', color: '#94a3b8' }}>
+                                    {bp.description || 'Responsive'}
+                                  </span>
+                                </div>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+
+                    {/* 6. BIẾN TÙY BIẾN (CUSTOM CSS VARIABLES) */}
+                    {tokenSubtab === 'custom' && (
+                      <div className="pm-token-metric-list">
+                        {(tokens?.customVars || []).length === 0 ? (
+                          <div className="pm-design-empty">Chưa có biến tùy biến nào</div>
+                        ) : (
+                          (tokens?.customVars || []).map((v) => {
+                            const varName = v.name.startsWith('--') ? v.name : `--${v.name}`
+                            const isCopied = copiedTokenId === v.id
+                            return (
+                              <div
+                                key={v.id}
+                                className={`pm-token-metric-card ${isCopied ? 'copied' : ''}`}
+                                onClick={() => {
+                                  const text = `var(${varName})`
+                                  navigator.clipboard.writeText(text)
+                                  setCopiedTokenId(v.id)
+                                  onShowToast('ok', `Đã sao chép ${text}`)
+                                  setTimeout(() => setCopiedTokenId(null), 1500)
+                                }}
+                                title={`Biến ${varName}: ${v.value}\nNhấp để sao chép var(${varName})`}
+                              >
+                                <div className="pm-token-metric-header">
+                                  <span className="pm-token-metric-name" style={{ color: '#38bdf8' }}>
+                                    {varName}
+                                  </span>
+                                  <span className="pm-token-metric-val">{v.value}</span>
+                                  <div className="pm-token-card-actions">
+                                    <button
+                                      type="button"
+                                      className="pm-token-copy-btn"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        navigator.clipboard.writeText(`var(${varName})`)
+                                        setCopiedTokenId(v.id)
+                                        onShowToast('ok', `Đã sao chép var(${varName})`)
+                                        setTimeout(() => setCopiedTokenId(null), 1500)
+                                      }}
+                                      title="Sao chép mã biến CSS"
+                                    >
+                                      {isCopied ? (
+                                        <Check size={12} style={{ color: 'var(--color-success)' }} />
+                                      ) : (
+                                        <Copy size={11} />
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="pm-token-metric-code">
+                                  <code>var({varName})</code>
+                                  <span style={{ marginLeft: 'auto', fontSize: '9.5px', color: '#94a3b8' }}>
+                                    {v.category || 'other'}
+                                  </span>
                                 </div>
                               </div>
                             )

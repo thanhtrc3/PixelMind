@@ -2062,3 +2062,28 @@
   background: #fff;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   SPLIT SLIDER BEFORE / AFTER COMPARE (D2-01)
+   ═══════════════════════════════════════════════════════════════ */
+.pm-split-slider-container {
+  touch-action: none;
+}
+
+.pm-split-slider-container.is-dragging {
+  cursor: col-resize !important;
+}
+
+.pm-split-divider:hover .pm-split-handle {
+  transform: scale(1.12);
+  background: var(--accent, #6d5df5) !important;
+}
+
+.pm-split-divider:focus-visible {
+  outline: none;
+}
+
+.pm-split-divider:focus-visible .pm-split-handle {
+  box-shadow: 0 0 0 3px rgba(109, 93, 245, 0.4), 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+
