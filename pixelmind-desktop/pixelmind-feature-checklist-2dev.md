@@ -88,7 +88,7 @@ Không thể cam kết “không bao giờ xung đột” nếu cả hai cùng s
 
 ### P1 — Quản lý thông báo, template và tài nguyên
 
-- [ ] **D1-09 — Trung tâm lịch sử thông báo.** Lưu tối đa 50 toast, trạng thái đã đọc, lọc theo loại, sao chép lỗi, đánh dấu đã đọc và xóa lịch sử. **Nghiệm thu:** toast đã đóng vẫn xem lại được; giới hạn lịch sử hoạt động.
+- [x] **D1-09 — Trung tâm lịch sử thông báo.** Lưu tối đa 50 toast, trạng thái đã đọc, lọc theo loại, sao chép lỗi, đánh dấu đã đọc và xóa lịch sử. **Nghiệm thu:** toast đã đóng vẫn xem lại được; giới hạn lịch sử hoạt động.
 - [ ] **D1-10 — Thư viện template khởi tạo dự án.** Cung cấp các template có cấu trúc tệp rõ ràng; người dùng chọn template và thư mục đích để tạo dự án mới. **Nghiệm thu:** dự án tạo ra mở được trong PixelMind và chạy theo hướng dẫn của template.
 - [ ] **D1-11 — Nhập dự án từ ZIP.** Chọn ZIP, kiểm tra nội dung/đường dẫn an toàn, giải nén vào thư mục đích và đăng ký dự án. **Nghiệm thu:** ZIP hợp lệ được mở thành dự án; ZIP lỗi/đường dẫn traversal bị từ chối có thông báo.
 - [ ] **D1-12 — Nhập thư mục HTML tĩnh.** Chọn thư mục có HTML/CSS/JS tĩnh và đăng ký thành dự án mà không yêu cầu `package.json`. **Nghiệm thu:** dự án mở được và dùng luồng static server hiện có.

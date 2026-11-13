@@ -10,7 +10,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "preview:web": "node scripts/preview-web.mjs",
-    "test": "node --experimental-strip-types --test tests/workspaceTabs.test.mjs tests/canvasSettings.test.mjs",
+    "test": "node --experimental-strip-types --test tests/workspaceTabs.test.mjs tests/canvasSettings.test.mjs tests/notifications.test.mjs",
     "dist": "electron-vite build && electron-builder --win",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
   },

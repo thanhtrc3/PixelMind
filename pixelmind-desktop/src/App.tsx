@@ -45,6 +45,11 @@ import { applyThemeVariables } from './lib/theme'
 import { fileName } from './lib/format'
 import { editorBuffer } from './lib/editorBuffer'
 import { LAYOUT_KEYS, persistFlag, readStoredFlag } from './lib/layoutPrefs'
+import {
+  parseWorkspaceTabs,
+  restoreWorkspaceTabs as restoreSavedWorkspaceTabs,
+  serializeWorkspaceTabs,
+} from './lib/workspaceTabs'
 import TitleBar from './components/TitleBar'
 import TopBar from './components/TopBar'
 import type { SidebarTab } from './components/WorkspaceSidebar'
@@ -67,12 +72,23 @@ import type { ToastMessage } from './components/ToastStack'
 import DiagnosisDialog from './components/DiagnosisDialog'
 import AIDesignImportDialog from './components/AIDesignImportDialog'
 import AIThemeDialog from './components/AIThemeDialog'
+import NotificationCenter from './components/ide/NotificationCenter'
+import type { AppNotification } from './lib/notifications'
+import {
+  createNotification,
+  markAsRead,
+  parseNotifications,
+  prependNotification,
+  serializeNotifications,
+} from './lib/notifications'
 
 const EMPTY_STORE: StoreData = {
   settings: { ...DEFAULT_SETTINGS },
   projects: [],
   lastProjectId: null,
 }
+
+const workspaceTabsKey = (projectId: string) => `pm.workspace_tabs.${projectId}`
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : typeof error === 'string' ? error : 'Đã xảy ra lỗi không xác định.'
@@ -112,6 +128,7 @@ const App = () => {
   const [initialLine, setInitialLine] = useState<number | null>(null)
   const [initialMatch, setInitialMatch] = useState<FileSearchRange | null>(null)
   const [openPaths, setOpenPaths] = useState<string[]>([])
+  const fileLoadRequestRef = useRef(0)
   const [recentPaths, setRecentPaths] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<'file' | 'preview'>('preview')
 
@@ -141,6 +158,14 @@ const App = () => {
   const [paramChooserPage, setParamChooserPage] = useState<ProjectPage | null>(null)
   const [pendingDelete, setPendingDelete] = useState<ProjectRecord | null>(null)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    try {
+      return parseNotifications(localStorage.getItem('pm.notification_history'))
+    } catch {
+      return []
+    }
+  })
+  const [notifCenterOpen, setNotifCenterOpen] = useState(false)
 
   const settings = storeData.settings
   const project = useMemo(
@@ -180,12 +205,46 @@ const App = () => {
 
   /* ── Tiện ích nhỏ ─────────────────────────────────────── */
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('pm.notification_history', serializeNotifications(notifications))
+    } catch {
+      /* Bộ nhớ cục bộ có thể bị đầy */
+    }
+  }, [notifications])
+
   const showToast = (kind: ToastMessage['kind'], text: string) => {
     const id = Date.now() + Math.random()
     setToasts((prev) => [...prev.slice(-2), { id, kind, text }])
+
+    // Lưu vào Trung tâm lịch sử thông báo (D1-09)
+    const newNotif = createNotification(kind, text)
+    setNotifications((prev) => prependNotification(prev, newNotif))
   }
 
   const dismissToast = (id: number) => setToasts((prev) => prev.filter((item) => item.id !== id))
+
+  useEffect(() => {
+    if (!projectId) return
+    try {
+      localStorage.setItem(
+        workspaceTabsKey(projectId),
+        serializeWorkspaceTabs(openPaths, selectedPath, activeTab),
+      )
+    } catch {
+      /* Bộ nhớ cục bộ có thể bị tắt hoặc đầy. */
+    }
+  }, [projectId, openPaths, selectedPath, activeTab])
+
+  const restoreWorkspaceTabs = async (targetProjectId: string) => {
+    let raw: string | null = null
+    try {
+      raw = localStorage.getItem(workspaceTabsKey(targetProjectId))
+    } catch {
+      /* Bộ nhớ cục bộ có thể bị tắt. */
+    }
+    return restoreSavedWorkspaceTabs(parseWorkspaceTabs(raw), api.fs)
+  }
 
   // Ghi nhớ trạng thái bố cục giữa các lần mở app.
   // Chỉ lưu bố cục giao diện — canvas/máy chủ vẫn luôn khởi động ở trạng thái tắt.
@@ -362,6 +421,8 @@ const App = () => {
       }
 
       const opened = (await api.projects.open(target.id)) ?? target
+      const restoredTabs = await restoreWorkspaceTabs(opened.id)
+      fileLoadRequestRef.current += 1
       setStoreData((prev) => ({
         ...prev,
         lastProjectId: opened.id,
@@ -369,12 +430,13 @@ const App = () => {
       }))
       setProjectId(opened.id)
       setView('detail')
-      setOpenPaths([])
-      setFile(null)
-      setSelectedPath(null)
+      setOpenPaths(restoredTabs.paths)
+      setFile(restoredTabs.file)
+      setFileLoading(false)
+      setSelectedPath(restoredTabs.selectedPath)
       setInitialLine(null)
       setInitialMatch(null)
-      setActiveTab('preview')
+      setActiveTab(restoredTabs.activeTab)
       setQuery('')
       setLogs([])
       setRun(null)
@@ -389,6 +451,12 @@ const App = () => {
       await loadTree(opened)
       const running = await api.run.ofProject(opened.id)
       setRun(running)
+      if (restoredTabs.inaccessibleCount > 0) {
+        showToast(
+          'info',
+          `Đã bỏ qua ${restoredTabs.inaccessibleCount} tab vì tệp đã bị xóa hoặc không thể truy cập.`,
+        )
+      }
 
       // Kiểm tra chẩn đoán và tự động mở báo cáo nếu phát hiện lỗi nghiêm trọng (như thiếu node_modules)
       const diag = opened.diagnosis ?? (await api.projects.diagnose(opened.path))
@@ -455,10 +523,12 @@ const App = () => {
         lastProjectId: prev.lastProjectId === target.id ? null : prev.lastProjectId,
       }))
       if (projectId === target.id) {
+        fileLoadRequestRef.current += 1
         setProjectId(null)
         setView('projects')
         setTree([])
         setFile(null)
+        setFileLoading(false)
         setSelectedPath(null)
         setOpenPaths([])
         setRun(null)
@@ -642,6 +712,7 @@ const App = () => {
     line?: number,
     match?: FileSearchRange,
   ) => {
+    const requestId = ++fileLoadRequestRef.current
     setSelectedPath(node.path)
     setActiveTab('file')
     setFileLoading(true)
@@ -650,13 +721,17 @@ const App = () => {
     addRecentPath(node.path)
     try {
       const content = await api.fs.read(node.path)
+      if (requestId !== fileLoadRequestRef.current) return
       setFile(content)
       setOpenPaths((prev) => (prev.includes(node.path) ? prev : [...prev, node.path]))
     } catch (error) {
+      if (requestId !== fileLoadRequestRef.current) return
       setFile(null)
+      setSelectedPath(null)
+      setActiveTab('preview')
       showToast('err', `Không đọc được tệp ${node.name || node.path}: ${errorMessage(error)}`)
     } finally {
-      setFileLoading(false)
+      if (requestId === fileLoadRequestRef.current) setFileLoading(false)
     }
   }
 
@@ -666,30 +741,41 @@ const App = () => {
     setInitialMatch(match ?? null)
     addRecentPath(path)
     if (path === selectedPath) return
+    const requestId = ++fileLoadRequestRef.current
     setSelectedPath(path)
     setFileLoading(true)
     api.fs
       .read(path)
-      .then((content) => setFile(content))
-      .catch((error) => showToast('err', `Không đọc được tệp: ${errorMessage(error)}`))
-      .finally(() => setFileLoading(false))
+      .then((content) => {
+        if (requestId === fileLoadRequestRef.current) setFile(content)
+      })
+      .catch((error) => {
+        if (requestId !== fileLoadRequestRef.current) return
+        setOpenPaths((prev) => prev.filter((item) => item !== path))
+        setFile(null)
+        setSelectedPath(null)
+        setActiveTab('preview')
+        showToast('err', `Đã đóng tab không đọc được: ${errorMessage(error)}`)
+      })
+      .finally(() => {
+        if (requestId === fileLoadRequestRef.current) setFileLoading(false)
+      })
   }
 
   const closeTab = (path: string) => {
-    setOpenPaths((prev) => {
-      const next = prev.filter((item) => item !== path)
-      if (path === selectedPath) {
-        const fallback = next[next.length - 1] ?? null
-        setSelectedPath(fallback)
-        if (fallback) {
-          void api.fs.read(fallback).then((content) => setFile(content))
-        } else {
-          setFile(null)
-          setActiveTab('preview')
-        }
-      }
-      return next
-    })
+    const next = openPaths.filter((item) => item !== path)
+    setOpenPaths(next)
+    if (path !== selectedPath) return
+    const fallback = next[next.length - 1] ?? null
+    if (fallback) {
+      selectTab(fallback)
+    } else {
+      fileLoadRequestRef.current += 1
+      setSelectedPath(null)
+      setFile(null)
+      setFileLoading(false)
+      setActiveTab('preview')
+    }
   }
 
   /* ── Chạy dự án & Cài đặt thư viện ────────────────────── */
@@ -925,12 +1011,17 @@ const App = () => {
         if (data.settings.openLastProject && last) {
           const opened = await api.projects.open(last.id)
           if (opened) {
+            const restoredTabs = await restoreWorkspaceTabs(opened.id)
             setProjectId(opened.id)
             setView('detail')
+            setOpenPaths(restoredTabs.paths)
+            setFile(restoredTabs.file)
+            setSelectedPath(restoredTabs.selectedPath)
+            setActiveTab(restoredTabs.activeTab)
             setCustomCommand(opened.meta.customCommand || '')
-      setTargetRoute('')
-      targetRouteRef.current = ''
-      setPreviewUrl(null)
+            setTargetRoute('')
+            targetRouteRef.current = ''
+            setPreviewUrl(null)
             const [nodes, stat, git, running] = await Promise.all([
               api.fs.tree(opened.path, data.settings.showHidden),
               api.fs.stat(opened.path),
@@ -941,6 +1032,12 @@ const App = () => {
             setStats(stat)
             setBranch(git)
             setRun(running)
+            if (restoredTabs.inaccessibleCount > 0) {
+              showToast(
+                'info',
+                `Đã bỏ qua ${restoredTabs.inaccessibleCount} tab vì tệp đã bị xóa hoặc không thể truy cập.`,
+              )
+            }
 
             // Kiểm tra chẩn đoán ban đầu
             if (opened.diagnosis?.issues.some((i) => i.level === 'error')) {
@@ -1628,6 +1725,8 @@ const App = () => {
         branch={branch}
         version={appInfo?.appVersion ?? '0.1.0'}
         isDesktop={isDesktop}
+        unreadNotifications={notifications.filter((n) => !n.read).length}
+        onToggleNotifications={() => setNotifCenterOpen((prev) => !prev)}
       />
 
       {dialog === 'settings' && (
@@ -1646,11 +1745,13 @@ const App = () => {
                 await api.run.stopAll()
               }
               const data = await api.store.reset()
+              fileLoadRequestRef.current += 1
               setStoreData(data)
               setProjectId(null)
               setView('projects')
               setTree([])
               setFile(null)
+              setFileLoading(false)
               setOpenPaths([])
               setRun(null)
               setLogs([])
@@ -1831,6 +1932,24 @@ const App = () => {
       )}
 
       <ToastStack items={toasts} onDismiss={dismissToast} />
+
+      {notifCenterOpen && (
+        <div
+          className="pm-notif-backdrop"
+          onClick={() => setNotifCenterOpen(false)}
+        >
+          <NotificationCenter
+            notifications={notifications}
+            onMarkAsRead={(id) => setNotifications((prev) => markAsRead(prev, id))}
+            onClearAll={() => setNotifications([])}
+            onClose={() => setNotifCenterOpen(false)}
+            onCopyText={(text) => {
+              void navigator.clipboard?.writeText(text)
+              showToast('ok', 'Đã sao chép nội dung thông báo!')
+            }}
+          />
+        </div>
+      )}
     </div>
   )
 }
