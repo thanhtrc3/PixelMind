@@ -608,6 +608,8 @@ ipcMain.handle('store:reset', async (): Promise<StoreData> => {
   return resetStore()
 })
 
+import { scaffoldProjectFromTemplate } from './templates'
+
 ipcMain.handle('store:path', () => storeFilePath())
 
 /* ───────────────────────── IPC: dự án ───────────────────────── */
@@ -627,6 +629,45 @@ ipcMain.handle('project:pick', async (): Promise<ProjectRecord | null> => {
   if (result.canceled || !result.filePaths.length) return null
   return addProject(result.filePaths[0])
 })
+
+ipcMain.handle('project:pickFolderOnly', async (): Promise<string | null> => {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+    title: 'Chọn thư mục để lưu dự án mới',
+    properties: ['openDirectory', 'createDirectory'],
+    buttonLabel: 'Chọn thư mục này',
+  })
+  if (result.canceled || !result.filePaths.length) return null
+  return result.filePaths[0]
+})
+
+ipcMain.handle(
+  'project:createFromTemplate',
+  async (
+    _event,
+    options: { templateId: string; parentDir: string; projectName: string },
+  ): Promise<{ success: boolean; project?: ProjectRecord; error?: string }> => {
+    try {
+      const scaffoldRes = await scaffoldProjectFromTemplate(options)
+      if (!scaffoldRes.success || !scaffoldRes.projectPath) {
+        return { success: false, error: scaffoldRes.error || 'Khởi tạo tệp thất bại.' }
+      }
+
+      // Khởi tạo git và nạp dự án vào PixelMind
+      try {
+        await initGit(scaffoldRes.projectPath)
+      } catch {}
+
+      const project = await addProject(scaffoldRes.projectPath)
+      if (!project) {
+        return { success: false, error: 'Không thể đăng ký dự án vào PixelMind.' }
+      }
+
+      return { success: true, project }
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Lỗi không xác định khi tạo dự án.' }
+    }
+  },
+)
 
 /** Ghép kết quả dò mới vào bản ghi cũ, giữ dữ liệu người dùng đã tạo. */
 async function mergeDetected(project: ProjectRecord, fresh: ProjectRecord): Promise<ProjectRecord> {

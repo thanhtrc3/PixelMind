@@ -311,6 +311,12 @@ export function createBrowserMock(): PixelMindApi {
       async pickFolder() {
         return null
       },
+      async pickFolderOnly() {
+        return null
+      },
+      async createFromTemplate() {
+        return { success: false, error: 'Chức năng tạo dự án chỉ hỗ trợ trên bản desktop.' }
+      },
       async add() {
         return null
       },

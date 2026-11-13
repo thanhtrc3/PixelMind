@@ -57,6 +57,13 @@ const api: PixelMindApi = {
 
   projects: {
     pickFolder: (): Promise<ProjectRecord | null> => ipcRenderer.invoke('project:pick'),
+    pickFolderOnly: (): Promise<string | null> => ipcRenderer.invoke('project:pickFolderOnly'),
+    createFromTemplate: (options: {
+      templateId: string
+      parentDir: string
+      projectName: string
+    }): Promise<{ success: boolean; project?: ProjectRecord; error?: string }> =>
+      ipcRenderer.invoke('project:createFromTemplate', options),
     add: (folder: string): Promise<ProjectRecord | null> => ipcRenderer.invoke('project:add', folder),
     list: (): Promise<ProjectRecord[]> => ipcRenderer.invoke('project:list'),
     open: (id: string): Promise<ProjectRecord | null> => ipcRenderer.invoke('project:open', id),

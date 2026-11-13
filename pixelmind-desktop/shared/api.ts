@@ -81,6 +81,12 @@ export interface PixelMindApi {
   }
   projects: {
     pickFolder(): Promise<ProjectRecord | null>
+    pickFolderOnly(): Promise<string | null>
+    createFromTemplate(options: {
+      templateId: string
+      parentDir: string
+      projectName: string
+    }): Promise<{ success: boolean; project?: ProjectRecord; error?: string }>
     add(folder: string): Promise<ProjectRecord | null>
     list(): Promise<ProjectRecord[]>
     open(id: string): Promise<ProjectRecord | null>

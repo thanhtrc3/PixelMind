@@ -73,6 +73,7 @@ import DiagnosisDialog from './components/DiagnosisDialog'
 import AIDesignImportDialog from './components/AIDesignImportDialog'
 import AIThemeDialog from './components/AIThemeDialog'
 import NotificationCenter from './components/ide/NotificationCenter'
+import TemplateGalleryDialog from './components/ide/TemplateGalleryDialog'
 import type { AppNotification } from './lib/notifications'
 import {
   createNotification,
@@ -166,6 +167,7 @@ const App = () => {
     }
   })
   const [notifCenterOpen, setNotifCenterOpen] = useState(false)
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false)
 
   const settings = storeData.settings
   const project = useMemo(
@@ -1595,6 +1597,7 @@ const App = () => {
               busy={busy}
               onOpen={(item) => void openProject(item)}
               onOpenFolder={() => void openFolder()}
+              onNewProject={() => setTemplateGalleryOpen(true)}
               onRemove={requestRemove}
               onFavorite={(item) => void toggleFavorite(item)}
               onReveal={(item) => void api.fs.openPath(item.path)}
@@ -1949,6 +1952,32 @@ const App = () => {
             }}
           />
         </div>
+      )}
+
+      {templateGalleryOpen && (
+        <TemplateGalleryDialog
+          onClose={() => setTemplateGalleryOpen(false)}
+          onSelectFolder={async () => {
+            if (api.projects.pickFolderOnly) {
+              return api.projects.pickFolderOnly()
+            }
+            return null
+          }}
+          onCreateProject={async (opts) => {
+            if (!api.projects.createFromTemplate) {
+              return { success: false, error: 'Chức năng tạo dự án chỉ hỗ trợ trên bản desktop.' }
+            }
+            const res = await api.projects.createFromTemplate(opts)
+            if (res.success && res.project) {
+              const list = await api.projects.list()
+              setStoreData((prev) => ({ ...prev, projects: list }))
+              await openProject(res.project, true)
+              showToast('ok', `✨ Đã khởi tạo dự án "${opts.projectName}" từ template thành công!`)
+              return { success: true }
+            }
+            return { success: false, error: res.error || 'Khởi tạo thất bại.' }
+          }}
+        />
       )}
     </div>
   )
