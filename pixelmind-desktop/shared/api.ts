@@ -38,8 +38,21 @@ export interface FileSearchMatch {
   fullPath: string
   line: number
   preview: string
+  /** Vị trí bắt đầu của đoạn khớp trong dòng gốc (0-based, tính cả thụt lề). */
   matchStart?: number
+  /** Vị trí kết thúc (không bao gồm) trong dòng gốc (0-based). */
   matchEnd?: number
+  /** Vị trí khớp trong `preview` (0-based) — dùng để tô sáng trong danh sách kết quả. */
+  previewMatchStart?: number
+  /** Vị trí kết thúc (không bao gồm) trong `preview` (0-based). */
+  previewMatchEnd?: number
+}
+
+export interface FileSearchRange {
+  /** Cột bắt đầu trong dòng (0-based). */
+  start: number
+  /** Cột kết thúc, không bao gồm (0-based). */
+  end: number
 }
 
 export interface FileSearchOptions {

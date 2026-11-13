@@ -39,6 +39,7 @@ import type {
   Settings,
   StoreData,
 } from '@shared/types'
+import type { FileSearchRange } from '@shared/api'
 import { api, isDesktop } from './lib/bridge'
 import { applyThemeVariables } from './lib/theme'
 import { fileName } from './lib/format'
@@ -109,6 +110,7 @@ const App = () => {
   const [fileLoading, setFileLoading] = useState(false)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [initialLine, setInitialLine] = useState<number | null>(null)
+  const [initialMatch, setInitialMatch] = useState<FileSearchRange | null>(null)
   const [openPaths, setOpenPaths] = useState<string[]>([])
   const [recentPaths, setRecentPaths] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<'file' | 'preview'>('preview')
@@ -371,6 +373,7 @@ const App = () => {
       setFile(null)
       setSelectedPath(null)
       setInitialLine(null)
+      setInitialMatch(null)
       setActiveTab('preview')
       setQuery('')
       setLogs([])
@@ -637,11 +640,13 @@ const App = () => {
   const openFile = async (
     node: FileNode | { path: string; name?: string; ext?: string; type?: 'file' },
     line?: number,
+    match?: FileSearchRange,
   ) => {
     setSelectedPath(node.path)
     setActiveTab('file')
     setFileLoading(true)
     setInitialLine(line ?? null)
+    setInitialMatch(match ?? null)
     addRecentPath(node.path)
     try {
       const content = await api.fs.read(node.path)
@@ -655,9 +660,10 @@ const App = () => {
     }
   }
 
-  const selectTab = (path: string, line?: number) => {
+  const selectTab = (path: string, line?: number, match?: FileSearchRange) => {
     setActiveTab('file')
     setInitialLine(line ?? null)
+    setInitialMatch(match ?? null)
     addRecentPath(path)
     if (path === selectedPath) return
     setSelectedPath(path)
@@ -1535,9 +1541,10 @@ const App = () => {
               fileLoading={fileLoading}
               selectedPath={selectedPath}
               initialLine={initialLine}
+              initialMatch={initialMatch}
               query={query}
               onQuery={setQuery}
-              onSelectFile={(node, line) => void openFile(node, line)}
+              onSelectFile={(node, line, match) => void openFile(node, line, match)}
               onRefresh={() => void refreshProject()}
               onOpenFolder={() => void openFolder()}
               run={run}

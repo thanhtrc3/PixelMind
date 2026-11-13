@@ -27,6 +27,7 @@ import type {
   Settings,
 } from '@shared/types'
 import { parseRunError } from '../lib/errorParser'
+import type { FileSearchRange } from '../../shared/api'
 import { editorBuffer } from '../lib/editorBuffer'
 import { LAYOUT_KEYS, persistFlag, readStoredFlag } from '../lib/layoutPrefs'
 import WorkspaceSidebar, { type ReferenceAsset, type SidebarTab } from './WorkspaceSidebar'
@@ -45,9 +46,11 @@ interface WorkspaceViewProps {
   fileLoading: boolean
   selectedPath: string | null
   initialLine?: number | null
+  /** Vùng khớp tìm kiếm cần đánh dấu trong dòng (0-based). */
+  initialMatch?: FileSearchRange | null
   query: string
   onQuery: (value: string) => void
-  onSelectFile: (node: FileNode, initialLine?: number) => void
+  onSelectFile: (node: FileNode, initialLine?: number, match?: FileSearchRange) => void
   onRefresh: () => void
   onOpenFolder: () => void
   run: RunState | null
@@ -136,6 +139,7 @@ const WorkspaceView = ({
   fileLoading,
   selectedPath,
   initialLine,
+  initialMatch,
   query,
   onQuery,
   onSelectFile,
@@ -596,6 +600,7 @@ const WorkspaceView = ({
                       autoSave={settings.autoSave !== false}
                       rootPath={project.path}
                       initialLine={initialLine}
+                      initialMatch={initialMatch}
                       onOpenExternal={onOpenFileExternal}
                       onShowInFolder={onShowInFolder}
                       onShowToast={onShowToast}

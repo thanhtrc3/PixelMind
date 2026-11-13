@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Editor, { loader, type OnMount } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 import {
@@ -21,6 +21,7 @@ import {
   WrapText,
 } from 'lucide-react'
 import type { FileContent } from '@shared/types'
+import type { FileSearchRange } from '@shared/api'
 import { formatBytes, languageOf } from '../lib/format'
 import { api } from '../lib/bridge'
 
@@ -43,6 +44,8 @@ interface FileViewerProps {
   autoSave?: boolean
   rootPath?: string
   initialLine?: number | null
+  /** Vùng khớp tìm kiếm cần đánh dấu trong dòng (0-based). */
+  initialMatch?: FileSearchRange | null
   onOpenExternal: (path: string) => void
   onShowInFolder: (path: string) => void
   onShowToast?: (kind: 'ok' | 'err' | 'info', text: string) => void
@@ -105,6 +108,7 @@ const FileViewer = ({
   autoSave = true,
   rootPath,
   initialLine,
+  initialMatch,
   onOpenExternal,
   onShowInFolder,
   onShowToast,
@@ -121,6 +125,7 @@ const FileViewer = ({
 
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const monacoInstanceRef = useRef<typeof monaco | null>(null)
+  const decorationIdsRef = useRef<string[]>([])
   const handleSaveRef = useRef<(silent?: boolean) => Promise<void>>(async () => {})
   const autoSaveTimerRef = useRef<number | null>(null)
   const activeFileRef = useRef<FileContent | null>(file)
@@ -266,14 +271,61 @@ const FileViewer = ({
     }
   }
 
+  // Nhảy tới dòng/vùng khớp và đánh dấu kết quả tìm kiếm trực tiếp trên editor
+  const revealInitialTarget = useCallback(
+    (editor: monaco.editor.IStandaloneCodeEditor) => {
+      const line = initialLine
+      if (!line) {
+        if (decorationIdsRef.current.length) {
+          decorationIdsRef.current = editor.deltaDecorations(decorationIdsRef.current, [])
+        }
+        return
+      }
+      const model = editor.getModel()
+      if (!model) return
+      const lineNumber = Math.min(Math.max(1, line), model.getLineCount())
+      const lineMax = model.getLineMaxColumn(lineNumber)
+      const startColumn = Math.min(lineMax, Math.max(1, (initialMatch?.start ?? 0) + 1))
+      const endColumn = Math.min(lineMax, Math.max(startColumn, (initialMatch?.end ?? initialMatch?.start ?? 0) + 1))
+      const target = new monaco.Range(lineNumber, startColumn, lineNumber, endColumn)
+
+      if (initialMatch) {
+        // Bôi đen đúng đoạn khớp rồi đưa vào giữa khung nhìn
+        editor.setSelection(target)
+        editor.revealRangeInCenter(target, monaco.editor.ScrollType.Smooth)
+      } else {
+        editor.setPosition({ lineNumber, column: 1 })
+        editor.revealLineInCenter(lineNumber)
+      }
+      editor.focus()
+
+      const decorations: monaco.editor.IModelDeltaDecoration[] = [
+        {
+          range: new monaco.Range(lineNumber, 1, lineNumber, lineMax),
+          options: { isWholeLine: true, className: 'pm-editor-search-line' },
+        },
+      ]
+      if (initialMatch) {
+        decorations.push({
+          range: target,
+          options: {
+            inlineClassName: 'pm-editor-search-hit',
+            overviewRuler: {
+              color: '#f5a623',
+              position: monaco.editor.OverviewRulerLane.Center,
+            },
+          },
+        })
+      }
+      decorationIdsRef.current = editor.deltaDecorations(decorationIdsRef.current, decorations)
+    },
+    [initialLine, initialMatch],
+  )
+
   // Lắng nghe thay đổi initialLine để nhảy tới dòng tương ứng
   useEffect(() => {
-    if (initialLine && editorRef.current) {
-      editorRef.current.revealLineInCenter(initialLine)
-      editorRef.current.setPosition({ lineNumber: initialLine, column: 1 })
-      editorRef.current.focus()
-    }
-  }, [initialLine, file?.path])
+    if (editorRef.current) revealInitialTarget(editorRef.current)
+  }, [revealInitialTarget, file?.path])
 
   // Callback khi Monaco editor được mount
   const handleEditorDidMount: OnMount = (editor, m) => {
@@ -281,11 +333,7 @@ const FileViewer = ({
     monacoInstanceRef.current = m
 
     if (initialLine) {
-      setTimeout(() => {
-        editor.revealLineInCenter(initialLine)
-        editor.setPosition({ lineNumber: initialLine, column: 1 })
-        editor.focus()
-      }, 60)
+      setTimeout(() => revealInitialTarget(editor), 60)
     }
 
     // Đăng ký phím tắt Ctrl+S / Cmd+S

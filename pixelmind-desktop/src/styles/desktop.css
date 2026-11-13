@@ -2940,3 +2940,15 @@ body:has([data-separator='active']) * {
   background: var(--panel-2);
   color: var(--text);
 }
+
+/* ── Đánh dấu kết quả tìm kiếm trong Monaco Editor ── */
+.pm-editor-search-line {
+  background: rgba(245, 166, 35, 0.16);
+  box-shadow: inset 3px 0 0 0 rgba(245, 166, 35, 0.85);
+}
+
+.pm-editor-search-hit {
+  background: rgba(245, 166, 35, 0.5);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(245, 166, 35, 0.85);
+}

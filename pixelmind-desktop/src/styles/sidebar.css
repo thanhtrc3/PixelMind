@@ -312,6 +312,14 @@
   flex: 1;
 }
 
+/* Tô sáng đoạn khớp trong dòng preview của kết quả tìm kiếm */
+.pm-search-hit {
+  background: color-mix(in srgb, var(--accent, #6d5df5) 40%, transparent);
+  color: var(--text, #f8fafc);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 /* ══════════════════════════════════════════════════════════════
    1. LAYERS TAB (Cây phân cấp DOM)
    ══════════════════════════════════════════════════════════════ */

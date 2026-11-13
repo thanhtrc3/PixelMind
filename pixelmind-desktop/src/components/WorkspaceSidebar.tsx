@@ -46,7 +46,7 @@ import {
   X,
 } from 'lucide-react'
 import type { FileContent, FileNode, ProjectPage, ProjectRecord, DesignTokens } from '@shared/types'
-import type { FileSearchMatch } from '../../shared/api'
+import type { FileSearchMatch, FileSearchRange } from '../../shared/api'
 import { compileSearchQuery } from '../../shared/search'
 import { DEFAULT_DESIGN_TOKENS, tokenToCssVarName } from '@shared/designTokens'
 import type { RealElementInfo } from './CanvasArea'
@@ -77,6 +77,21 @@ function fileToDataUrl(file: FileContent, name: string): string | null {
   return null
 }
 
+/** Tô sáng đoạn khớp trong dòng preview của kết quả tìm kiếm. */
+const renderMatchPreview = (preview: string, start?: number, end?: number) => {
+  if (typeof start !== 'number' || typeof end !== 'number' || end <= start) return preview
+  const from = Math.max(0, Math.min(preview.length, start))
+  const to = Math.max(from, Math.min(preview.length, end))
+  if (from === to) return preview
+  return (
+    <>
+      {preview.slice(0, from)}
+      <mark className="pm-search-hit">{preview.slice(from, to)}</mark>
+      {preview.slice(to)}
+    </>
+  )
+}
+
 /* ── Lịch sử thao tác ảnh trong tab Assets (phiên làm việc hiện tại) ── */
 interface AssetHistoryItem {
   source?: string
@@ -97,7 +112,7 @@ interface WorkspaceSidebarProps {
   selectedPath: string | null
   query: string
   onQuery: (value: string) => void
-  onSelectFile: (node: FileNode, initialLine?: number) => void
+  onSelectFile: (node: FileNode, initialLine?: number, match?: FileSearchRange) => void
   onRefresh: () => void
   onOpenFolder: () => void
   activeTab: SidebarTab
@@ -1731,12 +1746,17 @@ export const WorkspaceSidebar = ({
                                     size: 0,
                                   },
                                   m.line,
+                                  typeof m.matchStart === 'number'
+                                    ? { start: m.matchStart, end: m.matchEnd ?? m.matchStart }
+                                    : undefined,
                                 )
                               }}
                               title={`Dòng ${m.line}: ${m.preview}`}
                             >
                               <span className="pm-search-match-ln">{m.line}:</span>
-                              <span className="pm-search-match-text">{m.preview}</span>
+                              <span className="pm-search-match-text">
+                                {renderMatchPreview(m.preview, m.previewMatchStart, m.previewMatchEnd)}
+                              </span>
                             </div>
                           ))}
                         </div>

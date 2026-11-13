@@ -2497,8 +2497,15 @@ export async function searchProjectContent(
             const rel = relative(root, full).replace(/\\/g, '/')
             const leading = lineText.length - lineText.trimStart().length
             const preview = lineText.trim().slice(0, 300)
-            const matchStart = Math.max(0, Math.min(preview.length, hit.index - leading))
-            const matchEnd = Math.max(matchStart, Math.min(preview.length, matchStart + hit.length))
+            // Vị trí khớp tính theo dòng gốc (0-based) để editor đánh dấu đúng cột.
+            const matchStart = Math.max(0, Math.min(lineText.length, hit.index))
+            const matchEnd = Math.max(matchStart, Math.min(lineText.length, hit.index + hit.length))
+            // Vị trí trong preview (đã trim + cắt 300 ký tự) để tô sáng trong danh sách.
+            const previewMatchStart = Math.max(0, Math.min(preview.length, hit.index - leading))
+            const previewMatchEnd = Math.max(
+              previewMatchStart,
+              Math.min(preview.length, previewMatchStart + hit.length),
+            )
             results.push({
               file: rel,
               fullPath: full,
@@ -2506,6 +2513,8 @@ export async function searchProjectContent(
               preview,
               matchStart,
               matchEnd,
+              previewMatchStart,
+              previewMatchEnd,
             })
             if (results.length >= maxResults) break
           }
