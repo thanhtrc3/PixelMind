@@ -278,6 +278,8 @@ interface CanvasAreaProps {
   onSplitPositionChange?: (pos: number) => void
   /** D2-04 — Bật/tắt viền xanh bao quanh phần tử khi rê chuột (Hover Outline) */
   hoverOutline?: boolean
+  /** D2-05 — Đồng bộ lựa chọn Canvas với cây Layers */
+  syncCanvasToTree?: boolean
 }
 
 const COLOR_SWATCHES = [
@@ -435,6 +437,7 @@ const CanvasArea = ({
   onToggleSplitCompare: propOnToggleSplitCompare,
   onSplitPositionChange: propOnSplitPositionChange,
   hoverOutline = true,
+  syncCanvasToTree: _syncCanvasToTree = true,
 }: CanvasAreaProps) => {
 
   const [currentLiveUrl, setCurrentLiveUrl] = useState<string | null>(url ?? null)

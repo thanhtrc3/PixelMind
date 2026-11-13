@@ -121,6 +121,8 @@ interface WorkspaceSidebarProps {
   onSelectReference?: (asset: ReferenceAsset) => void
   /** Bỏ ảnh mẫu đang chọn. */
   onClearReference?: () => void
+  /** D2-05 — Đồng bộ lựa chọn Canvas sang cây Layers (tự động cuộn đến node) */
+  syncCanvasToTree?: boolean
 }
 
 export function isDynamicRoute(page: ProjectPage): boolean {
@@ -347,6 +349,7 @@ export const WorkspaceSidebar = ({
   referenceAssetPath = null,
   onSelectReference,
   onClearReference,
+  syncCanvasToTree = true,
 }: WorkspaceSidebarProps) => {
   const [layersSearch, setLayersSearch] = useState('')
   const [pagesSearch, setPagesSearch] = useState('')
@@ -882,7 +885,10 @@ export const WorkspaceSidebar = ({
     })
   }, [tokens?.radius, tokenSearch])
 
-  // ── Lắng nghe cây DOM thật phát ra từ iframe qua postMessage ──
+  // ── D2-05: Tự động cuộn cây Layers tới đúng node khi chọn trên Canvas ──
+  const layersListRef = useRef<HTMLDivElement>(null)
+
+  // ── Lắng nghe cây DOM thật phát ra từ iframe qua postMessage & CustomEvent ──
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
       if (!e.data || typeof e.data !== 'object') return
@@ -901,15 +907,51 @@ export const WorkspaceSidebar = ({
         setSelectedElement(null)
       } else if (e.data.type === 'PM_SELECTION_CHANGED') {
         if (e.data.payload?.primary) {
+          if (e.data.payload.primary.uid) setSelectedLayerId(e.data.payload.primary.uid)
           setSelectedElement(e.data.payload.primary)
         } else if (Array.isArray(e.data.payload?.items) && e.data.payload.items.length === 0) {
           setSelectedElement(null)
         }
       }
     }
+
+    const handleElementPicked = (e: Event) => {
+      const custom = e as CustomEvent
+      if (custom.detail) {
+        if (custom.detail.uid) setSelectedLayerId(custom.detail.uid)
+        setSelectedElement(custom.detail)
+      }
+    }
+
     window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
+    window.addEventListener('pixelmind:element-picked', handleElementPicked)
+    return () => {
+      window.removeEventListener('message', handleMessage)
+      window.removeEventListener('pixelmind:element-picked', handleElementPicked)
+    }
   }, [])
+
+  // ── D2-05: Tự động cuộn mượt mà cây Layers tới đúng node khi có tùy chọn syncCanvasToTree ──
+  useEffect(() => {
+    if (!syncCanvasToTree || !selectedLayerId || activeTab !== 'layers') return
+
+    const timer = setTimeout(() => {
+      const container = layersListRef.current
+      if (!container) return
+      const target = container.querySelector<HTMLElement>(
+        `[data-layer-id="${selectedLayerId}"], [data-layer-uid="${selectedLayerId}"]`
+      )
+      if (target) {
+        target.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'nearest',
+        })
+      }
+    }, 40)
+
+    return () => clearTimeout(timer)
+  }, [selectedLayerId, syncCanvasToTree, activeTab, liveLayers])
 
   const requestDomTree = useCallback(() => {
     setIsLoadingLayers(true)
@@ -1855,15 +1897,17 @@ export const WorkspaceSidebar = ({
                   )}
                 </div>
               ) : (
-                <div className="pm-layers-list">
+                <div className="pm-layers-list" ref={layersListRef}>
                   {filteredLayers.map((layer) => {
                     const Icon = getTagIcon(layer.tagName)
-                    const isSelected = selectedLayerId === layer.id
+                    const isSelected = selectedLayerId === layer.id || (Boolean(layer.uid) && selectedLayerId === layer.uid)
                     const isDragOver = dragOverLayerId === layer.id
                     const isDragging = draggingLayerId === layer.id
                     return (
                       <div
                         key={layer.id}
+                        data-layer-id={layer.id}
+                        data-layer-uid={layer.uid || layer.id}
                         draggable={true}
                         onDragStart={(e) => {
                           e.dataTransfer.setData('text/plain', layer.uid || layer.id)

@@ -448,6 +448,7 @@ const WorkspaceView = ({
                   referenceAssetPath={referenceAsset?.path ?? null}
                   onSelectReference={setReferenceAsset}
                   onClearReference={() => setReferenceAsset(null)}
+                  syncCanvasToTree={settings.syncCanvasToTree !== false}
                 />
               </Panel>
               <Separator className="pm-resize" />
@@ -837,6 +838,7 @@ const WorkspaceView = ({
                       splitPosition={splitPosition}
                       onSplitPositionChange={setSplitPosition}
                       hoverOutline={settings.hoverOutline !== false}
+                      syncCanvasToTree={settings.syncCanvasToTree !== false}
                     />
                   ) : (
                     <FileViewer
