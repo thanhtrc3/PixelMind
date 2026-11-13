@@ -62,6 +62,10 @@ export interface FileSearchOptions {
   regex?: boolean
   /** Chỉ khớp khi từ trọn vẹn. */
   wholeWord?: boolean
+  /** Chỉ tìm trong các tệp khớp glob (ví dụ `*.tsx`, `src/**`). Rỗng = mọi tệp văn bản. */
+  includeGlobs?: string[]
+  /** Bỏ qua các tệp/thư mục khớp glob (ví dụ `src/generated/**`, `*.min.js`). */
+  excludeGlobs?: string[]
 }
 
 /** Hợp đồng API mà preload (Electron) và bản giả lập trên trình duyệt cùng cài đặt. */

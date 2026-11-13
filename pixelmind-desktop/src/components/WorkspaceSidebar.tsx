@@ -47,7 +47,8 @@ import {
 } from 'lucide-react'
 import type { FileContent, FileNode, ProjectPage, ProjectRecord, DesignTokens } from '@shared/types'
 import type { FileSearchMatch, FileSearchRange } from '../../shared/api'
-import { compileSearchQuery } from '../../shared/search'
+import { compileSearchQuery, parseGlobList } from '../../shared/search'
+import { LAYOUT_KEYS, persistText, readStoredText } from '../lib/layoutPrefs'
 import { DEFAULT_DESIGN_TOKENS, tokenToCssVarName } from '@shared/designTokens'
 import type { RealElementInfo } from './CanvasArea'
 import { editorBuffer } from '../lib/editorBuffer'
@@ -378,6 +379,24 @@ export const WorkspaceSidebar = ({
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [regexMode, setRegexMode] = useState(false)
   const [wholeWord, setWholeWord] = useState(false)
+  // Bộ lọc glob: giới hạn tệp cần tìm (include) và loại trừ (exclude).
+  const [includeGlobs, setIncludeGlobs] = useState(() => readStoredText(LAYOUT_KEYS.searchInclude))
+  const [excludeGlobs, setExcludeGlobs] = useState(() => readStoredText(LAYOUT_KEYS.searchExclude))
+  const [filtersOpen, setFiltersOpen] = useState(
+    () => Boolean(readStoredText(LAYOUT_KEYS.searchInclude) || readStoredText(LAYOUT_KEYS.searchExclude)),
+  )
+
+  const includeList = useMemo(() => parseGlobList(includeGlobs), [includeGlobs])
+  const excludeList = useMemo(() => parseGlobList(excludeGlobs), [excludeGlobs])
+  const activeFilterCount = includeList.length + excludeList.length
+
+  useEffect(() => {
+    persistText(LAYOUT_KEYS.searchInclude, includeGlobs)
+  }, [includeGlobs])
+
+  useEffect(() => {
+    persistText(LAYOUT_KEYS.searchExclude, excludeGlobs)
+  }, [excludeGlobs])
 
   /** Lỗi biểu thức chính quy — hiển thị ngay khi gõ, không cần chờ kết quả. */
   const searchQueryError = useMemo(() => {
@@ -399,6 +418,8 @@ export const WorkspaceSidebar = ({
           caseSensitive,
           regex: regexMode,
           wholeWord,
+          includeGlobs: includeList,
+          excludeGlobs: excludeList,
           maxResults: 150,
         })
         setContentMatches(results)
@@ -408,7 +429,7 @@ export const WorkspaceSidebar = ({
         setIsSearchingContent(false)
       }
     },
-    [project?.path, caseSensitive, regexMode, wholeWord, searchQueryError],
+    [project?.path, caseSensitive, regexMode, wholeWord, includeList, excludeList, searchQueryError],
   )
 
   useEffect(() => {
@@ -1669,6 +1690,60 @@ export const WorkspaceSidebar = ({
                       {wholeWord ? ' · Từ trọn vẹn' : ''}
                     </span>
                   </div>
+
+                  {/* Bộ lọc include/exclude glob để giới hạn phạm vi tìm kiếm */}
+                  <div className="pm-search-filters">
+                    <button
+                      className="pm-search-filter-toggle"
+                      onClick={() => setFiltersOpen((v) => !v)}
+                      title="Giới hạn tệp/thư mục được tìm bằng glob"
+                      aria-expanded={filtersOpen}
+                    >
+                      <Sliders size={11} />
+                      <span>Lọc tệp</span>
+                      {activeFilterCount > 0 && <span className="pm-search-filter-count">{activeFilterCount}</span>}
+                      <ChevronDown size={11} />
+                    </button>
+                    {filtersOpen && (
+                      <div className="pm-search-filter-body">
+                        <label className="pm-search-filter-field">
+                          <span>Chỉ tìm trong</span>
+                          <input
+                            value={includeGlobs}
+                            placeholder="*.tsx, *.ts, src/**"
+                            spellCheck={false}
+                            onChange={(e) => setIncludeGlobs(e.target.value)}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          />
+                        </label>
+                        <label className="pm-search-filter-field">
+                          <span>Loại trừ</span>
+                          <input
+                            value={excludeGlobs}
+                            placeholder="src/generated/**, *.min.js"
+                            spellCheck={false}
+                            onChange={(e) => setExcludeGlobs(e.target.value)}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          />
+                        </label>
+                        <p className="pm-search-filter-hint">
+                          Cách nhau bằng dấu phẩy. <code>*</code> khớp trong một tầng, <code>**</code> khớp mọi
+                          tầng. Mặc định vẫn bỏ qua <code>node_modules</code>, <code>dist</code>, <code>build</code>…
+                        </p>
+                        {activeFilterCount > 0 && (
+                          <button
+                            className="pm-search-filter-clear"
+                            onClick={() => {
+                              setIncludeGlobs('')
+                              setExcludeGlobs('')
+                            }}
+                          >
+                            <X size={10} /> Xoá bộ lọc
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   {searchQueryError && (
                     <div className="pm-search-error" role="alert">
                       <TriangleAlert size={11} />
@@ -1689,7 +1764,8 @@ export const WorkspaceSidebar = ({
                   ) : !contentQuery.trim() ? (
                     <div className="pm-hint" style={{ padding: '20px 14px', lineHeight: 1.6 }}>
                       Nhập từ khóa hoặc chuỗi cần tìm trong mã nguồn toàn bộ dự án (nhấn Enter hoặc chờ tự động tìm).
-                      Bật <b>.*</b> để tìm bằng regex, bật <b>ab</b> để chỉ khớp từ trọn vẹn.
+                      Bật <b>.*</b> để tìm bằng regex, bật <b>ab</b> để chỉ khớp từ trọn vẹn. Mở <b>Lọc tệp</b> để
+                      giới hạn phần mở rộng/thư mục hoặc loại trừ tệp sinh tự động.
                     </div>
                   ) : searchQueryError ? (
                     <div className="pm-hint" style={{ padding: '20px 14px', lineHeight: 1.6, color: 'var(--color-danger-text, #f87171)' }}>
@@ -1697,9 +1773,11 @@ export const WorkspaceSidebar = ({
                     </div>
                   ) : groupedContentMatches.length === 0 ? (
                     <div className="pm-hint" style={{ padding: '20px 14px' }}>
-                      {regexMode || wholeWord
-                        ? 'Không có dòng nào khớp biểu thức/từ trọn vẹn đang tìm.'
-                        : `Không tìm thấy kết quả nào chứa "${contentQuery}".`}
+                      {activeFilterCount > 0
+                        ? `Không tìm thấy "${contentQuery}" trong phạm vi bộ lọc tệp hiện tại.`
+                        : regexMode || wholeWord
+                          ? 'Không có dòng nào khớp biểu thức/từ trọn vẹn đang tìm.'
+                          : `Không tìm thấy kết quả nào chứa "${contentQuery}".`}
                     </div>
                   ) : (
                     groupedContentMatches.map((item) => (

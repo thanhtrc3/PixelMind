@@ -6,7 +6,13 @@ import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { userInfo } from 'node:os'
 import type { FileSearchMatch, FileSearchOptions } from '../../shared/api'
-import { compileSearchQuery, firstMatchInLine } from '../../shared/search'
+import {
+  compileGlobList,
+  compileSearchQuery,
+  firstMatchInLine,
+  globMayMatchUnder,
+  matchesAnyGlob,
+} from '../../shared/search'
 import type {
   FileContent,
   FileNode,
@@ -2465,6 +2471,13 @@ export async function searchProjectContent(
   }
   const matcher = compiled.regex
   const results: FileSearchMatch[] = []
+  const includeGlobs = compileGlobList(options?.includeGlobs)
+  const excludeGlobs = compileGlobList(options?.excludeGlobs)
+
+  /** Đường dẫn tương đối dùng '/' — cùng dạng mà glob của người dùng mô tả. */
+  const relPathOf = (target: string) => relative(root, target).replace(/\\/g, '/')
+  const isExcluded = (relPath: string) => excludeGlobs.length > 0 && matchesAnyGlob(relPath, excludeGlobs)
+  const isIncluded = (relPath: string) => includeGlobs.length === 0 || matchesAnyGlob(relPath, includeGlobs)
 
   const walk = async (dir: string) => {
     if (results.length >= maxResults) return
@@ -2478,12 +2491,17 @@ export async function searchProjectContent(
     for (const entry of entries) {
       if (results.length >= maxResults) break
       const name = entry.name
+      const relEntry = relPathOf(join(dir, name))
       if (entry.isDirectory()) {
         if (IGNORED_DIRS.has(name) || name.startsWith('.')) continue
+        // Cắt cả cây thư mục khi bị loại trừ hoặc chắc chắn không có tệp include.
+        if (isExcluded(relEntry)) continue
+        if (includeGlobs.length > 0 && !includeGlobs.some((glob) => globMayMatchUnder(glob, relEntry))) continue
         await walk(join(dir, name))
       } else if (entry.isFile()) {
         const ext = extname(name).slice(1).toLowerCase()
         if (!TEXT_EXT.has(ext)) continue
+        if (isExcluded(relEntry) || !isIncluded(relEntry)) continue
         const full = join(dir, name)
         try {
           const stat = await fs.stat(full)
@@ -2494,7 +2512,7 @@ export async function searchProjectContent(
             const lineText = lines[i]
             const hit = firstMatchInLine(lineText, matcher)
             if (!hit) continue
-            const rel = relative(root, full).replace(/\\/g, '/')
+            const rel = relEntry
             const leading = lineText.length - lineText.trimStart().length
             const preview = lineText.trim().slice(0, 300)
             // Vị trí khớp tính theo dòng gốc (0-based) để editor đánh dấu đúng cột.
