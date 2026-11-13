@@ -63,6 +63,7 @@ import VisualErrorCard from './VisualErrorCard'
 import DesignTokensDialog from './DesignTokensDialog'
 import MutationDiffDialog from './MutationDiffDialog'
 import CanvasSplitSlider from './canvas/CanvasSplitSlider'
+import AISidecar from './AISidecar'
 import type { DesignTokens, ProjectPage } from '@shared/types'
 import type {
   ElementMutationTarget,
@@ -233,6 +234,7 @@ interface CanvasAreaProps {
   url: string | null
   running: boolean
   projectName: string
+  projectId?: string
   projectPath?: string
   error?: ParsedError | null
   installing?: boolean
@@ -398,6 +400,7 @@ const CanvasArea = ({
   url,
   running,
   projectName,
+  projectId,
   projectPath,
   error,
   installing = false,
@@ -547,6 +550,38 @@ const CanvasArea = ({
   const [isInspectMode, setIsInspectMode] = useState(false)
   const [hoverEl, setHoverEl] = useState<HoverElementInfo | null>(null)
   const [selectedEl, setSelectedEl] = useState<RealElementInfo | null>(null)
+  // D2-03 — Gắn AI Sidecar vào phần tử đang chọn
+  const [isSidecarOpen, setIsSidecarOpen] = useState(false)
+  const preAiStylesRef = useRef<{
+    styles: Record<string, string>
+    textSnippet?: string
+  } | null>(null)
+
+  // Tự động đóng AI Sidecar khi bỏ chọn phần tử
+  useEffect(() => {
+    if (!selectedEl) {
+      setIsSidecarOpen(false)
+      preAiStylesRef.current = null
+    }
+  }, [selectedEl])
+
+  // Tính toán vị trí hiển thị nổi của AI Sidecar bám sát phần tử đang chọn
+  const sidecarPos = useMemo(() => {
+    if (!selectedEl) return { x: 100, y: 100 }
+    const rect = selectedEl.rect
+    let x = rect.left
+    let y = rect.top + rect.height + 8
+    const stageW = stageRef.current?.clientWidth || 1200
+    const stageH = stageRef.current?.clientHeight || 800
+
+    if (x + 310 > stageW) {
+      x = Math.max(12, stageW - 320)
+    }
+    if (y + 320 > stageH) {
+      y = Math.max(12, rect.top - 320)
+    }
+    return { x: Math.max(12, x), y: Math.max(12, y) }
+  }, [selectedEl])
   // Nhiều phần tử được chọn cùng lúc (Shift + Click hoặc kéo vùng chọn trên canvas)
   const [multiSelection, setMultiSelection] = useState<RealElementInfo[]>([])
   const multiSelectionRef = useRef<RealElementInfo[]>([])
@@ -966,6 +1001,13 @@ const CanvasArea = ({
           }
           return
         }
+        if (e.key === 'k' || e.key === 'K') {
+          if (selectedEl && !pendingMutation && !hasDialog) {
+            e.preventDefault()
+            setIsSidecarOpen((open) => !open)
+            return
+          }
+        }
         if (e.key === 'c' || e.key === 'C') {
           if ((selectedEl || multiSelection.length > 0) && !hasDialog) {
             e.preventDefault()
@@ -986,6 +1028,14 @@ const CanvasArea = ({
         e.preventDefault()
         canvasActionsRef.current.deleteSelection()
         return
+      }
+
+      if (e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+        if (selectedEl && !pendingMutation && !hasDialog) {
+          e.preventDefault()
+          setIsSidecarOpen((open) => !open)
+          return
+        }
       }
 
       if (e.code === 'Space' && !e.repeat) {
@@ -1016,6 +1066,10 @@ const CanvasArea = ({
           next ? 'Phím I' : undefined,
         )
       } else if (e.key === 'Escape') {
+        if (isSidecarOpen) {
+          setIsSidecarOpen(false)
+          return
+        }
         if (selectedEl || multiSelection.length > 0) {
           setSelectedEl(null)
           setMultiSelection([])
@@ -1043,7 +1097,7 @@ const CanvasArea = ({
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [isInspectMode, selectedEl, multiSelection.length, zoomToFit, showToast, sourceLoc?.fullPath, projectPath, pendingMutation, isPageFlowOpen])
+  }, [isInspectMode, isSidecarOpen, selectedEl, multiSelection.length, zoomToFit, showToast, sourceLoc?.fullPath, projectPath, pendingMutation, isPageFlowOpen])
 
   // Xử lý zoom bằng bánh lăn chuột (Ctrl + Wheel)
   const handleWheel = (e: React.WheelEvent) => {
@@ -2302,6 +2356,127 @@ const CanvasArea = ({
       setIsSyncingCode(false)
     }
   }
+
+  // ─── D2-03: AI SIDECAR CALLBACKS (PREVIEW, UNDO, CODE SYNC) ───
+  const handleAiPreview = useCallback((change: { styles?: Record<string, string>; textContent?: string }) => {
+    if (!selectedEl) return
+    if (!preAiStylesRef.current) {
+      preAiStylesRef.current = {
+        styles: { ...(selectedEl.computedStyles as unknown as Record<string, string>) },
+        textSnippet: selectedEl.textSnippet,
+      }
+    }
+
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: 'PM_APPLY_STYLE',
+          payload: {
+            target: {
+              tagName: selectedEl.tagName,
+              id: selectedEl.id,
+              className: selectedEl.className,
+              domPath: selectedEl.domPath,
+              uid: selectedEl.uid,
+              selector: selectedEl.selector,
+              textSnippet: selectedEl.textSnippet,
+            },
+            styles: change.styles || {},
+            textContent: change.textContent,
+          },
+        },
+        '*'
+      )
+    }
+
+    setSelectedEl((prev) => {
+      if (!prev) return null
+      return {
+        ...prev,
+        textSnippet: change.textContent ?? prev.textSnippet ?? '',
+        computedStyles: {
+          ...prev.computedStyles,
+          ...(change.styles || {}),
+        } as any,
+      }
+    })
+  }, [selectedEl])
+
+  const handleAiUndo = useCallback(() => {
+    if (!selectedEl || !preAiStylesRef.current) return
+    const backup = preAiStylesRef.current
+
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: 'PM_APPLY_STYLE',
+          payload: {
+            target: {
+              tagName: selectedEl.tagName,
+              id: selectedEl.id,
+              className: selectedEl.className,
+              domPath: selectedEl.domPath,
+              uid: selectedEl.uid,
+              selector: selectedEl.selector,
+              textSnippet: selectedEl.textSnippet,
+            },
+            styles: backup.styles,
+            textContent: backup.textSnippet,
+          },
+        },
+        '*'
+      )
+    }
+
+    setSelectedEl((prev) => {
+      if (!prev) return null
+      return {
+        ...prev,
+        textSnippet: backup.textSnippet ?? prev.textSnippet ?? '',
+        computedStyles: {
+          ...prev.computedStyles,
+          ...backup.styles,
+        } as any,
+      }
+    })
+
+    preAiStylesRef.current = null
+  }, [selectedEl])
+
+  const handleAiSyncCode = useCallback(async (change: { styles?: Record<string, string>; textContent?: string }): Promise<boolean> => {
+    if (!selectedEl) {
+      showToast('Không có phần tử nào đang chọn!', 'err')
+      return false
+    }
+    if (!sourceLoc?.fullPath) {
+      showToast('Chưa xác định được tệp mã nguồn tương ứng của phần tử!', 'err')
+      return false
+    }
+
+    try {
+      const res = await api.inspect.syncCode({
+        fullPath: sourceLoc.fullPath,
+        oldText: selectedEl.textSnippet,
+        newText: change.textContent ?? selectedEl.textSnippet,
+        styles: change.styles || {},
+        tagName: selectedEl.tagName,
+        lineNumber: sourceLoc.lineNumber,
+        projectPath: projectPath || undefined,
+      })
+
+      if (res?.success) {
+        showToast(`Đã đồng bộ code thành công vào ${sourceLoc.filePath}!`, 'ok')
+        preAiStylesRef.current = null
+        return true
+      } else {
+        showToast(`Lỗi khi lưu mã nguồn: ${res?.error || 'Không xác định'}`, 'err')
+        return false
+      }
+    } catch (err) {
+      showToast(`Không thể lưu vào tệp mã nguồn: ${(err as Error).message}`, 'err')
+      return false
+    }
+  }, [selectedEl, sourceLoc, projectPath, showToast])
 
   // ─── HỘP CÔNG CỤ: CẦU NỐI DOM ↔ MÃ NGUỒN ───
   const sendToolboxMessage = useCallback(
@@ -4585,6 +4760,25 @@ const CanvasArea = ({
                         <Move size={12} strokeWidth={2.4} />
                       </div>
 
+                      {/* D2-03: Nút mở AI Sidecar trên góc khung viền chọn */}
+                      <button
+                        type="button"
+                        className={`canvas__inspect-ai-btn ${isSidecarOpen ? 'active' : ''}`}
+                        style={selectedEl.rect.top < 26 ? { top: 2, right: 28 } : undefined}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setIsSidecarOpen((open) => !open)
+                        }}
+                        title={
+                          isSidecarOpen
+                            ? 'Đóng trợ lý AI (Esc)'
+                            : 'Nhờ AI sửa phần tử này (Ctrl+K hoặc Shift+A)'
+                        }
+                      >
+                        <Sparkles size={11} />
+                        <span>AI</span>
+                      </button>
+
                       <span
                         className="canvas__inspect-selected-tag"
                         style={
@@ -4611,6 +4805,35 @@ const CanvasArea = ({
                     </div>
                   )
                 })()}
+
+                {/* D2-03: Component AI Sidecar gắn vào phần tử đang chọn */}
+                {isInspectMode && isSidecarOpen && selectedEl && (
+                  <AISidecar
+                    x={sidecarPos.x}
+                    y={sidecarPos.y}
+                    label={`<${selectedEl.tagName.toLowerCase()}${selectedEl.id ? `#${selectedEl.id}` : ''}>`}
+                    detail={
+                      sourceLoc
+                        ? `${sourceLoc.filePath}:${sourceLoc.lineNumber}`
+                        : selectedEl.className
+                        ? `.${selectedEl.className.split(' ').filter(Boolean).slice(0, 3).join('.')}`
+                        : selectedEl.selector
+                    }
+                    projectId={projectId}
+                    projectPath={projectPath}
+                    projectName={projectName}
+                    currentRoute={currentRoute}
+                    selectedEl={selectedEl}
+                    sourceLoc={sourceLoc}
+                    initialExpanded={true}
+                    onClose={() => setIsSidecarOpen(false)}
+                    onOpenPanel={() => onOpenAIPanel?.()}
+                    onShowToast={(kind, text) => showToast(text, kind === 'err' ? 'err' : kind === 'ok' ? 'ok' : 'info')}
+                    onPreview={handleAiPreview}
+                    onUndo={handleAiUndo}
+                    onSyncCode={handleAiSyncCode}
+                  />
+                )}
 
                 {error ? (
                   <div style={{ height: '100%', overflowY: 'auto' }}>
@@ -5452,6 +5675,29 @@ const CanvasArea = ({
                           <span style={{ fontSize: 11, color: '#a78bfa', fontFamily: 'monospace' }}>
                             {selectedEl.computedStyles.width} × {selectedEl.computedStyles.height}
                           </span>
+                          <button
+                            type="button"
+                            className="pm-ibtn"
+                            style={{
+                              marginLeft: 'auto',
+                              height: 22,
+                              fontSize: 11,
+                              padding: '0 7px',
+                              width: 'auto',
+                              gap: 4,
+                              display: 'inline-flex',
+                              background: 'linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(168,85,247,0.25) 100%)',
+                              border: '1px solid rgba(168,85,247,0.4)',
+                              borderRadius: 4,
+                              color: '#c4b5fd',
+                              fontWeight: 600,
+                            }}
+                            onClick={() => setIsSidecarOpen((open) => !open)}
+                            title="Mở AI Sidecar cho phần tử này (Ctrl+K hoặc Shift+A)"
+                          >
+                            <Sparkles size={11} style={{ color: '#fde047' }} />
+                            <span>AI Sửa</span>
+                          </button>
                         </div>
 
                         {/* Phân cấp DOM Path */}

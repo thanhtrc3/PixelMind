@@ -821,6 +821,7 @@ const WorkspaceView = ({
                       onOpenAIPanel={onToggleAIPanel}
                       onSelectionChange={setAiSelection}
                       reloadToken={(canvasReloadToken ?? 0) + localReloadToken}
+                      projectId={project?.id}
                       referenceAsset={referenceAsset}
                       onClearReference={() => setReferenceAsset(null)}
                       onOpenAssets={() => {

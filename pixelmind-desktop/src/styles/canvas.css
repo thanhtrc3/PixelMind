@@ -1291,6 +1291,49 @@
   transform: scale(1.08);
 }
 
+/* D2-03 — Nút AI Sidecar trên Selection Box */
+.canvas__inspect-ai-btn {
+  position: absolute;
+  top: -24px;
+  right: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 6px;
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: #ffffff;
+  font-family: var(--font-sans, system-ui);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  pointer-events: auto;
+  user-select: none;
+  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.35);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 46;
+}
+
+.canvas__inspect-ai-btn:hover {
+  background: linear-gradient(135deg, #4f46e5 0%, #9333ea 100%);
+  transform: scale(1.06);
+  box-shadow: 0 4px 12px rgba(168, 85, 247, 0.55);
+}
+
+.canvas__inspect-ai-btn.active {
+  background: #ffffff;
+  color: #7c3aed;
+  box-shadow: 0 0 0 2px #7c3aed;
+}
+
+.canvas__inspect-ai-btn svg {
+  color: #fde047;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+}
+
 /* Tab Bar trên đỉnh Side Panel */
 .canvas__inspector-tabs {
   display: flex;

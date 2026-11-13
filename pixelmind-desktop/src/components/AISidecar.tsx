@@ -52,6 +52,7 @@ interface AISidecarProps {
     lineNumber: number
     lineContent?: string
   } | null
+  initialExpanded?: boolean
   onClose: () => void
   onOpenPanel: () => void
   onShowToast: (kind: ToastKind, text: string) => void
@@ -223,6 +224,7 @@ const AISidecar = ({
   currentRoute,
   selectedEl,
   sourceLoc,
+  initialExpanded = true,
   onClose,
   onOpenPanel,
   onShowToast,
@@ -230,7 +232,7 @@ const AISidecar = ({
   onUndo,
   onSyncCode,
 }: AISidecarProps) => {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(initialExpanded)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [busyStage, setBusyStage] = useState<'packing' | 'calling'>('packing')
