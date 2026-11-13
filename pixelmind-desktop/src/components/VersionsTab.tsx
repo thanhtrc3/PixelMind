@@ -36,6 +36,7 @@ import { editorBuffer } from '../lib/editorBuffer'
 import { formatTime } from '../lib/format'
 import GitGraphView from './GitGraphView'
 import Modal from './Modal'
+import PublishRemoteDialog from './ide/PublishRemoteDialog'
 
 interface VersionsTabProps {
   project: ProjectRecord
@@ -91,6 +92,7 @@ const VersionsTab = ({
   const [branchFilter, setBranchFilter] = useState('')
 
   const [discardTarget, setDiscardTarget] = useState<GitFileChange | null>(null)
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false)
 
   const toastRef = useRef(onShowToast)
   toastRef.current = onShowToast
@@ -201,6 +203,10 @@ const VersionsTab = ({
     try {
       const res = await api.projects.gitPush(project.id, setUpstream)
       if (!res.ok) {
+        if (res.noRemote || res.error?.includes('chưa cấu hình remote repository')) {
+          setPublishDialogOpen(true)
+          return
+        }
         toastRef.current('err', `Push thất bại: ${res.error || 'không rõ lỗi'}`)
         return
       }
@@ -672,9 +678,12 @@ const VersionsTab = ({
         <button
           type="button"
           className="pm-ibtn"
-          onClick={() => void handlePush(false)}
-          disabled={!graph?.hasRemote || pushing}
-          title="Đẩy lên GitHub (git push)"
+          onClick={() => {
+            if (!graph?.hasRemote) setPublishDialogOpen(true)
+            else void handlePush(false)
+          }}
+          disabled={pushing}
+          title={graph?.hasRemote ? 'Đẩy lên GitHub (git push)' : 'Chưa có remote — bấm để liên kết GitHub (Publish)'}
         >
           {pushing ? <Loader2 size={12} className="pm-spin" /> : <Upload size={12} />}
         </button>
@@ -805,12 +814,19 @@ const VersionsTab = ({
                 <button
                   type="button"
                   className="btn sm primary"
-                  onClick={() => void handlePush(false)}
+                  onClick={() => {
+                    if (!graph?.hasRemote) setPublishDialogOpen(true)
+                    else void handlePush(false)
+                  }}
                   disabled={pushing}
                   style={{ width: '100%', justifyContent: 'center', height: 28 }}
                 >
                   {pushing ? <Loader2 size={12} className="pm-spin" /> : <Upload size={12} />}
-                  <span>Đẩy {gitStatus?.ahead ?? 0} commit lên GitHub (Push)</span>
+                  <span>
+                    {!graph?.hasRemote
+                      ? `Xuất bản lên GitHub (Publish ${gitStatus?.ahead ?? 0} commit)`
+                      : `Đẩy ${gitStatus?.ahead ?? 0} commit lên GitHub (Push)`}
+                  </span>
                 </button>
               ) : (
                 <div className="pm-git-split-btn-group">
@@ -873,11 +889,16 @@ const VersionsTab = ({
                         className="pm-git-commit-menu-item"
                         onClick={() => {
                           setCommitMenuOpen(false)
-                          void handlePush(false)
+                          if (!graph?.hasRemote) setPublishDialogOpen(true)
+                          else void handlePush(false)
                         }}
                       >
                         <ArrowUp size={12} />
-                        <span>Push (Đẩy các commit lên GitHub)</span>
+                        <span>
+                          {!graph?.hasRemote
+                            ? 'Xuất bản lên GitHub (Publish)'
+                            : 'Push (Đẩy các commit lên GitHub)'}
+                        </span>
                       </div>
                       <div
                         className="pm-git-commit-menu-item"
@@ -1336,6 +1357,30 @@ const VersionsTab = ({
             <span>{new Date(pendingRollback.timestamp * 1000).toLocaleString('vi-VN')}</span>
           </div>
         </Modal>
+      )}
+
+      {publishDialogOpen && (
+        <PublishRemoteDialog
+          projectName={project.name}
+          onClose={() => setPublishDialogOpen(false)}
+          onPublish={async (remoteUrl) => {
+            if (!api.projects.gitSetRemote) {
+              return { success: false, error: 'Chức năng cấu hình remote chỉ hỗ trợ trên bản desktop.' }
+            }
+            const setRes = await api.projects.gitSetRemote(project.id, remoteUrl)
+            if (!setRes.ok) {
+              return { success: false, error: setRes.error || 'Cấu hình remote thất bại.' }
+            }
+            const pushRes = await api.projects.gitPush(project.id, true)
+            if (!pushRes.ok) {
+              return { success: false, error: pushRes.error || 'Đã liên kết remote nhưng push thất bại.' }
+            }
+            toastRef.current('ok', '✨ Đã liên kết remote và đẩy mã nguồn lên GitHub thành công!')
+            await refreshAll()
+            onRefresh()
+            return { success: true }
+          }}
+        />
       )}
     </div>
   )

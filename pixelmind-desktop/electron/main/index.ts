@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import type { MenuItemConstructorOptions, OpenDialogOptions } from 'electron'
 import type {
   DesignTokens,
+  GitActionResult,
   GitGraphScope,
   GitRollbackResult,
   ProjectPage,
@@ -30,6 +31,7 @@ import {
   diagnoseProject,
   gitBranch,
   gitCheckoutBranch,
+  gitCloneRepository,
   gitCommitMessage,
   gitCreateNewBranch,
   gitDiscardPaths,
@@ -38,6 +40,7 @@ import {
   gitPushProject,
   getGitDiffStats,
   gitRevertFiles,
+  gitSetRemote,
   gitStagePaths,
   gitUnstagePaths,
   initGit,
@@ -979,6 +982,66 @@ ipcMain.handle('project:git-push', async (_e, id: string, setUpstream = false) =
   }
   return res
 })
+
+ipcMain.handle(
+  'project:git-set-remote',
+  async (
+    _event,
+    projectId: string,
+    remoteUrl: string,
+    remoteName = 'origin',
+  ): Promise<GitActionResult> => {
+    const store = await readStore()
+    const project = store.projects.find((p) => p.id === projectId)
+    if (!project) return { ok: false, error: 'Không tìm thấy dự án.' }
+
+    const res = await gitSetRemote(project.path, remoteUrl, remoteName)
+    if (res.ok) {
+      await appendActivity(projectId, {
+        actor: 'bạn',
+        action: `Cấu hình remote repository: ${remoteUrl}`,
+        kind: 'người',
+        status: 'ok',
+      })
+    }
+    return res
+  },
+)
+
+ipcMain.handle(
+  'project:git-clone',
+  async (
+    _event,
+    options: { repoUrl: string; parentDir: string; folderName?: string },
+  ): Promise<{ ok: boolean; project?: ProjectRecord; error?: string }> => {
+    try {
+      const cloneRes = await gitCloneRepository(
+        options.repoUrl,
+        options.parentDir,
+        options.folderName,
+      )
+      if (!cloneRes.ok || !cloneRes.projectPath) {
+        return { ok: false, error: cloneRes.error || 'Clone mã nguồn thất bại.' }
+      }
+
+      const project = await addProject(cloneRes.projectPath)
+      if (!project) {
+        return { ok: false, error: 'Không thể đăng ký dự án vào PixelMind sau khi clone.' }
+      }
+
+      await appendActivity(project.id, {
+        actor: 'bạn',
+        action: `Clone dự án từ ${options.repoUrl}`,
+        kind: 'người',
+        status: 'ok',
+      })
+
+      return { ok: true, project }
+    } catch (err: any) {
+      return { ok: false, error: err.message || 'Lỗi không xác định khi clone dự án.' }
+    }
+  },
+)
 
 ipcMain.handle('project:git-pull', async (_e, id: string) => {
   const store = await readStore()

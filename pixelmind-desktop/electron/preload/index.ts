@@ -113,6 +113,13 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('project:git-checkout', projectId, branchName),
     gitCreateBranch: (projectId: string, branchName: string, checkout = true) =>
       ipcRenderer.invoke('project:git-create-branch', projectId, branchName, checkout),
+    gitClone: (options: {
+      repoUrl: string
+      parentDir: string
+      folderName?: string
+    }) => ipcRenderer.invoke('project:git-clone', options),
+    gitSetRemote: (projectId: string, remoteUrl: string, remoteName = 'origin') =>
+      ipcRenderer.invoke('project:git-set-remote', projectId, remoteUrl, remoteName),
     gitPush: (projectId: string, setUpstream = false) =>
       ipcRenderer.invoke('project:git-push', projectId, setUpstream),
     gitPull: (projectId: string) => ipcRenderer.invoke('project:git-pull', projectId),

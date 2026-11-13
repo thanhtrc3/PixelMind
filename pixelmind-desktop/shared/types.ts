@@ -212,6 +212,7 @@ export interface GitCommitResult {
 export interface GitActionResult {
   ok: boolean
   error?: string
+  noRemote?: boolean
 }
 
 export type ActivityStatus = 'ok' | 'warn' | 'err' | 'info'

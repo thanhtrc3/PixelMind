@@ -3,6 +3,7 @@ import {
   Clock,
   Folder,
   FolderOpen,
+  GitFork,
   Play,
   Plus,
   Search,
@@ -22,6 +23,7 @@ interface ProjectViewProps {
   onOpen: (project: ProjectRecord) => void
   onOpenFolder: () => void
   onNewProject?: () => void
+  onCloneGit?: () => void
   onRemove: (project: ProjectRecord) => void
   onFavorite: (project: ProjectRecord) => void
   onReveal: (project: ProjectRecord) => void
@@ -35,6 +37,7 @@ const ProjectView = ({
   onOpen,
   onOpenFolder,
   onNewProject,
+  onCloneGit,
   onRemove,
   onFavorite,
   onReveal,
@@ -77,6 +80,16 @@ const ProjectView = ({
               <Plus size={13} /> Tạo dự án mới
             </button>
           )}
+          {onCloneGit && (
+            <button
+              className="btn"
+              onClick={onCloneGit}
+              disabled={busy}
+              title="Sao chép dự án từ GitHub / Git server về máy"
+            >
+              <GitFork size={13} /> Clone từ Git
+            </button>
+          )}
           <button className="btn" onClick={onOpenFolder} disabled={busy}>
             <FolderOpen size={13} /> Mở thư mục
           </button>
@@ -108,6 +121,11 @@ const ProjectView = ({
             {onNewProject && (
               <button className="btn primary" onClick={onNewProject} disabled={busy}>
                 <Plus size={13} /> Khởi tạo từ Template
+              </button>
+            )}
+            {onCloneGit && (
+              <button className="btn" onClick={onCloneGit} disabled={busy}>
+                <GitFork size={13} /> Clone từ Git
               </button>
             )}
             <button className="btn" onClick={onOpenFolder} disabled={busy}>

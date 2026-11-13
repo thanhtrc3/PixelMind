@@ -138,6 +138,18 @@ export interface PixelMindApi {
     gitCheckout(projectId: string, branchName: string): Promise<GitActionResult>
     /** Tạo nhánh mới (và tuỳ chọn checkout sang nhánh đó). */
     gitCreateBranch(projectId: string, branchName: string, checkout?: boolean): Promise<GitActionResult>
+    /** Clone một repository Git từ xa về máy và đăng ký thành dự án. */
+    gitClone(options: {
+      repoUrl: string
+      parentDir: string
+      folderName?: string
+    }): Promise<{ ok: boolean; project?: ProjectRecord; error?: string }>
+    /** Cấu hình remote repository (mặc định 'origin'). */
+    gitSetRemote(
+      projectId: string,
+      remoteUrl: string,
+      remoteName?: string,
+    ): Promise<GitActionResult>
     gitInit(projectId: string): Promise<boolean>
     createIndexHtml(projectId: string): Promise<boolean>
     addDevScript(projectId: string): Promise<boolean>

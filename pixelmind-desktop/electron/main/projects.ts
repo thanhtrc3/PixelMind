@@ -1547,7 +1547,7 @@ export async function gitPushProject(
 
     const remotes = await gitRemotes(root)
     if (remotes.size === 0) {
-      return { ok: false, error: 'Dự án chưa cấu hình remote repository (GitHub).' }
+      return { ok: false, noRemote: true, error: 'Dự án chưa cấu hình remote repository (GitHub).' }
     }
     const remoteName = remotes.has('origin') ? 'origin' : Array.from(remotes)[0]
 
@@ -1596,6 +1596,88 @@ export async function gitPullProject(root: string): Promise<GitActionResult> {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     }
+  }
+}
+
+/** Cấu hình remote repository (mặc định 'origin'). */
+export async function gitSetRemote(
+  root: string,
+  remoteUrl: string,
+  remoteName = 'origin',
+): Promise<GitActionResult> {
+  try {
+    const cleanUrl = remoteUrl.trim()
+    if (!cleanUrl) return { ok: false, error: 'URL remote repository không được để trống.' }
+    const remotes = await gitRemotes(root)
+    if (remotes.has(remoteName)) {
+      await execFileAsync('git', ['-C', root, 'remote', 'set-url', remoteName, cleanUrl], {
+        windowsHide: true,
+        timeout: 10_000,
+      })
+    } else {
+      await execFileAsync('git', ['-C', root, 'remote', 'add', remoteName, cleanUrl], {
+        windowsHide: true,
+        timeout: 10_000,
+      })
+    }
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/** Clone một repository Git từ xa về máy tính. */
+export async function gitCloneRepository(
+  repoUrl: string,
+  parentDir: string,
+  folderName?: string,
+): Promise<{ ok: boolean; projectPath?: string; error?: string }> {
+  try {
+    const cleanUrl = repoUrl.trim()
+    if (!cleanUrl) {
+      return { ok: false, error: 'Vui lòng nhập đường dẫn repository Git hợp lệ.' }
+    }
+    const cleanParent = resolve(parentDir.trim())
+    if (!(await isDirectory(cleanParent))) {
+      return { ok: false, error: 'Thư mục đích không tồn tại hoặc không hợp lệ.' }
+    }
+
+    let targetName = folderName?.trim()
+    if (!targetName) {
+      const raw = cleanUrl.split('/').pop()?.replace(/\.git$/i, '') || 'repo'
+      targetName = raw.replace(/[/\\:*?"<>|]/g, '-').trim() || 'cloned-project'
+    }
+
+    const targetPath = join(cleanParent, targetName)
+
+    try {
+      const stat = await fs.stat(targetPath)
+      if (stat.isDirectory()) {
+        const files = await fs.readdir(targetPath)
+        if (files.length > 0) {
+          return {
+            ok: false,
+            error: `Thư mục "${targetName}" đã tồn tại tại nơi lưu và không rỗng. Vui lòng chọn tên khác.`,
+          }
+        }
+      }
+    } catch {
+      // Thư mục chưa tồn tại -> an toàn để git clone tạo mới
+    }
+
+    await execFileAsync('git', ['clone', cleanUrl, targetPath], {
+      windowsHide: true,
+      timeout: 180_000,
+      maxBuffer: 16 * 1024 * 1024,
+    })
+
+    return { ok: true, projectPath: targetPath }
+  } catch (err: any) {
+    const msg = err.message || String(err)
+    return { ok: false, error: `Clone thất bại: ${msg}` }
   }
 }
 

@@ -74,6 +74,7 @@ import AIDesignImportDialog from './components/AIDesignImportDialog'
 import AIThemeDialog from './components/AIThemeDialog'
 import NotificationCenter from './components/ide/NotificationCenter'
 import TemplateGalleryDialog from './components/ide/TemplateGalleryDialog'
+import CloneGitDialog from './components/ide/CloneGitDialog'
 import type { AppNotification } from './lib/notifications'
 import {
   createNotification,
@@ -168,6 +169,7 @@ const App = () => {
   })
   const [notifCenterOpen, setNotifCenterOpen] = useState(false)
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false)
+  const [cloneGitOpen, setCloneGitOpen] = useState(false)
 
   const settings = storeData.settings
   const project = useMemo(
@@ -1598,6 +1600,7 @@ const App = () => {
               onOpen={(item) => void openProject(item)}
               onOpenFolder={() => void openFolder()}
               onNewProject={() => setTemplateGalleryOpen(true)}
+              onCloneGit={() => setCloneGitOpen(true)}
               onRemove={requestRemove}
               onFavorite={(item) => void toggleFavorite(item)}
               onReveal={(item) => void api.fs.openPath(item.path)}
@@ -1976,6 +1979,32 @@ const App = () => {
               return { success: true }
             }
             return { success: false, error: res.error || 'Khởi tạo thất bại.' }
+          }}
+        />
+      )}
+
+      {cloneGitOpen && (
+        <CloneGitDialog
+          onClose={() => setCloneGitOpen(false)}
+          onSelectFolder={async () => {
+            if (api.projects.pickFolderOnly) {
+              return api.projects.pickFolderOnly()
+            }
+            return null
+          }}
+          onClone={async (opts) => {
+            if (!api.projects.gitClone) {
+              return { success: false, error: 'Chức năng clone Git chỉ hỗ trợ trên bản desktop.' }
+            }
+            const res = await api.projects.gitClone(opts)
+            if (res.ok && res.project) {
+              const list = await api.projects.list()
+              setStoreData((prev) => ({ ...prev, projects: list }))
+              await openProject(res.project, true)
+              showToast('ok', `✨ Đã clone thành công dự án "${res.project.name}" từ Git!`)
+              return { success: true }
+            }
+            return { success: false, error: res.error || 'Clone dự án thất bại.' }
           }}
         />
       )}

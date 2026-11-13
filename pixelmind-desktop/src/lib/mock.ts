@@ -486,6 +486,12 @@ export function createBrowserMock(): PixelMindApi {
       async gitCreateBranch() {
         return { ok: true }
       },
+      async gitClone() {
+        return { ok: false, error: 'Chức năng clone Git chỉ hỗ trợ trên bản desktop.' }
+      },
+      async gitSetRemote() {
+        return { ok: true }
+      },
       async gitPush() {
         return { ok: true }
       },
