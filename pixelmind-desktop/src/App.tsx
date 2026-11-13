@@ -1741,6 +1741,17 @@ const App = () => {
             const fileExt = fileName.split('.').pop() || ''
             void openFile({ path, name: fileName, ext: fileExt, type: 'file' })
           }}
+          onOpenContentMatch={(match) => {
+            const fileName = match.file.split('/').pop() || match.file
+            const fileExt = fileName.split('.').pop() || ''
+            void openFile(
+              { path: match.fullPath, name: fileName, ext: fileExt, type: 'file' },
+              match.line,
+              typeof match.matchStart === 'number'
+                ? { start: match.matchStart, end: match.matchEnd ?? match.matchStart }
+                : undefined,
+            )
+          }}
           onClose={() => setDialog(null)}
         />
       )}

@@ -2398,6 +2398,102 @@ body:has([data-separator='active']) * {
   color: var(--text-3);
 }
 
+/* ── Tìm nội dung từ Command Palette (tiền tố '?') ── */
+.pm-palette__hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-3);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.pm-palette__hint svg {
+  flex: none;
+}
+.pm-palette__hint b {
+  color: var(--text-2);
+}
+.pm-palette__hint code {
+  padding: 0 4px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-2);
+  background: rgba(127, 127, 127, 0.14);
+  border-radius: 3px;
+}
+.pm-palette__item--content {
+  height: auto;
+  min-height: 44px;
+  align-items: flex-start;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.pm-palette__item--content > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.pm-palette__content {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.pm-palette__content-hd {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.pm-palette__content-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text);
+}
+.pm-palette__item.on .pm-palette__content-name {
+  color: inherit;
+}
+.pm-palette__content-hd small {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-3);
+}
+.pm-palette__content-code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+.pm-palette__foot {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  font-size: 10px;
+  color: var(--text-3);
+  background: var(--panel-2);
+  border-top: 1px solid var(--line);
+  flex: none;
+}
+
+.pm-palette__foot .pm-kbd {
+  margin-left: 4px;
+}
+
+.pm-palette__foot .pm-kbd:first-child {
+  margin-left: 0;
+}
+
 /* ── Thông báo ngắn ──────────────────────────────────────── */
 .pm-toast-wrap {
   position: fixed;

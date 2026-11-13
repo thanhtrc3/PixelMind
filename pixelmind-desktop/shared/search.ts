@@ -79,6 +79,28 @@ export function describeSearchFlags(flags: SearchQueryFlags = {}): string {
   return parts.length ? parts.join(' · ') : 'Chuỗi thường'
 }
 
+/* ─────────────────── Cú pháp truy vấn của Command Palette ─────────────────── */
+
+export type PaletteQueryMode = 'search' | 'command' | 'content'
+
+export interface ParsedPaletteQuery {
+  /** `search`: tệp + lệnh; `command`: chỉ lệnh; `content`: tìm trong nội dung dự án. */
+  mode: PaletteQueryMode
+  /** Phần truy vấn sau khi bỏ tiền tố (`>` hoặc `?`). */
+  term: string
+}
+
+/**
+ * Nhận diện cú pháp palette: `>` chỉ tìm lệnh, `?` tìm trong nội dung dự án,
+ * còn lại là tìm tệp/lệnh thông thường. Dùng chung để UI và test không lệch nhau.
+ */
+export function parsePaletteQuery(input: string): ParsedPaletteQuery {
+  const raw = (input || '').trim()
+  if (raw.startsWith('>')) return { mode: 'command', term: raw.slice(1).trim() }
+  if (raw.startsWith('?')) return { mode: 'content', term: raw.slice(1).trim() }
+  return { mode: 'search', term: raw }
+}
+
 /* ─────────────────────────── Lọc tệp bằng glob ─────────────────────────── */
 
 export interface CompiledGlob {
