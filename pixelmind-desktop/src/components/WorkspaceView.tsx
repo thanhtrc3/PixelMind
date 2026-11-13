@@ -264,9 +264,6 @@ const WorkspaceView = ({
       if (!focusCanvas && isSidebarOpen && sizes.sidebar) {
         sidebarPanelRef.current?.resize(`${sizes.sidebar}px`)
       }
-      if (!focusCanvas && isRightPanelOpen && !aiPanelOpen && sizes.rightPanel) {
-        rightPanelRef.current?.resize(`${sizes.rightPanel}px`)
-      }
       // Chỉ khôi phục chiều cao nhật ký khi panel đang mở thật sự (không phải trạng thái thu gọn).
       if (isBottomPanelOpen && !isLogCollapsed && sizes.bottomPanel) {
         logPanelRef.current?.resize(`${sizes.bottomPanel}px`)
@@ -277,13 +274,10 @@ const WorkspaceView = ({
     project?.id,
     focusCanvas,
     isSidebarOpen,
-    isRightPanelOpen,
     isBottomPanelOpen,
     isLogCollapsed,
-    aiPanelOpen,
     logPanelRef,
     sidebarPanelRef,
-    rightPanelRef,
   ])
 
   /* Trợ lý AI luôn được mount (kể cả khi panel đóng) để phiên đang chạy không bị ngắt:
@@ -300,6 +294,21 @@ const WorkspaceView = ({
       panel.collapse()
     }
   }, [aiPanelOpen, focusCanvas, aiPanelRef])
+
+  /* Panel phải cũng luôn được mount (chỉ thu gọn khi đóng hoặc khi Trợ lý AI mở):
+     nếu tháo hẳn khỏi Group, mỗi lần panel khác mount lại thư viện sẽ khôi phục
+     kích thước đã thu gọn và panel tự bung ra ngoài ý muốn. */
+  useLayoutEffect(() => {
+    const panel = rightPanelRef.current
+    if (!panel) return
+    if (isRightPanelOpen && !aiPanelOpen && !focusCanvas) {
+      panel.expand()
+      const saved = panelSizesRef.current.rightPanel
+      if (saved) panel.resize(`${saved}px`)
+    } else {
+      panel.collapse()
+    }
+  }, [isRightPanelOpen, aiPanelOpen, focusCanvas, rightPanelRef])
 
   // Bảng nhật ký bị tháo ra khi đóng/mở lại → khôi phục chiều cao trước đó.
   const wasBottomPanelOpenRef = useRef(isBottomPanelOpen)
@@ -480,6 +489,18 @@ const WorkspaceView = ({
       </div>
     )
   }
+
+  /* Panel AI và panel phải luôn nằm trong Group; khi ẩn chỉ thu gọn về 0px.
+     defaultSize = 0 lúc ẩn để nếu thư viện khởi tạo lại layout (khi panel khác
+     mount/unmount) thì chúng vẫn giữ 0px thay vì bung về kích thước mặc định. */
+  const aiVisible = aiPanelOpen && !focusCanvas
+  const rightPanelVisible = isRightPanelOpen && !aiPanelOpen && !focusCanvas
+  const aiDefaultSize = aiVisible
+    ? `${panelSizesRef.current.aiPanel ?? initialPanelSizes.aiPanel ?? DEFAULT_AI_PANEL_WIDTH}px`
+    : '0px'
+  const rightPanelDefaultSize = rightPanelVisible
+    ? `${panelSizesRef.current.rightPanel ?? initialPanelSizes.rightPanel ?? DEFAULT_RIGHT_PANEL_WIDTH}px`
+    : '0px'
 
   return (
     <div className="pm-workspace">
@@ -813,33 +834,34 @@ const WorkspaceView = ({
           </div>
         </Panel>
 
-        {/* ── RunSidebar (ẩn khi AI mở để nhường cột phải cho Trợ lý AI) ── */}
-        {!focusCanvas && isRightPanelOpen && !aiPanelOpen && (
-          <>
-            <Separator className="pm-resize" />
-            <Panel
-              panelRef={rightPanelRef}
-              defaultSize={`${initialPanelSizes.rightPanel ?? DEFAULT_RIGHT_PANEL_WIDTH}px`}
-              minSize={PANEL_SIZE_LIMITS.rightPanel.min}
-              maxSize={PANEL_SIZE_LIMITS.rightPanel.max}
-              collapsible
-              onResize={(size) => {
-                const collapsed = (rightPanelRef.current?.isCollapsed() ?? false) || size.inPixels <= 0
-                if (collapsed) {
-                  if (isRightPanelOpen && !rightCollapseHandledRef.current) {
-                    rightCollapseHandledRef.current = true
-                    rememberPanelSize('rightPanel', rightComfortRef.current)
-                    onToggleRightPanel?.()
-                  }
-                  return
-                }
-                rightCollapseHandledRef.current = false
-                if (size.inPixels >= PANEL_SIZE_LIMITS.rightPanel.min + 24) {
-                  rightComfortRef.current = Math.round(size.inPixels)
-                }
-                rememberPanelSize('rightPanel', size.inPixels)
-              }}
-            >
+        {/* ── RunSidebar (tự thu gọn về 0px khi AI mở để nhường cột phải cho Trợ lý AI) ── */}
+        {rightPanelVisible && <Separator className="pm-resize" />}
+        <Panel
+          panelRef={rightPanelRef}
+          defaultSize={rightPanelDefaultSize}
+          minSize={PANEL_SIZE_LIMITS.rightPanel.min}
+          maxSize={PANEL_SIZE_LIMITS.rightPanel.max}
+          collapsible
+          onResize={(size) => {
+            const collapsed = (rightPanelRef.current?.isCollapsed() ?? false) || size.inPixels <= 0
+            if (collapsed) {
+              // Chỉ coi là người dùng kéo đóng khi panel đang thực sự hiển thị.
+              if (rightPanelVisible && !rightCollapseHandledRef.current) {
+                rightCollapseHandledRef.current = true
+                rememberPanelSize('rightPanel', rightComfortRef.current)
+                onToggleRightPanel?.()
+              }
+              return
+            }
+            rightCollapseHandledRef.current = false
+            if (rightPanelVisible) {
+              if (size.inPixels >= PANEL_SIZE_LIMITS.rightPanel.min + 24) {
+                rightComfortRef.current = Math.round(size.inPixels)
+              }
+              rememberPanelSize('rightPanel', size.inPixels)
+            }
+          }}
+        >
               <div className="pm-panel" style={{ borderLeft: '1px solid var(--line)' }}>
                 <RunSidebar
                   project={project}
@@ -866,14 +888,12 @@ const WorkspaceView = ({
                   onAddDevScript={onAddDevScript}
                 />
               </div>
-            </Panel>
-          </>
-        )}
+        </Panel>
 
         {/* ── Trợ lý AI: dock thật vào layout, không đè lên nội dung ──
              Panel luôn được render; khi đóng chỉ thu gọn về 0px để AIPanel không bị
              unmount (mất listener stream) nếu người dùng đóng panel hoặc đổi màn hình. */}
-        {aiPanelOpen && !focusCanvas && (
+        {aiVisible && (
           <Separator
             className="pm-resize pm-resize-ai"
             title="Kéo để thay đổi độ rộng Trợ lý AI"
@@ -882,7 +902,7 @@ const WorkspaceView = ({
         <Panel
           panelRef={aiPanelRef}
           className="pm-ai-panel"
-          defaultSize={`${initialPanelSizes.aiPanel ?? DEFAULT_AI_PANEL_WIDTH}px`}
+          defaultSize={aiDefaultSize}
           minSize={PANEL_SIZE_LIMITS.aiPanel.min}
           maxSize={PANEL_SIZE_LIMITS.aiPanel.max}
           collapsible
