@@ -616,12 +616,13 @@ ipcMain.handle('store:path', () => storeFilePath())
 
 ipcMain.handle('project:pick', async (): Promise<ProjectRecord | null> => {
   const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
-    title: 'Chọn thư mục hoặc tệp dự án (.sln, .csproj, package.json)',
+    title: 'Chọn thư mục dự án hoặc tệp (.sln, .csproj, package.json, index.html)',
     properties: ['openDirectory', 'openFile'],
     filters: [
-      { name: 'Dự án được hỗ trợ (*.sln, *.csproj, package.json)', extensions: ['sln', 'csproj', 'json'] },
+      { name: 'Dự án được hỗ trợ (*.sln, *.csproj, package.json, *.html)', extensions: ['sln', 'csproj', 'json', 'html', 'htm'] },
       { name: 'Visual Studio Solution (*.sln)', extensions: ['sln'] },
       { name: 'C# Project (*.csproj)', extensions: ['csproj'] },
+      { name: 'Web tĩnh (*.html, *.htm)', extensions: ['html', 'htm'] },
       { name: 'Tất cả tệp', extensions: ['*'] },
     ],
     buttonLabel: 'Mở dự án này',

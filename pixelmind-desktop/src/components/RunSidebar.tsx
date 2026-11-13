@@ -71,8 +71,13 @@ const RunSidebar = ({
   const [copied, setCopied] = useState(false)
   const running = run?.status === 'running' || run?.status === 'starting'
   const options = [
-    ...project.scripts.map((s) => ({ value: s.name, label: `${s.name} — ${scriptLabel(s.kind)}` })),
-    ...(project.hasIndexHtml ? [{ value: 'static', label: 'Xem trước tĩnh (index.html)' }] : []),
+    ...project.scripts.map((s) => ({
+      value: s.name,
+      label: s.name === 'static' ? 'static — Máy chủ tĩnh (PixelMind)' : `${s.name} — ${scriptLabel(s.kind)}`,
+    })),
+    ...(project.hasIndexHtml && !project.scripts.some((s) => s.name === 'static')
+      ? [{ value: 'static', label: 'Xem trước tĩnh (index.html)' }]
+      : []),
     { value: 'custom', label: 'Lệnh tự nhập…' },
   ]
   const isCustom = script === 'custom'

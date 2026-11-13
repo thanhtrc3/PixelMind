@@ -1857,13 +1857,30 @@ export async function diagnoseProject(
     .then(() => true)
     .catch(async () =>
       fs
-        .access(join(dir, 'web', 'index.html'))
+        .access(join(dir, 'index.htm'))
         .then(() => true)
         .catch(async () =>
           fs
-            .access(join(dir, 'wwwroot', 'index.html'))
+            .access(join(dir, 'public', 'index.html'))
             .then(() => true)
-            .catch(() => false),
+            .catch(async () =>
+              fs
+                .access(join(dir, 'web', 'index.html'))
+                .then(() => true)
+                .catch(async () =>
+                  fs
+                    .access(join(dir, 'wwwroot', 'index.html'))
+                    .then(() => true)
+                    .catch(async () => {
+                      try {
+                        const entries = await fs.readdir(dir)
+                        return entries.some((e) => /\.(html|htm)$/i.test(e))
+                      } catch {
+                        return false
+                      }
+                    }),
+                ),
+            ),
         ),
     )
 
@@ -1975,6 +1992,7 @@ async function detectOtherProject(dir: string): Promise<{
   packageManager: PackageManager
   scripts: ScriptEntry[]
   hasIndexHtml: boolean
+  previewDir?: string
 } | null> {
   const exists = async (f: string) =>
     fs.access(join(dir, f)).then(() => true).catch(() => false)
@@ -2105,14 +2123,32 @@ async function detectOtherProject(dir: string): Promise<{
   }
 
   // 9. Web tĩnh thuần (HTML/CSS/JS)
-  if (await exists('index.html')) {
+  const hasRootIndex = (await exists('index.html')) || (await exists('index.htm'))
+  const hasPublicIndex =
+    (await exists(join('public', 'index.html'))) || (await exists(join('public', 'index.htm')))
+
+  let isStaticWeb = hasRootIndex || hasPublicIndex
+  let staticPreviewDir = hasPublicIndex && !hasRootIndex ? 'public' : ''
+
+  if (!isStaticWeb) {
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true })
+      const anyHtml = entries.some((e) => e.isFile() && /\.(html|htm)$/i.test(e.name))
+      if (anyHtml) {
+        isStaticWeb = true
+      }
+    } catch {}
+  }
+
+  if (isStaticWeb) {
     return {
       framework: 'HTML5 / Web Tĩnh',
       packageManager: 'none',
       scripts: [
-        { name: 'live-server', command: 'npx serve .', kind: 'dev' },
+        { name: 'static', command: 'static-server', kind: 'dev', direct: true },
       ],
       hasIndexHtml: true,
+      previewDir: staticPreviewDir,
     }
   }
 
@@ -2197,7 +2233,7 @@ export async function detectProject(folder: string): Promise<ProjectRecord> {
         packageManager: other.packageManager,
         scripts: other.scripts,
         hasIndexHtml: other.hasIndexHtml,
-        previewDir: '',
+        previewDir: other.previewDir ?? '',
         addedAt: Date.now(),
         lastOpenedAt: null,
         favorite: false,
@@ -2220,13 +2256,30 @@ export async function detectProject(folder: string): Promise<ProjectRecord> {
     .then(() => true)
     .catch(async () =>
       fs
-        .access(join(dir, 'web', 'index.html'))
+        .access(join(dir, 'index.htm'))
         .then(() => true)
         .catch(async () =>
           fs
-            .access(join(dir, 'wwwroot', 'index.html'))
+            .access(join(dir, 'public', 'index.html'))
             .then(() => true)
-            .catch(() => false),
+            .catch(async () =>
+              fs
+                .access(join(dir, 'web', 'index.html'))
+                .then(() => true)
+                .catch(async () =>
+                  fs
+                    .access(join(dir, 'wwwroot', 'index.html'))
+                    .then(() => true)
+                    .catch(async () => {
+                      try {
+                        const entries = await fs.readdir(dir)
+                        return entries.some((e) => /\.(html|htm)$/i.test(e))
+                      } catch {
+                        return false
+                      }
+                    }),
+                ),
+            ),
         ),
     )
 

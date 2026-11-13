@@ -518,11 +518,41 @@ export class RunnerManager {
           let data: Buffer
           try {
             const stat = await fs.stat(target)
-            if (stat.isDirectory()) target = join(target, 'index.html')
+            if (stat.isDirectory()) {
+              let foundTarget = ''
+              for (const c of ['index.html', 'index.htm', 'default.html']) {
+                try {
+                  await fs.access(join(target, c))
+                  foundTarget = join(target, c)
+                  break
+                } catch {}
+              }
+              if (!foundTarget) {
+                try {
+                  const dirEntries = await fs.readdir(target)
+                  const firstHtml = dirEntries.find((e) => /\.(html|htm)$/i.test(e))
+                  if (firstHtml) foundTarget = join(target, firstHtml)
+                } catch {}
+              }
+              target = foundTarget || join(target, 'index.html')
+            }
             data = await fs.readFile(target)
           } catch {
-            target = join(root, 'index.html')
-            data = await fs.readFile(target)
+            let fallbackData: Buffer | null = null
+            for (const c of ['index.html', 'index.htm', 'default.html']) {
+              try {
+                fallbackData = await fs.readFile(join(root, c))
+                target = join(root, c)
+                break
+              } catch {}
+            }
+            if (fallbackData) {
+              data = fallbackData
+            } else {
+              res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' })
+              res.end('<h1>404</h1><p>Không tìm thấy tệp trong thư mục dự án.</p>')
+              return
+            }
           }
           res.writeHead(200, { 'Content-Type': MIME[extname(target).slice(1).toLowerCase()] ?? 'application/octet-stream' })
           res.end(data)
