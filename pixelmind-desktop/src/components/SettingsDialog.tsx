@@ -701,12 +701,42 @@ const SettingsDialog = ({
                 </div>
               </div>
 
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Cổng dev ưu tiên (Preferred Port)</b>
+                  <span>
+                    Yêu cầu dev server dùng cổng này (ví dụ: 3000, 5173). Để <b>0</b> để tự động chọn cổng trống. Nếu
+                    cổng đang bị chiếm, PixelMind sẽ cảnh báo trong log và tự chọn cổng khác thay vì tắt tiến trình lạ.
+                  </span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <input
+                    className="pm-input"
+                    type="number"
+                    min={0}
+                    max={65535}
+                    step={1}
+                    style={{ width: 120 }}
+                    value={settings.preferredPort ?? 0}
+                    onChange={(e) => {
+                      const next = Number(e.target.value)
+                      if (!Number.isFinite(next)) return
+                      onUpdate({ preferredPort: next <= 0 ? 0 : Math.min(65535, Math.trunc(next)) })
+                    }}
+                  />
+                </div>
+              </div>
+
               <div className="pm-guide__card" style={{ marginTop: 14 }}>
                 <b style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Sparkles size={13} color="var(--accent)" /> Cơ chế cô lập & bảo vệ cổng mạng
+                  <Sparkles size={13} color="var(--accent)" /> Cơ chế cô lập &amp; bảo vệ cổng mạng
                 </b>
                 <p style={{ margin: '6px 0 0', lineHeight: 1.6 }}>
-                  PixelMind tự động nhận diện trình quản lý gói phù hợp với dự án (npm, pnpm, yarn, bun, dotnet, composer, python, maven). Khi bạn thoát dự án hoặc đóng ứng dụng, cơ chế tiêu diệt tiến trình cấp hệ điều hành (killPort) sẽ giải phóng hoàn toàn cổng mạng để không bị lỗi xung đột cổng.
+                  PixelMind tự động nhận diện trình quản lý gói phù hợp với dự án (npm, pnpm, yarn, bun, dotnet,
+                  composer, python, maven) và chèn cổng ưu tiên theo đúng loại runner (<code>--port</code> cho
+                  Vite/Next/Angular, <code>--urls</code> cho ASP.NET Core, <code>--web-port</code> cho Flutter...). Khi
+                  bạn thoát dự án hoặc đóng ứng dụng, cơ chế tiêu diệt tiến trình cấp hệ điều hành (killPort) sẽ giải
+                  phóng hoàn toàn cổng mạng để không bị lỗi xung đột cổng.
                 </p>
               </div>
             </>

@@ -333,6 +333,12 @@ export interface RunState {
   exitCode: number | null
   startedAt: number
   kind: 'script' | 'static' | 'install' | 'command'
+  /** Cổng ưu tiên (Settings) đã yêu cầu cho lượt chạy này; null/undefined = tự động. */
+  requestedPort?: number | null
+  /** Cổng thực sự đã yêu cầu dev server dùng; null/undefined = runner tự chọn. */
+  appliedPort?: number | null
+  /** Cổng ưu tiên bị chiếm nên đã quay về chế độ tự chọn cổng. */
+  portFallback?: boolean
 }
 
 export interface RunLog {

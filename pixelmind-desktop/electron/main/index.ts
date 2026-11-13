@@ -1277,10 +1277,11 @@ ipcMain.handle('run:start', async (_e, projectId: string, script: string) => {
   const project = store.projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Không tìm thấy dự án trong danh sách.')
   const entry = project.scripts.find((item) => item.name === script)
+  const portOptions = { preferredPort: store.settings.preferredPort }
   const state =
     script === 'static'
-      ? await runner.startStatic(project)
-      : runner.startScript(project, script, entry?.direct ? entry.command : undefined)
+      ? await runner.startStatic(project, portOptions)
+      : await runner.startScript(project, script, entry?.direct ? entry.command : undefined, portOptions)
   await appendActivity(projectId, {
     actor: 'hệ thống',
     action: `Chạy script “${script}” cho ${project.name}`,
@@ -1294,7 +1295,7 @@ ipcMain.handle('run:install', async (_e, projectId: string) => {
   const store = await readStore()
   const project = store.projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Không tìm thấy dự án trong danh sách.')
-  const state = runner.startInstall(project)
+  const state = await runner.startInstall(project)
   await appendActivity(projectId, {
     actor: 'hệ thống',
     action: `Bắt đầu cài đặt thư viện (${project.packageManager || 'npm'} install)`,
@@ -1315,7 +1316,7 @@ ipcMain.handle('run:start-command', async (_e, projectId: string, command: strin
     ...item,
     meta: { ...item.meta, customCommand: clean },
   }))
-  const state = runner.startCommand(project, clean)
+  const state = await runner.startCommand(project, clean, { preferredPort: store.settings.preferredPort })
   await appendActivity(projectId, {
     actor: 'hệ thống',
     action: `Chạy lệnh tự nhập cho ${project.name}: ${clean}`,

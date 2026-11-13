@@ -306,6 +306,19 @@ const RunSidebar = ({
             </div>
           )}
 
+          {run?.portFallback && (
+            <div className="pm-side-alert warn" style={{ marginTop: 8 }}>
+              <div className="pm-side-alert__top">
+                <TriangleAlert size={13} className="pm-warn" />
+                <b>Cổng {run.requestedPort ?? ''} đang bị chiếm</b>
+              </div>
+              <p className="pm-hint" style={{ fontSize: 11, margin: '2px 0 0' }}>
+                PixelMind đã chuyển sang tự chọn cổng trống cho lượt chạy này. Dừng ứng dụng đang dùng cổng{' '}
+                {run.requestedPort ?? ''} hoặc đổi “Cổng dev ưu tiên” trong Cài đặt → Chạy &amp; Xem trước.
+              </p>
+            </div>
+          )}
+
           {project.scripts.length === 0 && !project.hasIndexHtml && (
             <p className="pm-hint">
               Dự án chưa có script sẵn. Chọn <b>Lệnh tự nhập…</b> và nhập lệnh bạn muốn chạy — PixelMind sẽ ghi nhớ lệnh

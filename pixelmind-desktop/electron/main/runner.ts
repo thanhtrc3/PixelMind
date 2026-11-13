@@ -8,6 +8,7 @@ import { Socket } from 'node:net'
 import { extname, join, normalize, resolve, sep, basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { PackageManager, RunLog, RunState } from '../../shared/types'
+import { isPortAvailable, normalizePreferredPort, planPort } from './runnerPorts'
 
 /* Quản lý tiến trình chạy dev server của dự án đang mở. */
 
@@ -247,22 +248,28 @@ export class RunnerManager {
     project: { id: string; path: string; packageManager: PackageManager; scripts?: import('../../shared/types').ScriptEntry[] },
     script: string,
     directCommand?: string,
-  ): RunState {
+    options?: { preferredPort?: number | null },
+  ): Promise<RunState> {
     const running = this.runningOf(project.id)
-    if (running) return running
+    if (running) return Promise.resolve(running)
 
     const matchedCommand = directCommand?.trim() || project.scripts?.find((s) => s.name === script)?.command
     return this.launch(project, {
       script,
       command: this.buildCommand(project.packageManager, script, matchedCommand),
       kind: 'script',
+      port: {
+        preferredPort: options?.preferredPort,
+        manager: project.packageManager,
+        scriptCommand: matchedCommand,
+      },
     })
   }
 
   /** Cài đặt thư viện của dự án bằng package manager hiện có. */
-  startInstall(project: { id: string; path: string; packageManager: PackageManager }): RunState {
+  startInstall(project: { id: string; path: string; packageManager: PackageManager }): Promise<RunState> {
     const running = this.runningOf(project.id)
-    if (running) return running
+    if (running) return Promise.resolve(running)
 
     const manager = project.packageManager === 'none' ? 'npm' : project.packageManager
     let command = 'npm install'
@@ -303,9 +310,13 @@ export class RunnerManager {
   }
 
   /** Chạy một lệnh tuỳ ý trong thư mục dự án (dùng cho dự án không có script). */
-  startCommand(project: { id: string; path: string }, command: string): RunState {
+  startCommand(
+    project: { id: string; path: string; packageManager?: PackageManager },
+    command: string,
+    options?: { preferredPort?: number | null },
+  ): Promise<RunState> {
     const running = this.runningOf(project.id)
-    if (running) return running
+    if (running) return Promise.resolve(running)
 
     const finalCommand = /\bdotnet\b/i.test(command) ? normalizeDotnetCommand(command) : command
 
@@ -313,6 +324,11 @@ export class RunnerManager {
       script: 'tuỳ chỉnh',
       command: finalCommand,
       kind: 'command',
+      port: {
+        preferredPort: options?.preferredPort,
+        manager: project.packageManager ?? 'none',
+        scriptCommand: finalCommand,
+      },
     })
   }
 
@@ -323,13 +339,38 @@ export class RunnerManager {
     return entry?.state ?? null
   }
 
-  private launch(
+  private async launch(
     project: { id: string; path: string },
-    options: { script: string; command: string; kind: RunState['kind']; note?: string },
-  ): RunState {
+    options: {
+      script: string
+      command: string
+      kind: RunState['kind']
+      note?: string
+      /** Cấu hình cổng ưu tiên (Settings) — bỏ trống với lệnh cài đặt. */
+      port?: { preferredPort?: number | null; manager: PackageManager; scriptCommand?: string }
+    },
+  ): Promise<RunState> {
     // Dọn dẹp dứt điểm toàn bộ tiến trình cũ đang chạy của dự án này (nếu có)
     this.stopOfProject(project.id)
     killProjectBinaries(project.path)
+
+    const plan = options.port
+      ? await planPort({
+          preferredPort: options.port.preferredPort,
+          manager: options.port.manager,
+          script: options.script,
+          command: options.command,
+          scriptCommand: options.port.scriptCommand,
+        })
+      : {
+          command: options.command,
+          env: {} as Record<string, string>,
+          requestedPort: null as number | null,
+          appliedPort: null as number | null,
+          portFallback: false,
+          messages: [] as string[],
+        }
+    const command = plan.command
 
     const id = randomUUID()
     const entry: Entry = {
@@ -339,19 +380,22 @@ export class RunnerManager {
         projectId: project.id,
         cwd: resolve(project.path),
         script: options.script,
-        command: options.command,
+        command,
         status: 'starting',
         url: null,
         exitCode: null,
         startedAt: Date.now(),
         kind: options.kind,
+        requestedPort: plan.requestedPort,
+        appliedPort: plan.appliedPort,
+        portFallback: plan.portFallback,
       },
     }
-    const command = options.command
     this.entries.set(id, entry)
     this.onState(entry.state)
     this.emitLog(id, `$ ${command}  (${entry.state.cwd})\n`, 'system')
     if (options.note) this.emitLog(id, options.note, 'system')
+    for (const message of plan.messages) this.emitLog(id, message, 'system')
 
     // .NET: dừng bản app cũ còn sót lại để tránh lỗi khoá file .exe khi build lại
     if (process.platform === 'win32' && /\bdotnet\b/i.test(command)) {
@@ -380,6 +424,7 @@ export class RunnerManager {
           DOTNET_WATCH_SUPPRESS_LAUNCH_BROWSER: '1',
           DOTNET_LAUNCH_BROWSER: 'false',
           CI: '0',
+          ...plan.env,
         },
       })
     } catch (error) {
@@ -425,9 +470,20 @@ export class RunnerManager {
     return entry.state
   }
 
-  startStatic(project: { id: string; path: string; previewDir?: string }): Promise<RunState> {
+  async startStatic(
+    project: { id: string; path: string; previewDir?: string },
+    options?: { preferredPort?: number | null },
+  ): Promise<RunState> {
     const existing = this.staticServers.get(project.id)
-    if (existing && existing.state.status === 'running') return Promise.resolve(existing.state)
+    if (existing && existing.state.status === 'running') return existing.state
+
+    const requested = normalizePreferredPort(options?.preferredPort)
+    let listenPort = 0
+    let portFallback = false
+    if (requested) {
+      if (await isPortAvailable(requested)) listenPort = requested
+      else portFallback = true
+    }
 
     const root = resolve(project.path, project.previewDir ?? '')
     const id = randomUUID()
@@ -444,6 +500,9 @@ export class RunnerManager {
         exitCode: null,
         startedAt: Date.now(),
         kind: 'static',
+        requestedPort: requested,
+        appliedPort: listenPort || null,
+        portFallback,
       },
     }
 
@@ -479,14 +538,23 @@ export class RunnerManager {
         resolvePromise(entry.state)
       })
 
-      server.listen(0, '127.0.0.1', () => {
+      server.listen(listenPort, '127.0.0.1', () => {
         const address = server.address()
         const port = typeof address === 'object' && address ? address.port : 0
         const url = `http://localhost:${port}`
         entry.server = server
         this.entries.set(id, entry)
         this.staticServers.set(project.id, entry)
-        this.update(entry, { status: 'running', url })
+        this.update(entry, { status: 'running', url, appliedPort: requested && !portFallback ? port : null })
+        if (requested && !portFallback) {
+          this.emitLog(id, `[system] Áp dụng cổng ưu tiên ${port} cho máy chủ tĩnh.\n`, 'system')
+        } else if (portFallback) {
+          this.emitLog(
+            id,
+            `[system] ⚠ Cổng ưu tiên ${requested} đang bị tiến trình khác chiếm — đã chuyển sang cổng trống ${port}.\n`,
+            'system',
+          )
+        }
         this.emitLog(id, `$ máy chủ tĩnh đang chạy tại ${url}\nGốc: ${root}\n`, 'system')
         resolvePromise(entry.state)
       })
