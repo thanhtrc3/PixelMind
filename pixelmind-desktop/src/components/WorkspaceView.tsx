@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import {
   FileCode2,
@@ -117,6 +117,8 @@ interface WorkspaceViewProps {
   onOpenTheme?: () => void
   canvasReloadToken?: number
   onAIApplied?: () => void
+  /** Workspace có đang là màn hình hiển thị không (vẫn mounted khi ẩn để giữ phiên AI). */
+  active?: boolean
 }
 
 const DEFAULT_AI_PANEL_WIDTH = 400
@@ -191,6 +193,7 @@ const WorkspaceView = ({
   onOpenTheme,
   canvasReloadToken = 0,
   onAIApplied,
+  active = true,
 }: WorkspaceViewProps) => {
   const parsedError = useMemo(() => parseRunError(logs, run), [logs, run])
   /* App có thể đã nắn chỉnh route ASP.NET Core; ưu tiên URL đó. */
@@ -201,6 +204,11 @@ const WorkspaceView = ({
   const rightPanelRef = usePanelRef()
   const aiPanelRef = usePanelRef()
 
+  /* Chống gọi toggle hai lần khi kéo panel qua ngưỡng thu gọn (nhiều sự kiện resize). */
+  const sidebarCollapseHandledRef = useRef(false)
+  const rightCollapseHandledRef = useRef(false)
+  const aiCollapseHandledRef = useRef(false)
+
   const [isLogCollapsed, setIsLogCollapsed] = useState(() =>
     readStoredFlag(LAYOUT_KEYS.logCollapsed, false),
   )
@@ -210,6 +218,11 @@ const WorkspaceView = ({
   // Kích thước panel đã lưu theo từng dự án (đọc một lần khi mở; đổi dự án sẽ nạp lại).
   const [initialPanelSizes] = useState<PanelSizeMap>(() => readPanelSizes(project?.id))
   const panelSizesRef = useRef<PanelSizeMap>(initialPanelSizes)
+  /* Kích thước "thoải mái" gần nhất trước khi kéo panel qua ngưỡng thu gọn: dùng để
+     mở lại panel ở kích thước cũ thay vì dính mức tối thiểu. */
+  const sidebarComfortRef = useRef(initialPanelSizes.sidebar ?? DEFAULT_SIDEBAR_WIDTH)
+  const rightComfortRef = useRef(initialPanelSizes.rightPanel ?? DEFAULT_RIGHT_PANEL_WIDTH)
+  const aiComfortRef = useRef(initialPanelSizes.aiPanel ?? DEFAULT_AI_PANEL_WIDTH)
   const projectIdRef = useRef<string | null>(project?.id ?? null)
   const panelPersistTimerRef = useRef<number | null>(null)
 
@@ -232,34 +245,61 @@ const WorkspaceView = ({
     }, 250)
   }, [])
 
-  /** Khôi phục kích thước đã lưu của dự án hiện tại (kể cả khi chuyển dự án). */
+  /** Đọc kích thước đã lưu khi mở dự án hoặc chuyển dự án. */
   useEffect(() => {
     const projectId = project?.id ?? null
     projectIdRef.current = projectId
     const sizes = readPanelSizes(projectId)
     panelSizesRef.current = sizes
-    const id = window.setTimeout(() => {
-      if (sizes.sidebar) sidebarPanelRef.current?.resize(`${sizes.sidebar}px`)
-      if (sizes.rightPanel) rightPanelRef.current?.resize(`${sizes.rightPanel}px`)
-      if (sizes.bottomPanel) logPanelRef.current?.resize(`${sizes.bottomPanel}px`)
-      if (sizes.aiPanel) aiPanelRef.current?.resize(`${sizes.aiPanel}px`)
-    }, 0)
-    return () => window.clearTimeout(id)
-  }, [project?.id, logPanelRef, sidebarPanelRef, rightPanelRef, aiPanelRef])
+    if (sizes.sidebar) sidebarComfortRef.current = sizes.sidebar
+    if (sizes.rightPanel) rightComfortRef.current = sizes.rightPanel
+    if (sizes.aiPanel) aiComfortRef.current = sizes.aiPanel
+  }, [project?.id])
 
   // Panel bị tháo ra khi thu gọn rồi mở lại → áp lại kích thước gần nhất trong phiên.
+  // Chỉ đọc từ ref (không đọc lại localStorage) để không ghi đè thay đổi vừa kéo.
   useEffect(() => {
-    if (focusCanvas) return
     const id = window.setTimeout(() => {
       const sizes = panelSizesRef.current
-      if (isSidebarOpen && sizes.sidebar) sidebarPanelRef.current?.resize(`${sizes.sidebar}px`)
-      if (isRightPanelOpen && !aiPanelOpen && sizes.rightPanel) {
+      if (!focusCanvas && isSidebarOpen && sizes.sidebar) {
+        sidebarPanelRef.current?.resize(`${sizes.sidebar}px`)
+      }
+      if (!focusCanvas && isRightPanelOpen && !aiPanelOpen && sizes.rightPanel) {
         rightPanelRef.current?.resize(`${sizes.rightPanel}px`)
       }
-      if (aiPanelOpen && sizes.aiPanel) aiPanelRef.current?.resize(`${sizes.aiPanel}px`)
+      // Chỉ khôi phục chiều cao nhật ký khi panel đang mở thật sự (không phải trạng thái thu gọn).
+      if (isBottomPanelOpen && !isLogCollapsed && sizes.bottomPanel) {
+        logPanelRef.current?.resize(`${sizes.bottomPanel}px`)
+      }
     }, 0)
     return () => window.clearTimeout(id)
-  }, [focusCanvas, isSidebarOpen, isRightPanelOpen, aiPanelOpen, sidebarPanelRef, rightPanelRef, aiPanelRef])
+  }, [
+    project?.id,
+    focusCanvas,
+    isSidebarOpen,
+    isRightPanelOpen,
+    isBottomPanelOpen,
+    isLogCollapsed,
+    aiPanelOpen,
+    logPanelRef,
+    sidebarPanelRef,
+    rightPanelRef,
+  ])
+
+  /* Trợ lý AI luôn được mount (kể cả khi panel đóng) để phiên đang chạy không bị ngắt:
+     panel chỉ thu gọn về 0px thay vì tháo khỏi cây React. Dùng layout effect để thu gọn
+     trước khi trình duyệt vẽ, tránh nháy panel một khung hình. */
+  useLayoutEffect(() => {
+    const panel = aiPanelRef.current
+    if (!panel) return
+    if (aiPanelOpen && !focusCanvas) {
+      panel.expand()
+      const saved = panelSizesRef.current.aiPanel
+      if (saved) panel.resize(`${saved}px`)
+    } else {
+      panel.collapse()
+    }
+  }, [aiPanelOpen, focusCanvas, aiPanelRef])
 
   // Bảng nhật ký bị tháo ra khi đóng/mở lại → khôi phục chiều cao trước đó.
   const wasBottomPanelOpenRef = useRef(isBottomPanelOpen)
@@ -321,6 +361,8 @@ const WorkspaceView = ({
   // Phím tắt bàn phím toàn cục: Ctrl+S (Lưu), Ctrl+Z (Hoàn tác), Ctrl+Y (Làm lại), Ctrl+B (Toggle Sidebar)
   useEffect(() => {
     const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      // Workspace vẫn mounted khi ở màn hình khác (giữ phiên AI) → chỉ nhận phím tắt khi đang hiển thị.
+      if (!active) return
       const target = e.target as HTMLElement
       const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
 
@@ -407,7 +449,7 @@ const WorkspaceView = ({
 
     window.addEventListener('keydown', handleGlobalShortcuts)
     return () => window.removeEventListener('keydown', handleGlobalShortcuts)
-  }, [isSidebarOpen, onToggleSidebar, onSidebarTabChange, onToggleAIPanel])
+  }, [active, isSidebarOpen, onToggleSidebar, onSidebarTabChange, onToggleAIPanel])
 
   // Lắng nghe phím Escape để thoát chế độ Focus Canvas
   useEffect(() => {
@@ -452,7 +494,24 @@ const WorkspaceView = ({
                 minSize={PANEL_SIZE_LIMITS.sidebar.min}
                 maxSize={PANEL_SIZE_LIMITS.sidebar.max}
                 collapsible
-                onResize={(size) => rememberPanelSize('sidebar', size.inPixels)}
+                onResize={(size) => {
+                  // Kéo qua ngưỡng thu gọn: đồng bộ cờ mở/đóng để nút trên thanh công cụ đổi theo.
+                  const collapsed = (sidebarPanelRef.current?.isCollapsed() ?? false) || size.inPixels <= 0
+                  if (collapsed) {
+                    if (isSidebarOpen && !sidebarCollapseHandledRef.current) {
+                      sidebarCollapseHandledRef.current = true
+                      // Nhớ kích thước trước khi kéo qua ngưỡng, tránh lần sau mở lại ở mức tối thiểu.
+                      rememberPanelSize('sidebar', sidebarComfortRef.current)
+                      onToggleSidebar?.()
+                    }
+                    return
+                  }
+                  sidebarCollapseHandledRef.current = false
+                  if (size.inPixels >= PANEL_SIZE_LIMITS.sidebar.min + 24) {
+                    sidebarComfortRef.current = Math.round(size.inPixels)
+                  }
+                  rememberPanelSize('sidebar', size.inPixels)
+                }}
               >
                 <WorkspaceSidebar
                   project={project}
@@ -764,7 +823,22 @@ const WorkspaceView = ({
               minSize={PANEL_SIZE_LIMITS.rightPanel.min}
               maxSize={PANEL_SIZE_LIMITS.rightPanel.max}
               collapsible
-              onResize={(size) => rememberPanelSize('rightPanel', size.inPixels)}
+              onResize={(size) => {
+                const collapsed = (rightPanelRef.current?.isCollapsed() ?? false) || size.inPixels <= 0
+                if (collapsed) {
+                  if (isRightPanelOpen && !rightCollapseHandledRef.current) {
+                    rightCollapseHandledRef.current = true
+                    rememberPanelSize('rightPanel', rightComfortRef.current)
+                    onToggleRightPanel?.()
+                  }
+                  return
+                }
+                rightCollapseHandledRef.current = false
+                if (size.inPixels >= PANEL_SIZE_LIMITS.rightPanel.min + 24) {
+                  rightComfortRef.current = Math.round(size.inPixels)
+                }
+                rememberPanelSize('rightPanel', size.inPixels)
+              }}
             >
               <div className="pm-panel" style={{ borderLeft: '1px solid var(--line)' }}>
                 <RunSidebar
@@ -796,55 +870,74 @@ const WorkspaceView = ({
           </>
         )}
 
-        {/* ── Trợ lý AI: dock thật vào layout, không đè lên nội dung ── */}
-        {!focusCanvas && aiPanelOpen && onToggleAIPanel && onShowToast && (
-          <>
-            <Separator
-              className="pm-resize pm-resize-ai"
-              title="Kéo để thay đổi độ rộng Trợ lý AI"
-            />
-            <Panel
-              panelRef={aiPanelRef}
-              defaultSize={`${initialPanelSizes.aiPanel ?? DEFAULT_AI_PANEL_WIDTH}px`}
-              minSize={PANEL_SIZE_LIMITS.aiPanel.min}
-              maxSize={PANEL_SIZE_LIMITS.aiPanel.max}
-              onResize={(size) => rememberPanelSize('aiPanel', size.inPixels)}
-            >
-              <AIPanel
-                open={aiPanelOpen}
-                onClose={onToggleAIPanel}
-                projectId={project.id}
-                projectPath={project.path}
-                projectName={project.name}
-                route={currentRoute}
-                selected={aiSelection}
-                parsedError={parsedError}
-                rawLogs={logs}
-                initialTab={aiInitialTab}
-                onTriggerBuild={onRun}
-                errorLog={
-                  parsedError
-                    ? [
-                        parsedError.title,
-                        parsedError.summary,
-                        parsedError.file
-                          ? `${parsedError.file}${parsedError.line ? `:${parsedError.line}` : ''}`
-                          : '',
-                        parsedError.recommendation,
-                      ]
-                        .filter(Boolean)
-                        .join('\n')
-                    : ''
-                }
-                onOpenDesign={() => onOpenDesign?.()}
-                onOpenTheme={() => onOpenTheme?.()}
-                onOpenSettings={onSettings}
-                onApplied={onAIApplied}
-                onShowToast={onShowToast}
-              />
-            </Panel>
-          </>
+        {/* ── Trợ lý AI: dock thật vào layout, không đè lên nội dung ──
+             Panel luôn được render; khi đóng chỉ thu gọn về 0px để AIPanel không bị
+             unmount (mất listener stream) nếu người dùng đóng panel hoặc đổi màn hình. */}
+        {aiPanelOpen && !focusCanvas && (
+          <Separator
+            className="pm-resize pm-resize-ai"
+            title="Kéo để thay đổi độ rộng Trợ lý AI"
+          />
         )}
+        <Panel
+          panelRef={aiPanelRef}
+          className="pm-ai-panel"
+          defaultSize={`${initialPanelSizes.aiPanel ?? DEFAULT_AI_PANEL_WIDTH}px`}
+          minSize={PANEL_SIZE_LIMITS.aiPanel.min}
+          maxSize={PANEL_SIZE_LIMITS.aiPanel.max}
+          collapsible
+          onResize={(size) => {
+            const collapsed = (aiPanelRef.current?.isCollapsed() ?? false) || size.inPixels <= 0
+            if (collapsed) {
+              if (aiPanelOpen && !focusCanvas && !aiCollapseHandledRef.current) {
+                aiCollapseHandledRef.current = true
+                rememberPanelSize('aiPanel', aiComfortRef.current)
+                onToggleAIPanel?.()
+              }
+              return
+            }
+            aiCollapseHandledRef.current = false
+            if (aiPanelOpen && !focusCanvas) {
+              if (size.inPixels >= PANEL_SIZE_LIMITS.aiPanel.min + 24) {
+                aiComfortRef.current = Math.round(size.inPixels)
+              }
+              rememberPanelSize('aiPanel', size.inPixels)
+            }
+          }}
+        >
+          <AIPanel
+            open
+            onClose={() => onToggleAIPanel?.()}
+            projectId={project.id}
+            projectPath={project.path}
+            projectName={project.name}
+            route={currentRoute}
+            selected={aiSelection}
+            parsedError={parsedError}
+            rawLogs={logs}
+            initialTab={aiInitialTab}
+            onTriggerBuild={onRun}
+            errorLog={
+              parsedError
+                ? [
+                    parsedError.title,
+                    parsedError.summary,
+                    parsedError.file
+                      ? `${parsedError.file}${parsedError.line ? `:${parsedError.line}` : ''}`
+                      : '',
+                    parsedError.recommendation,
+                  ]
+                    .filter(Boolean)
+                    .join('\n')
+                : ''
+            }
+            onOpenDesign={() => onOpenDesign?.()}
+            onOpenTheme={() => onOpenTheme?.()}
+            onOpenSettings={onSettings}
+            onApplied={onAIApplied}
+            onShowToast={onShowToast ?? (() => {})}
+          />
+        </Panel>
       </Group>
     </div>
   )

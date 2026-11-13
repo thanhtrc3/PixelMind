@@ -1490,7 +1490,7 @@ const App = () => {
 
       <div className="pm-body">
         <main className="pm-main">
-          {view === 'projects' ? (
+          {view === 'projects' && (
             <ProjectView
               projects={storeData.projects}
               home={appInfo?.home}
@@ -1502,7 +1502,8 @@ const App = () => {
               onFavorite={(item) => void toggleFavorite(item)}
               onReveal={(item) => void api.fs.openPath(item.path)}
             />
-          ) : view === 'detail' && project ? (
+          )}
+          {view === 'detail' && project && (
             <ProjectDetail
               project={project}
               run={run}
@@ -1532,8 +1533,16 @@ const App = () => {
               onCreateIndexHtml={() => void handleCreateIndexHtml()}
               onAddDevScript={() => void handleAddDevScript()}
             />
-          ) : (
+          )}
+          {/* Workspace luôn được giữ mounted (ẩn khi ở màn hình khác) để phiên AI
+              và các tác vụ đang chạy không bị ngắt khi người dùng điều hướng. */}
+          <div
+            className="pm-view-host"
+            data-hidden={view !== 'workspace'}
+            aria-hidden={view !== 'workspace'}
+          >
             <WorkspaceView
+              active={view === 'workspace'}
               project={project}
               tree={tree}
               treeLoading={treeLoading}
@@ -1608,7 +1617,7 @@ const App = () => {
                 void refreshProject()
               }}
             />
-          )}
+          </div>
         </main>
       </div>
 

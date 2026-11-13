@@ -54,6 +54,12 @@ import {
 } from './projects'
 import { RunnerManager } from './runner'
 import { decideQuit } from './quitGuard'
+import {
+  normalizeWindowState,
+  readWindowStateFile,
+  writeWindowStateFile,
+  type WindowState,
+} from './windowState'
 import { TerminalManager } from './terminal'
 import {
   copyPageFile,
@@ -394,14 +400,30 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+/** File lưu trạng thái cửa sổ (bounds + maximize) trong thư mục dữ liệu ứng dụng. */
+function windowStatePath(): string {
+  return join(app.getPath('userData'), 'window-state.json')
+}
+
 function createWindow() {
   /* Co cửa sổ theo vùng làm việc thực tế để không bị tràn ra ngoài màn hình
      (máy dùng tỉ lệ hiển thị 125% thường có vùng làm việc nhỏ hơn 1440×900). */
   const { workAreaSize } = screen.getPrimaryDisplay()
-  const width = Math.min(1440, Math.max(960, workAreaSize.width - 24))
-  const height = Math.min(900, Math.max(640, workAreaSize.height - 24))
+  const defaultWidth = Math.min(1440, Math.max(960, workAreaSize.width - 24))
+  const defaultHeight = Math.min(900, Math.max(640, workAreaSize.height - 24))
+
+  /* Khôi phục đúng vị trí/kích thước và trạng thái maximize của lần thoát trước. */
+  const workAreas = screen.getAllDisplays().map((display) => display.workArea)
+  const stateFilePath = windowStatePath()
+  const savedState = normalizeWindowState(readWindowStateFile(stateFilePath), workAreas)
+  const savedBounds = savedState?.bounds
+
+  const width = savedBounds?.width ?? defaultWidth
+  const height = savedBounds?.height ?? defaultHeight
 
   mainWindow = new BrowserWindow({
+    x: savedBounds?.x,
+    y: savedBounds?.y,
     width,
     height,
     minWidth: Math.min(1080, width),
@@ -422,7 +444,45 @@ function createWindow() {
     },
   })
 
-  mainWindow.on('ready-to-show', () => mainWindow?.show())
+  let stateSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** Chụp trạng thái hiện tại; khi đang maximize vẫn lưu kích thước "bình thường". */
+  const captureWindowState = (): WindowState | null => {
+    if (!mainWindow || mainWindow.isDestroyed()) return null
+    if (mainWindow.isMinimized() || mainWindow.isFullScreen()) return null
+    const maximized = mainWindow.isMaximized()
+    const rawBounds = maximized ? mainWindow.getNormalBounds() : mainWindow.getBounds()
+    const normalized = normalizeWindowState(
+      { bounds: rawBounds, maximized },
+      screen.getAllDisplays().map((display) => display.workArea),
+    )
+    return normalized ?? { bounds: rawBounds, maximized }
+  }
+
+  const persistWindowState = () => {
+    const state = captureWindowState()
+    if (state) writeWindowStateFile(stateFilePath, state)
+  }
+
+  /* Gộp các sự kiện resize/move/maximize liên tiếp thành một lần ghi. */
+  const queueWindowStateSave = () => {
+    if (stateSaveTimer !== null) clearTimeout(stateSaveTimer)
+    stateSaveTimer = setTimeout(() => {
+      stateSaveTimer = null
+      persistWindowState()
+    }, 350)
+  }
+
+  mainWindow.on('resize', queueWindowStateSave)
+  mainWindow.on('move', queueWindowStateSave)
+  mainWindow.on('maximize', queueWindowStateSave)
+  mainWindow.on('unmaximize', queueWindowStateSave)
+
+  mainWindow.on('ready-to-show', () => {
+    // Áp trạng thái maximize trước khi hiện để tránh nháy từ kích thước thường sang toàn màn hình.
+    if (savedState?.maximized) mainWindow?.maximize()
+    mainWindow?.show()
+  })
 
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
     const responseHeaders = { ...details.responseHeaders }
@@ -480,6 +540,13 @@ function createWindow() {
   })
 
   mainWindow.on('close', (event) => {
+    // Luôn lưu trạng thái cửa sổ trước khi xử lý thoát (kể cả khi người dùng chọn Ở lại).
+    if (stateSaveTimer !== null) {
+      clearTimeout(stateSaveTimer)
+      stateSaveTimer = null
+    }
+    persistWindowState()
+
     // Đã xác nhận thoát → cho đóng; ngược lại hỏi trước khi dừng máy chủ.
     if (allowWindowClose) return
     event.preventDefault()
@@ -487,6 +554,10 @@ function createWindow() {
   })
 
   mainWindow.on('closed', () => {
+    if (stateSaveTimer !== null) {
+      clearTimeout(stateSaveTimer)
+      stateSaveTimer = null
+    }
     mainWindow = null
     allowWindowClose = false
   })

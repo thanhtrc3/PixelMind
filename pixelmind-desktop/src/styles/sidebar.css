@@ -93,21 +93,33 @@
   align-items: center;
   gap: 8px;
   height: 36px;
+  min-width: 0;
   padding: 0 10px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
   flex-shrink: 0;
 }
 
+/* Tiêu đề tab: một dòng, cắt gọn bằng dấu … khi sidebar ở kích thước tối thiểu
+   (trước đây chữ dài như “Tài nguyên & Ảnh mẫu” bị xuống dòng và tràn khỏi header). */
 .pm-ws-hd__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
   font-size: calc(11px * var(--font-scale, 1));
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-2);
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pm-ws-hd__title > svg {
+  flex: none;
+  margin-right: 6px;
+  vertical-align: -2px;
 }
 
 .pm-ws-hd__actions {
@@ -115,6 +127,7 @@
   align-items: center;
   gap: 2px;
   margin-left: auto;
+  flex: none;
 }
 
 .pm-ws-hd__actions .pm-ibtn {
