@@ -37,3 +37,4 @@ test('detects C# syntax compilation errors', () => {
   assert.equal(result.file, 'HomeController.cs')
   assert.equal(result.line, 24)
 })
+
