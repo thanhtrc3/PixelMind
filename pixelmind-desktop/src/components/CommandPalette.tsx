@@ -348,7 +348,7 @@ const CommandPalette = ({
                 <Search size={11} />
                 <span>
                   {contentResults.length}
-                  {contentResults.length >= CONTENT_RESULT_LIMIT ? '+' : ''} kết quả trong nội dung — ↑↓ chọn,
+                  {contentResults.length >= CONTENT_RESULT_LIMIT ? '+' : ''} kết quả cho “{contentTerm}” — ↑↓ chọn,
                   Enter để mở đúng dòng
                 </span>
               </>
@@ -374,7 +374,7 @@ const CommandPalette = ({
               ) : !rootPath ? (
                 <div className="pm-palette__empty">Mở một dự án trước để tìm trong nội dung.</div>
               ) : !contentTerm ? (
-                <div className="pm-palette__empty">Nhập nội dung cần tìm sau dấu ? để bắt đầu.</div>
+                <div className="pm-palette__empty">Kết quả sẽ hiện ở đây kèm tên tệp và số dòng.</div>
               ) : (
                 <div className="pm-palette__empty">Không tìm thấy “{contentTerm}” trong nội dung dự án.</div>
               )
