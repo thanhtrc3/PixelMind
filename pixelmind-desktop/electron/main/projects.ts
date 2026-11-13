@@ -1681,52 +1681,105 @@ export async function gitCloneRepository(
   }
 }
 
-/** Chạy dotnet ef database update, tự động cài dotnet-ef tool nếu máy tính chưa có. */
+function extractMeaningfulEfError(err: any): string {
+  const combined = [err?.stderr, err?.stdout, err?.message].filter(Boolean).join('\n').trim()
+  if (!combined) return 'Không rõ nguyên nhân lỗi'
+
+  const lines = combined
+    .split(/\r?\n/)
+    .map((l: string) => l.trim())
+    .filter(
+      (l: string) =>
+        l &&
+        !l.startsWith('Build started') &&
+        !l.startsWith('dotnet watch') &&
+        !l.startsWith('Command failed:'),
+    )
+
+  for (const line of lines) {
+    if (
+      /fail:/i.test(line) ||
+      /error:/i.test(line) ||
+      /error CS\d+/i.test(line) ||
+      /Cannot open database/i.test(line) ||
+      /Login failed/i.test(line) ||
+      /Microsoft\.EntityFrameworkCore\.Design/i.test(line) ||
+      /No project was found/i.test(line) ||
+      /More than one project/i.test(line) ||
+      /A network-related or instance-specific error/i.test(line)
+    ) {
+      return line.replace(/^fail:\s*/i, '').replace(/^\[error\]\s*/i, '').trim()
+    }
+  }
+
+  return lines[lines.length - 1] || 'Lệnh dotnet ef database update thất bại.'
+}
+
+async function findStartupCsproj(root: string): Promise<string | undefined> {
+  const detected = await detectDotnetProject(root).catch(() => null)
+  if (detected?.projectFile) return detected.projectFile
+  if (detected?.projectDir) return detected.projectDir
+
+  try {
+    const entries = await fs.readdir(root, { withFileTypes: true })
+    const rootCsproj = entries.find((e) => e.isFile() && e.name.toLowerCase().endsWith('.csproj'))
+    if (rootCsproj) return rootCsproj.name
+    for (const e of entries) {
+      if (e.isDirectory() && !e.name.startsWith('.') && !IGNORED_DIRS.has(e.name)) {
+        const sub = await fs.readdir(join(root, e.name), { withFileTypes: true })
+        const subCsproj = sub.find((s) => s.isFile() && s.name.toLowerCase().endsWith('.csproj'))
+        if (subCsproj) return `${e.name}/${subCsproj.name}`
+      }
+    }
+  } catch {
+    /* bỏ qua */
+  }
+  return undefined
+}
+
+/** Chạy dotnet ef database update, tự động tìm .csproj và cài dotnet-ef tool nếu máy tính chưa có. */
 export async function runEfDatabaseUpdate(
   projectPath: string,
 ): Promise<{ ok: boolean; output?: string; error?: string }> {
+  const targetProject = await findStartupCsproj(projectPath)
+  const args = ['ef', 'database', 'update']
+  if (targetProject) {
+    args.push('--project', targetProject)
+  }
+
+  const runCmd = () =>
+    execFileAsync('dotnet', args, {
+      cwd: projectPath,
+      windowsHide: true,
+      timeout: 180_000,
+      maxBuffer: 16 * 1024 * 1024,
+    })
+
   try {
-    const { stdout, stderr } = await execFileAsync(
-      'dotnet',
-      ['ef', 'database', 'update'],
-      {
-        cwd: projectPath,
-        windowsHide: true,
-        timeout: 120_000,
-        maxBuffer: 8 * 1024 * 1024,
-      },
-    )
+    const { stdout, stderr } = await runCmd()
     return { ok: true, output: `${stdout}\n${stderr}`.trim() }
   } catch (err: any) {
-    const rawMsg = err.message || String(err)
+    const rawMsg = [err.stderr, err.stdout, err.message].filter(Boolean).join('\n')
     // Nếu hệ thống thiếu công cụ dòng lệnh dotnet-ef
     if (
       /could not be found/i.test(rawMsg) ||
       /dotnet-ef/i.test(rawMsg) ||
-      /is not recognized/i.test(rawMsg)
+      /is not recognized/i.test(rawMsg) ||
+      /No executable found matching command "dotnet-ef"/i.test(rawMsg)
     ) {
       try {
         await execFileAsync('dotnet', ['tool', 'install', '--global', 'dotnet-ef'], {
           cwd: projectPath,
           windowsHide: true,
-          timeout: 60_000,
+          timeout: 120_000,
         })
-        const retryRes = await execFileAsync(
-          'dotnet',
-          ['ef', 'database', 'update'],
-          {
-            cwd: projectPath,
-            windowsHide: true,
-            timeout: 120_000,
-            maxBuffer: 8 * 1024 * 1024,
-          },
-        )
+        const retryRes = await runCmd()
         return { ok: true, output: `${retryRes.stdout}\n${retryRes.stderr}`.trim() }
       } catch (retryErr: any) {
-        return { ok: false, error: retryErr.message || rawMsg }
+        return { ok: false, error: extractMeaningfulEfError(retryErr) }
       }
     }
-    return { ok: false, error: rawMsg }
+    return { ok: false, error: extractMeaningfulEfError(err) }
   }
 }
 
