@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Atom,
   Boxes,
@@ -12,8 +12,8 @@ import {
   Loader2,
   Plus,
   Terminal,
-  X,
 } from 'lucide-react'
+import Modal from '../Modal'
 import {
   PROJECT_TEMPLATES,
   type ProjectTemplate,
@@ -86,6 +86,21 @@ const TemplateGalleryDialog = ({
     (t) => category === 'all' || t.category === category,
   )
 
+  const previewFiles = useMemo(() => {
+    try {
+      const name = projectName.trim() || 'MyAwesomeApp'
+      return selectedTemplate.files(name)
+    } catch {
+      return []
+    }
+  }, [selectedTemplate, projectName])
+
+  const fullPath = useMemo(() => {
+    const p = parentDir.trim().replace(/[\\/]+$/, '')
+    const n = projectName.trim()
+    return p && n ? `${p}\\${n}` : ''
+  }, [parentDir, projectName])
+
   const handlePickFolder = async () => {
     try {
       const folder = await onSelectFolder()
@@ -140,101 +155,122 @@ const TemplateGalleryDialog = ({
   }
 
   return (
-    <div className="pm-overlay" onClick={onClose}>
-      <div
-        className="pm-modal pm-template-modal"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-label="Thư viện template khởi tạo dự án"
-      >
-        <header className="pm-modal__header">
-          <div>
-            <h3>Khởi tạo dự án mới từ Template</h3>
-            <p className="pm-hint" style={{ marginTop: 2 }}>
-              Chọn khung công nghệ bạn muốn xây dựng. PixelMind sẽ sinh cấu trúc tệp chuẩn và nạp vào không gian làm việc.
-            </p>
-          </div>
-          <button className="pm-modal__close" onClick={onClose} title="Đóng">
-            <X size={14} />
+    <Modal
+      title="Khởi tạo dự án mới từ Template"
+      subtitle="Chọn khung công nghệ bạn muốn xây dựng. PixelMind sẽ sinh cấu trúc tệp chuẩn và nạp vào không gian làm việc."
+      icon={<LayoutTemplate size={16} />}
+      width={940}
+      onClose={onClose}
+      footer={
+        <>
+          <span
+            className="grow"
+            style={{
+              fontSize: 11,
+              color: 'var(--text-3)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {fullPath ? (
+              <>
+                Đường dẫn dự án:{' '}
+                <code style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                  {fullPath}
+                </code>
+              </>
+            ) : (
+              'Vui lòng nhập tên dự án và chọn thư mục lưu trữ.'
+            )}
+          </span>
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>
+            Hủy
           </button>
-        </header>
-
-        <div className="pm-template-body">
-          {/* Cột trái: Bộ lọc & Danh sách template */}
-          <div className="pm-template-left">
-            <div className="pm-template-tabs">
-              {CATEGORIES.map((cat) => (
-                <button
-                  key={cat.id}
-                  className={`pm-template-tab ${category === cat.id ? 'is-active' : ''}`}
-                  onClick={() => setCategory(cat.id)}
-                >
-                  {cat.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="pm-template-grid">
-              {filtered.map((item) => {
-                const isSelected = selectedTemplate.id === item.id
-                return (
-                  <div
-                    key={item.id}
-                    className={`pm-template-card ${isSelected ? 'is-selected' : ''}`}
-                    onClick={() => {
-                      setSelectedTemplate(item)
-                      setErrorMsg(null)
-                    }}
-                  >
-                    <div className="pm-template-card__header">
-                      {getIcon(item.iconName)}
-                      <span className="pm-template-card__badge">{item.badge}</span>
-                    </div>
-                    <b className="pm-template-card__name">{item.name}</b>
-                    <p className="pm-template-card__desc">{item.description}</p>
-                    {isSelected && (
-                      <span className="pm-template-card__check">
-                        <Check size={12} /> Đang chọn
-                      </span>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={handleCreate}
+            disabled={busy}
+          >
+            {busy ? (
+              <>
+                <Loader2 size={13} className="pm-spin" /> Đang khởi tạo...
+              </>
+            ) : (
+              <>
+                <Plus size={13} /> Khởi tạo & Mở dự án
+              </>
+            )}
+          </button>
+        </>
+      }
+    >
+      <div className="pm-template-body">
+        {/* Cột trái: Bộ lọc & Danh sách template */}
+        <div className="pm-template-left">
+          <div className="pm-template-tabs">
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                className={`pm-template-tab ${category === cat.id ? 'is-active' : ''}`}
+                onClick={() => setCategory(cat.id)}
+              >
+                {cat.label}
+              </button>
+            ))}
           </div>
 
-          {/* Cột phải: Thông tin cấu hình & Nơi lưu */}
-          <div className="pm-template-right">
-            <div className="pm-template-summary">
-              <h4>Chi tiết cấu hình</h4>
-              <div className="pm-template-meta-row">
-                <span className="label">Framework:</span>
-                <span className="val">{selectedTemplate.framework}</span>
-              </div>
-              <div className="pm-template-meta-row">
-                <span className="label">Lệnh chạy (F5):</span>
-                <code className="val mono">{selectedTemplate.runCommand}</code>
-              </div>
-              <div className="pm-template-meta-row">
-                <span className="label">Cổng mặc định:</span>
-                <span className="val mono">{selectedTemplate.defaultPort}</span>
-              </div>
-            </div>
+          <div className="pm-template-grid">
+            {filtered.map((item) => {
+              const isSelected = selectedTemplate.id === item.id
+              return (
+                <div
+                  key={item.id}
+                  className={`pm-template-card ${isSelected ? 'is-selected' : ''}`}
+                  onClick={() => {
+                    setSelectedTemplate(item)
+                    setErrorMsg(null)
+                  }}
+                >
+                  <div className="pm-template-card__header">
+                    {getIcon(item.iconName)}
+                    <span className="pm-template-card__badge">{item.badge}</span>
+                  </div>
+                  <b className="pm-template-card__name">{item.name}</b>
+                  <p className="pm-template-card__desc">{item.description}</p>
+                  {isSelected && (
+                    <span className="pm-template-card__check">
+                      <Check size={12} /> Đang chọn
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
 
+        {/* Cột phải: Thông tin cấu hình & Cấu trúc tệp */}
+        <div className="pm-template-right">
+          {/* Box 1: Thiết lập tên & thư mục */}
+          <div className="pm-template-section">
+            <h4 className="pm-template-section__title">Thiết lập vị trí lưu</h4>
             <div className="pm-template-form">
               <label className="pm-form-label">
                 Tên dự án mới
                 <input
                   type="text"
                   className="pm-input"
+                  style={{ marginTop: 4, width: '100%' }}
                   value={projectName}
-                  placeholder="Ví dụ: MyStoreApp"
+                  placeholder="Ví dụ: MyAwesomeApp"
                   onChange={(e) => setProjectName(e.target.value)}
                   disabled={busy}
                 />
               </label>
 
-              <label className="pm-form-label" style={{ marginTop: 12 }}>
+              <label className="pm-form-label" style={{ marginTop: 10 }}>
                 Thư mục lưu dự án
                 <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
                   <input
@@ -257,46 +293,49 @@ const TemplateGalleryDialog = ({
                   </button>
                 </div>
               </label>
-
-              {parentDir && projectName.trim() && (
-                <div className="pm-template-preview-path">
-                  <div className="label">Đường dẫn đầy đủ:</div>
-                  <code className="path-text">
-                    {parentDir.replace(/[\\/]+$/, '')}\{projectName.trim()}
-                  </code>
-                </div>
-              )}
-
-              {errorMsg && (
-                <div className="pm-template-error" role="alert">
-                  {errorMsg}
-                </div>
-              )}
-            </div>
-
-            <div className="pm-template-footer">
-              <button
-                type="button"
-                className="btn primary"
-                style={{ width: '100%', justifyContent: 'center' }}
-                onClick={handleCreate}
-                disabled={busy}
-              >
-                {busy ? (
-                  <>
-                    <Loader2 size={13} className="pm-spin" /> Đang khởi tạo dự án...
-                  </>
-                ) : (
-                  <>
-                    <Plus size={13} /> Khởi tạo & Mở dự án
-                  </>
-                )}
-              </button>
             </div>
           </div>
+
+          {/* Box 2: Thông số kỹ thuật */}
+          <div className="pm-template-summary">
+            <h4>Chi tiết cấu hình ({selectedTemplate.name})</h4>
+            <div className="pm-template-meta-row">
+              <span className="label">Framework:</span>
+              <span className="val">{selectedTemplate.framework}</span>
+            </div>
+            <div className="pm-template-meta-row">
+              <span className="label">Lệnh chạy (F5):</span>
+              <code className="val mono">{selectedTemplate.runCommand}</code>
+            </div>
+            <div className="pm-template-meta-row">
+              <span className="label">Cổng mặc định:</span>
+              <span className="val mono">{selectedTemplate.defaultPort}</span>
+            </div>
+          </div>
+
+          {/* Box 3: Cấu trúc tệp mẫu sinh ra (D1-10) */}
+          <div className="pm-template-files-box">
+            <h4 className="pm-template-section__title">
+              Cấu trúc tệp sẽ khởi tạo ({previewFiles.length} tệp)
+            </h4>
+            <div className="pm-template-files-list">
+              {previewFiles.map((file) => (
+                <div key={file.path} className="pm-template-file-item" title={file.path}>
+                  <FileCode size={12} className="file-icon" />
+                  <span className="file-path">{file.path}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {errorMsg && (
+            <div className="pm-template-error" role="alert">
+              {errorMsg}
+            </div>
+          )}
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 
