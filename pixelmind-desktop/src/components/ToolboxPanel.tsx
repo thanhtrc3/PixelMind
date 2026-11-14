@@ -620,15 +620,18 @@ const PartLibraryPanel = ({
         <button className={`pm-toolbox-group ${group === 'all' ? 'active' : ''}`} onClick={() => setGroup('all')}>
           <Package size={12} /> Tất cả <em>{allParts.length}</em>
         </button>
-        {groups.map((item) => (
-          <button
-            key={item}
-            className={`pm-toolbox-group ${group === item ? 'active' : ''}`}
-            onClick={() => setGroup(item)}
-          >
-            {item} {item === 'Tự tạo' ? <em>{customParts.length}</em> : null}
-          </button>
-        ))}
+        {groups.map((item) => {
+          const count = item === 'Tự tạo' ? customParts.length : allParts.filter((p) => p.groups.includes(item)).length
+          return (
+            <button
+              key={item}
+              className={`pm-toolbox-group ${group === item ? 'active' : ''}`}
+              onClick={() => setGroup(item)}
+            >
+              {item} <em>{count}</em>
+            </button>
+          )
+        })}
       </div>
 
       <div className="pm-toolbox-parts">

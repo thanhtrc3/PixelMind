@@ -396,6 +396,8 @@
 .pm-toolbox-part {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
+  min-height: fit-content;
   gap: 8px;
   padding: 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -425,6 +427,7 @@
 .pm-toolbox-part__preview {
   width: 100%;
   height: 120px;
+  flex-shrink: 0;
   border-radius: 8px;
   overflow: hidden;
   display: flex;
@@ -457,6 +460,7 @@
 .pm-toolbox-part__body {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 5px;
   min-width: 0;
 }

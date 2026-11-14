@@ -199,7 +199,15 @@ export async function listCustomParts(
       }
     }
 
-    const parts = Array.from(partsMap.values()).sort((a, b) => b.updatedAt - a.updatedAt)
+    const parts = Array.from(partsMap.values())
+      .map((p) => {
+        // Tự động chuẩn hoá SVG preview để đảm bảo XML hợp lệ (tránh lỗi thẻ void tag cũ)
+        if (p.preview && p.preview.startsWith('data:image/svg+xml')) {
+          p.preview = generatePartPreviewSvg(p.html, p.css)
+        }
+        return p
+      })
+      .sort((a, b) => b.updatedAt - a.updatedAt)
     return { success: true, parts }
   } catch (error: any) {
     return {
