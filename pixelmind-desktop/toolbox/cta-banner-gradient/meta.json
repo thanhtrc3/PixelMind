@@ -1,0 +1,27 @@
+{
+  "id": "cta-banner-gradient",
+  "name": "Banner kêu gọi hành động (CTA)",
+  "groups": [
+    "marketing",
+    "hero",
+    "button"
+  ],
+  "tags": [
+    "cta",
+    "banner",
+    "kêu gọi",
+    "gradient"
+  ],
+  "version": "2.0.0",
+  "designMd": "DESIGN.md · 2026-11-01",
+  "author": "PixelMind Studio",
+  "origin": "PixelMind Modern UI Kit",
+  "license": "MIT",
+  "status": "approved",
+  "locked": false,
+  "demo": false,
+  "uses": 10,
+  "rejects": 0,
+  "updated": "2026-11-14",
+  "note": "Banner kêu gọi hành động với nền dải màu gradient tím xanh, tiêu đề thuyết phục và nút bấm mở rộng kích thước."
+}

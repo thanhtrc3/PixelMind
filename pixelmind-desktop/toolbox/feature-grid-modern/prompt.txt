@@ -1,0 +1,1 @@
+Lưới 3 card giới thiệu tính năng có icon nổi bật, tiêu đề, mô tả và hiệu ứng viền phát sáng khi hover.

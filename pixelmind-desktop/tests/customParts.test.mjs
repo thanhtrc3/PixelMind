@@ -92,3 +92,4 @@ test('save, list and delete custom parts workflow', async () => {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {})
   }
 })
+

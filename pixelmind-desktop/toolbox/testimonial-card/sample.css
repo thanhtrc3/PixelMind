@@ -1,0 +1,47 @@
+.pm-testimonial-card {
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 24px;
+  font-family: inherit;
+  color: #f8fafc;
+  max-width: 480px;
+}
+.pm-testimonial-stars {
+  color: #fbbf24;
+  font-size: 18px;
+  letter-spacing: 2px;
+  margin-bottom: 14px;
+}
+.pm-testimonial-quote {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #cbd5e1;
+  margin: 0 0 18px 0;
+  font-style: italic;
+}
+.pm-testimonial-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pm-testimonial-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #6366f1;
+  color: #ffffff;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+.pm-testimonial-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.pm-testimonial-role {
+  font-size: 12px;
+  color: #94a3b8;
+}

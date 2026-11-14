@@ -1,0 +1,34 @@
+.pm-features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  padding: 24px 0;
+  font-family: inherit;
+}
+.pm-feature-card {
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 24px;
+  transition: all 0.2s ease;
+  color: #f4f4f5;
+}
+.pm-feature-card:hover, .pm-feature-card.active {
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.12);
+  transform: translateY(-2px);
+}
+.pm-feature-icon {
+  font-size: 28px;
+  margin-bottom: 16px;
+}
+.pm-feature-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.pm-feature-desc {
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.5;
+}

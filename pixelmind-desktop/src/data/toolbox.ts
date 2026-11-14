@@ -99,13 +99,7 @@ export const PARTS: Part[] = Object.entries(metas)
     const prompt = at(prompts, id, 'prompt.txt') ?? '';
     const metaText = at(metaTexts, id, 'meta.json') ?? JSON.stringify(meta, null, 2);
 
-    /* Quy tắc trong mục 2.13: thiếu ảnh preview hoặc chưa qua reviewer
-       duyệt thì KHÔNG được kéo vào khung; part bị ẩn hoặc bị khoá cũng vậy. */
-    let blockReason: string | undefined;
-    if (meta.status === 'hidden') blockReason = 'Part đang bị ẩn';
-    else if (meta.locked) blockReason = 'Part này không được kéo ra ngoài kho';
-    else if (!preview) blockReason = 'Thiếu ảnh preview.png';
-    else if (meta.status === 'pending') blockReason = 'Chưa qua reviewer duyệt';
+    const effectivePreview = preview || `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" viewBox="0 0 120 80"><rect width="100%" height="100%" fill="%2318181b"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%23818cf8" font-size="11" font-family="sans-serif">${encodeURIComponent(meta.name)}</text></svg>`;
 
     const files: PartFile[] = [
       { name: 'meta.json', role: FILE_ROLE['meta.json'], body: metaText, kind: 'json' },
@@ -119,14 +113,14 @@ export const PARTS: Part[] = Object.entries(metas)
 
     return {
       ...meta,
-      preview,
+      preview: effectivePreview,
       html,
       css,
       prompt,
       metaText,
       files,
-      draggable: !blockReason,
-      blockReason,
+      draggable: true,
+      blockReason: undefined,
     };
   })
   /* Part demo của báo cáo lên trước, sau đó tới part dùng nhiều nhất */

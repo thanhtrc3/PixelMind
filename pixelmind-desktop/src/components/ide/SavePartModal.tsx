@@ -1,12 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   CheckCircle2,
   Code2,
   Eye,
   Loader2,
+  Moon,
   PackagePlus,
   ShieldAlert,
   Sparkles,
+  Sun,
+  Grid,
 } from 'lucide-react'
 import Modal from '../Modal'
 import { api } from '../../lib/bridge'
@@ -47,6 +50,31 @@ function clientInspectCode(code: string): { suspicious: boolean; reasons: string
   return { suspicious: reasons.length > 0, reasons }
 }
 
+function cleanHtmlCode(raw: string): string {
+  if (!raw) return ''
+  return raw
+    .replace(/\sdata-pm-(?:uid|multi)(?:="[^"]*")?/g, '')
+    .trim()
+}
+
+function suggestPartName(code: string): string {
+  const lower = code.toLowerCase()
+  if (/<nav\b/i.test(lower) || /class="[^"]*navbar/i.test(lower)) return 'Thanh điều hướng (Navbar)'
+  if (/<header\b/i.test(lower)) return 'Đầu trang (Header)'
+  if (/<footer\b/i.test(lower)) return 'Chân trang (Footer)'
+  if (/class="[^"]*hero/i.test(lower)) return 'Vùng Hero nổi bật'
+  if (/class="[^"]*pricing/i.test(lower) || /class="[^"]*price/i.test(lower)) return 'Bảng giá (Pricing)'
+  if (/<table\b/i.test(lower)) return 'Bảng dữ liệu (Table)'
+  if (/<form\b/i.test(lower)) return 'Biểu mẫu (Form)'
+  if (/<button\b/i.test(lower) || /class="[^"]*btn/i.test(lower)) return 'Nút bấm (Button)'
+  if (/<input\b|<select\b|<textarea\b/i.test(lower)) return 'Khung nhập liệu'
+  if (/class="[^"]*card/i.test(lower)) return 'Thẻ nội dung (Card)'
+  if (/class="[^"]*modal|dialog/i.test(lower)) return 'Hộp thoại (Modal)'
+  if (/class="[^"]*alert|toast|notification/i.test(lower)) return 'Hộp thông báo (Toast)'
+  if (/class="[^"]*badge/i.test(lower)) return 'Huy hiệu (Badge)'
+  return 'Linh kiện tuỳ chỉnh'
+}
+
 export const SavePartModal = ({
   open,
   initialHtml,
@@ -60,10 +88,24 @@ export const SavePartModal = ({
 }: SavePartModalProps) => {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [html, setHtml] = useState(initialHtml || '')
-  const [css, setCss] = useState(initialCss || '')
+  const [html, setHtml] = useState('')
+  const [css, setCss] = useState('')
   const [tab, setTab] = useState<'preview' | 'code'>('preview')
+  const [bgMode, setBgMode] = useState<'dark' | 'light' | 'grid'>('dark')
   const [saving, setSaving] = useState(false)
+
+  // Đồng bộ props vào state mỗi khi mở modal hoặc thay đổi vùng chọn
+  useEffect(() => {
+    if (open) {
+      const cleaned = cleanHtmlCode(initialHtml || '')
+      setHtml(cleaned)
+      setCss(initialCss || '')
+      setName(suggestPartName(cleaned))
+      setDescription('Linh kiện lưu từ vùng chọn trang')
+      setTab('preview')
+      setSaving(false)
+    }
+  }, [open, initialHtml, initialCss])
 
   const inspection = useMemo(() => clientInspectCode(html), [html])
 
@@ -112,21 +154,39 @@ export const SavePartModal = ({
     }
   }
 
+  // Cấu hình nền xem trước
+  const bgStyles = {
+    dark: { bg: '#18181b', color: '#f4f4f5' },
+    light: { bg: '#ffffff', color: '#09090b' },
+    grid: {
+      bg: '#0f172a radial-gradient(circle, rgba(255,255,255,0.12) 1px, transparent 1px)',
+      color: '#f8fafc',
+    },
+  }
+  const currentBg = bgStyles[bgMode]
+
   // Khung render preview an toàn
   const previewSrcDoc = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: #18181b;
-      color: #f4f4f5;
-      padding: 16px;
+      background: ${currentBg.bg};
+      background-size: 16px 16px;
+      color: ${currentBg.color};
+      padding: 24px;
       display: flex;
       align-items: center;
       justify-content: center;
       min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.5;
+    }
+    button, input, select, textarea {
+      font-family: inherit;
+      font-size: inherit;
     }
     ${css}
   </style>
@@ -141,7 +201,7 @@ export const SavePartModal = ({
       title="Lưu vùng chọn thành Part (Linh kiện mẫu)"
       subtitle="Lưu đoạn mã giao diện để tái sử dụng nhanh chóng từ Hộp công cụ (Toolbox)."
       icon={<PackagePlus className="pm-modal__icon" size={20} />}
-      width={640}
+      width={680}
       onClose={onClose}
       footer={
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, width: '100%' }}>
@@ -198,25 +258,20 @@ export const SavePartModal = ({
               borderRadius: 6,
               background: 'rgba(239, 68, 68, 0.1)',
               border: '1px solid rgba(239, 68, 68, 0.3)',
-              color: '#f87171',
-              fontSize: 12,
               display: 'flex',
-              gap: 8,
-              alignItems: 'flex-start',
+              flexDirection: 'column',
+              gap: 4,
             }}
           >
-            <ShieldAlert size={16} style={{ flexShrink: 0, marginTop: 2 }} />
-            <div>
-              <strong>Phát hiện mã đáng nghi:</strong>
-              <ul style={{ paddingLeft: 16, marginTop: 4 }}>
-                {inspection.reasons.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
-              <div style={{ marginTop: 4, fontSize: 11, color: '#fca5a5' }}>
-                Vui lòng gỡ bỏ các đoạn script hoặc trình xử lý nguy hiểm trước khi lưu vào kho Part.
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--pm-err)', fontWeight: 600, fontSize: 12 }}>
+              <ShieldAlert size={14} />
+              <span>Phát hiện mã nguồn không an toàn!</span>
             </div>
+            <ul style={{ margin: 0, paddingLeft: 20, fontSize: 11, color: 'var(--pm-fg-subtle)' }}>
+              {inspection.reasons.map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
           </div>
         ) : (
           <div
@@ -233,83 +288,120 @@ export const SavePartModal = ({
           </div>
         )}
 
-        {/* Tab chuyển đổi Xem trước & Code */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--pm-border)', gap: 4 }}>
-          <button
-            type="button"
-            className={`pm-tab-btn ${tab === 'preview' ? 'active' : ''}`}
-            onClick={() => setTab('preview')}
-            style={{
-              padding: '6px 12px',
-              fontSize: 12,
-              background: 'none',
-              border: 'none',
-              borderBottom: tab === 'preview' ? '2px solid var(--pm-accent)' : '2px solid transparent',
-              color: tab === 'preview' ? 'var(--pm-accent)' : 'var(--pm-muted)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <Eye size={13} />
-            <span>Hình ảnh xem trước thực tế</span>
-          </button>
-          <button
-            type="button"
-            className={`pm-tab-btn ${tab === 'code' ? 'active' : ''}`}
-            onClick={() => setTab('code')}
-            style={{
-              padding: '6px 12px',
-              fontSize: 12,
-              background: 'none',
-              border: 'none',
-              borderBottom: tab === 'code' ? '2px solid var(--pm-accent)' : '2px solid transparent',
-              color: tab === 'code' ? 'var(--pm-accent)' : 'var(--pm-muted)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <Code2 size={13} />
-            <span>Xem / Sửa mã ({language.toUpperCase()})</span>
-          </button>
+        {/* Tab chuyển đổi Xem trước & Code + Nút đổi màu nền */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--pm-border)', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button
+              type="button"
+              className={`pm-tab-btn ${tab === 'preview' ? 'active' : ''}`}
+              onClick={() => setTab('preview')}
+              style={{
+                padding: '6px 12px',
+                fontSize: 12,
+                background: 'none',
+                border: 'none',
+                borderBottom: tab === 'preview' ? '2px solid var(--pm-accent)' : '2px solid transparent',
+                color: tab === 'preview' ? 'var(--pm-accent)' : 'var(--pm-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <Eye size={13} />
+              <span>Hình ảnh xem trước thực tế</span>
+            </button>
+            <button
+              type="button"
+              className={`pm-tab-btn ${tab === 'code' ? 'active' : ''}`}
+              onClick={() => setTab('code')}
+              style={{
+                padding: '6px 12px',
+                fontSize: 12,
+                background: 'none',
+                border: 'none',
+                borderBottom: tab === 'code' ? '2px solid var(--pm-accent)' : '2px solid transparent',
+                color: tab === 'code' ? 'var(--pm-accent)' : 'var(--pm-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <Code2 size={13} />
+              <span>Xem / Sửa mã ({language.toUpperCase()})</span>
+            </button>
+          </div>
+
+          {tab === 'preview' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingBottom: 4 }}>
+              <span style={{ fontSize: 11, color: 'var(--pm-muted)', marginRight: 2 }}>Nền:</span>
+              <button
+                type="button"
+                className={`btn sm ${bgMode === 'dark' ? 'primary' : 'secondary'}`}
+                title="Nền tối"
+                onClick={() => setBgMode('dark')}
+                style={{ padding: '2px 8px', height: 24 }}
+              >
+                <Moon size={11} />
+              </button>
+              <button
+                type="button"
+                className={`btn sm ${bgMode === 'light' ? 'primary' : 'secondary'}`}
+                title="Nền sáng"
+                onClick={() => setBgMode('light')}
+                style={{ padding: '2px 8px', height: 24 }}
+              >
+                <Sun size={11} />
+              </button>
+              <button
+                type="button"
+                className={`btn sm ${bgMode === 'grid' ? 'primary' : 'secondary'}`}
+                title="Nền lưới"
+                onClick={() => setBgMode('grid')}
+                style={{ padding: '2px 8px', height: 24 }}
+              >
+                <Grid size={11} />
+              </button>
+            </div>
+          )}
         </div>
 
         {tab === 'preview' ? (
           <div
             style={{
-              height: 200,
+              height: 220,
               borderRadius: 6,
               overflow: 'hidden',
               border: '1px solid var(--pm-border)',
-              background: '#09090b',
+              background: currentBg.bg,
             }}
           >
             <iframe
               title="Part Preview"
               srcDoc={previewSrcDoc}
-              sandbox="allow-same-origin"
               style={{ width: '100%', height: '100%', border: 'none' }}
             />
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <textarea
-              className="pm-input"
-              value={html}
-              onChange={(e) => setHtml(e.target.value)}
-              rows={6}
-              style={{
-                fontFamily: 'monospace',
-                fontSize: 12,
-                lineHeight: 1.4,
-                whiteSpace: 'pre',
-                resize: 'vertical',
-              }}
-              placeholder="<div>Mã HTML/JSX...</div>"
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11, color: 'var(--pm-muted)' }}>Mã HTML / JSX</label>
+              <textarea
+                className="pm-input"
+                value={html}
+                onChange={(e) => setHtml(e.target.value)}
+                rows={6}
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                  whiteSpace: 'pre',
+                  resize: 'vertical',
+                }}
+                placeholder="<div>Mã HTML/JSX...</div>"
+              />
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label style={{ fontSize: 11, color: 'var(--pm-muted)' }}>Mã CSS bổ sung (nếu có)</label>
               <textarea

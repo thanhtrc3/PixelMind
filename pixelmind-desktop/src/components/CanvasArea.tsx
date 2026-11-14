@@ -794,15 +794,26 @@ const CanvasArea = ({
   )
 
   const handleOpenSavePart = useCallback((html?: string, css?: string) => {
-    const targetHtml = html || selectedEl?.outerHTML || ''
-    if (!targetHtml.trim()) {
-      showToast('Không có nội dung phần tử để lưu thành Part.', 'info')
+    let targetHtml = html || ''
+    if (!targetHtml) {
+      if (multiSelection.length > 1) {
+        targetHtml = multiSelection
+          .map((el) => el.outerHTML || '')
+          .filter(Boolean)
+          .join('\n')
+      } else {
+        targetHtml = selectedEl?.outerHTML || ''
+      }
+    }
+    const cleanTarget = targetHtml.replace(/\sdata-pm-(?:uid|multi)(?:="[^"]*")?/g, '').trim()
+    if (!cleanTarget) {
+      showToast('Hãy chọn ít nhất một phần tử trên trang để lưu thành Part.', 'info')
       return
     }
-    setSavePartHtml(targetHtml)
+    setSavePartHtml(cleanTarget)
     setSavePartCss(css || '')
     setSavePartModalOpen(true)
-  }, [selectedEl, showToast])
+  }, [selectedEl, multiSelection, showToast])
 
   const currentVp = VIEWPORTS.find((v) => v.key === viewport) ?? VIEWPORTS[0]
 

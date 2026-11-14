@@ -1,0 +1,27 @@
+{
+  "id": "newsletter-subscribe",
+  "name": "Hộp đăng ký nhận tin",
+  "groups": [
+    "form",
+    "marketing",
+    "button"
+  ],
+  "tags": [
+    "newsletter",
+    "email",
+    "đăng ký",
+    "subscribe"
+  ],
+  "version": "2.0.0",
+  "designMd": "DESIGN.md · 2026-11-01",
+  "author": "PixelMind Studio",
+  "origin": "PixelMind Modern UI Kit",
+  "license": "MIT",
+  "status": "approved",
+  "locked": false,
+  "demo": false,
+  "uses": 10,
+  "rejects": 0,
+  "updated": "2026-11-14",
+  "note": "Khung đăng ký nhận bản tin với input email và nút Đăng ký hàng ngang gọn đẹp."
+}

@@ -1,0 +1,1 @@
+Khung đăng ký nhận bản tin với input email và nút Đăng ký hàng ngang gọn đẹp.

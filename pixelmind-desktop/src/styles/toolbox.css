@@ -395,11 +395,24 @@
 
 .pm-toolbox-part {
   display: flex;
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md, 6px);
-  background: var(--panel-2);
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(24, 24, 27, 0.65);
+  transition: all 0.18s ease;
+  cursor: grab;
+  position: relative;
+}
+
+.pm-toolbox-part:hover {
+  border-color: rgba(99, 102, 241, 0.45);
+  background: rgba(30, 27, 75, 0.25);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+}
+
+.pm-toolbox-part:active {
+  cursor: grabbing;
 }
 
 .pm-toolbox-part.is-blocked {
@@ -408,21 +421,22 @@
 
 .pm-toolbox-part__preview {
   flex: none;
-  width: 62px;
-  height: 62px;
-  border-radius: 5px;
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--panel-3);
+  background: #09090b;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   color: var(--text-3);
 }
 
 .pm-toolbox-part__preview img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 
@@ -437,31 +451,43 @@
 .pm-toolbox-part__hd {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
 }
 
 .pm-toolbox-part__hd strong {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 650;
-  color: var(--text);
+  color: #f8fafc;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.pm-toolbox-part__hd span {
+.pm-toolbox-part__hd span.version-tag {
   font-size: 9px;
-  color: var(--text-3);
-  padding: 1px 5px;
-  border-radius: 8px;
-  background: var(--panel-3);
+  color: #94a3b8;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  font-family: monospace;
+}
+
+.pm-toolbox-part__badge-custom {
+  font-size: 9.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  font-weight: 600;
 }
 
 .pm-toolbox-part__body p {
   margin: 0;
-  font-size: 10px;
-  line-height: 1.4;
-  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.45;
+  color: #94a3b8;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -476,15 +502,17 @@
 
 .pm-toolbox-part__actions {
   display: flex;
-  gap: 5px;
-  margin-top: 2px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 .pm-toolbox-part__actions .btn {
-  height: 24px;
-  padding: 0 8px;
-  font-size: 10.5px;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
   gap: 4px;
+  border-radius: 6px;
 }
 
 /* ── Của dự án ── */

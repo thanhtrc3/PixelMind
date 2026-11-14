@@ -1,0 +1,1 @@
+Thanh điều hướng cố định trên cùng gồm logo, menu chính với hiệu ứng hover và nút Đăng ký nổi bật.

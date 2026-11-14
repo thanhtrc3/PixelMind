@@ -462,12 +462,14 @@ interface PartLibraryPanelProps {
   projectPath?: string
   onShowToast: (kind: 'ok' | 'err' | 'info', text: string) => void
   onNeedPreview?: () => void
+  onCountChange?: (count: number) => void
 }
 
 const PartLibraryPanel = ({
   projectPath,
   onShowToast,
   onNeedPreview,
+  onCountChange,
 }: PartLibraryPanelProps) => {
   const [query, setQuery] = useState('')
   const [group, setGroup] = useState<string>('all')
@@ -478,11 +480,12 @@ const PartLibraryPanel = ({
       const res = await api.toolbox.listParts(projectPath)
       if (res.success && Array.isArray(res.parts)) {
         setCustomParts(res.parts)
+        onCountChange?.(res.parts.length)
       }
     } catch {
       // ignore
     }
-  }, [projectPath])
+  }, [projectPath, onCountChange])
 
   useEffect(() => {
     void loadCustomParts()
@@ -609,24 +612,15 @@ const PartLibraryPanel = ({
             </div>
             <div className="pm-toolbox-part__body">
               <div className="pm-toolbox-part__hd">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                   <strong>{part.name}</strong>
                   {part.isCustom && (
-                    <span
-                      style={{
-                        fontSize: 9.5,
-                        padding: '1px 5px',
-                        borderRadius: 4,
-                        background: 'rgba(167, 139, 250, 0.2)',
-                        color: '#c4b5fd',
-                        fontWeight: 600,
-                      }}
-                    >
+                    <span className="pm-toolbox-part__badge-custom">
                       Tự tạo
                     </span>
                   )}
                 </div>
-                <span>v{part.version}</span>
+                <span className="version-tag">v{part.version}</span>
               </div>
               <p>{part.prompt || part.tags.slice(0, 4).join(' · ')}</p>
               {!part.draggable && <em className="pm-toolbox-part__block">{part.blockReason}</em>}
@@ -831,6 +825,7 @@ const ProjectPartsPanel = ({
 const ToolboxPanel = ({ projectPath, onShowToast, onNeedPreview }: ToolboxPanelProps) => {
   const [tab, setTab] = useState<ToolboxTab>('elements')
   const [projectCount, setProjectCount] = useState<number | null>(null)
+  const [customPartCount, setCustomPartCount] = useState(0)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
   useEffect(() => {
@@ -937,7 +932,7 @@ const ToolboxPanel = ({ projectPath, onShowToast, onNeedPreview }: ToolboxPanelP
           Phần tử <em>{TOOLBOX_ELEMENT_COUNT}</em>
         </button>
         <button className={tab === 'parts' ? 'active' : ''} onClick={() => setTab('parts')}>
-          Linh kiện <em>{PARTS.length}</em>
+          Linh kiện <em>{PARTS.length + customPartCount}</em>
         </button>
         <button className={tab === 'project' ? 'active' : ''} onClick={() => setTab('project')}>
           Của dự án <em>{projectCount ?? '…'}</em>
@@ -950,6 +945,7 @@ const ToolboxPanel = ({ projectPath, onShowToast, onNeedPreview }: ToolboxPanelP
           projectPath={projectPath}
           onShowToast={onShowToast}
           onNeedPreview={onNeedPreview}
+          onCountChange={setCustomPartCount}
         />
       )}
       {tab === 'project' && (

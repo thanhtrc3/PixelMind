@@ -243,6 +243,18 @@ export async function saveCustomPart(
     const store = await readStoreFromDir(targetDir)
     store.parts.unshift(part)
     await writeStoreToDir(targetDir, store)
+
+    // Nếu lưu theo dự án, đồng thời lưu một bản sao vào kho toàn cục để tái sử dụng xuyên dự án
+    if (targetDir !== baseDir) {
+      try {
+        const globalStore = await readStoreFromDir(baseDir)
+        globalStore.parts = [part, ...globalStore.parts.filter((p) => p.id !== part.id)]
+        await writeStoreToDir(baseDir, globalStore)
+      } catch {
+        // bỏ qua lỗi lưu phụ toàn cục
+      }
+    }
+
     return { success: true, part }
   } catch (error: any) {
     return { success: false, error: `Không lưu được Part: ${error?.message || 'lỗi không xác định'}` }
