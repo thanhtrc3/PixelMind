@@ -66,33 +66,51 @@ export function inspectSuspiciousCode(code: string): { suspicious: boolean; reas
   }
 }
 
+/** Chuẩn hoá HTML thành XHTML hợp lệ để nhúng vào thẻ foreignObject của SVG mà không bị lỗi XML parser. */
+export function sanitizeHtmlForXml(html: string): string {
+  if (!html) return ''
+  const voidTags = ['input', 'img', 'br', 'hr', 'area', 'base', 'col', 'embed', 'param', 'source', 'track', 'wbr']
+  let res = html
+  for (const tag of voidTags) {
+    const regex = new RegExp(`<(${tag}\\b[^>]*?)(?<!/)>`, 'gi')
+    res = res.replace(regex, '<$1 />')
+  }
+  res = res.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+  res = res.replace(/&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
+  return res
+}
+
 /**
  * Sinh ảnh preview SVG dạng Data-URI trực quan cho Part từ chính HTML & CSS thật.
  */
 export function generatePartPreviewSvg(html: string, css = ''): string {
-  const cleanHtml = (html || '').trim().slice(0, 4000)
+  const cleanHtml = sanitizeHtmlForXml((html || '').trim().slice(0, 4000))
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="200" viewBox="0 0 360 200">
   <defs>
     <style>
       <![CDATA[
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         .preview-host {
-          width: 320px;
-          min-height: 180px;
+          width: 360px;
+          height: 200px;
           background: #18181b;
           color: #f4f4f5;
-          padding: 12px;
+          padding: 18px;
           display: flex;
           align-items: center;
           justify-content: center;
           overflow: hidden;
         }
+        button, input, select, textarea {
+          font-family: inherit;
+          font-size: inherit;
+        }
         ${css}
       ]]>
     </style>
   </defs>
-  <rect width="100%" height="100%" fill="#18181b" rx="6" />
+  <rect width="100%" height="100%" fill="#18181b" rx="8" />
   <foreignObject width="100%" height="100%">
     <div xmlns="http://www.w3.org/1999/xhtml" class="preview-host">
       ${cleanHtml}

@@ -1,15 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CheckCircle2,
   Code2,
   Eye,
+  Grid,
+  Image as ImageIcon,
   Loader2,
   Moon,
   PackagePlus,
+  Plus,
   ShieldAlert,
   Sparkles,
   Sun,
-  Grid,
+  Tag,
+  Upload,
+  X,
 } from 'lucide-react'
 import Modal from '../Modal'
 import { api } from '../../lib/bridge'
@@ -17,15 +22,34 @@ import type { CustomPartSource, CustomToolboxPart } from '@shared/toolbox'
 
 interface SavePartModalProps {
   open: boolean
-  initialHtml: string
+  initialHtml?: string
   initialCss?: string
   language?: 'html' | 'jsx'
   source?: CustomPartSource
   projectPath?: string
+  title?: string
+  subtitle?: string
   onClose: () => void
   onSaved: (part: CustomToolboxPart) => void
   onShowToast: (kind: 'ok' | 'err' | 'info', text: string) => void
 }
+
+const COMMON_TAGS = [
+  'search',
+  'form',
+  'button',
+  'navigation',
+  'header',
+  'hero',
+  'card',
+  'pricing',
+  'table',
+  'feedback',
+  'footer',
+  'layout',
+  'marketing',
+  'text',
+]
 
 const SUSPICIOUS_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /<script\b[^>]*>([\s\S]*?)<\/script>/i, reason: 'Chứa thẻ <script> thực thi mã JavaScript trực tiếp' },
@@ -60,6 +84,7 @@ function cleanHtmlCode(raw: string): string {
 function suggestPartName(code: string): string {
   const lower = code.toLowerCase()
   if (/<nav\b/i.test(lower) || /class="[^"]*navbar/i.test(lower)) return 'Thanh điều hướng (Navbar)'
+  if (/search|tìm kiếm/i.test(lower) || /type=["']search["']/i.test(lower)) return 'Thanh tìm kiếm'
   if (/<header\b/i.test(lower)) return 'Đầu trang (Header)'
   if (/<footer\b/i.test(lower)) return 'Chân trang (Footer)'
   if (/class="[^"]*hero/i.test(lower)) return 'Vùng Hero nổi bật'
@@ -75,13 +100,32 @@ function suggestPartName(code: string): string {
   return 'Linh kiện tuỳ chỉnh'
 }
 
+function detectSuggestedTags(code: string): string[] {
+  const lower = code.toLowerCase()
+  const tags = new Set<string>()
+  if (/search|tìm kiếm/i.test(lower) || /type=["']search["']/i.test(lower)) tags.add('search')
+  if (/<form\b|<input\b|<select\b|<textarea\b/i.test(lower)) tags.add('form')
+  if (/<button\b|class="[^"]*btn/i.test(lower)) tags.add('button')
+  if (/<nav\b|navbar|menu/i.test(lower)) tags.add('navigation')
+  if (/<header\b/i.test(lower)) tags.add('header')
+  if (/hero/i.test(lower)) tags.add('hero')
+  if (/card/i.test(lower)) tags.add('card')
+  if (/pricing|bảng giá|price/i.test(lower)) tags.add('pricing')
+  if (/<table\b/i.test(lower)) tags.add('table')
+  if (/<footer\b/i.test(lower)) tags.add('footer')
+  if (/feedback|alert|toast/i.test(lower)) tags.add('feedback')
+  return Array.from(tags)
+}
+
 export const SavePartModal = ({
   open,
-  initialHtml,
+  initialHtml = '',
   initialCss = '',
   language = 'html',
   source,
   projectPath,
+  title,
+  subtitle,
   onClose,
   onSaved,
   onShowToast,
@@ -90,19 +134,26 @@ export const SavePartModal = ({
   const [description, setDescription] = useState('')
   const [html, setHtml] = useState('')
   const [css, setCss] = useState('')
-  const [tab, setTab] = useState<'preview' | 'code'>('preview')
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [newTagInput, setNewTagInput] = useState('')
+  const [previewImage, setPreviewImage] = useState<string>('')
+  const [tab, setTab] = useState<'preview' | 'code' | 'image'>('preview')
   const [bgMode, setBgMode] = useState<'dark' | 'light' | 'grid'>('dark')
   const [saving, setSaving] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  // Đồng bộ props vào state mỗi khi mở modal hoặc thay đổi vùng chọn
+  // Đồng bộ props vào state mỗi khi mở modal
   useEffect(() => {
     if (open) {
       const cleaned = cleanHtmlCode(initialHtml || '')
       setHtml(cleaned)
       setCss(initialCss || '')
-      setName(suggestPartName(cleaned))
-      setDescription('Linh kiện lưu từ vùng chọn trang')
-      setTab('preview')
+      setName(cleaned ? suggestPartName(cleaned) : '')
+      setDescription(cleaned ? 'Linh kiện lưu từ giao diện' : '')
+      setSelectedTags(cleaned ? detectSuggestedTags(cleaned) : ['custom'])
+      setNewTagInput('')
+      setPreviewImage('')
+      setTab(cleaned ? 'preview' : 'code')
       setSaving(false)
     }
   }, [open, initialHtml, initialCss])
@@ -110,6 +161,37 @@ export const SavePartModal = ({
   const inspection = useMemo(() => clientInspectCode(html), [html])
 
   if (!open) return null
+
+  const toggleTag = (t: string) => {
+    setSelectedTags((prev) =>
+      prev.includes(t) ? prev.filter((item) => item !== t) : [...prev, t],
+    )
+  }
+
+  const handleAddCustomTag = () => {
+    const trimmed = newTagInput.trim().toLowerCase()
+    if (trimmed && !selectedTags.includes(trimmed)) {
+      setSelectedTags((prev) => [...prev, trimmed])
+      setNewTagInput('')
+    }
+  }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      onShowToast('err', 'Vui lòng chọn tệp hình ảnh (PNG, JPG, SVG, WebP).')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setPreviewImage(reader.result)
+        onShowToast('ok', 'Đã tải ảnh xem trước thành công!')
+      }
+    }
+    reader.readAsDataURL(file)
+  }
 
   const handleSave = async () => {
     const trimmedName = name.trim()
@@ -130,11 +212,14 @@ export const SavePartModal = ({
 
     setSaving(true)
     try {
+      const tagsToSave = selectedTags.length > 0 ? selectedTags : ['custom']
       const res = await api.toolbox.savePart({
         name: trimmedName,
         description: description.trim(),
         html: trimmedHtml,
         css: css.trim() || undefined,
+        preview: previewImage.trim() || undefined,
+        tags: tagsToSave,
         language,
         source,
         projectPath,
@@ -198,10 +283,10 @@ export const SavePartModal = ({
 
   return (
     <Modal
-      title="Lưu vùng chọn thành Part (Linh kiện mẫu)"
-      subtitle="Lưu đoạn mã giao diện để tái sử dụng nhanh chóng từ Hộp công cụ (Toolbox)."
+      title={title || 'Lưu vùng chọn thành Part (Linh kiện mẫu)'}
+      subtitle={subtitle || 'Lưu đoạn mã giao diện để tái sử dụng nhanh chóng từ Hộp công cụ (Toolbox).'}
       icon={<PackagePlus className="pm-modal__icon" size={20} />}
-      width={680}
+      width={700}
       onClose={onClose}
       footer={
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, width: '100%' }}>
@@ -230,7 +315,7 @@ export const SavePartModal = ({
             className="pm-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ví dụ: Thẻ sản phẩm nổi bật, Khung đăng nhập, Navbar..."
+            placeholder="Ví dụ: Thanh tìm kiếm sản phẩm, Khung đăng nhập, Navbar..."
             autoFocus
             maxLength={80}
           />
@@ -248,6 +333,90 @@ export const SavePartModal = ({
             placeholder="Mô tả công dụng hoặc phong cách thiết kế của linh kiện..."
             maxLength={300}
           />
+        </div>
+
+        {/* Phân loại & Tags */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--pm-fg)', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <Tag size={13} /> Nhóm & Thẻ tìm kiếm (Tags)
+          </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {COMMON_TAGS.map((t) => {
+              const active = selectedTags.includes(t)
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => toggleTag(t)}
+                  style={{
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    fontSize: 11,
+                    cursor: 'pointer',
+                    border: active ? '1px solid #6366f1' : '1px solid rgba(255, 255, 255, 0.1)',
+                    background: active ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                    color: active ? '#a5b4fc' : '#94a3b8',
+                    fontWeight: active ? 600 : 400,
+                  }}
+                >
+                  {t}
+                </button>
+              )
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <input
+              type="text"
+              className="pm-input"
+              value={newTagInput}
+              onChange={(e) => setNewTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleAddCustomTag()
+                }
+              }}
+              placeholder="Thêm tag tuỳ chỉnh khác (nhấn Enter)..."
+              style={{ flex: 1, fontSize: 12, padding: '4px 10px', height: 28 }}
+            />
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={handleAddCustomTag}
+              style={{ height: 28, padding: '0 10px', fontSize: 11 }}
+            >
+              <Plus size={11} /> Thêm tag
+            </button>
+          </div>
+          {selectedTags.some((t) => !COMMON_TAGS.includes(t)) && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+              {selectedTags
+                .filter((t) => !COMMON_TAGS.includes(t))
+                .map((t) => (
+                  <span
+                    key={t}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                      color: '#34d399',
+                      fontSize: 11,
+                    }}
+                  >
+                    {t}
+                    <X
+                      size={11}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => toggleTag(t)}
+                    />
+                  </span>
+                ))}
+            </div>
+          )}
         </div>
 
         {/* Cảnh báo mã độc nếu có */}
@@ -288,7 +457,7 @@ export const SavePartModal = ({
           </div>
         )}
 
-        {/* Tab chuyển đổi Xem trước & Code + Nút đổi màu nền */}
+        {/* Tab chuyển đổi Xem trước & Code & Ảnh đại diện */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--pm-border)', gap: 4 }}>
           <div style={{ display: 'flex', gap: 4 }}>
             <button
@@ -309,7 +478,7 @@ export const SavePartModal = ({
               }}
             >
               <Eye size={13} />
-              <span>Hình ảnh xem trước thực tế</span>
+              <span>Xem trước trực tiếp</span>
             </button>
             <button
               type="button"
@@ -329,7 +498,27 @@ export const SavePartModal = ({
               }}
             >
               <Code2 size={13} />
-              <span>Xem / Sửa mã ({language.toUpperCase()})</span>
+              <span>Xem / Nhập mã ({language.toUpperCase()})</span>
+            </button>
+            <button
+              type="button"
+              className={`pm-tab-btn ${tab === 'image' ? 'active' : ''}`}
+              onClick={() => setTab('image')}
+              style={{
+                padding: '6px 12px',
+                fontSize: 12,
+                background: 'none',
+                border: 'none',
+                borderBottom: tab === 'image' ? '2px solid var(--pm-accent)' : '2px solid transparent',
+                color: tab === 'image' ? 'var(--pm-accent)' : 'var(--pm-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <ImageIcon size={13} />
+              <span>Ảnh xem trước {previewImage ? '✓' : ''}</span>
             </button>
           </div>
 
@@ -367,7 +556,7 @@ export const SavePartModal = ({
           )}
         </div>
 
-        {tab === 'preview' ? (
+        {tab === 'preview' && (
           <div
             style={{
               height: 220,
@@ -383,10 +572,12 @@ export const SavePartModal = ({
               style={{ width: '100%', height: '100%', border: 'none' }}
             />
           </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        )}
+
+        {tab === 'code' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 11, color: 'var(--pm-muted)' }}>Mã HTML / JSX</label>
+              <label style={{ fontSize: 11, color: 'var(--pm-muted)' }}>Mã HTML / JSX <span style={{ color: 'var(--pm-err)' }}>*</span></label>
               <textarea
                 className="pm-input"
                 value={html}
@@ -399,7 +590,7 @@ export const SavePartModal = ({
                   whiteSpace: 'pre',
                   resize: 'vertical',
                 }}
-                placeholder="<div>Mã HTML/JSX...</div>"
+                placeholder="<div class=&quot;my-component&quot;>...</div>"
               />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -416,9 +607,77 @@ export const SavePartModal = ({
                   whiteSpace: 'pre',
                   resize: 'vertical',
                 }}
-                placeholder=".my-part { color: #fff; }"
+                placeholder=".my-component { color: #fff; padding: 12px; }"
               />
             </div>
+          </div>
+        )}
+
+        {tab === 'image' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ fontSize: 12, color: 'var(--pm-fg-subtle)' }}>
+              Mặc định hệ thống sẽ tự động tạo ảnh xem trước từ mã HTML/CSS. Nếu bạn có sẵn ảnh chụp thật, hãy tải lên tại đây:
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileUpload}
+                style={{ display: 'none' }}
+              />
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => fileInputRef.current?.click()}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Upload size={13} />
+                <span>Chọn tệp ảnh từ máy tính...</span>
+              </button>
+              {previewImage && (
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => setPreviewImage('')}
+                  style={{ color: 'var(--pm-err)' }}
+                >
+                  Gỡ ảnh tự tải
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11, color: 'var(--pm-muted)' }}>Hoặc dán URL / Data-URI của ảnh:</label>
+              <input
+                type="text"
+                className="pm-input"
+                value={previewImage}
+                onChange={(e) => setPreviewImage(e.target.value)}
+                placeholder="https://... hoặc data:image/png;base64,..."
+                style={{ fontSize: 12 }}
+              />
+            </div>
+            {previewImage && (
+              <div
+                style={{
+                  width: '100%',
+                  height: 140,
+                  borderRadius: 6,
+                  border: '1px solid var(--pm-border)',
+                  background: '#09090b',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <img
+                  src={previewImage}
+                  alt="Ảnh xem trước"
+                  style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -32,12 +32,12 @@ test('inspectSuspiciousCode detects dangerous scripts and patterns', () => {
   assert.ok(evalTest.reasons.some((r) => r.includes('eval()') || r.includes('trình xử lý sự kiện')))
 })
 
-test('generatePartPreviewSvg generates a valid SVG data URI', () => {
-  const svgData = generatePartPreviewSvg('<button class="btn">Click me</button>', '.btn { color: red; }')
+test('generatePartPreviewSvg generates a valid SVG data URI with void tags self-closing', () => {
+  const svgData = generatePartPreviewSvg('<input class="form-control" placeholder="Tìm kiếm">', '.form-control { color: red; }')
   assert.ok(svgData.startsWith('data:image/svg+xml;base64,'))
   const decoded = Buffer.from(svgData.replace('data:image/svg+xml;base64,', ''), 'base64').toString('utf8')
-  assert.ok(decoded.includes('<button class="btn">Click me</button>'))
-  assert.ok(decoded.includes('.btn { color: red; }'))
+  assert.ok(decoded.includes('<input class="form-control" placeholder="Tìm kiếm" />'))
+  assert.ok(decoded.includes('.form-control { color: red; }'))
 })
 
 test('save, list and delete custom parts workflow', async () => {

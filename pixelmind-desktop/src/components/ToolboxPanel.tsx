@@ -45,6 +45,7 @@ import {
 import type { ToolboxElement } from '@shared/toolbox'
 import { requestToolboxInsert, toolboxDrag } from '../lib/toolboxBridge'
 import type { ToolboxDragItem } from '../lib/toolboxBridge'
+import SavePartModal from './ide/SavePartModal'
 
 type ToolboxTab = 'elements' | 'parts' | 'project'
 
@@ -458,6 +459,29 @@ const ElementCatalogPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelPr
 
 /* ─────────────────────── Tab: Linh kiện mẫu ─────────────────────── */
 
+const PartPreviewImage = ({ src, alt }: { src?: string; alt: string }) => {
+  const [hasError, setHasError] = useState(false)
+
+  if (hasError || !src) {
+    return (
+      <div className="pm-part-fallback-preview">
+        <Package size={22} style={{ opacity: 0.4 }} />
+        <span style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>{alt}</span>
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      draggable={false}
+      onError={() => setHasError(true)}
+      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+    />
+  )
+}
+
 interface PartLibraryPanelProps {
   projectPath?: string
   onShowToast: (kind: 'ok' | 'err' | 'info', text: string) => void
@@ -474,6 +498,7 @@ const PartLibraryPanel = ({
   const [query, setQuery] = useState('')
   const [group, setGroup] = useState<string>('all')
   const [customParts, setCustomParts] = useState<CustomToolboxPart[]>([])
+  const [createModalOpen, setCreateModalOpen] = useState(false)
 
   const loadCustomParts = useCallback(async () => {
     try {
@@ -498,7 +523,7 @@ const PartLibraryPanel = ({
     return customParts.map((cp) => ({
       id: cp.id,
       name: cp.name,
-      groups: ['Tự tạo'],
+      groups: ['Tự tạo', ...(cp.tags || []).filter((t) => t !== 'custom')],
       tags: cp.tags || ['custom'],
       version: '1.0',
       designMd: '',
@@ -528,9 +553,9 @@ const PartLibraryPanel = ({
   const groups = useMemo(() => {
     const set = new Set<string>()
     if (customParts.length > 0) set.add('Tự tạo')
-    PARTS.forEach((part) => part.groups.forEach((item) => set.add(item)))
-    return Array.from(set).slice(0, 12)
-  }, [customParts.length])
+    allParts.forEach((part) => part.groups.forEach((item) => set.add(item)))
+    return Array.from(set).slice(0, 16)
+  }, [customParts.length, allParts])
 
   const filtered = useMemo(
     () => allParts.filter((part) => (group === 'all' || part.groups.includes(group)) && matchesQuery(part, query)),
@@ -569,14 +594,26 @@ const PartLibraryPanel = ({
 
   return (
     <div className="pm-toolbox-body">
-      <div className="pm-toolbox-search">
-        <Search size={12} />
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => event.stopPropagation()}
-          placeholder="Tìm linh kiện mẫu…"
-        />
+      <div style={{ display: 'flex', gap: 6, padding: '0 8px 6px' }}>
+        <div className="pm-toolbox-search" style={{ flex: 1, margin: 0 }}>
+          <Search size={12} />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => event.stopPropagation()}
+            placeholder="Tìm linh kiện mẫu…"
+          />
+        </div>
+        <button
+          type="button"
+          className="btn primary"
+          onClick={() => setCreateModalOpen(true)}
+          title="Tạo Part mới từ mã HTML/CSS hoặc tải ảnh"
+          style={{ height: 28, padding: '0 10px', fontSize: 11, whiteSpace: 'nowrap', gap: 4 }}
+        >
+          <Plus size={13} />
+          <span>Tạo Part</span>
+        </button>
       </div>
 
       <div className="pm-toolbox-groups">
@@ -604,16 +641,12 @@ const PartLibraryPanel = ({
             onDragEnd={endDrag}
           >
             <div className="pm-toolbox-part__preview">
-              {part.preview ? (
-                <img src={part.preview} alt={part.name} draggable={false} />
-              ) : (
-                <ImageIcon size={18} />
-              )}
+              <PartPreviewImage src={part.preview} alt={part.name} />
             </div>
             <div className="pm-toolbox-part__body">
               <div className="pm-toolbox-part__hd">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                  <strong>{part.name}</strong>
+                  <strong title={part.name}>{part.name}</strong>
                   {part.isCustom && (
                     <span className="pm-toolbox-part__badge-custom">
                       Tự tạo
@@ -625,20 +658,25 @@ const PartLibraryPanel = ({
               <p>{part.prompt || part.tags.slice(0, 4).join(' · ')}</p>
               {!part.draggable && <em className="pm-toolbox-part__block">{part.blockReason}</em>}
               <div className="pm-toolbox-part__actions">
-                <button className="btn secondary" onClick={() => copy(part)}>
+                <button className="btn secondary" onClick={() => copy(part)} title="Sao chép mã HTML">
                   <Copy size={11} /> Sao chép
                 </button>
                 {part.isCustom && (
                   <button
-                    className="btn secondary"
+                    className="btn secondary btn-danger-hover"
                     onClick={() => handleDeleteCustom(part)}
                     title="Xoá linh kiện này"
-                    style={{ padding: '0 6px' }}
+                    style={{ padding: '0 7px' }}
                   >
                     <Trash2 size={11} />
                   </button>
                 )}
-                <button className="btn primary" onClick={() => insert(part)} disabled={!part.draggable}>
+                <button
+                  className="btn primary btn-insert"
+                  onClick={() => insert(part)}
+                  disabled={!part.draggable}
+                  title="Chèn linh kiện vào trang hiện tại"
+                >
                   <Plus size={11} /> Chèn vào trang
                 </button>
               </div>
@@ -646,6 +684,22 @@ const PartLibraryPanel = ({
           </div>
         ))}
       </div>
+
+      <SavePartModal
+        open={createModalOpen}
+        initialHtml=""
+        initialCss=""
+        language="html"
+        projectPath={projectPath}
+        title="Tạo Part mới cho Thư viện"
+        subtitle="Nhập mã HTML, CSS hoặc tải ảnh xem trước từ máy tính để thêm linh kiện vào Hộp công cụ."
+        onClose={() => setCreateModalOpen(false)}
+        onSaved={(_part) => {
+          void loadCustomParts()
+          window.dispatchEvent(new CustomEvent('pm:custom-parts-changed'))
+        }}
+        onShowToast={onShowToast}
+      />
     </div>
   )
 }
