@@ -313,3 +313,59 @@ export interface ProjectScanResult {
   assets: ProjectComponent[]
   routes: ProjectComponent[]
 }
+
+/* ─────────────────────── Part tự tạo ─────────────────────── */
+
+export type CustomPartLanguage = 'html' | 'jsx'
+
+export interface CustomPartSource {
+  /** Đường dẫn tệp nguồn (tuyệt đối) mà vùng chọn được lấy ra. */
+  filePath: string
+  startLine: number
+  endLine: number
+}
+
+/** Một Part do người dùng lưu từ vùng chọn trong trình soạn thảo hoặc canvas. */
+export interface CustomToolboxPart {
+  id: string
+  name: string
+  description: string
+  html: string
+  css?: string
+  preview?: string
+  language: CustomPartLanguage
+  tags: string[]
+  source?: CustomPartSource
+  projectPath?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CustomPartInput {
+  name: string
+  description?: string
+  html: string
+  css?: string
+  preview?: string
+  language?: CustomPartLanguage
+  tags?: string[]
+  source?: CustomPartSource
+  projectPath?: string
+}
+
+export interface CustomPartListResult {
+  success: boolean
+  parts: CustomToolboxPart[]
+  error?: string
+}
+
+export interface CustomPartSaveResult {
+  success: boolean
+  part?: CustomToolboxPart
+  error?: string
+}
+
+export interface CustomPartDeleteResult {
+  success: boolean
+  error?: string
+}

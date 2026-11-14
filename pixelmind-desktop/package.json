@@ -10,7 +10,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "preview:web": "node scripts/preview-web.mjs",
-    "test": "node --experimental-strip-types --test tests/workspaceTabs.test.mjs tests/canvasSettings.test.mjs tests/notifications.test.mjs tests/templates.test.mjs tests/staticProject.test.mjs tests/gitCloneAndPublish.test.mjs tests/errorParser.test.mjs tests/archiveZip.test.mjs",
+    "test": "node --experimental-strip-types --test tests/workspaceTabs.test.mjs tests/canvasSettings.test.mjs tests/notifications.test.mjs tests/templates.test.mjs tests/staticProject.test.mjs tests/gitCloneAndPublish.test.mjs tests/errorParser.test.mjs tests/archiveZip.test.mjs tests/imageOptimize.test.mjs tests/customParts.test.mjs",
     "dist": "electron-vite build && electron-builder --win",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
   },
@@ -25,7 +25,9 @@
       "package.json"
     ],
     "asarUnpack": [
-      "node_modules/node-pty/**"
+      "node_modules/node-pty/**",
+      "node_modules/sharp/**",
+      "node_modules/@img/**"
     ],
     "win": {
       "target": [
@@ -48,6 +50,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-resizable-panels": "^4.15.0",
+    "sharp": "^0.35.5",
     "yauzl": "^3.4.0",
     "yazl": "^3.3.1"
   },

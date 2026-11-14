@@ -14,7 +14,7 @@ import type {
   StoreData,
   TerminalCreateOptions,
 } from '../../shared/types'
-import type { ToolboxMutationPayload, ToolboxWritePayload } from '../../shared/toolbox'
+import type { CustomPartInput, ToolboxMutationPayload, ToolboxWritePayload } from '../../shared/toolbox'
 import type {
   ArchiveProgress,
   ZipExportOptions,
@@ -23,6 +23,7 @@ import type {
   ZipImportResult,
   ZipInspection,
 } from '../../shared/archive'
+import type { ImageApplyOptions, ImageOptimizeOptions } from '../../shared/imageOptimize'
 import {
   DEFAULT_DESIGN_TOKENS,
   generateVariablesCss,
@@ -81,7 +82,14 @@ import {
   trashPageFile,
 } from './pages'
 import { runToolboxMutation, scanProjectToolbox, writeToolboxFile } from './toolbox'
+import { deleteCustomPart, listCustomParts, saveCustomPart } from './customParts'
 import { exportProjectToZip, inspectZipFile, extractZipSafely } from './archive'
+import {
+  applyOptimizedImage,
+  inspectImage,
+  previewImage,
+  revertOptimizedImage,
+} from './images'
 import {
   applyHtmlTailwindAttributes,
   applyJsxTailwindAttributes,
@@ -1768,6 +1776,40 @@ ipcMain.handle('assets:restore', async (_e, backupPath: string, destination: str
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
+})
+
+/* ───────────────────────── IPC: tối ưu ảnh (D1-14) ───────────────────────── */
+
+ipcMain.handle('images:inspect', async (_e, target: string) => {
+  if (!target || typeof target !== 'string') {
+    return { ok: false, error: 'Chưa chọn ảnh để tối ưu.' }
+  }
+  return inspectImage(resolve(target))
+})
+
+ipcMain.handle('images:preview', async (_e, options: ImageOptimizeOptions) => {
+  if (!options?.path) {
+    return { ok: false, error: 'Chưa chọn ảnh để xem trước.' }
+  }
+  return previewImage({ ...options, path: resolve(options.path) })
+})
+
+ipcMain.handle('images:apply', async (_e, options: ImageApplyOptions) => {
+  if (!options?.path) {
+    return { ok: false, error: 'Chưa chọn ảnh để tối ưu.' }
+  }
+  return applyOptimizedImage({
+    ...options,
+    path: resolve(options.path),
+    backupDir: assetBackupDir(),
+  })
+})
+
+ipcMain.handle('images:revert', async (_e, backupPath: string, destination: string) => {
+  if (!backupPath || !destination) {
+    return { success: false, error: 'Thiếu thông tin khôi phục ảnh.' }
+  }
+  return revertOptimizedImage(backupPath, destination, assetBackupDir())
 })
 
 /* ───────────────────────── IPC: chạy dự án ───────────────────────── */
@@ -3716,6 +3758,18 @@ ipcMain.handle('toolbox:scan', async (_e, projectPath: string) => {
       routes: [],
     }
   }
+})
+
+ipcMain.handle('toolbox:parts-list', async (_e, projectPath?: string) => {
+  return await listCustomParts(app.getPath('userData'), projectPath)
+})
+
+ipcMain.handle('toolbox:parts-save', async (_e, input: CustomPartInput) => {
+  return await saveCustomPart(app.getPath('userData'), input)
+})
+
+ipcMain.handle('toolbox:parts-delete', async (_e, id: string, projectPath?: string) => {
+  return await deleteCustomPart(app.getPath('userData'), id, projectPath)
 })
 
 /* ───────────────────────── IPC: AI ───────────────────────── */

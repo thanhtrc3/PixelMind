@@ -36,6 +36,7 @@ import {
   MousePointer2,
   Move,
   Network,
+  PackagePlus,
   Play,
   RefreshCw,
   RotateCcw,
@@ -63,6 +64,7 @@ import { formatBytes } from '../lib/format'
 import VisualErrorCard from './VisualErrorCard'
 import DesignTokensDialog from './DesignTokensDialog'
 import MutationDiffDialog from './MutationDiffDialog'
+import SavePartModal from './ide/SavePartModal'
 import type { DesignTokens, ProjectPage } from '@shared/types'
 import type {
   ElementMutationTarget,
@@ -561,6 +563,9 @@ const CanvasArea = ({
     textBefore?: string
     textAfter?: string
   } | null>(null)
+  const [savePartModalOpen, setSavePartModalOpen] = useState(false)
+  const [savePartHtml, setSavePartHtml] = useState('')
+  const [savePartCss, setSavePartCss] = useState('')
   const [mutationBusy, setMutationBusy] = useState(false)
   const [attrsDraft, setAttrsDraft] = useState({ id: '', className: '', text: '' })
   const toolboxRequestsRef = useRef<Map<string, (data: any) => void>>(new Map())
@@ -787,6 +792,17 @@ const CanvasArea = ({
     },
     [],
   )
+
+  const handleOpenSavePart = useCallback((html?: string, css?: string) => {
+    const targetHtml = html || selectedEl?.outerHTML || ''
+    if (!targetHtml.trim()) {
+      showToast('Không có nội dung phần tử để lưu thành Part.', 'info')
+      return
+    }
+    setSavePartHtml(targetHtml)
+    setSavePartCss(css || '')
+    setSavePartModalOpen(true)
+  }, [selectedEl, showToast])
 
   const currentVp = VIEWPORTS.find((v) => v.key === viewport) ?? VIEWPORTS[0]
 
@@ -5412,6 +5428,13 @@ const CanvasArea = ({
                     <Copy size={13} />
                   </button>
                   <button
+                    className="canvas__tool-btn"
+                    title="Lưu phần tử thành Part (Linh kiện mẫu vào Toolbox)"
+                    onClick={() => handleOpenSavePart()}
+                  >
+                    <PackagePlus size={13} />
+                  </button>
+                  <button
                     className="canvas__tool-btn canvas__tool-btn--danger"
                     title={
                       multiSelection.length > 1
@@ -7758,6 +7781,17 @@ const CanvasArea = ({
           <button
             className="pm-canvas-context-menu__item"
             onClick={() => {
+              handleOpenSavePart(canvasContextMenu.info.outerHTML)
+              setCanvasContextMenu(null)
+            }}
+          >
+            <PackagePlus size={13} />
+            <span>Lưu thành Part (Toolbox)...</span>
+          </button>
+
+          <button
+            className="pm-canvas-context-menu__item"
+            onClick={() => {
               if (canvasContextMenu.info.selector) {
                 void navigator.clipboard.writeText(canvasContextMenu.info.selector)
                 showToast('Đã sao chép CSS Selector.', 'ok')
@@ -7804,6 +7838,19 @@ const CanvasArea = ({
         }}
         onConfirm={(customBlock?: string) => void applyPendingMutation(customBlock)}
         onPreviewOnly={() => void applyPreviewOnlyMutation()}
+      />
+
+      <SavePartModal
+        open={savePartModalOpen}
+        initialHtml={savePartHtml}
+        initialCss={savePartCss}
+        language="html"
+        projectPath={projectPath}
+        onClose={() => setSavePartModalOpen(false)}
+        onSaved={(_part) => {
+          window.dispatchEvent(new CustomEvent('pm:custom-parts-changed'))
+        }}
+        onShowToast={(kind, text) => showToast(text, kind)}
       />
 
     </div>

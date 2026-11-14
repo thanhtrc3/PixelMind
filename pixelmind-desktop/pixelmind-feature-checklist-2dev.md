@@ -94,9 +94,9 @@ Không thể cam kết “không bao giờ xung đột” nếu cả hai cùng s
 - [x] **D1-12 — Nhập thư mục HTML tĩnh.** Chọn thư mục có HTML/CSS/JS tĩnh và đăng ký thành dự án mà không yêu cầu `package.json`. **Nghiệm thu:** dự án mở được và dùng luồng static server hiện có.
 - [x] **D1-29 — Clone dự án từ Git/GitHub & Xuất bản Remote (Publish to GitHub).** Hỗ trợ clone repository Git trực tiếp từ trang danh sách dự án (nhập URL, chọn thư mục lưu, tự động nạp vào workspace); giải quyết lỗi thiếu remote khi Push bằng dialog cấu hình remote và xuất bản trực tiếp giống VS Code. **Nghiệm thu:** clone thành công mở được dự án; bấm Push khi chưa có remote mở dialog cấu hình và push thành công.
 - [x] **D1-13 — Xuất dự án ZIP.** Cho phép chọn đường dẫn lưu, loại trừ dependency, VCS và artifact build, không thay đổi tệp nguồn. **Nghiệm thu:** ZIP giải nén được, chạy được sau khi cài dependencies; hiển thị lỗi ghi file.
-- [ ] **D1-14 — Tối ưu ảnh trong Assets.** Tạo thao tác tối ưu ảnh có chọn định dạng/chất lượng và xem dung lượng trước/sau; không ghi đè ảnh gốc nếu người dùng chưa xác nhận. **Nghiệm thu:** ảnh đầu ra mở được, dung lượng/thông số hiển thị đúng.
+- [x] **D1-14 — Tối ưu ảnh trong Assets.** Tạo thao tác tối ưu ảnh có chọn định dạng/chất lượng và xem dung lượng trước/sau; không ghi đè ảnh gốc nếu người dùng chưa xác nhận. **Nghiệm thu:** ảnh đầu ra mở được, dung lượng/thông số hiển thị đúng.
 - [ ] **D1-15 — Kiểm tra và quản lý thuộc tính `alt`.** Quét ảnh trong mã nguồn, liệt kê ảnh thiếu alt và dẫn tới vị trí file/dòng; hỗ trợ sửa có xác nhận. **Nghiệm thu:** kiểm tra HTML/JSX phổ biến, không báo nhầm ảnh nền CSS là thẻ `img`.
-- [ ] **D1-16 — Tạo Part từ vùng chọn.** Lưu đoạn HTML/JSX được chọn thành Part có tên và mô tả, đồng thời dùng được trong Toolbox hiện có. **Nghiệm thu:** tạo Part, tìm thấy trong Toolbox và chèn lại được vào trang.
+- [x] **D1-16 — Tạo Part từ vùng chọn.** Lưu đoạn HTML/JSX được chọn thành Part có tên và mô tả, đồng thời dùng được trong Toolbox hiện có. **Nghiệm thu:** tạo Part, tìm thấy trong Toolbox và chèn lại được vào trang.
 - [ ] **D1-17 — Khai báo Variants/Props cho Part.** Cho phép định nghĩa các biến thể/props được hỗ trợ và áp dụng chúng khi chèn Part. **Nghiệm thu:** chọn variant khác nhau sinh đúng đầu ra; dữ liệu Part cũ vẫn đọc được.
 
 ### P2 — Chất lượng web và dữ liệu thử nghiệm

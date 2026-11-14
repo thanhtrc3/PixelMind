@@ -25,6 +25,10 @@ import type {
   TerminalSession,
 } from './types'
 import type {
+  CustomPartDeleteResult,
+  CustomPartInput,
+  CustomPartListResult,
+  CustomPartSaveResult,
   MutationPreview,
   ProjectScanResult,
   ToolboxMutationPayload,
@@ -32,6 +36,13 @@ import type {
   ToolboxWriteResult,
 } from './toolbox'
 import type { AiApi } from './ai'
+import type {
+  ImageApplyOptions,
+  ImageApplyResult,
+  ImageInspectResult,
+  ImageOptimizeOptions,
+  ImagePreviewResult,
+} from './imageOptimize'
 import type {
   ArchiveProgress,
   ZipExportOptions,
@@ -208,6 +219,19 @@ export interface PixelMindApi {
       destination: string,
     ): Promise<{ success: boolean; path?: string; error?: string }>
   }
+  images: {
+    /** Đọc thông tin ảnh: định dạng, kích thước, dung lượng, khung hình. */
+    inspect(path: string): Promise<ImageInspectResult>
+    /** Xem trước kết quả tối ưu (dung lượng thật + thumbnail) mà không ghi tệp. */
+    preview(options: ImageOptimizeOptions): Promise<ImagePreviewResult>
+    /** Ghi ảnh tối ưu ra tệp mới hoặc thay thế ảnh gốc khi đã xác nhận. */
+    apply(options: ImageApplyOptions): Promise<ImageApplyResult>
+    /** Khôi phục ảnh gốc từ bản sao lưu (Undo thay thế ảnh). */
+    revert(
+      backupPath: string,
+      destination: string,
+    ): Promise<{ success: boolean; path?: string; error?: string }>
+  }
   run: {
     start(projectId: string, script: string): Promise<RunState>
     install(projectId: string): Promise<RunState>
@@ -303,6 +327,12 @@ export interface PixelMindApi {
     writeFile(payload: ToolboxWritePayload): Promise<ToolboxWriteResult>
     /** Quét component / partial / class / asset / route của dự án. */
     scan(projectPath: string): Promise<ProjectScanResult>
+    /** Danh sách Part do người dùng tự lưu. */
+    listParts(projectPath?: string): Promise<CustomPartListResult>
+    /** Lưu một vùng chọn thành Part mới. */
+    savePart(input: CustomPartInput): Promise<CustomPartSaveResult>
+    /** Xoá một Part tự tạo. */
+    deletePart(id: string, projectPath?: string): Promise<CustomPartDeleteResult>
   }
   ai: AiApi
   window?: {

@@ -615,6 +615,20 @@ export function createBrowserMock(): PixelMindApi {
         return { success: false, error: 'Chỉ khả dụng trên bản desktop' }
       },
     },
+    images: {
+      async inspect() {
+        return { ok: false, error: 'Chức năng tối ưu ảnh chỉ hỗ trợ trên bản desktop.' }
+      },
+      async preview() {
+        return { ok: false, error: 'Chức năng tối ưu ảnh chỉ hỗ trợ trên bản desktop.' }
+      },
+      async apply() {
+        return { ok: false, error: 'Chức năng tối ưu ảnh chỉ hỗ trợ trên bản desktop.' }
+      },
+      async revert() {
+        return { success: false, error: 'Chức năng tối ưu ảnh chỉ hỗ trợ trên bản desktop.' }
+      },
+    },
     run: {
       async install(projectId) {
         clear()
@@ -882,6 +896,27 @@ export function createBrowserMock(): PixelMindApi {
           assets: [],
           routes: [],
         }
+      },
+      async listParts(_projectPath) {
+        return { success: true, parts: [] }
+      },
+      async savePart(input) {
+        return {
+          success: true,
+          part: {
+            id: 'mock-part',
+            name: input.name,
+            description: input.description || '',
+            html: input.html,
+            language: input.language || 'html',
+            tags: ['custom'],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        }
+      },
+      async deletePart(_id, _projectPath) {
+        return { success: true }
       },
     },
     ai: {

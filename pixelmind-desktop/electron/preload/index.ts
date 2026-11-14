@@ -30,6 +30,17 @@ import type {
   ZipInspection,
 } from '../../shared/archive'
 import type {
+  ImageApplyOptions,
+  ImageApplyResult,
+  ImageInspectResult,
+  ImageOptimizeOptions,
+  ImagePreviewResult,
+} from '../../shared/imageOptimize'
+import type {
+  CustomPartDeleteResult,
+  CustomPartInput,
+  CustomPartListResult,
+  CustomPartSaveResult,
   MutationPreview,
   ProjectScanResult,
   ToolboxMutationPayload,
@@ -196,6 +207,20 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('assets:restore', backupPath, destination),
   },
 
+  images: {
+    inspect: (path: string): Promise<ImageInspectResult> =>
+      ipcRenderer.invoke('images:inspect', path),
+    preview: (options: ImageOptimizeOptions): Promise<ImagePreviewResult> =>
+      ipcRenderer.invoke('images:preview', options),
+    apply: (options: ImageApplyOptions): Promise<ImageApplyResult> =>
+      ipcRenderer.invoke('images:apply', options),
+    revert: (
+      backupPath: string,
+      destination: string,
+    ): Promise<{ success: boolean; path?: string; error?: string }> =>
+      ipcRenderer.invoke('images:revert', backupPath, destination),
+  },
+
   run: {
     start: (projectId: string, script: string): Promise<RunState> =>
       ipcRenderer.invoke('run:start', projectId, script),
@@ -302,6 +327,12 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('toolbox:write-file', payload),
     scan: (projectPath: string): Promise<ProjectScanResult> =>
       ipcRenderer.invoke('toolbox:scan', projectPath),
+    listParts: (projectPath?: string): Promise<CustomPartListResult> =>
+      ipcRenderer.invoke('toolbox:parts-list', projectPath),
+    savePart: (input: CustomPartInput): Promise<CustomPartSaveResult> =>
+      ipcRenderer.invoke('toolbox:parts-save', input),
+    deletePart: (id: string, projectPath?: string): Promise<CustomPartDeleteResult> =>
+      ipcRenderer.invoke('toolbox:parts-delete', id, projectPath),
   },
   ai: {
     status: (projectPath?: string) => ipcRenderer.invoke('ai:status', projectPath),

@@ -30,10 +30,11 @@ import {
   Sparkles,
   Square,
   Table,
+  Trash2,
   Type,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { InsertPlacement, ProjectComponent, ProjectScanResult, ToolboxGroupId } from '@shared/toolbox'
+import type { CustomToolboxPart, InsertPlacement, ProjectComponent, ProjectScanResult, ToolboxGroupId } from '@shared/toolbox'
 import { api } from '../lib/bridge'
 import { PARTS, matchesQuery } from '../data/toolbox'
 import type { Part } from '../data/toolbox'
@@ -457,19 +458,80 @@ const ElementCatalogPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelPr
 
 /* ─────────────────────── Tab: Linh kiện mẫu ─────────────────────── */
 
-const PartLibraryPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelProps, 'onShowToast' | 'onNeedPreview'>) => {
+interface PartLibraryPanelProps {
+  projectPath?: string
+  onShowToast: (kind: 'ok' | 'err' | 'info', text: string) => void
+  onNeedPreview?: () => void
+}
+
+const PartLibraryPanel = ({
+  projectPath,
+  onShowToast,
+  onNeedPreview,
+}: PartLibraryPanelProps) => {
   const [query, setQuery] = useState('')
   const [group, setGroup] = useState<string>('all')
+  const [customParts, setCustomParts] = useState<CustomToolboxPart[]>([])
+
+  const loadCustomParts = useCallback(async () => {
+    try {
+      const res = await api.toolbox.listParts(projectPath)
+      if (res.success && Array.isArray(res.parts)) {
+        setCustomParts(res.parts)
+      }
+    } catch {
+      // ignore
+    }
+  }, [projectPath])
+
+  useEffect(() => {
+    void loadCustomParts()
+    const handleUpdate = () => void loadCustomParts()
+    window.addEventListener('pm:custom-parts-changed', handleUpdate)
+    return () => window.removeEventListener('pm:custom-parts-changed', handleUpdate)
+  }, [loadCustomParts])
+
+  const customAsParts: (Part & { isCustom?: boolean })[] = useMemo(() => {
+    return customParts.map((cp) => ({
+      id: cp.id,
+      name: cp.name,
+      groups: ['Tự tạo'],
+      tags: cp.tags || ['custom'],
+      version: '1.0',
+      designMd: '',
+      author: 'Bạn',
+      origin: 'Dự án',
+      license: 'Tự do',
+      status: 'approved',
+      locked: false,
+      demo: false,
+      uses: 0,
+      rejects: 0,
+      updated: new Date(cp.updatedAt).toISOString().split('T')[0],
+      note: cp.description,
+      preview: cp.preview,
+      html: cp.html,
+      css: cp.css || '',
+      prompt: cp.description || 'Linh kiện tự tạo từ vùng chọn',
+      metaText: '',
+      files: [],
+      draggable: true,
+      isCustom: true,
+    }))
+  }, [customParts])
+
+  const allParts = useMemo(() => [...customAsParts, ...PARTS], [customAsParts])
 
   const groups = useMemo(() => {
     const set = new Set<string>()
+    if (customParts.length > 0) set.add('Tự tạo')
     PARTS.forEach((part) => part.groups.forEach((item) => set.add(item)))
     return Array.from(set).slice(0, 12)
-  }, [])
+  }, [customParts.length])
 
   const filtered = useMemo(
-    () => PARTS.filter((part) => (group === 'all' || part.groups.includes(group)) && matchesQuery(part, query)),
-    [query, group],
+    () => allParts.filter((part) => (group === 'all' || part.groups.includes(group)) && matchesQuery(part, query)),
+    [allParts, query, group],
   )
 
   const insert = (part: Part) => {
@@ -487,6 +549,21 @@ const PartLibraryPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelProps
     onShowToast('ok', `Đã sao chép mã của “${part.name}”.`)
   }
 
+  const handleDeleteCustom = async (part: Part) => {
+    if (!confirm(`Bạn có chắc muốn xoá linh kiện “${part.name}”?`)) return
+    try {
+      const res = await api.toolbox.deletePart(part.id, projectPath)
+      if (res.success) {
+        onShowToast('ok', `Đã xoá linh kiện “${part.name}”.`)
+        void loadCustomParts()
+      } else {
+        onShowToast('err', res.error || 'Xoá linh kiện thất bại.')
+      }
+    } catch (err: any) {
+      onShowToast('err', `Lỗi: ${err?.message || ''}`)
+    }
+  }
+
   return (
     <div className="pm-toolbox-body">
       <div className="pm-toolbox-search">
@@ -501,7 +578,7 @@ const PartLibraryPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelProps
 
       <div className="pm-toolbox-groups">
         <button className={`pm-toolbox-group ${group === 'all' ? 'active' : ''}`} onClick={() => setGroup('all')}>
-          <Package size={12} /> Tất cả <em>{PARTS.length}</em>
+          <Package size={12} /> Tất cả <em>{allParts.length}</em>
         </button>
         {groups.map((item) => (
           <button
@@ -509,13 +586,13 @@ const PartLibraryPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelProps
             className={`pm-toolbox-group ${group === item ? 'active' : ''}`}
             onClick={() => setGroup(item)}
           >
-            {item}
+            {item} {item === 'Tự tạo' ? <em>{customParts.length}</em> : null}
           </button>
         ))}
       </div>
 
       <div className="pm-toolbox-parts">
-        {filtered.map((part) => (
+        {filtered.map((part: any) => (
           <div
             key={part.id}
             className={`pm-toolbox-part ${part.draggable ? '' : 'is-blocked'}`}
@@ -532,7 +609,23 @@ const PartLibraryPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelProps
             </div>
             <div className="pm-toolbox-part__body">
               <div className="pm-toolbox-part__hd">
-                <strong>{part.name}</strong>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <strong>{part.name}</strong>
+                  {part.isCustom && (
+                    <span
+                      style={{
+                        fontSize: 9.5,
+                        padding: '1px 5px',
+                        borderRadius: 4,
+                        background: 'rgba(167, 139, 250, 0.2)',
+                        color: '#c4b5fd',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Tự tạo
+                    </span>
+                  )}
+                </div>
                 <span>v{part.version}</span>
               </div>
               <p>{part.prompt || part.tags.slice(0, 4).join(' · ')}</p>
@@ -541,6 +634,16 @@ const PartLibraryPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelProps
                 <button className="btn secondary" onClick={() => copy(part)}>
                   <Copy size={11} /> Sao chép
                 </button>
+                {part.isCustom && (
+                  <button
+                    className="btn secondary"
+                    onClick={() => handleDeleteCustom(part)}
+                    title="Xoá linh kiện này"
+                    style={{ padding: '0 6px' }}
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                )}
                 <button className="btn primary" onClick={() => insert(part)} disabled={!part.draggable}>
                   <Plus size={11} /> Chèn vào trang
                 </button>
@@ -842,7 +945,13 @@ const ToolboxPanel = ({ projectPath, onShowToast, onNeedPreview }: ToolboxPanelP
       </div>
 
       {tab === 'elements' && <ElementCatalogPanel onShowToast={onShowToast} onNeedPreview={onNeedPreview} />}
-      {tab === 'parts' && <PartLibraryPanel onShowToast={onShowToast} onNeedPreview={onNeedPreview} />}
+      {tab === 'parts' && (
+        <PartLibraryPanel
+          projectPath={projectPath}
+          onShowToast={onShowToast}
+          onNeedPreview={onNeedPreview}
+        />
+      )}
       {tab === 'project' && (
         <ProjectPartsPanel projectPath={projectPath} onShowToast={onShowToast} onNeedPreview={onNeedPreview} />
       )}

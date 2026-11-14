@@ -16,14 +16,17 @@ import {
   FolderOpen,
   Image as ImageIcon,
   Loader2,
+  PackagePlus,
   Save,
   Sparkles,
   WrapText,
 } from 'lucide-react'
 import type { FileContent } from '@shared/types'
 import type { FileSearchRange } from '@shared/api'
+import type { CustomPartSource } from '@shared/toolbox'
 import { formatBytes, languageOf } from '../lib/format'
 import { api } from '../lib/bridge'
+import SavePartModal from './ide/SavePartModal'
 
 // Cấu hình loader dùng monaco-editor cục bộ (không cần tải từ CDN bên ngoài)
 loader.config({ monaco })
@@ -104,7 +107,7 @@ const getMonacoLanguage = (ext: string): string => {
 const FileViewer = ({
   file,
   loading,
-  projectPath: _projectPath,
+  projectPath,
   autoSave = true,
   rootPath,
   initialLine,
@@ -122,11 +125,18 @@ const FileViewer = ({
   const [wordWrap, setWordWrap] = useState<'on' | 'off'>('on')
   const [theme, setTheme] = useState<'vs-dark' | 'vs'>('vs-dark')
   const [cursorPos, setCursorPos] = useState({ ln: 1, col: 1, selected: 0 })
+  const [partModalOpen, setPartModalOpen] = useState(false)
+  const [partModalData, setPartModalData] = useState<{
+    html: string
+    language: 'html' | 'jsx'
+    source?: CustomPartSource
+  }>({ html: '', language: 'html' })
 
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const monacoInstanceRef = useRef<typeof monaco | null>(null)
   const decorationIdsRef = useRef<string[]>([])
   const handleSaveRef = useRef<(silent?: boolean) => Promise<void>>(async () => {})
+  const handleSaveSelectionAsPartRef = useRef<() => void>(() => {})
   const autoSaveTimerRef = useRef<number | null>(null)
   const activeFileRef = useRef<FileContent | null>(file)
   const dirtyRef = useRef(false)
@@ -271,6 +281,30 @@ const FileViewer = ({
     }
   }
 
+  const handleSaveSelectionAsPart = useCallback(() => {
+    if (!editorRef.current || !file) return
+    const selection = editorRef.current.getSelection()
+    const model = editorRef.current.getModel()
+    if (!selection || !model || selection.isEmpty()) {
+      onShowToast?.('info', 'Hãy bôi đen đoạn mã cần lưu thành Part.')
+      return
+    }
+    const selectedText = model.getValueInRange(selection)
+    const isJsx = file.ext === '.jsx' || file.ext === '.tsx'
+    setPartModalData({
+      html: selectedText,
+      language: isJsx ? 'jsx' : 'html',
+      source: {
+        filePath: file.path,
+        startLine: selection.startLineNumber,
+        endLine: selection.endLineNumber,
+      },
+    })
+    setPartModalOpen(true)
+  }, [file, onShowToast])
+
+  handleSaveSelectionAsPartRef.current = handleSaveSelectionAsPart
+
   // Nhảy tới dòng/vùng khớp và đánh dấu kết quả tìm kiếm trực tiếp trên editor
   const revealInitialTarget = useCallback(
     (editor: monaco.editor.IStandaloneCodeEditor) => {
@@ -344,6 +378,18 @@ const FileViewer = ({
     // Đăng ký phím tắt Format Alt+Shift+F
     editor.addCommand(m.KeyMod.Alt | m.KeyMod.Shift | m.KeyCode.KeyF, () => {
       void editor.getAction('editor.action.formatDocument')?.run()
+    })
+
+    // Đăng ký hành động Lưu vùng chọn thành Part trong context menu chuột phải của editor
+    editor.addAction({
+      id: 'pm-save-selection-as-part',
+      label: 'Lưu vùng chọn thành Part (Toolbox)...',
+      contextMenuGroupId: '9_cutcopypaste',
+      contextMenuOrder: 1.5,
+      precondition: 'editorHasSelection',
+      run: () => {
+        handleSaveSelectionAsPartRef.current()
+      },
     })
 
     // Lắng nghe thay đổi vị trí con trỏ và vùng bôi đen
@@ -472,6 +518,17 @@ const FileViewer = ({
             style={{ width: 24, height: 24 }}
           >
             <WrapText size={12} />
+          </button>
+        )}
+
+        {!file.binary && cursorPos.selected > 0 && (
+          <button
+            className="btn primary"
+            onClick={handleSaveSelectionAsPart}
+            title="Lưu đoạn mã đang bôi đen thành Part (Linh kiện mẫu vào Toolbox)"
+            style={{ height: 22, fontSize: 11, padding: '0 8px', gap: 4 }}
+          >
+            <PackagePlus size={11} /> Lưu Part
           </button>
         )}
 
@@ -651,6 +708,19 @@ const FileViewer = ({
           <span style={{ textTransform: 'capitalize' }}>{monacoLang}</span>
         </div>
       )}
+
+      <SavePartModal
+        open={partModalOpen}
+        initialHtml={partModalData.html}
+        language={partModalData.language}
+        source={partModalData.source}
+        projectPath={projectPath}
+        onClose={() => setPartModalOpen(false)}
+        onSaved={(_part) => {
+          window.dispatchEvent(new CustomEvent('pm:custom-parts-changed'))
+        }}
+        onShowToast={(kind, text) => onShowToast?.(kind, text)}
+      />
     </div>
   )
 }

@@ -43,10 +43,12 @@ import {
   TriangleAlert,
   Type,
   Undo2,
+  Wand2,
   X,
 } from 'lucide-react'
 import type { FileContent, FileNode, ProjectPage, ProjectRecord, DesignTokens } from '@shared/types'
 import type { FileSearchMatch, FileSearchRange } from '../../shared/api'
+import type { ImageApplyOptions, ImageApplyResult } from '@shared/imageOptimize'
 import { compileSearchQuery, parseGlobList } from '../../shared/search'
 import { LAYOUT_KEYS, persistText, readStoredText } from '../lib/layoutPrefs'
 import { DEFAULT_DESIGN_TOKENS, tokenToCssVarName } from '@shared/designTokens'
@@ -58,6 +60,7 @@ import FileTree from './FileTree'
 import FileActionDialog from './FileActionDialog'
 import ToolboxPanel from './ToolboxPanel'
 import VersionsTab from './VersionsTab'
+import ImageOptimizeDialog from './ide/ImageOptimizeDialog'
 
 export type SidebarTab = 'files' | 'layers' | 'pages' | 'assets' | 'versions' | 'design' | 'toolbox'
 
@@ -103,6 +106,15 @@ interface AssetHistoryItem {
 type AssetHistoryEntry =
   | { kind: 'add'; label: string; items: AssetHistoryItem[] }
   | { kind: 'remove'; label: string; path: string; backupPath: string }
+  | {
+      kind: 'optimize'
+      label: string
+      sourcePath: string
+      outputPath: string
+      mode: 'new' | 'replace'
+      backupPath?: string
+      options: ImageApplyOptions
+    }
 
 const MAX_ASSET_HISTORY = 20
 
@@ -1036,7 +1048,7 @@ export const WorkspaceSidebar = ({
   /* ── Quét đệ quy cây thư mục để lọc ra các tệp hình ảnh (Assets) ── */
   const assets = useMemo(() => {
     const list: { name: string; path: string; size?: number }[] = []
-    const imgExts = ['.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif', '.ico']
+    const imgExts = ['.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif', '.ico', '.avif', '.bmp']
     function traverse(nodes: FileNode[]) {
       for (const node of nodes) {
         if (node.type === 'file') {
@@ -1062,6 +1074,11 @@ export const WorkspaceSidebar = ({
   const [undoStack, setUndoStack] = useState<AssetHistoryEntry[]>([])
   const [redoStack, setRedoStack] = useState<AssetHistoryEntry[]>([])
   const [historyBusy, setHistoryBusy] = useState(false)
+  const [optimizeTarget, setOptimizeTarget] = useState<{
+    name: string
+    path: string
+    size?: number
+  } | null>(null)
 
   // Đổi dự án thì bỏ lịch sử để tránh hoàn tác nhầm sang tệp của dự án khác.
   useEffect(() => {
@@ -1135,6 +1152,44 @@ export const WorkspaceSidebar = ({
     } catch {
       onShowToast('err', `Không đọc được ảnh “${asset.name}”.`)
     }
+  }
+
+  /* ── Tối ưu ảnh (D1-14) ── */
+
+  /** Đọc lại data URL nếu ảnh đang được dùng làm ảnh mẫu Canvas. */
+  const refreshReferenceImage = async (targetPath: string) => {
+    if (referenceAssetPath !== targetPath) return
+    try {
+      const file = await api.fs.read(targetPath)
+      const name = targetPath.split(/[\\/]/).pop() ?? 'image'
+      const dataUrl = fileToDataUrl(file, name)
+      if (dataUrl) onSelectReference?.({ name, path: targetPath, size: file.size, dataUrl })
+    } catch {
+      /* Ảnh có thể đang bị khoá; lần quét sau sẽ cập nhật lại. */
+    }
+  }
+
+  const handleOpenOptimize = (asset: { name: string; path: string; size?: number }) => {
+    setOptimizeTarget({ name: asset.name, path: asset.path, size: asset.size })
+  }
+
+  const handleAssetOptimized = async (
+    result: ImageApplyResult,
+    options: ImageApplyOptions,
+  ) => {
+    if (!result.ok || !result.outputPath) return
+    const name = options.path.split(/[\\/]/).pop() ?? 'ảnh'
+    pushAssetHistory({
+      kind: 'optimize',
+      label: `tối ưu “${name}”`,
+      sourcePath: options.path,
+      outputPath: result.outputPath,
+      mode: options.mode,
+      backupPath: result.backupPath,
+      options,
+    })
+    if (options.mode === 'replace') await refreshReferenceImage(options.path)
+    handleRefreshAssets()
   }
 
   const handleAddImages = async () => {
@@ -1226,12 +1281,30 @@ export const WorkspaceSidebar = ({
             ? `Đã hoàn tác thao tác ${entry.label}.`
             : `Chỉ hoàn tác được ${redoItems.length}/${entry.items.length} ảnh đã thêm.`,
         )
-      } else {
+      } else if (entry.kind === 'remove') {
         if (!entry.backupPath) throw new Error('Không tìm thấy bản sao lưu của ảnh.')
         const result = await api.assets.restore(entry.backupPath, entry.path)
         if (!result.success) throw new Error(result.error ?? 'Không thể khôi phục ảnh.')
         setUndoStack((prev) => prev.slice(0, -1))
         setRedoStack((prev) => [...prev, { ...entry, path: result.path ?? entry.path }])
+        onShowToast('ok', `Đã hoàn tác thao tác ${entry.label}.`)
+      } else {
+        if (entry.mode === 'replace') {
+          if (!entry.backupPath) throw new Error('Không tìm thấy bản sao lưu ảnh gốc.')
+          const result = await api.images.revert(entry.backupPath, entry.sourcePath)
+          if (!result.success) throw new Error(result.error ?? 'Không thể khôi phục ảnh gốc.')
+          await refreshReferenceImage(entry.sourcePath)
+          setUndoStack((prev) => prev.slice(0, -1))
+          setRedoStack((prev) => [...prev, entry])
+        } else {
+          const result = await api.assets.remove(entry.outputPath)
+          if (!result.success || !result.backupPath) {
+            throw new Error(result.error ?? 'Không thể hoàn tác tối ưu ảnh.')
+          }
+          if (referenceAssetPath === entry.outputPath) onClearReference?.()
+          setUndoStack((prev) => prev.slice(0, -1))
+          setRedoStack((prev) => [...prev, { ...entry, backupPath: result.backupPath }])
+        }
         onShowToast('ok', `Đã hoàn tác thao tác ${entry.label}.`)
       }
       handleRefreshAssets()
@@ -1269,7 +1342,7 @@ export const WorkspaceSidebar = ({
             ? `Đã làm lại thao tác ${entry.label}.`
             : `Chỉ làm lại được ${undoItems.length}/${entry.items.length} ảnh.`,
         )
-      } else {
+      } else if (entry.kind === 'remove') {
         const result = await api.assets.remove(entry.path)
         if (!result.success || !result.backupPath) {
           throw new Error(result.error ?? 'Không thể xoá lại ảnh.')
@@ -1277,6 +1350,31 @@ export const WorkspaceSidebar = ({
         if (referenceAssetPath === entry.path) onClearReference?.()
         setRedoStack((prev) => prev.slice(0, -1))
         setUndoStack((prev) => [...prev, { ...entry, backupPath: result.backupPath! }])
+        onShowToast('ok', `Đã làm lại thao tác ${entry.label}.`)
+      } else {
+        if (entry.mode === 'replace') {
+          const result = await api.images.apply({ ...entry.options, mode: 'replace', confirmed: true })
+          if (!result.ok) throw new Error(result.error ?? 'Không thể làm lại tối ưu ảnh.')
+          await refreshReferenceImage(entry.sourcePath)
+          setRedoStack((prev) => prev.slice(0, -1))
+          setUndoStack((prev) => [
+            ...prev,
+            {
+              ...entry,
+              outputPath: result.outputPath ?? entry.outputPath,
+              backupPath: result.backupPath,
+            },
+          ])
+        } else {
+          if (!entry.backupPath) throw new Error('Không tìm thấy bản sao lưu ảnh tối ưu.')
+          const result = await api.assets.restore(entry.backupPath, entry.outputPath)
+          if (!result.success) throw new Error(result.error ?? 'Không thể làm lại tối ưu ảnh.')
+          setRedoStack((prev) => prev.slice(0, -1))
+          setUndoStack((prev) => [
+            ...prev,
+            { ...entry, outputPath: result.path ?? entry.outputPath, backupPath: undefined },
+          ])
+        }
         onShowToast('ok', `Đã làm lại thao tác ${entry.label}.`)
       }
       handleRefreshAssets()
@@ -2214,6 +2312,22 @@ export const WorkspaceSidebar = ({
                   <Plus size={13} />
                   <span>Thêm ảnh từ máy tính</span>
                 </button>
+                <button
+                  className="pm-asset-add pm-asset-optimize-tool"
+                  disabled={!referenceAssetPath}
+                  onClick={() => {
+                    const selected = assets.find((item) => item.path === referenceAssetPath)
+                    if (selected) handleOpenOptimize(selected)
+                  }}
+                  title={
+                    referenceAssetPath
+                      ? 'Tối ưu ảnh mẫu đang chọn (định dạng, chất lượng, kích thước)'
+                      : 'Chọn một ảnh mẫu trong lưới để tối ưu'
+                  }
+                >
+                  <Wand2 size={13} />
+                  <span>Tối ưu ảnh mẫu</span>
+                </button>
               </div>
               {assets.length === 0 ? (
                 <div className="pm-empty" style={{ padding: '24px 12px', border: 0 }}>
@@ -2252,6 +2366,16 @@ export const WorkspaceSidebar = ({
                             }}
                           >
                             <Trash2 size={11} />
+                          </button>
+                          <button
+                            className="pm-asset-optimize"
+                            title={`Tối ưu “${ast.name}” (định dạng, chất lượng, kích thước)`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleOpenOptimize(ast)
+                            }}
+                          >
+                            <Wand2 size={11} />
                           </button>
                           {isActive && (
                             <span className="pm-asset-check" title="Ảnh mẫu đang chọn">
@@ -2854,6 +2978,15 @@ export const WorkspaceSidebar = ({
           />
         )}
       </div>
+
+      {optimizeTarget && (
+        <ImageOptimizeDialog
+          asset={optimizeTarget}
+          onClose={() => setOptimizeTarget(null)}
+          onOptimized={(result, options) => void handleAssetOptimized(result, options)}
+          onShowToast={onShowToast}
+        />
+      )}
     </div>
   )
 }

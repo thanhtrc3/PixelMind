@@ -789,11 +789,13 @@
 
 .pm-asset-toolbar {
   display: flex;
+  gap: 6px;
   margin-bottom: 8px;
 }
 
 .pm-asset-add {
   flex: 1;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -806,20 +808,36 @@
   color: var(--text-2);
   font-size: 11px;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
   cursor: pointer;
   transition: all 120ms ease;
 }
 
-.pm-asset-add:hover {
+.pm-asset-add span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pm-asset-add:hover:not(:disabled) {
   border-color: var(--accent-line, var(--accent));
   background: var(--accent-soft);
   color: var(--accent-text);
 }
 
-.pm-asset-delete {
+.pm-asset-add:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pm-asset-optimize-tool {
+  border-style: solid;
+}
+
+.pm-asset-delete,
+.pm-asset-optimize {
   position: absolute;
   top: 5px;
-  left: 5px;
   width: 18px;
   height: 18px;
   padding: 0;
@@ -834,13 +852,32 @@
   transition: opacity 120ms ease, background 120ms ease;
 }
 
+.pm-asset-delete {
+  left: 5px;
+}
+
+.pm-asset-optimize {
+  left: 27px;
+}
+
 .pm-asset-card:hover .pm-asset-delete,
-.pm-asset-delete:focus-visible {
+.pm-asset-card:hover .pm-asset-optimize,
+.pm-asset-delete:focus-visible,
+.pm-asset-optimize:focus-visible {
   opacity: 1;
+}
+
+/* Nút tối ưu luôn hiện mờ để dễ phát hiện, rõ hẳn khi hover. */
+.pm-asset-optimize {
+  opacity: 0.62;
 }
 
 .pm-asset-delete:hover {
   background: #ef4444;
+}
+
+.pm-asset-optimize:hover {
+  background: var(--accent);
 }
 
 .pm-asset-card.active {
