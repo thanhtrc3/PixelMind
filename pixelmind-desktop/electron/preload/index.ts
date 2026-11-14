@@ -22,6 +22,14 @@ import type {
 } from '../../shared/types'
 import type { PixelMindApi, FileSearchOptions } from '../../shared/api'
 import type {
+  ArchiveProgress,
+  ZipExportOptions,
+  ZipExportResult,
+  ZipImportOptions,
+  ZipImportResult,
+  ZipInspection,
+} from '../../shared/archive'
+import type {
   MutationPreview,
   ProjectScanResult,
   ToolboxMutationPayload,
@@ -130,6 +138,20 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('project:add-dev-script', projectId),
     setCommand: (projectId: string, command: string): Promise<ProjectRecord | null> =>
       ipcRenderer.invoke('project:set-command', projectId, command),
+    pickZipFile: (): Promise<string | null> => ipcRenderer.invoke('project:zip-pick'),
+    inspectZip: (zipPath: string): Promise<ZipInspection> =>
+      ipcRenderer.invoke('project:zip-inspect', zipPath),
+    importZip: (options: ZipImportOptions): Promise<ZipImportResult> =>
+      ipcRenderer.invoke('project:zip-import', options),
+    pickZipSavePath: (defaultName: string): Promise<string | null> =>
+      ipcRenderer.invoke('project:zip-save-path', defaultName),
+    exportZip: (options: ZipExportOptions): Promise<ZipExportResult> =>
+      ipcRenderer.invoke('project:zip-export', options),
+    onArchiveProgress: (cb: (progress: ArchiveProgress) => void) => {
+      const listener = (_e: IpcRendererEvent, progress: ArchiveProgress) => cb(progress)
+      ipcRenderer.on('project:archive-progress', listener)
+      return () => ipcRenderer.removeListener('project:archive-progress', listener)
+    },
   },
 
   fs: {

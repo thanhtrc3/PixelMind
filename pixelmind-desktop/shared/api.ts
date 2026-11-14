@@ -32,6 +32,14 @@ import type {
   ToolboxWriteResult,
 } from './toolbox'
 import type { AiApi } from './ai'
+import type {
+  ArchiveProgress,
+  ZipExportOptions,
+  ZipExportResult,
+  ZipImportOptions,
+  ZipImportResult,
+  ZipInspection,
+} from './archive'
 
 export interface FileSearchMatch {
   file: string
@@ -154,6 +162,20 @@ export interface PixelMindApi {
     createIndexHtml(projectId: string): Promise<boolean>
     addDevScript(projectId: string): Promise<boolean>
     setCommand(projectId: string, command: string): Promise<ProjectRecord | null>
+
+    /* ── Nhập / xuất dự án ZIP (D1-11, D1-13) ── */
+    /** Mở hộp thoại chọn tệp ZIP cần nhập. */
+    pickZipFile(): Promise<string | null>
+    /** Kiểm tra ZIP trước khi nhập: số tệp, dung lượng, thư mục gốc và lỗi an toàn. */
+    inspectZip(zipPath: string): Promise<ZipInspection>
+    /** Giải nén ZIP vào thư mục đích và đăng ký thành dự án. */
+    importZip(options: ZipImportOptions): Promise<ZipImportResult>
+    /** Mở hộp thoại chọn nơi lưu tệp ZIP khi xuất dự án. */
+    pickZipSavePath(defaultName: string): Promise<string | null>
+    /** Xuất dự án ra ZIP, loại trừ dependency/VCS/artifact build. */
+    exportZip(options: ZipExportOptions): Promise<ZipExportResult>
+    /** Lắng nghe tiến trình nhập/xuất ZIP. */
+    onArchiveProgress(cb: (progress: ArchiveProgress) => void): () => void
   }
   fs: {
     tree(root: string, showHidden?: boolean): Promise<FileNode[]>

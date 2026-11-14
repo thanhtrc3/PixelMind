@@ -317,6 +317,33 @@ export function createBrowserMock(): PixelMindApi {
       async createFromTemplate() {
         return { success: false, error: 'Chức năng tạo dự án chỉ hỗ trợ trên bản desktop.' }
       },
+      async pickZipFile() {
+        return null
+      },
+      async inspectZip() {
+        return {
+          ok: false,
+          error: 'Chức năng nhập dự án ZIP chỉ hỗ trợ trên bản desktop.',
+          fileCount: 0,
+          directoryCount: 0,
+          totalBytes: 0,
+          compressedBytes: 0,
+          entries: [],
+          warnings: [],
+        }
+      },
+      async importZip() {
+        return { ok: false, error: 'Chức năng nhập dự án ZIP chỉ hỗ trợ trên bản desktop.' }
+      },
+      async pickZipSavePath() {
+        return null
+      },
+      async exportZip() {
+        return { ok: false, error: 'Chức năng xuất dự án ZIP chỉ hỗ trợ trên bản desktop.' }
+      },
+      onArchiveProgress() {
+        return () => {}
+      },
       async add() {
         return null
       },

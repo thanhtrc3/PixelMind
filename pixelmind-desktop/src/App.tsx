@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Archive,
   BookOpen,
   ClipboardList,
   Database,
+  FileArchive,
   FileText,
   FolderKanban,
   FolderOpen,
@@ -42,7 +44,7 @@ import type {
 import type { FileSearchRange } from '@shared/api'
 import { api, isDesktop } from './lib/bridge'
 import { applyThemeVariables } from './lib/theme'
-import { fileName } from './lib/format'
+import { fileName, formatBytes } from './lib/format'
 import { editorBuffer } from './lib/editorBuffer'
 import { LAYOUT_KEYS, persistFlag, readStoredFlag } from './lib/layoutPrefs'
 import {
@@ -75,6 +77,8 @@ import AIThemeDialog from './components/AIThemeDialog'
 import NotificationCenter from './components/ide/NotificationCenter'
 import TemplateGalleryDialog from './components/ide/TemplateGalleryDialog'
 import CloneGitDialog from './components/ide/CloneGitDialog'
+import ImportZipDialog from './components/ide/ImportZipDialog'
+import ExportZipDialog from './components/ide/ExportZipDialog'
 import type { AppNotification } from './lib/notifications'
 import {
   createNotification,
@@ -171,6 +175,8 @@ const App = () => {
   const [notifCenterOpen, setNotifCenterOpen] = useState(false)
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false)
   const [cloneGitOpen, setCloneGitOpen] = useState(false)
+  const [importZipOpen, setImportZipOpen] = useState(false)
+  const [exportZipOpen, setExportZipOpen] = useState(false)
 
   const settings = storeData.settings
   const project = useMemo(
@@ -1145,6 +1151,19 @@ const App = () => {
 
   /* ── Phím tắt + menu hệ thống ──────────────────────────── */
 
+  const openImportZip = () => {
+    setView('projects')
+    setImportZipOpen(true)
+  }
+
+  const openExportZip = () => {
+    if (!project) {
+      showToast('info', 'Hãy mở một dự án trước khi xuất ZIP.')
+      return
+    }
+    setExportZipOpen(true)
+  }
+
   const actionsRef = useRef({
     openFolder,
     startRun,
@@ -1157,6 +1176,8 @@ const App = () => {
     handleInstall,
     setIsSidebarOpen,
     setSidebarTab,
+    openImportZip,
+    openExportZip,
   })
   actionsRef.current = {
     openFolder,
@@ -1170,6 +1191,8 @@ const App = () => {
     handleInstall,
     setIsSidebarOpen,
     setSidebarTab,
+    openImportZip,
+    openExportZip,
   }
 
   useEffect(() => {
@@ -1225,6 +1248,12 @@ const App = () => {
       switch (action) {
         case 'open-folder':
           void actionsRef.current.openFolder()
+          break
+        case 'import-zip':
+          actionsRef.current.openImportZip()
+          break
+        case 'export-zip':
+          actionsRef.current.openExportZip()
           break
         case 'run':
           void actionsRef.current.startRun()
@@ -1332,6 +1361,19 @@ const App = () => {
         icon: FolderOpen,
         keys: 'Ctrl O',
         run: () => void openFolder(),
+      },
+      {
+        id: 'import-zip',
+        label: 'Nhập dự án từ tệp ZIP…',
+        icon: FileArchive,
+        run: openImportZip,
+      },
+      {
+        id: 'export-zip',
+        label: 'Xuất dự án hiện tại ra tệp ZIP…',
+        icon: Archive,
+        disabled: !project,
+        run: openExportZip,
       },
       {
         id: 'projects',
@@ -1634,6 +1676,7 @@ const App = () => {
               onOpenFolder={() => void openFolder()}
               onNewProject={() => setTemplateGalleryOpen(true)}
               onCloneGit={() => setCloneGitOpen(true)}
+              onImportZip={() => setImportZipOpen(true)}
               onRemove={requestRemove}
               onFavorite={(item) => void toggleFavorite(item)}
               onReveal={(item) => void api.fs.openPath(item.path)}
@@ -1668,6 +1711,7 @@ const App = () => {
               onInstall={() => void handleInstall()}
               onCreateIndexHtml={() => void handleCreateIndexHtml()}
               onAddDevScript={() => void handleAddDevScript()}
+              onExportZip={() => setExportZipOpen(true)}
             />
           )}
           {/* Workspace luôn được giữ mounted (ẩn khi ở màn hình khác) để phiên AI
@@ -2040,6 +2084,56 @@ const App = () => {
               return { success: true }
             }
             return { success: false, error: res.error || 'Clone dự án thất bại.' }
+          }}
+        />
+      )}
+      {importZipOpen && (
+        <ImportZipDialog
+          onClose={() => setImportZipOpen(false)}
+          onPickZip={async () => (api.projects.pickZipFile ? api.projects.pickZipFile() : null)}
+          onSelectFolder={async () =>
+            api.projects.pickFolderOnly ? api.projects.pickFolderOnly() : null
+          }
+          onImport={async (options) => {
+            if (!api.projects.importZip) {
+              return { ok: false, error: 'Chức năng nhập ZIP chỉ hỗ trợ trên bản desktop.' }
+            }
+            const res = await api.projects.importZip(options)
+            if (res.ok && res.project) {
+              const list = await api.projects.list()
+              setStoreData((prev) => ({ ...prev, projects: list }))
+              await openProject(res.project, true)
+              const warningText = res.warnings?.length
+                ? ` (${res.warnings.length} cảnh báo)`
+                : ''
+              showToast('ok', `✨ Đã nhập dự án “${res.project.name}” từ ZIP${warningText}.`)
+            }
+            return { ok: res.ok, error: res.error, warnings: res.warnings }
+          }}
+        />
+      )}
+
+      {exportZipOpen && project && (
+        <ExportZipDialog
+          project={project}
+          onClose={() => setExportZipOpen(false)}
+          onPickSavePath={async (defaultName) =>
+            api.projects.pickZipSavePath ? api.projects.pickZipSavePath(defaultName) : null
+          }
+          onExport={async (options) => {
+            if (!api.projects.exportZip) {
+              return { ok: false, error: 'Chức năng xuất ZIP chỉ hỗ trợ trên bản desktop.' }
+            }
+            const res = await api.projects.exportZip(options)
+            if (res.ok) {
+              showToast(
+                'ok',
+                `📦 Đã xuất ZIP ${res.fileCount ?? 0} tệp (${formatBytes(res.totalBytes ?? 0)}).`,
+              )
+            } else {
+              showToast('err', res.error || 'Xuất dự án ZIP thất bại.')
+            }
+            return res
           }}
         />
       )}

@@ -10,7 +10,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "preview:web": "node scripts/preview-web.mjs",
-    "test": "node --experimental-strip-types --test tests/workspaceTabs.test.mjs tests/canvasSettings.test.mjs tests/notifications.test.mjs tests/templates.test.mjs tests/staticProject.test.mjs tests/gitCloneAndPublish.test.mjs tests/errorParser.test.mjs",
+    "test": "node --experimental-strip-types --test tests/workspaceTabs.test.mjs tests/canvasSettings.test.mjs tests/notifications.test.mjs tests/templates.test.mjs tests/staticProject.test.mjs tests/gitCloneAndPublish.test.mjs tests/errorParser.test.mjs tests/archiveZip.test.mjs",
     "dist": "electron-vite build && electron-builder --win",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
   },
@@ -47,12 +47,16 @@
     "node-pty": "^1.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-resizable-panels": "^4.15.0"
+    "react-resizable-panels": "^4.15.0",
+    "yauzl": "^3.4.0",
+    "yazl": "^3.3.1"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "@types/yauzl": "^3.4.0",
+    "@types/yazl": "^3.3.1",
     "@vitejs/plugin-react": "^6.1.2",
     "electron": "^45.1.0",
     "electron-builder": "^26.18.0",

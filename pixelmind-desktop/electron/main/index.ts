@@ -1,8 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell } from 'electron'
-import { basename, dirname, extname, join, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import type { MenuItemConstructorOptions, OpenDialogOptions } from 'electron'
+import type { MenuItemConstructorOptions, OpenDialogOptions, WebContents } from 'electron'
 import type {
   DesignTokens,
   GitActionResult,
@@ -15,6 +15,14 @@ import type {
   TerminalCreateOptions,
 } from '../../shared/types'
 import type { ToolboxMutationPayload, ToolboxWritePayload } from '../../shared/toolbox'
+import type {
+  ArchiveProgress,
+  ZipExportOptions,
+  ZipExportResult,
+  ZipImportOptions,
+  ZipImportResult,
+  ZipInspection,
+} from '../../shared/archive'
 import {
   DEFAULT_DESIGN_TOKENS,
   generateVariablesCss,
@@ -73,6 +81,7 @@ import {
   trashPageFile,
 } from './pages'
 import { runToolboxMutation, scanProjectToolbox, writeToolboxFile } from './toolbox'
+import { exportProjectToZip, inspectZipFile, extractZipSafely } from './archive'
 import {
   applyHtmlTailwindAttributes,
   applyJsxTailwindAttributes,
@@ -246,6 +255,15 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+O',
           click: () => sendMenuAction('open-folder'),
         },
+        {
+          label: 'Nhập dự án từ ZIP…',
+          click: () => sendMenuAction('import-zip'),
+        },
+        {
+          label: 'Xuất dự án ra ZIP…',
+          click: () => sendMenuAction('export-zip'),
+        },
+        { type: 'separator' },
         {
           label: 'Màn hình dự án',
           accelerator: 'CmdOrCtrl+Shift+O',
@@ -1040,6 +1058,235 @@ ipcMain.handle(
       return { ok: true, project }
     } catch (err: any) {
       return { ok: false, error: err.message || 'Lỗi không xác định khi clone dự án.' }
+    }
+  },
+)
+
+/* ── Nhập / xuất dự án ZIP (D1-11, D1-13) ── */
+
+/** Gửi tiến trình về renderer, giới hạn tần suất để không làm nghẽn IPC. */
+function createArchiveProgressSender(sender: WebContents) {
+  let lastSent = 0
+  return (progress: ArchiveProgress) => {
+    const now = Date.now()
+    if (progress.processed < progress.total && now - lastSent < 80) return
+    lastSent = now
+    if (!sender.isDestroyed()) sender.send('project:archive-progress', progress)
+  }
+}
+
+ipcMain.handle('project:zip-pick', async (): Promise<string | null> => {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+    title: 'Chọn tệp ZIP của dự án',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Dự án ZIP (*.zip)', extensions: ['zip'] },
+      { name: 'Tất cả tệp', extensions: ['*'] },
+    ],
+    buttonLabel: 'Chọn tệp ZIP',
+  })
+  if (result.canceled || !result.filePaths.length) return null
+  return result.filePaths[0]
+})
+
+ipcMain.handle('project:zip-inspect', async (_event, zipPath: string): Promise<ZipInspection> => {
+  if (!zipPath || typeof zipPath !== 'string') {
+    return {
+      ok: false,
+      error: 'Chưa chọn tệp ZIP.',
+      fileCount: 0,
+      directoryCount: 0,
+      totalBytes: 0,
+      compressedBytes: 0,
+      entries: [],
+      warnings: [],
+    }
+  }
+  return inspectZipFile(resolve(zipPath))
+})
+
+ipcMain.handle(
+  'project:zip-import',
+  async (event, options: ZipImportOptions): Promise<ZipImportResult> => {
+    let staging: string | null = null
+    try {
+      if (!options?.zipPath) {
+        return { ok: false, error: 'Chưa chọn tệp ZIP để nhập.' }
+      }
+      if (!options.parentDir || !String(options.parentDir).trim()) {
+        return { ok: false, error: 'Chưa chọn thư mục lưu dự án trên máy.' }
+      }
+      const zipPath = resolve(options.zipPath)
+      const parentDir = resolve(options.parentDir)
+      if (!(await isDirectory(parentDir))) {
+        return { ok: false, error: 'Thư mục đích không tồn tại hoặc không hợp lệ.' }
+      }
+
+      /* Kiểm tra lại ở main process — không tin dữ liệu renderer gửi lên. */
+      const inspection = await inspectZipFile(zipPath)
+      if (!inspection.ok) {
+        return { ok: false, error: inspection.error, warnings: inspection.warnings }
+      }
+
+      let projectName = (options.projectName || '').trim()
+      if (!projectName) {
+        projectName = basename(zipPath, extname(zipPath)).trim()
+      }
+      if (
+        !projectName ||
+        projectName === '.' ||
+        projectName === '..' ||
+        /[/\\:*?"<>|]/.test(projectName) ||
+        /[. ]$/.test(projectName) ||
+        /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(projectName)
+      ) {
+        return {
+          ok: false,
+          error: 'Tên thư mục dự án không hợp lệ. Không dùng ký tự / \\ : * ? " < > |.',
+        }
+      }
+
+      const targetPath = resolve(parentDir, projectName)
+      const relTarget = relative(parentDir, targetPath)
+      if (!relTarget || relTarget.startsWith('..') || isAbsolute(relTarget)) {
+        return { ok: false, error: 'Đường dẫn dự án không hợp lệ.' }
+      }
+
+      try {
+        const existing = await fs.stat(targetPath)
+        if (existing.isDirectory()) {
+          const items = await fs.readdir(targetPath)
+          if (items.length > 0) {
+            return {
+              ok: false,
+              error: `Thư mục “${projectName}” đã tồn tại và không rỗng. Vui lòng chọn tên khác.`,
+            }
+          }
+          await fs.rmdir(targetPath)
+        } else {
+          return {
+            ok: false,
+            error: `Đã có tệp trùng tên “${projectName}” tại thư mục đích. Vui lòng chọn tên khác.`,
+          }
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          return {
+            ok: false,
+            error: `Không kiểm tra được thư mục đích: ${(err as Error).message}`,
+          }
+        }
+      }
+
+      /* Giải nén vào thư mục tạm rồi đổi tên — lỗi giữa chừng không để lại dự án dở dang. */
+      staging = join(parentDir, `.pixelmind-zip-${randomUUID().slice(0, 8)}`)
+      await fs.mkdir(staging, { recursive: true })
+
+      const extracted = await extractZipSafely(zipPath, staging, {
+        stripRoot: options.stripRoot !== false,
+        onProgress: createArchiveProgressSender(event.sender),
+      })
+      if (!extracted.ok) {
+        return {
+          ok: false,
+          error: extracted.error,
+          warnings: [...inspection.warnings, ...(extracted.warnings ?? [])],
+        }
+      }
+
+      await fs.rename(staging, targetPath)
+      staging = null
+
+      const project = await addProject(targetPath)
+      if (!project) {
+        return {
+          ok: false,
+          error: `Đã giải nén vào “${targetPath}” nhưng không đăng ký được dự án vào PixelMind.`,
+          warnings: inspection.warnings,
+        }
+      }
+
+      await appendActivity(project.id, {
+        actor: 'bạn',
+        action: `Nhập dự án từ ZIP ${basename(zipPath)}`,
+        kind: 'người',
+        status: 'ok',
+      })
+
+      return {
+        ok: true,
+        project,
+        projectPath: targetPath,
+        fileCount: extracted.fileCount,
+        warnings: [...inspection.warnings, ...(extracted.warnings ?? [])],
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        error: (err as Error).message || 'Lỗi không xác định khi nhập dự án ZIP.',
+      }
+    } finally {
+      if (staging) {
+        await fs.rm(staging, { recursive: true, force: true }).catch(() => undefined)
+      }
+    }
+  },
+)
+
+ipcMain.handle('project:zip-save-path', async (_event, defaultName: string): Promise<string | null> => {
+  const cleanName = (defaultName || 'du-an').replace(/[/\\:*?"<>|]/g, '-').trim() || 'du-an'
+  const withExt = cleanName.toLowerCase().endsWith('.zip') ? cleanName : `${cleanName}.zip`
+  const result = await dialog.showSaveDialog(mainWindow ?? undefined!, {
+    title: 'Xuất dự án ra tệp ZIP',
+    defaultPath: join(app.getPath('documents'), withExt),
+    filters: [{ name: 'Tệp ZIP (*.zip)', extensions: ['zip'] }],
+    buttonLabel: 'Xuất ZIP',
+  })
+  if (result.canceled || !result.filePath) return null
+  return result.filePath.toLowerCase().endsWith('.zip') ? result.filePath : `${result.filePath}.zip`
+})
+
+ipcMain.handle(
+  'project:zip-export',
+  async (event, options: ZipExportOptions): Promise<ZipExportResult> => {
+    try {
+      if (!options?.projectId) {
+        return { ok: false, error: 'Chưa chọn dự án cần xuất ZIP.' }
+      }
+      if (!options.zipPath) {
+        return { ok: false, error: 'Chưa chọn đường dẫn lưu tệp ZIP.' }
+      }
+
+      const store = await readStore()
+      const project = store.projects.find((item) => item.id === options.projectId)
+      if (!project) {
+        return { ok: false, error: 'Không tìm thấy dự án cần xuất ZIP.' }
+      }
+      if (!(await isDirectory(project.path))) {
+        return { ok: false, error: 'Thư mục dự án không còn tồn tại trên máy.' }
+      }
+
+      const res = await exportProjectToZip({
+        root: project.path,
+        zipPath: resolve(options.zipPath),
+        includeGit: Boolean(options.includeGit),
+        onProgress: createArchiveProgressSender(event.sender),
+      })
+
+      if (res.ok) {
+        await appendActivity(project.id, {
+          actor: 'bạn',
+          action: `Xuất dự án ra ZIP (${res.fileCount ?? 0} tệp)`,
+          kind: 'người',
+          status: 'ok',
+        })
+      }
+      return res
+    } catch (err) {
+      return {
+        ok: false,
+        error: (err as Error).message || 'Lỗi không xác định khi xuất dự án ZIP.',
+      }
     }
   },
 )

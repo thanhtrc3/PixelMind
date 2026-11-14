@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
   Clock,
+  FileArchive,
   Folder,
   FolderOpen,
   GitFork,
@@ -24,6 +25,7 @@ interface ProjectViewProps {
   onOpenFolder: () => void
   onNewProject?: () => void
   onCloneGit?: () => void
+  onImportZip?: () => void
   onRemove: (project: ProjectRecord) => void
   onFavorite: (project: ProjectRecord) => void
   onReveal: (project: ProjectRecord) => void
@@ -38,6 +40,7 @@ const ProjectView = ({
   onOpenFolder,
   onNewProject,
   onCloneGit,
+  onImportZip,
   onRemove,
   onFavorite,
   onReveal,
@@ -90,6 +93,16 @@ const ProjectView = ({
               <GitFork size={13} /> Clone từ Git
             </button>
           )}
+          {onImportZip && (
+            <button
+              className="btn"
+              onClick={onImportZip}
+              disabled={busy}
+              title="Nhập dự án từ tệp ZIP có sẵn"
+            >
+              <FileArchive size={13} /> Nhập từ ZIP
+            </button>
+          )}
           <button className="btn" onClick={onOpenFolder} disabled={busy}>
             <FolderOpen size={13} /> Mở thư mục
           </button>
@@ -126,6 +139,11 @@ const ProjectView = ({
             {onCloneGit && (
               <button className="btn" onClick={onCloneGit} disabled={busy}>
                 <GitFork size={13} /> Clone từ Git
+              </button>
+            )}
+            {onImportZip && (
+              <button className="btn" onClick={onImportZip} disabled={busy}>
+                <FileArchive size={13} /> Nhập từ ZIP
               </button>
             )}
             <button className="btn" onClick={onOpenFolder} disabled={busy}>
