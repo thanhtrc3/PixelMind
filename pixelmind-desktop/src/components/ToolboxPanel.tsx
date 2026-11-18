@@ -44,7 +44,7 @@ import {
   TOOLBOX_ELEMENT_COUNT,
 } from '../data/toolboxCatalog'
 import type { ToolboxElement } from '@shared/toolbox'
-import { requestToolboxInsert, toolboxDrag } from '../lib/toolboxBridge'
+import { buildPartInsertItem, requestToolboxInsert, toolboxDrag } from '../lib/toolboxBridge'
 import type { ToolboxDragItem } from '../lib/toolboxBridge'
 import SavePartModal from './ide/SavePartModal'
 
@@ -146,17 +146,6 @@ function elementToDragItem(element: ToolboxElement): ToolboxDragItem {
     html: element.html,
     css: element.css,
     source: 'builtin',
-  }
-}
-
-function partToDragItem(part: Part): ToolboxDragItem {
-  return {
-    id: `part:${part.id}`,
-    name: part.name,
-    html: part.html,
-    css: part.css,
-    js: part.js,
-    source: 'part',
   }
 }
 
@@ -500,6 +489,7 @@ const PartLibraryPanel = ({
   const [query, setQuery] = useState('')
   const [group, setGroup] = useState<string>('all')
   const [customParts, setCustomParts] = useState<CustomToolboxPart[]>([])
+  const [variantByPart, setVariantByPart] = useState<Record<string, string>>({})
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const deletedIdsRef = useRef<Set<string>>(new Set())
 
@@ -546,6 +536,7 @@ const PartLibraryPanel = ({
       html: cp.html,
       css: cp.css || '',
       js: cp.js || '',
+      variants: cp.variants,
       prompt: cp.description || 'Linh kiện tự tạo từ vùng chọn',
       metaText: '',
       files: [],
@@ -568,6 +559,12 @@ const PartLibraryPanel = ({
     [allParts, query, group],
   )
 
+  const partToDragItem = (part: Part): ToolboxDragItem => {
+    const custom = customParts.find((p) => p.id === part.id)
+    if (!custom) return { id: `part:${part.id}`, name: part.name, html: part.html, css: part.css, js: part.js, source: 'part' }
+    return buildPartInsertItem(custom, variantByPart[part.id] ?? custom.variants?.[0]?.id ?? null)
+  }
+
   const insert = (part: Part) => {
     if (!part.draggable) {
       onShowToast('err', part.blockReason || 'Linh kiện này chưa thể chèn.')
@@ -578,8 +575,9 @@ const PartLibraryPanel = ({
     onShowToast('info', `Đã gửi “${part.name}” tới canvas.`)
   }
 
-  const copy = (part: Part) => {
-    void navigator.clipboard.writeText(part.html)
+  const copy = async (part: Part) => {
+    const item = partToDragItem(part)
+    await navigator.clipboard.writeText(item.html)
     onShowToast('ok', `Đã sao chép mã của “${part.name}”.`)
   }
 
@@ -695,6 +693,32 @@ const PartLibraryPanel = ({
               </div>
               <p>{part.prompt || part.tags.slice(0, 4).join(' · ')}</p>
               {!part.draggable && <em className="pm-toolbox-part__block">{part.blockReason}</em>}
+              {part.isCustom && (part.variants?.length ?? 0) > 0 ? (
+                <label
+                  className="pm-toolbox-variant"
+                  onClick={(event) => event.stopPropagation()}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginBottom: 6 }}
+                >
+                  <span style={{ color: 'var(--muted, #888)' }}>Biến thể:</span>
+                  <select
+                    value={variantByPart[part.id] ?? part.variants![0].id}
+                    onChange={(event) => setVariantByPart((prev) => ({ ...prev, [part.id]: event.target.value }))}
+                    style={{
+                      height: 22,
+                      borderRadius: 4,
+                      background: 'var(--panel-2, #222)',
+                      color: 'var(--text, #eee)',
+                      border: '1px solid var(--line, #444)',
+                      fontSize: 11,
+                      padding: '0 4px',
+                    }}
+                  >
+                    {part.variants!.map((variant: any) => (
+                      <option key={variant.id} value={variant.id}>{variant.name}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <div className="pm-toolbox-part__actions">
                 <button className="btn secondary" onClick={() => copy(part)} title="Sao chép mã HTML">
                   <Copy size={11} /> Sao chép

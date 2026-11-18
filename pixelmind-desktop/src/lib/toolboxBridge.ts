@@ -5,6 +5,8 @@
    ══════════════════════════════════════════════════════════════ */
 
 import type { ProjectPage } from '../../shared/types'
+import type { PartPropDef, PartVariant } from '../../shared/toolbox.ts'
+import { resolvePartVariant } from '../../shared/toolbox.ts'
 
 const normalizeRoute = (value: string) => (value.split('?')[0].replace(/\/+$/, '') || '/').toLowerCase()
 
@@ -19,6 +21,25 @@ export function pageFileForRoute(
   const wanted = normalizeRoute(route || '/')
   const page = pages?.find((item) => item.filePath && normalizeRoute(item.route) === wanted)
   return page?.filePath || ''
+}
+
+/**
+ * Dựng item chèn từ Part, đã thay placeholder theo biến thể đang chọn.
+ * Dùng chung cho nút Chèn, kéo-thả và Sao chép mã để đầu ra luôn khớp nhau.
+ */
+export function buildPartInsertItem(
+  part: { id: string; name: string; html: string; css?: string; js?: string; props?: PartPropDef[]; variants?: PartVariant[] },
+  variantId?: string | null,
+): ToolboxDragItem {
+  const resolved = resolvePartVariant(part, variantId)
+  return {
+    id: `part:${part.id}`,
+    name: part.name,
+    html: resolved.html,
+    css: resolved.css || undefined,
+    js: resolved.js || undefined,
+    source: 'part',
+  }
 }
 
 export interface ToolboxDragItem {

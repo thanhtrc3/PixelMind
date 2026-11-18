@@ -68,3 +68,21 @@ describe('parsePartVariantJson', () => {
     assert.equal(parsePartVariantJson(JSON.stringify({ variants: [{ id: '', name: 'A', values: {} }] })).ok, false)
   })
 })
+
+import { buildPartInsertItem } from '../src/lib/toolboxBridge.ts'
+
+describe('buildPartInsertItem', () => {
+  it('buildPartInsertItem áp dụng biến thể và giữ source part', () => {
+    const item = buildPartInsertItem({ id: 'p1', name: 'Nút', ...part }, 'danger')
+    assert.equal(item.id, 'part:p1')
+    assert.equal(item.source, 'part')
+    assert.match(item.html, /btn md danger/)
+    assert.doesNotMatch(item.html, /\{\{/)
+  })
+
+  it('buildPartInsertItem với part cũ giữ nguyên html', () => {
+    const item = buildPartInsertItem({ id: 'p2', name: 'Cũ', html: '<div>{{x}}</div>' })
+    assert.equal(item.html, '<div>{{x}}</div>')
+  })
+})
+

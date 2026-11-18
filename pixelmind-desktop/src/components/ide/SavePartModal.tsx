@@ -20,6 +20,7 @@ import {
 import Modal from '../Modal'
 import { api } from '../../lib/bridge'
 import type { CustomPartSource, CustomToolboxPart } from '@shared/toolbox'
+import { parsePartVariantJson } from '@shared/toolbox'
 
 interface SavePartModalProps {
   open: boolean
@@ -149,6 +150,8 @@ export const SavePartModal = ({
   const [previewImage, setPreviewImage] = useState<string>('')
   const [tab, setTab] = useState<'preview' | 'code' | 'image'>('preview')
   const [bgMode, setBgMode] = useState<'dark' | 'light' | 'grid'>('dark')
+  const [variantJson, setVariantJson] = useState('')
+  const [variantError, setVariantError] = useState('')
   const [saving, setSaving] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -164,6 +167,8 @@ export const SavePartModal = ({
       setSelectedTags(cleaned ? detectSuggestedTags(cleaned) : ['custom'])
       setNewTagInput('')
       setPreviewImage(initialPreview || '')
+      setVariantJson('')
+      setVariantError('')
       setTab(cleaned ? 'preview' : 'code')
       setSaving(false)
     }
@@ -227,6 +232,12 @@ export const SavePartModal = ({
       return
     }
 
+    const parsedVariants = parsePartVariantJson(variantJson)
+    if (!parsedVariants.ok) {
+      onShowToast('err', `Biến thể chưa hợp lệ: ${parsedVariants.error}`)
+      return
+    }
+
     setSaving(true)
     try {
       const tagsToSave = selectedTags.length > 0 ? selectedTags : ['custom']
@@ -236,6 +247,8 @@ export const SavePartModal = ({
         html: trimmedHtml,
         css: css.trim() || undefined,
         js: js.trim() || undefined,
+        props: parsedVariants.props.length > 0 ? parsedVariants.props : undefined,
+        variants: parsedVariants.variants.length > 0 ? parsedVariants.variants : undefined,
         preview: previewImage.trim() || undefined,
         tags: tagsToSave,
         language,
@@ -345,7 +358,7 @@ export const SavePartModal = ({
           <button
             className="btn primary"
             onClick={handleSave}
-            disabled={saving || !name.trim() || !html.trim() || inspection.suspicious}
+            disabled={saving || !name.trim() || !html.trim() || inspection.suspicious || Boolean(variantError)}
           >
             {saving ? <Loader2 size={13} className="pm-spin" /> : <Sparkles size={13} />}
             <span>Lưu vào Thư viện Part</span>
@@ -382,6 +395,35 @@ export const SavePartModal = ({
             placeholder="Mô tả công dụng hoặc phong cách thiết kế của linh kiện..."
             maxLength={300}
           />
+        </div>
+
+        {/* Biến thể & Props */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--pm-fg)' }}>
+            Biến thể &amp; props (JSON, không bắt buộc)
+          </label>
+          <textarea
+            className="pm-input"
+            rows={4}
+            value={variantJson}
+            placeholder={'{\n  "props": [{ "name": "size", "defaultValue": "md" }],\n  "variants": [{ "id": "sm", "name": "Nhỏ", "values": { "size": "sm" } }]\n}'}
+            onChange={(event) => {
+              const text = event.target.value
+              setVariantJson(text)
+              const parsed = parsePartVariantJson(text)
+              setVariantError(parsed.ok ? '' : parsed.error)
+            }}
+            style={{
+              fontFamily: 'monospace',
+              fontSize: 11,
+              lineHeight: 1.4,
+              resize: 'vertical',
+            }}
+          />
+          {variantError ? <p style={{ fontSize: 11, color: '#ef4444', margin: 0 }}>{variantError}</p> : null}
+          <p style={{ fontSize: 11, color: 'var(--pm-muted, #888)', margin: 0 }}>
+            Dùng placeholder <code>{'{{size}}'}</code> trong HTML/CSS/JS. Để trống nếu không cần biến thể.
+          </p>
         </div>
 
         {/* Phân loại & Tags */}

@@ -39,6 +39,8 @@ export interface PartFile {
   kind: 'json' | 'image' | 'code' | 'text';
 }
 
+import type { PartVariant } from '@shared/toolbox'
+
 export interface Part extends PartMeta {
   preview?: string;
   html: string;
@@ -47,6 +49,8 @@ export interface Part extends PartMeta {
   prompt: string;
   metaText: string;
   files: PartFile[];
+  /** Part tự tạo: danh sách biến thể để hiện ô chọn trên thẻ. */
+  variants?: PartVariant[];
   /** Part được kéo vào khung hay không (đủ ảnh + đã qua reviewer + không bị khoá/ẩn) */
   draggable: boolean;
   /** Lý do không kéo được, hiện ngay trên thẻ */

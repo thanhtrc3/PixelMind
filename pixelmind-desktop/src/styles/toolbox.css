@@ -1217,3 +1217,24 @@
   background: var(--line, #334155);
   margin: 4px 0;
 }
+
+/* D1-17: Biến thể Part */
+.pm-toolbox-variant {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted, #94a3b8);
+  margin-bottom: 6px;
+}
+
+.pm-toolbox-variant select {
+  height: 24px;
+  border-radius: 4px;
+  background: var(--panel-2, #1e293b);
+  color: var(--text, #f8fafc);
+  border: 1px solid var(--line, #334155);
+  font-size: 11px;
+  padding: 0 4px;
+}
+
