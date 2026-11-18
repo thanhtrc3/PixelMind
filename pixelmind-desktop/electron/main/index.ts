@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell, safeStorage } from 'electron'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -136,6 +136,9 @@ import type {
   AiToolCallRequest,
 } from '../../shared/ai'
 import type { FileSearchOptions } from '../../shared/api'
+import { createSecretStore } from './secretStore'
+import { runDeployCommand } from './deploy'
+import { idleDeployState, type DeployProvider, type DeployState } from '../../shared/deploy'
 
 // Tắt Same-Origin Policy & Site Isolation cho iframe trong Electron
 app.commandLine.appendSwitch('disable-web-security')
@@ -183,6 +186,19 @@ const terminalManager = new TerminalManager(
 
 const mockApi = new MockApiServer()
 mockApi.onChange((state) => mainWindow?.webContents.send('mock:state', state))
+
+const deployStores = new Map<string, ReturnType<typeof createSecretStore>>()
+function getDeployStore(provider: string) {
+  let store = deployStores.get(provider)
+  if (!store) {
+    const file = join(app.getPath('userData'), `deploy-token-${provider}.json`)
+    store = createSecretStore(file, safeStorage)
+    deployStores.set(provider, store)
+  }
+  return store
+}
+let deployState: DeployState = idleDeployState()
+const sendDeploy = () => mainWindow?.webContents.send('deploy:state', deployState)
 
 /* ── Chặn thoát khi dev server còn chạy (Settings → confirmQuitRunning) ── */
 let allowWindowClose = false
@@ -423,6 +439,10 @@ function buildMenu() {
         {
           label: 'Mock API cho dự án…',
           click: () => sendMenuAction('mock'),
+        },
+        {
+          label: 'Triển khai / Preview URL…',
+          click: () => sendMenuAction('deploy'),
         },
         {
           label: 'Mở trang trong trình duyệt ngoài',
@@ -3877,6 +3897,105 @@ ipcMain.handle('mock:start', async (_e, projectPath: string, config: MockApiConf
 ipcMain.handle('mock:stop', async () => mockApi.stop())
 
 ipcMain.handle('mock:state', async () => mockApi.state())
+
+/* ───────────────────────── IPC: Triển khai / Deploy (D1-26) ───────────────────────── */
+
+ipcMain.handle('deploy:set-token', async (_e, { provider, token }: { provider: DeployProvider; token: string }) => {
+  const store = getDeployStore(provider)
+  if (!store.available) {
+    return {
+      success: false,
+      error: 'Hệ điều hành không hỗ trợ lưu mã hoá. Hãy đặt token trong biến môi trường khi chạy ứng dụng.',
+    }
+  }
+  const trimmed = (token || '').trim()
+  if (!trimmed) {
+    return { success: false, error: 'Token không được để trống.' }
+  }
+  await store.save(trimmed)
+  return { success: true }
+})
+
+ipcMain.handle('deploy:has-token', async (_e, provider: DeployProvider) => {
+  const store = getDeployStore(provider)
+  const val = await store.load()
+  return val !== null
+})
+
+ipcMain.handle('deploy:clear-token', async (_e, provider: DeployProvider) => {
+  const store = getDeployStore(provider)
+  await store.save(null)
+  return true
+})
+
+ipcMain.handle('deploy:state', async () => deployState)
+
+ipcMain.handle('deploy:start', async (_e, projectId: string) => {
+  if (deployState.status === 'running') {
+    return { ...deployState, error: 'Đang có một lượt triển khai chạy.' }
+  }
+  const storeData = await readStore()
+  const project = storeData.projects.find((p) => p.id === projectId)
+  if (!project) {
+    return { status: 'error', url: null, phase: '', error: 'Không tìm thấy dự án.' }
+  }
+  const settings = storeData.settings
+  const command = (settings.deployCommand || '').trim()
+  if (!command) {
+    return {
+      status: 'error',
+      url: null,
+      phase: '',
+      error: 'Chưa cấu hình lệnh triển khai (Cài đặt → Triển khai).',
+    }
+  }
+  const provider = settings.deployProvider || 'vercel'
+  const store = getDeployStore(provider)
+  const token = await store.load()
+  const envName =
+    (settings.deployTokenEnv || '').trim() ||
+    (provider === 'netlify' ? 'NETLIFY_AUTH_TOKEN' : 'VERCEL_TOKEN')
+  const env: Record<string, string> = token ? { [envName]: token } : {}
+  const secrets = token ? [token] : []
+
+  deployState = { status: 'running', url: null, phase: 'Đang chạy lệnh triển khai…' }
+  sendDeploy()
+
+  try {
+    const result = await runDeployCommand({
+      command,
+      cwd: project.path,
+      env,
+      secrets,
+      onLog: (log) => mainWindow?.webContents.send('deploy:log', log),
+    })
+
+    if (result.ok) {
+      deployState = { status: 'success', url: result.url, phase: 'Hoàn tất' }
+      await patchProject(project.id, (p) => ({
+        ...p,
+        meta: {
+          ...p.meta,
+          deployUrl: result.url ?? p.meta.deployUrl,
+          deployAt: Date.now(),
+          deployProvider: provider,
+        },
+      }))
+    } else {
+      deployState = { status: 'error', url: null, phase: '', error: result.error }
+    }
+  } catch (err) {
+    deployState = {
+      status: 'error',
+      url: null,
+      phase: '',
+      error: (err as Error).message || String(err),
+    }
+  }
+
+  sendDeploy()
+  return deployState
+})
 
 /* ───────────────────────── IPC: AI ───────────────────────── */
 

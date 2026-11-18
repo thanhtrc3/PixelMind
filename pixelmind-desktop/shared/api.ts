@@ -38,6 +38,7 @@ import type {
 import type { AiApi } from './ai'
 import type { A11yScanResult } from './a11y'
 import type { MockApiConfig, MockApiState } from './mockApi'
+import type { DeployProvider, DeployState, DeployLog } from './deploy'
 import type {
   ImageApplyOptions,
   ImageApplyResult,
@@ -350,6 +351,15 @@ export interface PixelMindApi {
     stop(): Promise<MockApiState>
     state(): Promise<MockApiState>
     onState(cb: (state: MockApiState) => void): () => void
+  }
+  deploy: {
+    setToken(provider: DeployProvider, token: string): Promise<{ success: boolean; error?: string }>
+    hasToken(provider: DeployProvider): Promise<boolean>
+    clearToken(provider: DeployProvider): Promise<boolean>
+    start(projectId: string): Promise<DeployState>
+    state(): Promise<DeployState>
+    onLog(cb: (log: DeployLog) => void): () => void
+    onState(cb: (state: DeployState) => void): () => void
   }
   ai: AiApi
   window?: {

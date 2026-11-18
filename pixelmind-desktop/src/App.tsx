@@ -9,6 +9,7 @@ import {
   FolderKanban,
   FolderOpen,
   FolderTree,
+  Globe,
   History,
   Image as ImageIcon,
   Layers,
@@ -68,6 +69,7 @@ import SettingsDialog from './components/SettingsDialog'
 import DesignTokensDialog from './components/DesignTokensDialog'
 import AccessibilityDialog from './components/AccessibilityDialog'
 import MockApiDialog from './components/MockApiDialog'
+import DeployDialog from './components/DeployDialog'
 import GuideDialog from './components/GuideDialog'
 import CommandPalette from './components/CommandPalette'
 import type { PaletteCommand } from './components/CommandPalette'
@@ -103,7 +105,7 @@ const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : typeof error === 'string' ? error : 'Đã xảy ra lỗi không xác định.'
 
 type View = 'projects' | 'detail' | 'workspace'
-type DialogId = 'settings' | 'guide' | 'palette' | 'tokens' | 'a11y' | 'mock'
+type DialogId = 'settings' | 'guide' | 'palette' | 'tokens' | 'a11y' | 'mock' | 'deploy'
 
 const App = () => {
   const [storeData, setStoreData] = useState<StoreData>(EMPTY_STORE)
@@ -1340,6 +1342,9 @@ const App = () => {
         case 'mock':
           setDialog('mock')
           break
+        case 'deploy':
+          setDialog('deploy')
+          break
         case 'install-deps':
           void actionsRef.current.handleInstall()
           break
@@ -1564,6 +1569,13 @@ const App = () => {
         label: 'Mock API cho dự án thử nghiệm',
         icon: Server,
         run: () => setDialog('mock'),
+      },
+      {
+        id: 'deploy',
+        label: 'Triển khai / Preview URL…',
+        hint: 'Vercel · Netlify · CLI tuỳ chỉnh',
+        icon: Globe,
+        run: () => setDialog('deploy'),
       },
       {
         id: 'ai-panel',
@@ -1891,6 +1903,15 @@ const App = () => {
       {dialog === 'mock' && (
         <MockApiDialog
           projectPath={project?.path ?? null}
+          onClose={() => setDialog(null)}
+          onShowToast={showToast}
+        />
+      )}
+
+      {dialog === 'deploy' && project && (
+        <DeployDialog
+          project={project}
+          settings={settings}
           onClose={() => setDialog(null)}
           onShowToast={showToast}
         />

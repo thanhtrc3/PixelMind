@@ -130,3 +130,48 @@ describe('runDeployCommand', () => {
   })
 })
 
+import { createSecretStore } from '../electron/main/secretStore.ts'
+
+describe('createSecretStore', () => {
+  const mockCodec = {
+    isEncryptionAvailable: () => true,
+    encryptString: (val) => Buffer.from(`ENC:${val}`),
+    decryptString: (buf) => buf.toString().replace(/^ENC:/, ''),
+  }
+
+  it('lưu và giải mã token thành công', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pm-secret-'))
+    const file = join(dir, 'token.json')
+    try {
+      const store = createSecretStore(file, mockCodec)
+      assert.equal(store.available, true)
+      assert.equal(await store.load(), null)
+      await store.save('my-secret-key')
+      assert.equal(await store.load(), 'my-secret-key')
+      await store.save(null)
+      assert.equal(await store.load(), null)
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
+
+  it('không ghi và không đọc khi codec không khả dụng', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pm-secret-'))
+    const file = join(dir, 'token.json')
+    const unavailCodec = {
+      isEncryptionAvailable: () => false,
+      encryptString: () => Buffer.from(''),
+      decryptString: () => '',
+    }
+    try {
+      const store = createSecretStore(file, unavailCodec)
+      assert.equal(store.available, false)
+      await store.save('should-not-save')
+      assert.equal(await store.load(), null)
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
+})
+
+

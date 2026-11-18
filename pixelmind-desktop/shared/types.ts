@@ -35,6 +35,11 @@ export interface Settings {
   aiModel?: string
   aiTemperature?: number
   aiMaxTokens?: number
+
+  // Triển khai / Deploy (D1-26)
+  deployProvider?: 'vercel' | 'netlify' | 'custom'
+  deployCommand?: string
+  deployTokenEnv?: string
 }
 
 export interface ScriptEntry {
@@ -238,6 +243,10 @@ export interface ProjectMeta {
   activity: ProjectActivity[]
   /** Lệnh người dùng tự nhập cho dự án không có script sẵn. */
   customCommand: string
+  /** URL triển khai thực tế gần nhất (D1-26). */
+  deployUrl?: string
+  deployAt?: number
+  deployProvider?: 'vercel' | 'netlify' | 'custom'
 }
 
 export type IssueLevel = 'error' | 'warning' | 'info'
@@ -437,4 +446,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiModel: 'gpt-4o-mini',
   aiTemperature: 0.2,
   aiMaxTokens: 2048,
+  deployProvider: 'vercel',
+  deployCommand: '',
+  deployTokenEnv: 'VERCEL_TOKEN',
 }

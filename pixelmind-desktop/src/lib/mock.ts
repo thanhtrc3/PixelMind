@@ -958,6 +958,29 @@ export function createBrowserMock(): PixelMindApi {
         return () => undefined
       },
     },
+    deploy: {
+      async setToken(_provider, _token) {
+        return { success: true }
+      },
+      async hasToken(_provider) {
+        return false
+      },
+      async clearToken(_provider) {
+        return true
+      },
+      async start(_projectId) {
+        return { status: 'error', url: null, phase: '', error: 'Bản giả lập không chạy được lệnh deploy.' }
+      },
+      async state() {
+        return { status: 'idle', url: null, phase: '' }
+      },
+      onLog(_cb) {
+        return () => undefined
+      },
+      onState(_cb) {
+        return () => undefined
+      },
+    },
     ai: {
       async status() {
         return {

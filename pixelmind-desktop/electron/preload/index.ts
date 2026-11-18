@@ -23,6 +23,7 @@ import type {
 import type { PixelMindApi, FileSearchOptions } from '../../shared/api'
 import type { A11yScanResult } from '../../shared/a11y'
 import type { MockApiConfig, MockApiState } from '../../shared/mockApi'
+import type { DeployProvider, DeployState, DeployLog } from '../../shared/deploy'
 import type {
   ArchiveProgress,
   ZipExportOptions,
@@ -353,6 +354,28 @@ const api: PixelMindApi = {
       const listener = (_e: IpcRendererEvent, state: MockApiState) => cb(state)
       ipcRenderer.on('mock:state', listener)
       return () => ipcRenderer.removeListener('mock:state', listener)
+    },
+  },
+  deploy: {
+    setToken: (provider: DeployProvider, token: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('deploy:set-token', { provider, token }),
+    hasToken: (provider: DeployProvider): Promise<boolean> =>
+      ipcRenderer.invoke('deploy:has-token', provider),
+    clearToken: (provider: DeployProvider): Promise<boolean> =>
+      ipcRenderer.invoke('deploy:clear-token', provider),
+    start: (projectId: string): Promise<DeployState> =>
+      ipcRenderer.invoke('deploy:start', projectId),
+    state: (): Promise<DeployState> =>
+      ipcRenderer.invoke('deploy:state'),
+    onLog: (cb: (log: DeployLog) => void) => {
+      const listener = (_e: IpcRendererEvent, log: DeployLog) => cb(log)
+      ipcRenderer.on('deploy:log', listener)
+      return () => ipcRenderer.removeListener('deploy:log', listener)
+    },
+    onState: (cb: (state: DeployState) => void) => {
+      const listener = (_e: IpcRendererEvent, state: DeployState) => cb(state)
+      ipcRenderer.on('deploy:state', listener)
+      return () => ipcRenderer.removeListener('deploy:state', listener)
     },
   },
   ai: {
