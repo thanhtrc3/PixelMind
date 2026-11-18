@@ -10,7 +10,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "preview:web": "node scripts/preview-web.mjs",
-    "test": "node --experimental-strip-types --test tests/workspaceTabs.test.mjs tests/canvasSettings.test.mjs tests/notifications.test.mjs tests/templates.test.mjs tests/staticProject.test.mjs tests/gitCloneAndPublish.test.mjs tests/errorParser.test.mjs tests/archiveZip.test.mjs tests/imageOptimize.test.mjs tests/customParts.test.mjs tests/toolboxInsertTarget.test.mjs tests/partVariants.test.mjs tests/a11y.test.mjs tests/mockApi.test.mjs tests/tailwindSync.test.mjs tests/deploy.test.mjs",
+    "test": "node --experimental-strip-types --test tests/workspaceTabs.test.mjs tests/canvasSettings.test.mjs tests/notifications.test.mjs tests/templates.test.mjs tests/staticProject.test.mjs tests/gitCloneAndPublish.test.mjs tests/errorParser.test.mjs tests/archiveZip.test.mjs tests/imageOptimize.test.mjs tests/customParts.test.mjs tests/toolboxInsertTarget.test.mjs tests/partVariants.test.mjs tests/a11y.test.mjs tests/mockApi.test.mjs tests/tailwindSync.test.mjs tests/deploy.test.mjs tests/supabaseAuth.test.mjs",
     "test:ui": "node tests/ui-visual-check.mjs",
     "check:api": "node scripts/check-api-contract.mjs",
     "dist": "electron-vite build && electron-builder --win",
@@ -44,7 +44,6 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
-    "@supabase/supabase-js": "^2.119.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "lucide-react": "^1.63.0",
