@@ -863,6 +863,19 @@ export function createBrowserMock(): PixelMindApi {
         return { success: true, filePath: 'src/App.tsx', lineNumber: 1 }
       },
     },
+    a11y: {
+      async scan() {
+        return {
+          ok: false,
+          reason: 'no-frame' as const,
+          error: 'Bản giả lập trên trình duyệt không có khung xem trước để quét.',
+          scannedAt: Date.now(),
+          violations: [],
+          counts: { critical: 0, serious: 0, moderate: 0, minor: 0 },
+          total: 0,
+        }
+      },
+    },
     tokens: {
       async get(_projectPath) {
         return { ...DEFAULT_DESIGN_TOKENS }

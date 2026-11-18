@@ -54,3 +54,53 @@ describe('emptyA11yResult', () => {
     assert.equal(res.total, 0)
   })
 })
+
+import { runA11yScan } from '../electron/main/a11y.ts'
+
+const axeSource = 'window.axe = { run: function(){ return Promise.resolve({ violations: [] }) } }'
+const violation = {
+  id: 'image-alt',
+  impact: 'critical',
+  help: 'Hình ảnh phải có alt',
+  description: 'd',
+  helpUrl: 'https://dequeuniversity.com/rules/axe/4.10/image-alt',
+  tags: ['wcag2a'],
+  nodes: [{ selector: 'img', html: '<img>', failureSummary: 'Thêm alt' }],
+}
+
+describe('runA11yScan', () => {
+  it('inject source rồi chạy axe trong frame khớp previewUrl', async () => {
+    const injected = []
+    const frames = [
+      { url: 'http://localhost:5173/', executeJavaScript: async (code) => { injected.push(code); return { ok: true, violations: [] } } },
+      { url: 'http://localhost:3000/', executeJavaScript: async (code) => { injected.push(code); return { ok: true, violations: [violation] } } },
+    ]
+    const res = await runA11yScan(frames, axeSource, 'http://localhost:3000/')
+    assert.equal(res.ok, true)
+    assert.equal(res.frameUrl, 'http://localhost:3000/')
+    assert.equal(res.total, 1)
+    assert.equal(res.counts.critical, 1)
+    assert.equal(injected.length, 2)
+  })
+
+  it('không có frame thì báo no-frame', async () => {
+    const res = await runA11yScan([], axeSource, null)
+    assert.equal(res.ok, false)
+    assert.equal(res.reason, 'no-frame')
+  })
+
+  it('thiếu axeSource thì báo failed', async () => {
+    const res = await runA11yScan([{ url: 'http://localhost:1/', executeJavaScript: async () => ({ ok: true, violations: [] }) }], '', null)
+    assert.equal(res.ok, false)
+    assert.equal(res.reason, 'failed')
+  })
+
+  it('frame ném lỗi (CSP/chặn) thì báo blocked, không ném ra ngoài', async () => {
+    const frames = [{ url: 'http://localhost:3000/', executeJavaScript: async () => { throw new Error('Blocked by CSP') } }]
+    const res = await runA11yScan(frames, axeSource, 'http://localhost:3000/')
+    assert.equal(res.ok, false)
+    assert.equal(res.reason, 'blocked')
+    assert.match(res.error, /CSP/)
+  })
+})
+

@@ -21,6 +21,7 @@ import type {
   TerminalSession,
 } from '../../shared/types'
 import type { PixelMindApi, FileSearchOptions } from '../../shared/api'
+import type { A11yScanResult } from '../../shared/a11y'
 import type {
   ArchiveProgress,
   ZipExportOptions,
@@ -314,6 +315,10 @@ const api: PixelMindApi = {
       className?: string
       id?: string
     }) => ipcRenderer.invoke('inspect:sync-nav', payload),
+  },
+  a11y: {
+    scan: (payload: { axeSource: string; previewUrl?: string | null }): Promise<A11yScanResult> =>
+      ipcRenderer.invoke('a11y:scan', payload),
   },
   tokens: {
     get: (projectPath: string) => ipcRenderer.invoke('tokens:get', projectPath),

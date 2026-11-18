@@ -83,6 +83,9 @@ import {
 } from './pages'
 import { runToolboxMutation, scanProjectToolbox, writeToolboxFile } from './toolbox'
 import { deleteCustomPart, listCustomParts, saveCustomPart } from './customParts'
+import { runA11yScan } from './a11y'
+import { emptyA11yResult } from '../../shared/a11y'
+import type { A11yScanResult } from '../../shared/a11y'
 import { exportProjectToZip, inspectZipFile, extractZipSafely } from './archive'
 import {
   applyOptimizedImage,
@@ -3541,6 +3544,23 @@ function injectInspectorIntoAllFrames(enabled: boolean) {
     // Frame có thể đang bận hoặc hủy
   }
 }
+
+ipcMain.handle(
+  'a11y:scan',
+  async (
+    _e,
+    { axeSource, previewUrl }: { axeSource: string; previewUrl?: string | null },
+  ): Promise<A11yScanResult> => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return emptyA11yResult('no-frame', 'Cửa sổ ứng dụng chưa sẵn sàng.')
+    }
+    const frames = getInjectableChildFrames().map((frame) => ({
+      url: frame.url,
+      executeJavaScript: (code: string) => frame.executeJavaScript(code),
+    }))
+    return runA11yScan(frames, String(axeSource || ''), previewUrl ?? null)
+  },
+)
 
 ipcMain.handle('inspect:set-mode', (_e, enabled: boolean) => {
   inspectModeActive = enabled

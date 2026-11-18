@@ -36,6 +36,7 @@ import type {
   ToolboxWriteResult,
 } from './toolbox'
 import type { AiApi } from './ai'
+import type { A11yScanResult } from './a11y'
 import type {
   ImageApplyOptions,
   ImageApplyResult,
@@ -311,6 +312,10 @@ export interface PixelMindApi {
       oldLine?: string
       newLine?: string
     }>
+  }
+  a11y: {
+    /** Quét accessibility trang preview đang mở bằng axe-core. */
+    scan(payload: { axeSource: string; previewUrl?: string | null }): Promise<A11yScanResult>
   }
   tokens: {
     get(projectPath: string): Promise<DesignTokens>
