@@ -391,6 +391,7 @@ function GridTrackInput({
 const CanvasArea = ({
   url,
   running,
+  canvasSettings,
   projectName,
   projectPath,
   error,
@@ -2534,6 +2535,7 @@ const CanvasArea = ({
               tagName: item.tagName,
               lineNumber,
               projectPath: projectPath || undefined,
+              styleMode: canvasSettings.styleSync,
             })
             if (res?.success) saved += 1
             else failed += 1
@@ -2563,10 +2565,17 @@ const CanvasArea = ({
         tagName: selectedEl?.tagName,
         lineNumber: sourceLoc!.lineNumber,
         projectPath: projectPath || undefined,
+        styleMode: canvasSettings.styleSync,
       })
 
       if (res?.success) {
-        showToast(`Đã lưu vĩnh viễn vào ${sourceLoc!.filePath}!`)
+        if (res?.mode === 'tailwind' && res.appliedClasses?.length) {
+          showToast(
+            `Đã lưu vào ${sourceLoc!.filePath}: ${res.appliedClasses.length} class Tailwind, ${Object.keys(res.residualStyles || {}).length} thuộc tính giữ inline.`
+          )
+        } else {
+          showToast(`Đã lưu inline vào ${sourceLoc!.filePath} (không chuyển được sang Tailwind).`)
+        }
         setModifiedStyles({})
       } else {
         showToast(`Lỗi khi lưu tệp: ${res?.error || 'Không xác định'}`)

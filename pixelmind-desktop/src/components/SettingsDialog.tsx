@@ -623,6 +623,23 @@ const SettingsDialog = ({
                   />
                 </div>
               </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Đồng bộ style từ Canvas</b>
+                  <span>Tự động: dùng Tailwind nếu dự án có cấu hình, ngược lại ghi inline. Inline: luôn ghi style. Tailwind: luôn thử ghi class.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <select
+                    value={settings.canvasStyleSync ?? 'auto'}
+                    onChange={(event) => onUpdate({ canvasStyleSync: event.target.value as Settings['canvasStyleSync'] })}
+                  >
+                    <option value="auto">Tự động</option>
+                    <option value="inline">Inline style</option>
+                    <option value="tailwind">Tailwind class</option>
+                  </select>
+                </div>
+              </div>
             </>
           )}
 

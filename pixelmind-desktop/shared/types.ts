@@ -24,6 +24,7 @@ export interface Settings {
   smartGuides?: boolean // Thước đo khoảng cách thông minh
   syncCanvasToTree?: boolean // Tự động chọn và cuộn tới phần tử trong cây Layers
   hoverOutline?: boolean // Viền xanh khi rê chuột vào phần tử
+  canvasStyleSync?: 'auto' | 'inline' | 'tailwind' // Chế độ ghi style từ Canvas
   clearConsoleOnRun?: boolean // Tự động xóa console khi chạy lại
   maxLogLines?: number // Giới hạn dòng log RAM (500, 1000, 2000, 5000)
   preferredPort?: number // Cổng dev mặc định ưu tiên (0 = tự động)
@@ -427,6 +428,7 @@ export const DEFAULT_SETTINGS: Settings = {
   smartGuides: true,
   syncCanvasToTree: true,
   hoverOutline: true,
+  canvasStyleSync: 'auto',
   clearConsoleOnRun: true,
   maxLogLines: 1000,
   preferredPort: 0,
