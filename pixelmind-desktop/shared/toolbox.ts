@@ -329,6 +329,28 @@ export interface CustomPartSource {
   endLine: number
 }
 
+export interface PartPropDef {
+  /** Tên placeholder trong html/css/js, ví dụ "size" cho {{size}}. */
+  name: string
+  label?: string
+  defaultValue: string
+}
+
+export interface PartVariant {
+  id: string
+  name: string
+  /** Giá trị ghi đè lên props mặc định khi chọn variant này. */
+  values: Record<string, string>
+}
+
+export interface ResolvedPartTemplate {
+  html: string
+  css: string
+  js: string
+  values: Record<string, string>
+  variantId: string | null
+}
+
 /** Một Part do người dùng lưu từ vùng chọn trong trình soạn thảo hoặc canvas. */
 export interface CustomToolboxPart {
   id: string
@@ -340,6 +362,10 @@ export interface CustomToolboxPart {
   preview?: string
   language: CustomPartLanguage
   tags: string[]
+  /** Props mặc định; placeholder dạng {{name}} trong html/css/js. */
+  props?: PartPropDef[]
+  /** Các biến thể chọn khi chèn; rỗng/không có = part cũ. */
+  variants?: PartVariant[]
   source?: CustomPartSource
   projectPath?: string
   createdAt: number
@@ -355,6 +381,8 @@ export interface CustomPartInput {
   preview?: string
   language?: CustomPartLanguage
   tags?: string[]
+  props?: PartPropDef[]
+  variants?: PartVariant[]
   source?: CustomPartSource
   projectPath?: string
 }
@@ -374,4 +402,74 @@ export interface CustomPartSaveResult {
 export interface CustomPartDeleteResult {
   success: boolean
   error?: string
+}
+
+/* ─────────────────── Xử lý biến thể & Props cho Part ─────────────────── */
+
+const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z][\w-]*)\s*\}\}/g
+const PROP_NAME_RE = /^[a-zA-Z][\w-]*$/
+
+function fillPlaceholders(text: string, values: Record<string, string>): string {
+  if (!text) return ''
+  return text.replace(PLACEHOLDER_RE, (raw, name: string) =>
+    Object.prototype.hasOwnProperty.call(values, name) ? values[name] : raw,
+  )
+}
+
+export function resolvePartVariant(
+  part: Pick<CustomToolboxPart, 'html' | 'css' | 'js' | 'props' | 'variants'>,
+  variantId?: string | null,
+): ResolvedPartTemplate {
+  const values: Record<string, string> = {}
+  for (const prop of part.props ?? []) values[prop.name] = prop.defaultValue
+  const variant = variantId ? (part.variants ?? []).find((v) => v.id === variantId) : undefined
+  if (variant) for (const [key, value] of Object.entries(variant.values)) values[key] = value
+  return {
+    html: fillPlaceholders(part.html || '', values),
+    css: fillPlaceholders(part.css || '', values),
+    js: fillPlaceholders(part.js || '', values),
+    values,
+    variantId: variant ? variant.id : null,
+  }
+}
+
+export function parsePartVariantJson(text: string):
+  | { ok: true; props: PartPropDef[]; variants: PartVariant[] }
+  | { ok: false; error: string } {
+  const raw = (text || '').trim()
+  if (!raw) return { ok: true, props: [], variants: [] }
+  let data: unknown
+  try { data = JSON.parse(raw) } catch { return { ok: false, error: 'JSON không hợp lệ.' } }
+  if (!data || typeof data !== 'object') return { ok: false, error: 'JSON phải là một object.' }
+  const input = data as { props?: unknown; variants?: unknown }
+  const props = Array.isArray(input.props) ? input.props : []
+  const variants = Array.isArray(input.variants) ? input.variants : []
+  if (props.length > 20) return { ok: false, error: 'Tối đa 20 props.' }
+  if (variants.length > 20) return { ok: false, error: 'Tối đa 20 biến thể.' }
+  const seen = new Set<string>()
+  const outProps: PartPropDef[] = []
+  for (const item of props) {
+    const p = item as Partial<PartPropDef>
+    const name = String(p?.name ?? '').trim()
+    if (!PROP_NAME_RE.test(name)) return { ok: false, error: `Tên prop không hợp lệ: "${name}".` }
+    if (seen.has(name)) return { ok: false, error: `Prop bị trùng: "${name}".` }
+    seen.add(name)
+    outProps.push({ name, label: p.label ? String(p.label) : undefined, defaultValue: String(p.defaultValue ?? '') })
+  }
+  const outVariants: PartVariant[] = []
+  const ids = new Set<string>()
+  for (const item of variants) {
+    const v = item as Partial<PartVariant>
+    const id = String(v?.id ?? '').trim().toLowerCase()
+    if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(id)) return { ok: false, error: `Mã biến thể không hợp lệ: "${id}".` }
+    if (ids.has(id)) return { ok: false, error: `Biến thể bị trùng mã: "${id}".` }
+    ids.add(id)
+    const values: Record<string, string> = {}
+    for (const [key, value] of Object.entries(v?.values ?? {})) {
+      if (!PROP_NAME_RE.test(key)) return { ok: false, error: `Tên prop không hợp lệ trong biến thể "${id}": "${key}".` }
+      values[key] = String(value ?? '')
+    }
+    outVariants.push({ id, name: String(v?.name ?? id), values })
+  }
+  return { ok: true, props: outProps, variants: outVariants }
 }
