@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Settings as SettingsIcon,
   ShieldAlert,
+  Server,
   Sparkles,
   Square,
   SunMoon,
@@ -66,6 +67,7 @@ import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
 import DesignTokensDialog from './components/DesignTokensDialog'
 import AccessibilityDialog from './components/AccessibilityDialog'
+import MockApiDialog from './components/MockApiDialog'
 import GuideDialog from './components/GuideDialog'
 import CommandPalette from './components/CommandPalette'
 import type { PaletteCommand } from './components/CommandPalette'
@@ -101,7 +103,7 @@ const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : typeof error === 'string' ? error : 'Đã xảy ra lỗi không xác định.'
 
 type View = 'projects' | 'detail' | 'workspace'
-type DialogId = 'settings' | 'guide' | 'palette' | 'tokens' | 'a11y'
+type DialogId = 'settings' | 'guide' | 'palette' | 'tokens' | 'a11y' | 'mock'
 
 const App = () => {
   const [storeData, setStoreData] = useState<StoreData>(EMPTY_STORE)
@@ -1335,6 +1337,9 @@ const App = () => {
         case 'a11y':
           setDialog('a11y')
           break
+        case 'mock':
+          setDialog('mock')
+          break
         case 'install-deps':
           void actionsRef.current.handleInstall()
           break
@@ -1553,6 +1558,12 @@ const App = () => {
         label: 'Kiểm tra trợ năng (Accessibility - axe-core)',
         icon: ShieldAlert,
         run: () => setDialog('a11y'),
+      },
+      {
+        id: 'mock',
+        label: 'Mock API cho dự án thử nghiệm',
+        icon: Server,
+        run: () => setDialog('mock'),
       },
       {
         id: 'ai-panel',
@@ -1874,6 +1885,14 @@ const App = () => {
         <AccessibilityDialog
           previewUrl={view === 'workspace' ? (previewUrl ?? run?.url ?? null) : null}
           onClose={() => setDialog(null)}
+        />
+      )}
+
+      {dialog === 'mock' && (
+        <MockApiDialog
+          projectPath={project?.path ?? null}
+          onClose={() => setDialog(null)}
+          onShowToast={showToast}
         />
       )}
 

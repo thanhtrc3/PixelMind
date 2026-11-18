@@ -932,6 +932,32 @@ export function createBrowserMock(): PixelMindApi {
         return { success: true }
       },
     },
+    mock: {
+      async load(_projectPath) {
+        return null
+      },
+      async save(_projectPath, _config) {
+        return { success: true }
+      },
+      async start(projectPath, config) {
+        return {
+          running: true,
+          port: config.port || 4500,
+          url: `http://127.0.0.1:${config.port || 4500}`,
+          projectPath,
+          calls: [],
+        }
+      },
+      async stop() {
+        return { running: false, port: null, url: null, calls: [] }
+      },
+      async state() {
+        return { running: false, port: null, url: null, calls: [] }
+      },
+      onState(_cb) {
+        return () => undefined
+      },
+    },
     ai: {
       async status() {
         return {

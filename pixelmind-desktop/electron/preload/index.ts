@@ -22,6 +22,7 @@ import type {
 } from '../../shared/types'
 import type { PixelMindApi, FileSearchOptions } from '../../shared/api'
 import type { A11yScanResult } from '../../shared/a11y'
+import type { MockApiConfig, MockApiState } from '../../shared/mockApi'
 import type {
   ArchiveProgress,
   ZipExportOptions,
@@ -338,6 +339,21 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('toolbox:parts-save', input),
     deletePart: (id: string, projectPath?: string): Promise<CustomPartDeleteResult> =>
       ipcRenderer.invoke('toolbox:parts-delete', id, projectPath),
+  },
+  mock: {
+    load: (projectPath: string): Promise<MockApiConfig | null> =>
+      ipcRenderer.invoke('mock:load', projectPath),
+    save: (projectPath: string, config: MockApiConfig): Promise<{ success: boolean; errors?: string[] }> =>
+      ipcRenderer.invoke('mock:save', projectPath, config),
+    start: (projectPath: string, config: MockApiConfig): Promise<MockApiState> =>
+      ipcRenderer.invoke('mock:start', projectPath, config),
+    stop: (): Promise<MockApiState> => ipcRenderer.invoke('mock:stop'),
+    state: (): Promise<MockApiState> => ipcRenderer.invoke('mock:state'),
+    onState: (cb: (state: MockApiState) => void) => {
+      const listener = (_e: IpcRendererEvent, state: MockApiState) => cb(state)
+      ipcRenderer.on('mock:state', listener)
+      return () => ipcRenderer.removeListener('mock:state', listener)
+    },
   },
   ai: {
     status: (projectPath?: string) => ipcRenderer.invoke('ai:status', projectPath),

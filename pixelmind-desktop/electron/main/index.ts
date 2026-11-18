@@ -83,6 +83,9 @@ import {
 } from './pages'
 import { runToolboxMutation, scanProjectToolbox, writeToolboxFile } from './toolbox'
 import { deleteCustomPart, listCustomParts, saveCustomPart } from './customParts'
+import { MockApiServer, readMockConfig, writeMockConfig } from './mockApi'
+import { emptyMockState, normalizeMockConfig } from '../../shared/mockApi'
+import type { MockApiConfig } from '../../shared/mockApi'
 import { runA11yScan } from './a11y'
 import { emptyA11yResult } from '../../shared/a11y'
 import type { A11yScanResult } from '../../shared/a11y'
@@ -178,6 +181,9 @@ const terminalManager = new TerminalManager(
   (event) => mainWindow?.webContents.send('terminal:data', event),
   (event) => mainWindow?.webContents.send('terminal:exit', event),
 )
+
+const mockApi = new MockApiServer()
+mockApi.onChange((state) => mainWindow?.webContents.send('mock:state', state))
 
 /* ── Chặn thoát khi dev server còn chạy (Settings → confirmQuitRunning) ── */
 let allowWindowClose = false
@@ -416,6 +422,10 @@ function buildMenu() {
           click: () => sendMenuAction('a11y'),
         },
         {
+          label: 'Mock API cho dự án…',
+          click: () => sendMenuAction('mock'),
+        },
+        {
           label: 'Mở trang trong trình duyệt ngoài',
           click: () => sendMenuAction('open-browser'),
         },
@@ -642,6 +652,7 @@ ipcMain.handle('system:clear-cache', async (): Promise<boolean> => {
 
 ipcMain.handle('store:reset', async (): Promise<StoreData> => {
   runner.stopAll()
+  void mockApi.stop()
   return resetStore()
 })
 
@@ -3845,6 +3856,29 @@ ipcMain.handle('toolbox:parts-delete', async (_e, id: string, projectPath?: stri
   return await deleteCustomPart(app.getPath('userData'), id, projectPath)
 })
 
+/* ───────────────────────── IPC: Mock API ───────────────────────── */
+
+ipcMain.handle('mock:load', async (_e, projectPath: string) => readMockConfig(projectPath))
+
+ipcMain.handle('mock:save', async (_e, projectPath: string, config: MockApiConfig) => {
+  const { errors } = normalizeMockConfig(config)
+  if (errors.length > 0) return { success: false, errors }
+  await writeMockConfig(projectPath, config)
+  return { success: true }
+})
+
+ipcMain.handle('mock:start', async (_e, projectPath: string, config: MockApiConfig) => {
+  const { config: safe, errors } = normalizeMockConfig(config)
+  if (errors.length > 0) return { ...emptyMockState(), projectPath, error: errors.join(' ') }
+  const state = await mockApi.start(safe, projectPath)
+  if (state.running) await writeMockConfig(projectPath, safe).catch(() => undefined)
+  return state
+})
+
+ipcMain.handle('mock:stop', async () => mockApi.stop())
+
+ipcMain.handle('mock:state', async () => mockApi.state())
+
 /* ───────────────────────── IPC: AI ───────────────────────── */
 
 ipcMain.handle('ai:status', async (_e, projectPath?: string) => {
@@ -5056,20 +5090,24 @@ if (!gotLock) {
     }
     runner.stopAll()
     terminalManager.killAll()
+    void mockApi.stop()
   })
 
   process.on('exit', () => {
     runner.stopAll()
     terminalManager.killAll()
+    void mockApi.stop()
   })
   process.on('SIGINT', () => {
     runner.stopAll()
     terminalManager.killAll()
+    void mockApi.stop()
     process.exit(0)
   })
   process.on('SIGTERM', () => {
     runner.stopAll()
     terminalManager.killAll()
+    void mockApi.stop()
     process.exit(0)
   })
 }

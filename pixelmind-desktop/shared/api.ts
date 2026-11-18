@@ -37,6 +37,7 @@ import type {
 } from './toolbox'
 import type { AiApi } from './ai'
 import type { A11yScanResult } from './a11y'
+import type { MockApiConfig, MockApiState } from './mockApi'
 import type {
   ImageApplyOptions,
   ImageApplyResult,
@@ -338,6 +339,17 @@ export interface PixelMindApi {
     savePart(input: CustomPartInput): Promise<CustomPartSaveResult>
     /** Xoá một Part tự tạo. */
     deletePart(id: string, projectPath?: string): Promise<CustomPartDeleteResult>
+  }
+  mock: {
+    /** Đọc cấu hình đã lưu của dự án (null nếu chưa có). */
+    load(projectPath: string): Promise<MockApiConfig | null>
+    /** Lưu cấu hình; trả lỗi validate nếu có. */
+    save(projectPath: string, config: MockApiConfig): Promise<{ success: boolean; errors?: string[] }>
+    /** Khởi động server; state.error nếu cổng bận. */
+    start(projectPath: string, config: MockApiConfig): Promise<MockApiState>
+    stop(): Promise<MockApiState>
+    state(): Promise<MockApiState>
+    onState(cb: (state: MockApiState) => void): () => void
   }
   ai: AiApi
   window?: {

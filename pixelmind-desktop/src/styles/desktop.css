@@ -4095,3 +4095,17 @@ body:has([data-separator='active']) * {
   word-break: break-all;
 }
 
+/* ── D1-21: Mock API ── */
+.pm-mock-row {
+  display: grid;
+  grid-template-columns: 85px 1fr 65px 1.4fr 34px;
+  gap: 6px;
+  align-items: start;
+  margin-bottom: 6px;
+}
+.pm-mock-row textarea {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}
+
+
