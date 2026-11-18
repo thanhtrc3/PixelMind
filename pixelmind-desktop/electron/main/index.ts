@@ -30,7 +30,6 @@ import {
   generateTailwindTokensConfig,
   generateTailwindThemeCss,
   parseVariablesCss,
-  stylesToTailwindClasses,
 } from '../../shared/designTokens'
 import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetSettings, resetStore, storeFilePath } from './store'
 import {
@@ -97,9 +96,9 @@ import {
   revertOptimizedImage,
 } from './images'
 import {
-  applyHtmlTailwindAttributes,
-  applyJsxTailwindAttributes,
-  camelToKebabCase,
+  buildStyleUpdate,
+  shouldUseTailwind,
+  type StyleSyncMode,
 } from './styleSync'
 import {
   cancelChat,
@@ -4076,21 +4075,6 @@ async function readProjectDesignTokens(projectPath: string): Promise<DesignToken
   return DEFAULT_DESIGN_TOKENS
 }
 
-/** Dự án đã có bộ token PixelMind chưa (tokens.json / variables.css / tailwind.tokens.js). */
-async function projectHasPixelMindTokens(projectPath: string): Promise<boolean> {
-  if (!projectPath) return false
-  if (await fileExists(join(projectPath, '.pixelmind', 'tokens.json'))) return true
-  if (await fileExists(join(projectPath, 'tailwind.tokens.js'))) return true
-  const cssDir = await findProjectCssDir(projectPath).catch(() => projectPath)
-  for (const candidate of [join(cssDir, 'variables.css'), join(projectPath, 'variables.css')]) {
-    try {
-      const text = await fs.readFile(candidate, 'utf8')
-      if (text.includes('--color-primary') || text.includes('--spacing-1:')) return true
-    } catch {}
-  }
-  return false
-}
-
 /** Tìm thư mục gốc dự án từ đường dẫn file nguồn (nếu renderer không truyền projectPath). */
 async function resolveProjectRoot(fullPath: string, explicit?: string): Promise<string | null> {
   if (explicit) return explicit
@@ -4255,90 +4239,31 @@ ipcMain.handle(
 
       if (styleEntries.length > 0 && tagLineIdx !== -1) {
         let line = lines[tagLineIdx]
-        let handled = false
 
-        if (styleMode !== 'inline') {
-          const projectRoot = await resolveProjectRoot(fullPath, projectPath)
-          tailwindVersion =
-            styleMode === 'tailwind' ? 'v3' : await detectTailwindVersion(projectRoot)
-
-          if (tailwindVersion && projectRoot) {
-            const hasTokens = await projectHasPixelMindTokens(projectRoot)
-            const tokens = hasTokens
-              ? await readProjectDesignTokens(projectRoot)
-              : { colors: [], typography: [], spacing: [], radius: [] }
-            const conversion = stylesToTailwindClasses(finalStyles, tokens, {
-              arbitraryValues: true,
-            })
-            const convertedProperties = conversion.applied.map((item) => item.property)
-            const update = isJsx
-              ? applyJsxTailwindAttributes(
-                  line,
-                  tagRegex,
-                  conversion.classes,
-                  conversion.residualStyles,
-                  convertedProperties,
-                  tokens
-                )
-              : applyHtmlTailwindAttributes(
-                  line,
-                  tagRegex,
-                  conversion.classes,
-                  conversion.residualStyles,
-                  convertedProperties,
-                  tokens
-                )
-
-            if (!update.unsafe) {
-              line = update.line
-              modified = update.modified
-              appliedClasses = conversion.classes
-              residualStyles = conversion.residualStyles
-              appliedMode = conversion.classes.length > 0 ? 'tailwind' : 'inline'
-              handled = true
-            }
+        const mode = (styleMode || 'auto') as StyleSyncMode
+        const projectRoot = await resolveProjectRoot(fullPath, projectPath)
+        const detected = projectRoot ? await detectTailwindVersion(projectRoot) : null
+        tailwindVersion = detected ?? null
+        const allowTailwind = Boolean(projectRoot) && shouldUseTailwind(mode, detected)
+        const tokens = projectRoot ? await readProjectDesignTokens(projectRoot) : { ...DEFAULT_DESIGN_TOKENS }
+        const update = buildStyleUpdate({
+          line,
+          isJsx,
+          tagName,
+          styles: finalStyles,
+          tokens,
+          allowTailwind,
+        })
+        line = update.line
+        appliedMode = update.mode
+        appliedClasses = update.appliedClasses
+        residualStyles = update.residualStyles
+        modified = update.modified
+        if (update.unsafe) {
+          return {
+            success: false,
+            error: 'Phần tử dùng className/style động nên không ghi class an toàn được. Hãy sửa trực tiếp trong mã nguồn.',
           }
-        }
-
-        if (!handled) {
-          appliedClasses = []
-          residualStyles = {}
-          appliedMode = 'inline'
-          if (isJsx) {
-            const jsxStyleStr = styleEntries.map(([k, v]) => `${k}: '${v}'`).join(', ')
-            if (/style=\{\{.*?\}\}/i.test(line)) {
-              line = line.replace(/style=\{\{.*?\}\}/i, `style={{ ${jsxStyleStr} }}`)
-            } else {
-              line = line.replace(tagRegex, `$1 style={{ ${jsxStyleStr} }}$2`)
-            }
-          } else {
-            // HTML / CSHTML / Razor
-            const existingStyleMatch = line.match(/style=(["'])(.*?)\1/i)
-            if (existingStyleMatch) {
-              const existingMap: Record<string, string> = {}
-              existingStyleMatch[2].split(';').forEach((part) => {
-                const colonIdx = part.indexOf(':')
-                if (colonIdx !== -1) {
-                  const k = part.slice(0, colonIdx).trim()
-                  const v = part.slice(colonIdx + 1).trim()
-                  if (k && v) existingMap[k.toLowerCase()] = v
-                }
-              })
-              styleEntries.forEach(([k, v]) => {
-                existingMap[camelToKebabCase(k)] = v
-              })
-              const mergedStyleStr = Object.entries(existingMap)
-                .map(([k, v]) => `${k}: ${v};`)
-                .join(' ')
-              line = line.replace(/style=(["']).*?\1/i, `style="${mergedStyleStr}"`)
-            } else {
-              const htmlStyleStr = styleEntries
-                .map(([k, v]) => `${camelToKebabCase(k)}: ${v};`)
-                .join(' ')
-              line = line.replace(tagRegex, `$1 style="${htmlStyleStr}"$2`)
-            }
-          }
-          modified = true
         }
 
         lines[tagLineIdx] = line
@@ -4384,6 +4309,17 @@ ipcMain.handle(
         await fs.writeFile(fullPath, content, 'utf8')
         return {
           success: true,
+          mode: appliedMode,
+          tailwindVersion: tailwindVersion ?? undefined,
+          appliedClasses,
+          residualStyles,
+        }
+      }
+
+      if (tagLineIdx !== -1) {
+        return {
+          success: true,
+          updatedLine: lines[tagLineIdx],
           mode: appliedMode,
           tailwindVersion: tailwindVersion ?? undefined,
           appliedClasses,

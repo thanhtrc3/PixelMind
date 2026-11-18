@@ -87,3 +87,14 @@ describe('đọc lại class thành style', () => {
     }
   })
 })
+
+import { DEFAULT_DESIGN_TOKENS as DEFAULTS } from '../shared/designTokens.ts'
+
+describe('token mặc định khi dự án chưa có tokens', () => {
+  it('bộ token mặc định vẫn chuyển được display/gap', () => {
+    const conversion = stylesToTailwindClasses({ display: 'flex', gap: '8px' }, DEFAULTS, { arbitraryValues: true })
+    assert.ok(conversion.classes.length > 0)
+    assert.equal(conversion.residualStyles.display, undefined)
+  })
+})
+
