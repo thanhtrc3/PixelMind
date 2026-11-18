@@ -1207,6 +1207,23 @@ const SettingsDialog = ({
                 </div>
               )}
 
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Workspace Cloud ID (Supabase)</b>
+                  <span>Lấy ID sau khi chạy docs/sql/2026-11-18-cloud.sql trên Supabase để đồng bộ Cài đặt &amp; Tokens.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <input
+                    type="text"
+                    className="pm-input mono"
+                    style={{ width: 260 }}
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    value={settings.cloudWorkspaceId ?? ''}
+                    onChange={(e) => onUpdate({ cloudWorkspaceId: e.target.value.trim() })}
+                  />
+                </div>
+              </div>
+
               {/* VÙNG NGUY HIỂM (DANGER ZONE) */}
               <div className="pm-danger-zone">
                 <h4>

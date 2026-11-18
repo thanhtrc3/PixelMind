@@ -3,6 +3,7 @@ import {
   Archive,
   BookOpen,
   ClipboardList,
+  Cloud,
   Database,
   FileArchive,
   FileText,
@@ -27,6 +28,7 @@ import {
   SunMoon,
   Trash2,
   TriangleAlert,
+  User,
   Wand2,
   Zap,
 } from 'lucide-react'
@@ -70,6 +72,8 @@ import DesignTokensDialog from './components/DesignTokensDialog'
 import AccessibilityDialog from './components/AccessibilityDialog'
 import MockApiDialog from './components/MockApiDialog'
 import DeployDialog from './components/DeployDialog'
+import LoginDialog from './components/LoginDialog'
+import CloudDialog from './components/CloudDialog'
 import GuideDialog from './components/GuideDialog'
 import CommandPalette from './components/CommandPalette'
 import type { PaletteCommand } from './components/CommandPalette'
@@ -105,7 +109,7 @@ const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : typeof error === 'string' ? error : 'Đã xảy ra lỗi không xác định.'
 
 type View = 'projects' | 'detail' | 'workspace'
-type DialogId = 'settings' | 'guide' | 'palette' | 'tokens' | 'a11y' | 'mock' | 'deploy'
+type DialogId = 'settings' | 'guide' | 'palette' | 'tokens' | 'a11y' | 'mock' | 'deploy' | 'login' | 'cloud'
 
 const App = () => {
   const [storeData, setStoreData] = useState<StoreData>(EMPTY_STORE)
@@ -1345,6 +1349,12 @@ const App = () => {
         case 'deploy':
           setDialog('deploy')
           break
+        case 'login':
+          setDialog('login')
+          break
+        case 'cloud':
+          setDialog('cloud')
+          break
         case 'install-deps':
           void actionsRef.current.handleInstall()
           break
@@ -1576,6 +1586,20 @@ const App = () => {
         hint: 'Vercel · Netlify · CLI tuỳ chỉnh',
         icon: Globe,
         run: () => setDialog('deploy'),
+      },
+      {
+        id: 'login',
+        label: 'Tài khoản Supabase…',
+        hint: 'Đăng nhập · Đăng xuất phiên làm việc',
+        icon: User,
+        run: () => setDialog('login'),
+      },
+      {
+        id: 'cloud',
+        label: 'Đồng bộ Cloud & Chia sẻ…',
+        hint: 'Đồng bộ Settings & Tokens · Phân quyền thành viên',
+        icon: Cloud,
+        run: () => setDialog('cloud'),
       },
       {
         id: 'ai-panel',
@@ -1914,6 +1938,23 @@ const App = () => {
           settings={settings}
           onClose={() => setDialog(null)}
           onShowToast={showToast}
+        />
+      )}
+
+      {dialog === 'login' && (
+        <LoginDialog
+          onClose={() => setDialog(null)}
+          onShowToast={showToast}
+        />
+      )}
+
+      {dialog === 'cloud' && (
+        <CloudDialog
+          settings={settings}
+          projectPath={project?.path ?? null}
+          onUpdate={(patch) => void updateSettings(patch)}
+          onShowToast={showToast}
+          onClose={() => setDialog(null)}
         />
       )}
 
