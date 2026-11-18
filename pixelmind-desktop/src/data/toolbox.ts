@@ -43,6 +43,7 @@ export interface Part extends PartMeta {
   preview?: string;
   html: string;
   css: string;
+  js?: string;
   prompt: string;
   metaText: string;
   files: PartFile[];

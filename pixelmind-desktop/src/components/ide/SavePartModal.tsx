@@ -15,6 +15,7 @@ import {
   Tag,
   Upload,
   X,
+  BoxSelect,
 } from 'lucide-react'
 import Modal from '../Modal'
 import { api } from '../../lib/bridge'
@@ -24,6 +25,9 @@ interface SavePartModalProps {
   open: boolean
   initialHtml?: string
   initialCss?: string
+  initialJs?: string
+  initialPreview?: string
+  stylesheetLinks?: string[]
   language?: 'html' | 'jsx'
   source?: CustomPartSource
   projectPath?: string
@@ -32,6 +36,7 @@ interface SavePartModalProps {
   onClose: () => void
   onSaved: (part: CustomToolboxPart) => void
   onShowToast: (kind: 'ok' | 'err' | 'info', text: string) => void
+  onPickFromCanvas?: () => void
 }
 
 const COMMON_TAGS = [
@@ -85,15 +90,15 @@ function suggestPartName(code: string): string {
   const lower = code.toLowerCase()
   if (/<nav\b/i.test(lower) || /class="[^"]*navbar/i.test(lower)) return 'Thanh điều hướng (Navbar)'
   if (/search|tìm kiếm/i.test(lower) || /type=["']search["']/i.test(lower)) return 'Thanh tìm kiếm'
+  if (/carousel|banner|hero/i.test(lower) || /id="[^"]*(?:carousel|banner|hero)/i.test(lower)) return 'Banner nổi bật (Hero)'
   if (/<header\b/i.test(lower)) return 'Đầu trang (Header)'
   if (/<footer\b/i.test(lower)) return 'Chân trang (Footer)'
-  if (/class="[^"]*hero/i.test(lower)) return 'Vùng Hero nổi bật'
   if (/class="[^"]*pricing/i.test(lower) || /class="[^"]*price/i.test(lower)) return 'Bảng giá (Pricing)'
   if (/<table\b/i.test(lower)) return 'Bảng dữ liệu (Table)'
   if (/<form\b/i.test(lower)) return 'Biểu mẫu (Form)'
+  if (/class="[^"]*card/i.test(lower)) return 'Thẻ nội dung (Card)'
   if (/<button\b/i.test(lower) || /class="[^"]*btn/i.test(lower)) return 'Nút bấm (Button)'
   if (/<input\b|<select\b|<textarea\b/i.test(lower)) return 'Khung nhập liệu'
-  if (/class="[^"]*card/i.test(lower)) return 'Thẻ nội dung (Card)'
   if (/class="[^"]*modal|dialog/i.test(lower)) return 'Hộp thoại (Modal)'
   if (/class="[^"]*alert|toast|notification/i.test(lower)) return 'Hộp thông báo (Toast)'
   if (/class="[^"]*badge/i.test(lower)) return 'Huy hiệu (Badge)'
@@ -103,12 +108,12 @@ function suggestPartName(code: string): string {
 function detectSuggestedTags(code: string): string[] {
   const lower = code.toLowerCase()
   const tags = new Set<string>()
+  if (/carousel|banner|hero/i.test(lower)) tags.add('hero')
   if (/search|tìm kiếm/i.test(lower) || /type=["']search["']/i.test(lower)) tags.add('search')
   if (/<form\b|<input\b|<select\b|<textarea\b/i.test(lower)) tags.add('form')
   if (/<button\b|class="[^"]*btn/i.test(lower)) tags.add('button')
   if (/<nav\b|navbar|menu/i.test(lower)) tags.add('navigation')
   if (/<header\b/i.test(lower)) tags.add('header')
-  if (/hero/i.test(lower)) tags.add('hero')
   if (/card/i.test(lower)) tags.add('card')
   if (/pricing|bảng giá|price/i.test(lower)) tags.add('pricing')
   if (/<table\b/i.test(lower)) tags.add('table')
@@ -121,6 +126,9 @@ export const SavePartModal = ({
   open,
   initialHtml = '',
   initialCss = '',
+  initialJs = '',
+  initialPreview = '',
+  stylesheetLinks = [],
   language = 'html',
   source,
   projectPath,
@@ -129,11 +137,13 @@ export const SavePartModal = ({
   onClose,
   onSaved,
   onShowToast,
+  onPickFromCanvas,
 }: SavePartModalProps) => {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [html, setHtml] = useState('')
   const [css, setCss] = useState('')
+  const [js, setJs] = useState('')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [newTagInput, setNewTagInput] = useState('')
   const [previewImage, setPreviewImage] = useState<string>('')
@@ -148,17 +158,24 @@ export const SavePartModal = ({
       const cleaned = cleanHtmlCode(initialHtml || '')
       setHtml(cleaned)
       setCss(initialCss || '')
+      setJs(initialJs || '')
       setName(cleaned ? suggestPartName(cleaned) : '')
       setDescription(cleaned ? 'Linh kiện lưu từ giao diện' : '')
       setSelectedTags(cleaned ? detectSuggestedTags(cleaned) : ['custom'])
       setNewTagInput('')
-      setPreviewImage('')
+      setPreviewImage(initialPreview || '')
       setTab(cleaned ? 'preview' : 'code')
       setSaving(false)
     }
-  }, [open, initialHtml, initialCss])
+  }, [open, initialHtml, initialCss, initialJs, initialPreview])
 
-  const inspection = useMemo(() => clientInspectCode(html), [html])
+  const inspection = useMemo(() => {
+    const htmlRes = clientInspectCode(html)
+    const jsRes = clientInspectCode(js)
+    const jsReasons = jsRes.reasons.filter((r) => !r.includes('<script>'))
+    const allReasons = [...htmlRes.reasons, ...jsReasons]
+    return { suspicious: allReasons.length > 0, reasons: allReasons }
+  }, [html, js])
 
   if (!open) return null
 
@@ -218,6 +235,7 @@ export const SavePartModal = ({
         description: description.trim(),
         html: trimmedHtml,
         css: css.trim() || undefined,
+        js: js.trim() || undefined,
         preview: previewImage.trim() || undefined,
         tags: tagsToSave,
         language,
@@ -250,24 +268,52 @@ export const SavePartModal = ({
   }
   const currentBg = bgStyles[bgMode]
 
-  // Khung render preview an toàn
+  // Khung render preview an toàn với đầy đủ CSS
+  const injectedStyleLinks = (stylesheetLinks || [])
+    .filter(Boolean)
+    .map((href) => `<link rel="stylesheet" href="${href}">`)
+    .join('\n')
+
   const previewSrcDoc = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
+  <!-- Bootstrap 5 CSS CDN dự phòng cho các class phổ biến -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  ${injectedStyleLinks}
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; }
     body {
       background: ${currentBg.bg};
       background-size: 16px 16px;
       color: ${currentBg.color};
-      padding: 24px;
+      padding: 20px;
       display: flex;
       align-items: center;
       justify-content: center;
       min-height: 100vh;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       line-height: 1.5;
+    }
+
+    /* Chuẩn hoá thẻ danh sách & liên kết */
+    ul, ol { list-style: none; padding-left: 0; margin-bottom: 0; }
+    li { list-style: none; }
+    a { text-decoration: none; }
+
+    /* Chuẩn hoá thanh điều hướng & menu nếu không có stylesheet ngoài */
+    ul.navbar-nav, ol.navbar-nav, .nav {
+      list-style: none !important;
+      padding-left: 0 !important;
+      margin-bottom: 0 !important;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
+    }
+    .navbar {
+      width: 100%;
+      border-radius: 8px;
     }
     button, input, select, textarea {
       font-family: inherit;
@@ -277,7 +323,10 @@ export const SavePartModal = ({
   </style>
 </head>
 <body>
-  ${html}
+  <div style="width: 100%; max-width: 100%; display: flex; justify-content: center;">
+    ${html}
+  </div>
+  ${js ? `<script>${js}</script>` : ''}
 </body>
 </html>`
 
@@ -518,13 +567,40 @@ export const SavePartModal = ({
               }}
             >
               <ImageIcon size={13} />
-              <span>Ảnh xem trước {previewImage ? '✓' : ''}</span>
+              <span>Ảnh thu nhỏ {previewImage ? '✓' : ''}</span>
             </button>
           </div>
 
-          {tab === 'preview' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingBottom: 4 }}>
-              <span style={{ fontSize: 11, color: 'var(--pm-muted)', marginRight: 2 }}>Nền:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingBottom: 4 }}>
+            {onPickFromCanvas && (
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={onPickFromCanvas}
+                style={{
+                  height: 24,
+                  padding: '0 9px',
+                  fontSize: 11,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  borderRadius: 6,
+                  border: '1px solid rgba(99, 102, 241, 0.45)',
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  color: '#c7d2fe',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+                title="Tạm thu nhỏ modal để dùng Cây bút khoanh một vùng chọn nhiều phần tử trên Canvas"
+              >
+                <BoxSelect size={12} style={{ color: '#818cf8' }} />
+                <span>Cây bút: Khoanh vùng trên Canvas</span>
+              </button>
+            )}
+
+            {tab === 'preview' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 11, color: 'var(--pm-muted)', marginRight: 2 }}>Nền:</span>
               <button
                 type="button"
                 className={`btn sm ${bgMode === 'dark' ? 'primary' : 'secondary'}`}
@@ -555,6 +631,7 @@ export const SavePartModal = ({
             </div>
           )}
         </div>
+      </div>
 
         {tab === 'preview' && (
           <div
@@ -564,8 +641,14 @@ export const SavePartModal = ({
               overflow: 'hidden',
               border: '1px solid var(--pm-border)',
               background: currentBg.bg,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 12,
             }}
           >
+            {/* Render trực tiếp từ HTML + CSS để thấy đúng hình dạng part sẽ hiện khi chèn,
+                thay vì ảnh chụp màn hình (dễ dính overlay/scale của canvas). */}
             <iframe
               title="Part Preview"
               srcDoc={previewSrcDoc}
@@ -610,13 +693,30 @@ export const SavePartModal = ({
                 placeholder=".my-component { color: #fff; padding: 12px; }"
               />
             </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: 11, color: 'var(--pm-muted)' }}>Mã JavaScript bổ sung (nếu có)</label>
+              <textarea
+                className="pm-input"
+                value={js}
+                onChange={(e) => setJs(e.target.value)}
+                rows={3}
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                  whiteSpace: 'pre',
+                  resize: 'vertical',
+                }}
+                placeholder="// Mã xử lý sự kiện hoặc animation (tự động chạy khi chèn vào trang)..."
+              />
+            </div>
           </div>
         )}
 
         {tab === 'image' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ fontSize: 12, color: 'var(--pm-fg-subtle)' }}>
-              Mặc định hệ thống sẽ tự động tạo ảnh xem trước từ mã HTML/CSS. Nếu bạn có sẵn ảnh chụp thật, hãy tải lên tại đây:
+              Tab Xem trước đã render trực tiếp từ HTML + CSS. Ảnh ở đây chỉ dùng làm thumbnail trong Thư viện Part; mặc định lấy ảnh chụp vùng chọn trên Canvas.
             </div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <input

@@ -420,6 +420,8 @@ const api: PixelMindApi = {
     isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
     setZoomFactor: (factor: number) => webFrame.setZoomFactor(factor),
     getZoomFactor: () => webFrame.getZoomFactor(),
+    captureRect: (rect: { x: number; y: number; width: number; height: number }) =>
+      ipcRenderer.invoke('window:captureRect', rect),
   },
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   ArrowDownToLine,
@@ -6,6 +6,7 @@ import {
   Bell,
   Box,
   Boxes,
+  BoxSelect,
   CheckSquare,
   ChevronDown,
   CircleDot,
@@ -154,6 +155,7 @@ function partToDragItem(part: Part): ToolboxDragItem {
     name: part.name,
     html: part.html,
     css: part.css,
+    js: part.js,
     source: 'part',
   }
 }
@@ -499,13 +501,16 @@ const PartLibraryPanel = ({
   const [group, setGroup] = useState<string>('all')
   const [customParts, setCustomParts] = useState<CustomToolboxPart[]>([])
   const [createModalOpen, setCreateModalOpen] = useState(false)
+  const deletedIdsRef = useRef<Set<string>>(new Set())
 
   const loadCustomParts = useCallback(async () => {
     try {
       const res = await api.toolbox.listParts(projectPath)
       if (res.success && Array.isArray(res.parts)) {
-        setCustomParts(res.parts)
-        onCountChange?.(res.parts.length)
+        // Lọc bỏ các Part đã bị xoá trong phiên, tránh mọi race condition hay phục hồi ngoài ý muốn
+        const aliveParts = res.parts.filter((p) => !deletedIdsRef.current.has(p.id))
+        setCustomParts(aliveParts)
+        onCountChange?.(aliveParts.length)
       }
     } catch {
       // ignore
@@ -540,6 +545,7 @@ const PartLibraryPanel = ({
       preview: cp.preview,
       html: cp.html,
       css: cp.css || '',
+      js: cp.js || '',
       prompt: cp.description || 'Linh kiện tự tạo từ vùng chọn',
       metaText: '',
       files: [],
@@ -579,22 +585,36 @@ const PartLibraryPanel = ({
 
   const handleDeleteCustom = async (part: Part) => {
     if (!confirm(`Bạn có chắc muốn xoá linh kiện “${part.name}”?`)) return
+
+    // 1. Đưa ngay vào danh sách đã xoá và cập nhật UI lạc quan (Optimistic Update)
+    deletedIdsRef.current.add(part.id)
+    setCustomParts((prev) => prev.filter((p) => p.id !== part.id))
+    onCountChange?.(Math.max(0, customParts.length - 1))
+
     try {
+      // 2. Chờ Backend xoá xong trên cả 2 kho đĩa
       const res = await api.toolbox.deletePart(part.id, projectPath)
       if (res.success) {
         onShowToast('ok', `Đã xoá linh kiện “${part.name}”.`)
-        void loadCustomParts()
+        // 3. Chỉ phát sự kiện đồng bộ sau khi backend đã xoá xong thật sự
+        window.dispatchEvent(new CustomEvent('pm:custom-parts-changed'))
       } else {
+        // Khôi phục lại nếu backend thực sự thất bại
+        deletedIdsRef.current.delete(part.id)
         onShowToast('err', res.error || 'Xoá linh kiện thất bại.')
+        void loadCustomParts()
       }
     } catch (err: any) {
+      deletedIdsRef.current.delete(part.id)
       onShowToast('err', `Lỗi: ${err?.message || ''}`)
+      void loadCustomParts()
     }
   }
 
   return (
     <div className="pm-toolbox-body">
-      <div style={{ display: 'flex', gap: 6, padding: '0 8px 6px' }}>
+      {/* Hàng 1: Tìm kiếm */}
+      <div style={{ display: 'flex', gap: 6, padding: '6px 8px 0' }}>
         <div className="pm-toolbox-search" style={{ flex: 1, margin: 0 }}>
           <Search size={12} />
           <input
@@ -604,15 +624,30 @@ const PartLibraryPanel = ({
             placeholder="Tìm linh kiện mẫu…"
           />
         </div>
+      </div>
+      {/* Hàng 2: Nút tạo Part */}
+      <div style={{ display: 'flex', gap: 5, padding: '5px 8px 6px' }}>
         <button
           type="button"
           className="btn primary"
           onClick={() => setCreateModalOpen(true)}
           title="Tạo Part mới từ mã HTML/CSS hoặc tải ảnh"
-          style={{ height: 28, padding: '0 10px', fontSize: 11, whiteSpace: 'nowrap', gap: 4 }}
+          style={{ flex: 1, height: 26, padding: '0 8px', fontSize: 11, whiteSpace: 'nowrap', gap: 4, minWidth: 0 }}
         >
-          <Plus size={13} />
+          <Plus size={12} />
           <span>Tạo Part</span>
+        </button>
+        <button
+          type="button"
+          className="btn secondary"
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('pixelmind:start-part-lasso'))
+          }}
+          title="Khoanh vùng nhiều phần tử trên Canvas để lưu thành Part mới"
+          style={{ flex: 1, height: 26, padding: '0 8px', fontSize: 11, whiteSpace: 'nowrap', gap: 4, minWidth: 0, borderColor: 'rgba(99, 102, 241, 0.4)', color: '#c7d2fe' }}
+        >
+          <BoxSelect size={12} />
+          <span>Khoanh vùng</span>
         </button>
       </div>
 
@@ -697,6 +732,10 @@ const PartLibraryPanel = ({
         title="Tạo Part mới cho Thư viện"
         subtitle="Nhập mã HTML, CSS hoặc tải ảnh xem trước từ máy tính để thêm linh kiện vào Hộp công cụ."
         onClose={() => setCreateModalOpen(false)}
+        onPickFromCanvas={() => {
+          setCreateModalOpen(false)
+          window.dispatchEvent(new CustomEvent('pixelmind:start-part-lasso'))
+        }}
         onSaved={(_part) => {
           void loadCustomParts()
           window.dispatchEvent(new CustomEvent('pm:custom-parts-changed'))
@@ -925,6 +964,29 @@ const ToolboxPanel = ({ projectPath, onShowToast, onNeedPreview }: ToolboxPanelP
       })
     return () => {
       mounted = false
+    }
+  }, [projectPath])
+
+  // Đồng bộ số lượng linh kiện tự tạo ngay khi mở Toolbox hoặc khi có thay đổi
+  useEffect(() => {
+    let mounted = true
+    const syncCount = () => {
+      api.toolbox
+        .listParts(projectPath)
+        .then((res) => {
+          if (mounted && res?.parts) {
+            setCustomPartCount(res.parts.length)
+          }
+        })
+        .catch(() => {})
+    }
+    syncCount()
+
+    const onCustomPartsChanged = () => syncCount()
+    window.addEventListener('pm:custom-parts-changed', onCustomPartsChanged)
+    return () => {
+      mounted = false
+      window.removeEventListener('pm:custom-parts-changed', onCustomPartsChanged)
     }
   }, [projectPath])
 

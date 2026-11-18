@@ -38,6 +38,8 @@ export interface ToolboxElement {
   html: string
   /** CSS bổ sung, sẽ được chèn thành <style data-pm-toolbox> ngay cạnh phần tử */
   css?: string
+  /** JavaScript bổ sung, sẽ được chèn thành <script data-pm-toolbox> đi kèm phần tử */
+  js?: string
   /** Template JSX riêng nếu cần (mặc định tự sinh từ html) */
   jsx?: string
   /** Phần tử có thể nhận con (cho phép thả vào trong) */
@@ -240,6 +242,7 @@ export interface ToolboxMutationPayload {
   targets?: ElementMutationTarget[]
   html?: string
   css?: string
+  js?: string
   attributes?: Record<string, string | null>
   text?: string
   tagName?: string
@@ -265,6 +268,7 @@ export interface InsertMutationRequest {
   target: ElementMutationTarget
   html: string
   css?: string
+  js?: string
   /** Chỉ xem trước, không ghi file */
   dryRun?: boolean
 }
@@ -332,6 +336,7 @@ export interface CustomToolboxPart {
   description: string
   html: string
   css?: string
+  js?: string
   preview?: string
   language: CustomPartLanguage
   tags: string[]
@@ -346,6 +351,7 @@ export interface CustomPartInput {
   description?: string
   html: string
   css?: string
+  js?: string
   preview?: string
   language?: CustomPartLanguage
   tags?: string[]

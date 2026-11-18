@@ -86,26 +86,79 @@ export function sanitizeHtmlForXml(html: string): string {
 export function generatePartPreviewSvg(html: string, css = ''): string {
   const cleanHtml = sanitizeHtmlForXml((html || '').trim().slice(0, 4000))
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="200" viewBox="0 0 360 200">
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="180" viewBox="0 0 720 180">
   <defs>
     <style>
       <![CDATA[
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         .preview-host {
-          width: 360px;
-          height: 200px;
+          width: 720px;
+          height: 180px;
           background: #18181b;
           color: #f4f4f5;
-          padding: 18px;
+          padding: 16px 20px;
           display: flex;
           align-items: center;
           justify-content: center;
           overflow: hidden;
+          font-size: 12px;
+          line-height: 1.4;
         }
-        button, input, select, textarea {
-          font-family: inherit;
-          font-size: inherit;
+
+        /* Danh sách & liên kết chuẩn UI */
+        ul, ol { list-style: none !important; padding: 0 !important; margin: 0 !important; display: flex !important; align-items: center !important; gap: 12px !important; flex-wrap: nowrap !important; }
+        li { list-style: none !important; display: inline-flex !important; align-items: center !important; }
+        a { text-decoration: none !important; color: #e4e4e7 !important; font-weight: 500; font-size: 13px; }
+        a:hover { color: #818cf8 !important; }
+
+        /* Bố cục thanh điều hướng (Navbar) & Header chuẩn desktop */
+        .navbar { display: flex !important; flex-wrap: nowrap !important; align-items: center !important; justify-content: space-between !important; width: 100% !important; background: transparent !important; border: none !important; }
+        .container, .container-fluid { display: flex !important; align-items: center !important; justify-content: space-between !important; width: 100% !important; }
+        .navbar-collapse, .collapse, .collapse:not(.show) { display: flex !important; align-items: center !important; justify-content: space-between !important; flex-grow: 1 !important; flex-basis: auto !important; }
+        .navbar-toggler { display: none !important; }
+        .navbar-nav { display: flex !important; flex-direction: row !important; align-items: center !important; gap: 16px !important; margin: 0 16px !important; }
+        .nav-item { display: inline-flex !important; }
+        .nav-link { color: #e4e4e7 !important; font-size: 13px !important; padding: 4px 8px; border-radius: 4px; }
+
+        .brand-badge { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #3b82f6, #6366f1); margin-right: 8px; display: inline-flex; align-items: center; justify-content: center; }
+        .brand-text { font-size: 16px; font-weight: 700; color: #ffffff !important; }
+
+        /* Form & ô nhập */
+        .d-flex { display: flex !important; align-items: center !important; gap: 8px; }
+        .input-group { display: flex !important; align-items: center !important; }
+        .form-control, input[type="text"], input[type="search"] {
+          background: #27272a !important;
+          border: 1px solid #3f3f46 !important;
+          color: #f4f4f5 !important;
+          border-radius: 6px !important;
+          padding: 6px 12px !important;
+          font-size: 12px !important;
+          outline: none;
         }
+        .form-control::placeholder, input::placeholder { color: #71717a !important; }
+        .input-group .form-control { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+        .input-group .btn { border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; }
+
+        /* Nút bấm (Button) */
+        .btn, button {
+          background: #3f3f46;
+          border: 1px solid #52525b;
+          color: #ffffff;
+          border-radius: 6px;
+          padding: 6px 12px;
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .btn-primary { background: linear-gradient(135deg, #6366f1, #8b5cf6) !important; border: none !important; color: #fff !important; }
+        .btn-outline-secondary { background: transparent !important; border-color: #3f3f46 !important; color: #e4e4e7 !important; }
+        .btn-outline-dark { background: transparent !important; border-color: #3f3f46 !important; color: #e4e4e7 !important; }
+        .rounded-circle { border-radius: 50% !important; }
+        .rounded-pill { border-radius: 9999px !important; }
+
         ${css}
       ]]>
     </style>
@@ -169,9 +222,16 @@ async function readStoreFromDir(dir: string): Promise<StoreFile> {
 async function writeStoreToDir(dir: string, store: StoreFile): Promise<void> {
   await fs.mkdir(dir, { recursive: true })
   const file = join(dir, STORE_FILE)
-  const temp = `${file}.${process.pid}.tmp`
-  await fs.writeFile(temp, JSON.stringify(store, null, 2), 'utf8')
-  await fs.rename(temp, file)
+  const content = JSON.stringify(store, null, 2)
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`
+  try {
+    await fs.writeFile(temp, content, 'utf8')
+    await fs.rename(temp, file)
+  } catch {
+    // Dự phòng an toàn trên Windows khi thao tác rename bị khoá tệp
+    await fs.writeFile(file, content, 'utf8')
+    await fs.unlink(temp).catch(() => {})
+  }
 }
 
 /** Danh sách Part tự tạo (kết hợp cả Part trong dự án và Part toàn cục). */
@@ -236,12 +296,24 @@ export async function saveCustomPart(
     return { success: false, error: 'Vùng chọn quá lớn (tối đa 1 MB). Hãy chọn đoạn ngắn hơn.' }
   }
 
-  // Quét mã nguy hiểm
-  const inspection = inspectSuspiciousCode(html)
-  if (inspection.suspicious) {
+  // Quét mã HTML nguy hiểm
+  const htmlInspection = inspectSuspiciousCode(html)
+  if (htmlInspection.suspicious) {
     return {
       success: false,
-      error: `Phát hiện mã đáng nghi: ${inspection.reasons.join('; ')}. Vui lòng gỡ bỏ các đoạn script không an toàn trước khi lưu.`,
+      error: `Phát hiện mã đáng nghi trong HTML: ${htmlInspection.reasons.join('; ')}. Vui lòng kiểm tra lại trước khi lưu.`,
+    }
+  }
+
+  // Quét mã JavaScript nguy hiểm (nếu có)
+  if (input?.js && typeof input.js === 'string' && input.js.trim()) {
+    const jsInspection = inspectSuspiciousCode(input.js)
+    const dangerousReasons = jsInspection.reasons.filter((r) => !r.includes('<script>'))
+    if (dangerousReasons.length > 0) {
+      return {
+        success: false,
+        error: `Phát hiện mã JavaScript không an toàn: ${dangerousReasons.join('; ')}.`,
+      }
     }
   }
 
@@ -254,7 +326,8 @@ export async function saveCustomPart(
     name,
     description: description.slice(0, MAX_DESCRIPTION),
     html,
-    css: input?.css,
+    css: input?.css?.trim() || undefined,
+    js: input?.js?.trim() || undefined,
     preview,
     language,
     tags: input?.tags && input.tags.length > 0 ? input.tags : ['custom', language],
@@ -287,7 +360,7 @@ export async function saveCustomPart(
   }
 }
 
-/** Xoá một Part tự tạo theo id. */
+/** Xoá một Part tự tạo theo id (xoá sạch cả ở dự án lẫn kho toàn cục). */
 export async function deleteCustomPart(
   baseDir: string,
   id: string,
@@ -297,22 +370,36 @@ export async function deleteCustomPart(
     return { success: false, error: 'Thiếu mã Part cần xoá.' }
   }
   try {
-    // Thử xoá trong dự án trước nếu có
+    let deleted = false
+
+    // 1. Xoá trong dự án nếu có
     if (projectPath && projectPath.trim()) {
-      const projDir = getStoreDirectory(baseDir, projectPath)
-      const projStore = await readStoreFromDir(projDir)
-      const next = projStore.parts.filter((part) => part.id !== id)
-      if (next.length !== projStore.parts.length) {
-        await writeStoreToDir(projDir, { ...projStore, parts: next })
-        return { success: true }
+      try {
+        const projDir = getStoreDirectory(baseDir, projectPath)
+        const projStore = await readStoreFromDir(projDir)
+        const next = projStore.parts.filter((part) => part.id !== id)
+        if (next.length !== projStore.parts.length) {
+          await writeStoreToDir(projDir, { ...projStore, parts: next })
+          deleted = true
+        }
+      } catch {
+        // ignore
       }
     }
 
-    // Sau đó thử xoá trong kho toàn cục
-    const globalStore = await readStoreFromDir(baseDir)
-    const nextGlobal = globalStore.parts.filter((part) => part.id !== id)
-    if (nextGlobal.length !== globalStore.parts.length) {
-      await writeStoreToDir(baseDir, { ...globalStore, parts: nextGlobal })
+    // 2. Đồng thời xoá triệt để trong kho toàn cục userData
+    try {
+      const globalStore = await readStoreFromDir(baseDir)
+      const nextGlobal = globalStore.parts.filter((part) => part.id !== id)
+      if (nextGlobal.length !== globalStore.parts.length) {
+        await writeStoreToDir(baseDir, { ...globalStore, parts: nextGlobal })
+        deleted = true
+      }
+    } catch {
+      // ignore
+    }
+
+    if (deleted) {
       return { success: true }
     }
 

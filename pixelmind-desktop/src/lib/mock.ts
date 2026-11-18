@@ -1253,6 +1253,9 @@ export function createBrowserMock(): PixelMindApi {
       getZoomFactor() {
         return 1
       },
+      async captureRect() {
+        return null
+      },
     },
   }
 }

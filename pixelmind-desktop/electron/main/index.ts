@@ -1983,6 +1983,31 @@ ipcMain.handle('window:is-maximized', () => {
   return mainWindow?.isMaximized() ?? false
 })
 
+ipcMain.handle(
+  'window:captureRect',
+  async (_event, rect: { x: number; y: number; width: number; height: number }) => {
+    if (!mainWindow) return null
+    try {
+      const contentBounds = mainWindow.getContentBounds()
+      const cropX = Math.max(0, Math.min(contentBounds.width - 1, Math.round(rect.x)))
+      const cropY = Math.max(0, Math.min(contentBounds.height - 1, Math.round(rect.y)))
+      const cropW = Math.max(1, Math.min(contentBounds.width - cropX, Math.round(rect.width)))
+      const cropH = Math.max(1, Math.min(contentBounds.height - cropY, Math.round(rect.height)))
+
+      const nativeImg = await mainWindow.webContents.capturePage({
+        x: cropX,
+        y: cropY,
+        width: cropW,
+        height: cropH,
+      })
+      return nativeImg.toDataURL()
+    } catch (err) {
+      console.error('Failed to captureRect', err)
+      return null
+    }
+  },
+)
+
 /* ───────────────────────── IPC: Inspector & Live DOM Bridge ───────────────────────── */
 
 let inspectModeActive = false
@@ -2508,6 +2533,17 @@ function getInspectorScript(isActive: boolean) {
         var node = nodes[i];
         parent.insertBefore(node, reference);
         if (node.nodeType === 1) {
+          if (node.tagName && node.tagName.toLowerCase() === 'script') {
+            try {
+              var s = document.createElement('script');
+              for (var a = 0; a < node.attributes.length; a++) {
+                s.setAttribute(node.attributes[a].name, node.attributes[a].value);
+              }
+              s.textContent = node.textContent;
+              parent.replaceChild(s, node);
+              node = s;
+            } catch(e) {}
+          }
           uids = uids.concat(uidElements(node));
         }
       }
@@ -2535,7 +2571,20 @@ function getInspectorScript(isActive: boolean) {
       for (var i = 0; i < nodes.length; i++) {
         var node = nodes[i];
         parent.insertBefore(node, reference);
-        if (node.nodeType === 1) uids = uids.concat(uidElements(node));
+        if (node.nodeType === 1) {
+          if (node.tagName && node.tagName.toLowerCase() === 'script') {
+            try {
+              var s = document.createElement('script');
+              for (var a = 0; a < node.attributes.length; a++) {
+                s.setAttribute(node.attributes[a].name, node.attributes[a].value);
+              }
+              s.textContent = node.textContent;
+              parent.replaceChild(s, node);
+              node = s;
+            } catch(e) {}
+          }
+          uids = uids.concat(uidElements(node));
+        }
       }
       return { uids: uids, parentUid: ensureUid(parent), index: index };
     }

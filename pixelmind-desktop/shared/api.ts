@@ -342,5 +342,6 @@ export interface PixelMindApi {
     isMaximized: () => Promise<boolean>
     setZoomFactor?: (factor: number) => void
     getZoomFactor?: () => number
+    captureRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   }
 }

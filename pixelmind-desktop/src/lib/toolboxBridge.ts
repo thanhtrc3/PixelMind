@@ -4,11 +4,29 @@
    - Phát yêu cầu chèn khi người dùng bấm "Chèn" hoặc thả vào canvas
    ══════════════════════════════════════════════════════════════ */
 
+import type { ProjectPage } from '../../shared/types'
+
+const normalizeRoute = (value: string) => (value.split('?')[0].replace(/\/+$/, '') || '/').toLowerCase()
+
+/**
+ * Tệp nguồn của trang đang mở. Trang vừa tạo không có phần tử nào để dò,
+ * nếu không có tệp này bộ dò sẽ rơi về trang chủ và part bị ghi nhầm trang.
+ */
+export function pageFileForRoute(
+  pages: ProjectPage[] | undefined,
+  route: string | null | undefined,
+): string {
+  const wanted = normalizeRoute(route || '/')
+  const page = pages?.find((item) => item.filePath && normalizeRoute(item.route) === wanted)
+  return page?.filePath || ''
+}
+
 export interface ToolboxDragItem {
   id: string
   name: string
   html: string
   css?: string
+  js?: string
   source: 'builtin' | 'part' | 'project'
 }
 
