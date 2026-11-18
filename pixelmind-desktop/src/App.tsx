@@ -65,6 +65,7 @@ import WorkspaceView from './components/WorkspaceView'
 import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
 import DesignTokensDialog from './components/DesignTokensDialog'
+import AccessibilityDialog from './components/AccessibilityDialog'
 import GuideDialog from './components/GuideDialog'
 import CommandPalette from './components/CommandPalette'
 import type { PaletteCommand } from './components/CommandPalette'
@@ -100,7 +101,7 @@ const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : typeof error === 'string' ? error : 'Đã xảy ra lỗi không xác định.'
 
 type View = 'projects' | 'detail' | 'workspace'
-type DialogId = 'settings' | 'guide' | 'palette' | 'tokens'
+type DialogId = 'settings' | 'guide' | 'palette' | 'tokens' | 'a11y'
 
 const App = () => {
   const [storeData, setStoreData] = useState<StoreData>(EMPTY_STORE)
@@ -1331,6 +1332,9 @@ const App = () => {
         case 'tokens':
           setDialog('tokens')
           break
+        case 'a11y':
+          setDialog('a11y')
+          break
         case 'install-deps':
           void actionsRef.current.handleInstall()
           break
@@ -1543,6 +1547,12 @@ const App = () => {
         label: 'Hệ thống thiết kế (Design Tokens & Theme Manager)',
         icon: Palette,
         run: () => setDialog('tokens'),
+      },
+      {
+        id: 'a11y',
+        label: 'Kiểm tra trợ năng (Accessibility - axe-core)',
+        icon: ShieldAlert,
+        run: () => setDialog('a11y'),
       },
       {
         id: 'ai-panel',
@@ -1857,6 +1867,13 @@ const App = () => {
           projectName={project?.name}
           onClose={() => setDialog(null)}
           showToast={(msg) => showToast('info', msg)}
+        />
+      )}
+
+      {dialog === 'a11y' && (
+        <AccessibilityDialog
+          previewUrl={view === 'workspace' ? (previewUrl ?? run?.url ?? null) : null}
+          onClose={() => setDialog(null)}
         />
       )}
 

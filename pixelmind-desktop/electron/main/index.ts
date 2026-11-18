@@ -412,6 +412,10 @@ function buildMenu() {
           click: () => sendMenuAction('tokens'),
         },
         {
+          label: 'Kiểm tra trợ năng (Accessibility)',
+          click: () => sendMenuAction('a11y'),
+        },
+        {
           label: 'Mở trang trong trình duyệt ngoài',
           click: () => sendMenuAction('open-browser'),
         },

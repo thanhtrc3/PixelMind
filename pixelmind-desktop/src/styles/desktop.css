@@ -4063,3 +4063,35 @@ body:has([data-separator='active']) * {
   color: var(--text-2);
   word-break: break-all;
 }
+
+/* ── D1-19: Accessibility Checker ── */
+.pm-a11y-item {
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: var(--panel, #0f172a);
+}
+.pm-a11y-item__hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pm-a11y-node {
+  background: var(--panel-2, #1e293b);
+  border-radius: 6px;
+  padding: 8px;
+  margin-top: 8px;
+}
+.pm-a11y-selector {
+  color: #38bdf8;
+  word-break: break-all;
+}
+.pm-a11y-node pre {
+  margin: 6px 0;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
