@@ -17,6 +17,8 @@ import type {
   CustomPartSaveResult,
   CustomPartSource,
   CustomToolboxPart,
+  PartPropDef,
+  PartVariant,
 } from '../../shared/toolbox'
 
 const STORE_FILE = 'custom-parts.json'
@@ -278,6 +280,54 @@ export async function listCustomParts(
   }
 }
 
+const PROP_NAME_RE = /^[a-zA-Z][\w-]*$/
+const VARIANT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/
+const MAX_PROPS = 20
+const MAX_VARIANTS = 20
+const MAX_VALUE = 200
+
+function normalizeProps(raw: unknown): { props: PartPropDef[]; error?: string } {
+  if (raw === undefined || raw === null) return { props: [] }
+  if (!Array.isArray(raw)) return { props: [], error: 'Danh sách props phải là mảng.' }
+  if (raw.length > MAX_PROPS) return { props: [], error: `Tối đa ${MAX_PROPS} props.` }
+  const out: PartPropDef[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const name = String((item as PartPropDef)?.name ?? '').trim()
+    const value = String((item as PartPropDef)?.defaultValue ?? '')
+    if (!PROP_NAME_RE.test(name)) return { props: [], error: `Tên prop không hợp lệ: "${name}".` }
+    if (seen.has(name)) return { props: [], error: `Prop bị trùng: "${name}".` }
+    if (value.length > MAX_VALUE) return { props: [], error: `Giá trị prop "${name}" quá dài.` }
+    seen.add(name)
+    out.push({ name, label: (item as PartPropDef).label || undefined, defaultValue: value })
+  }
+  return { props: out }
+}
+
+function normalizeVariants(raw: unknown): { variants: PartVariant[]; error?: string } {
+  if (raw === undefined || raw === null) return { variants: [] }
+  if (!Array.isArray(raw)) return { variants: [], error: 'Danh sách biến thể phải là mảng.' }
+  if (raw.length > MAX_VARIANTS) return { variants: [], error: `Tối đa ${MAX_VARIANTS} biến thể.` }
+  const out: PartVariant[] = []
+  const ids = new Set<string>()
+  for (const item of raw) {
+    const v = item as PartVariant
+    const id = String(v?.id ?? '').trim().toLowerCase()
+    if (!VARIANT_ID_RE.test(id)) return { variants: [], error: `Mã biến thể không hợp lệ: "${id}".` }
+    if (ids.has(id)) return { variants: [], error: `Biến thể bị trùng mã: "${id}".` }
+    ids.add(id)
+    const values: Record<string, string> = {}
+    for (const [key, value] of Object.entries(v?.values ?? {})) {
+      if (!PROP_NAME_RE.test(key)) return { variants: [], error: `Tên prop không hợp lệ trong biến thể "${id}": "${key}".` }
+      const text = String(value ?? '')
+      if (text.length > MAX_VALUE) return { variants: [], error: `Giá trị "${key}" trong biến thể "${id}" quá dài.` }
+      values[key] = text
+    }
+    out.push({ id, name: String(v?.name ?? id).trim() || id, values })
+  }
+  return { variants: out }
+}
+
 /** Lưu vùng chọn thành Part mới. */
 export async function saveCustomPart(
   baseDir: string,
@@ -294,6 +344,24 @@ export async function saveCustomPart(
   if (!html) return { success: false, error: 'Vùng chọn đang trống, không có mã để lưu.' }
   if (Buffer.byteLength(html, 'utf8') > MAX_HTML_BYTES) {
     return { success: false, error: 'Vùng chọn quá lớn (tối đa 1 MB). Hãy chọn đoạn ngắn hơn.' }
+  }
+
+  const propsResult = normalizeProps(input?.props)
+  if (propsResult.error) return { success: false, error: propsResult.error }
+  const variantsResult = normalizeVariants(input?.variants)
+  if (variantsResult.error) return { success: false, error: variantsResult.error }
+
+  // Giá trị biến thể được chèn vào HTML sau này → phải quét như mã
+  const injected = JSON.stringify({
+    props: propsResult.props.map((p) => p.defaultValue),
+    variants: variantsResult.variants.flatMap((v) => Object.values(v.values)),
+  })
+  const injectedInspection = inspectSuspiciousCode(injected)
+  if (injectedInspection.suspicious) {
+    return {
+      success: false,
+      error: `Phát hiện mã đáng nghi trong props/biến thể: ${injectedInspection.reasons.join('; ')}.`,
+    }
   }
 
   // Quét mã HTML nguy hiểm
@@ -330,6 +398,8 @@ export async function saveCustomPart(
     js: input?.js?.trim() || undefined,
     preview,
     language,
+    props: propsResult.props.length > 0 ? propsResult.props : undefined,
+    variants: variantsResult.variants.length > 0 ? variantsResult.variants : undefined,
     tags: input?.tags && input.tags.length > 0 ? input.tags : ['custom', language],
     source: normalizeSource(input?.source),
     projectPath: typeof input?.projectPath === 'string' ? input.projectPath.trim() || undefined : undefined,

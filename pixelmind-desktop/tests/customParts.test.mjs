@@ -93,3 +93,54 @@ test('save, list and delete custom parts workflow', async () => {
   }
 })
 
+test('luu va doc lai duoc props/variants cua Part', async () => {
+  const dir = await fs.mkdtemp(join(tmpdir(), 'pm-parts-variants-'))
+  const saved = await saveCustomPart(dir, {
+    name: 'Nút',
+    html: '<button class="btn {{tone}}">{{label}}</button>',
+    props: [{ name: 'tone', defaultValue: 'primary' }, { name: 'label', defaultValue: 'Mua' }],
+    variants: [{ id: 'danger', name: 'Nguy hiểm', values: { tone: 'danger' } }],
+  })
+  assert.equal(saved.success, true)
+  const listed = await listCustomParts(dir)
+  const part = listed.parts.find((p) => p.id === saved.part.id)
+  assert.equal(part.variants.length, 1)
+  assert.equal(part.variants[0].id, 'danger')
+  assert.equal(part.props.length, 2)
+})
+
+test('Part cu khong co props/variants van doc duoc', async () => {
+  const dir = await fs.mkdtemp(join(tmpdir(), 'pm-parts-legacy-'))
+  await fs.mkdir(join(dir, '.pixelmind'), { recursive: true })
+  await fs.writeFile(
+    join(dir, '.pixelmind', 'custom-parts.json'),
+    JSON.stringify({
+      version: 1,
+      parts: [{ id: 'old_1', name: 'Cũ', description: '', html: '<div>{{x}}</div>', language: 'html', tags: [], createdAt: 1, updatedAt: 1 }],
+    }),
+  )
+  const listed = await listCustomParts(dir, dir)
+  assert.equal(listed.parts.length, 1)
+  assert.equal(listed.parts[0].variants, undefined)
+  assert.equal(listed.parts[0].html, '<div>{{x}}</div>')
+})
+
+test('tu choi bien the chua ma nguy hiem hoac ten prop sai', async () => {
+  const dir = await fs.mkdtemp(join(tmpdir(), 'pm-parts-bad-'))
+  const bad = await saveCustomPart(dir, {
+    name: 'Xấu',
+    html: '<div>{{v}}</div>',
+    props: [{ name: 'v', defaultValue: 'ok' }],
+    variants: [{ id: 'a', name: 'A', values: { v: '<script>alert(1)</script>' } }],
+  })
+  assert.equal(bad.success, false)
+  assert.match(bad.error, /đáng nghi|nguy hiểm/i)
+
+  const badName = await saveCustomPart(dir, {
+    name: 'Sai tên',
+    html: '<div></div>',
+    props: [{ name: '1 bad', defaultValue: 'x' }],
+  })
+  assert.equal(badName.success, false)
+})
+
