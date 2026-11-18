@@ -133,3 +133,32 @@ describe('syncDocs', () => {
     assert.deepEqual(report.pushed, [])
   })
 })
+
+import {
+  buildSettingsSnapshot,
+  readSettingsPayload,
+  buildTokensSnapshot,
+  readTokensPayload,
+} from '../electron/main/cloudSnapshots.ts'
+import { DEFAULT_SETTINGS } from '../shared/types.ts'
+import { DEFAULT_DESIGN_TOKENS } from '../shared/designTokens.ts'
+
+describe('cloudSnapshots', () => {
+  it('snapshot settings có schemaVersion và đọc lại được', () => {
+    const payload = buildSettingsSnapshot({ ...DEFAULT_SETTINGS, theme: 'light', cloudWorkspaceId: 'ws-123' })
+    assert.equal(payload.schemaVersion, 1)
+    assert.equal(payload.settings.cloudWorkspaceId, undefined)
+    const read = readSettingsPayload(payload)
+    assert.equal(read.theme, 'light')
+    assert.equal(read.cloudWorkspaceId, undefined)
+    assert.equal(readSettingsPayload({ schemaVersion: 999, settings: {} }), null)
+    assert.equal(readSettingsPayload('x'), null)
+  })
+
+  it('snapshot tokens có schemaVersion và đọc lại được', () => {
+    const payload = buildTokensSnapshot(DEFAULT_DESIGN_TOKENS)
+    assert.equal(payload.schemaVersion, 1)
+    assert.deepEqual(readTokensPayload(payload), DEFAULT_DESIGN_TOKENS)
+    assert.equal(readTokensPayload({ schemaVersion: 1, tokens: null }), null)
+  })
+})

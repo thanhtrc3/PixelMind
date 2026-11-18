@@ -958,6 +958,45 @@ export function createBrowserMock(): PixelMindApi {
         return () => undefined
       },
     },
+    auth: {
+      async state() {
+        return { status: 'unconfigured', user: null, expiresAt: null }
+      },
+      async signIn(_email, _password) {
+        return {
+          ok: false,
+          state: { status: 'unconfigured', user: null, expiresAt: null, error: 'Bản giả lập không đăng nhập được.' },
+          error: 'Bản giả lập không đăng nhập được.',
+        }
+      },
+      async signOut() {
+        return { status: 'signed-out', user: null, expiresAt: null }
+      },
+      onState(_cb) {
+        return () => undefined
+      },
+    },
+    cloud: {
+      async sync(_projectPath) {
+        return {
+          ok: false,
+          error: 'Bản giả lập không đồng bộ cloud.',
+          pushed: [],
+          pulled: [],
+          conflicts: [],
+          skipped: [],
+        }
+      },
+      async members() {
+        return { success: false, error: 'Bản giả lập không hỗ trợ thành viên cloud.' }
+      },
+      async invite(_email, _role) {
+        return { success: false, error: 'Bản giả lập không hỗ trợ phân quyền.' }
+      },
+      async setRole(_email, _role) {
+        return { success: false, error: 'Bản giả lập không hỗ trợ phân quyền.' }
+      },
+    },
     deploy: {
       async setToken(_provider, _token) {
         return { success: true }

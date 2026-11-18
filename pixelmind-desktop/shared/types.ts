@@ -40,6 +40,9 @@ export interface Settings {
   deployProvider?: 'vercel' | 'netlify' | 'custom'
   deployCommand?: string
   deployTokenEnv?: string
+
+  // Đồng bộ Cloud Supabase (D1-24, D1-25)
+  cloudWorkspaceId?: string
 }
 
 export interface ScriptEntry {
@@ -449,4 +452,5 @@ export const DEFAULT_SETTINGS: Settings = {
   deployProvider: 'vercel',
   deployCommand: '',
   deployTokenEnv: 'VERCEL_TOKEN',
+  cloudWorkspaceId: '',
 }

@@ -24,6 +24,8 @@ import type { PixelMindApi, FileSearchOptions } from '../../shared/api'
 import type { A11yScanResult } from '../../shared/a11y'
 import type { MockApiConfig, MockApiState } from '../../shared/mockApi'
 import type { DeployProvider, DeployState, DeployLog } from '../../shared/deploy'
+import type { AuthState, SignInResult } from '../../shared/auth'
+import type { CloudRole, CloudSyncReport } from '../../shared/cloud'
 import type {
   ArchiveProgress,
   ZipExportOptions,
@@ -377,6 +379,27 @@ const api: PixelMindApi = {
       ipcRenderer.on('deploy:state', listener)
       return () => ipcRenderer.removeListener('deploy:state', listener)
     },
+  },
+  auth: {
+    state: (): Promise<AuthState> => ipcRenderer.invoke('auth:state'),
+    signIn: (email: string, password: string): Promise<SignInResult> =>
+      ipcRenderer.invoke('auth:sign-in', email, password),
+    signOut: (): Promise<AuthState> => ipcRenderer.invoke('auth:sign-out'),
+    onState: (cb: (state: AuthState) => void) => {
+      const listener = (_e: IpcRendererEvent, state: AuthState) => cb(state)
+      ipcRenderer.on('auth:state', listener)
+      return () => ipcRenderer.removeListener('auth:state', listener)
+    },
+  },
+  cloud: {
+    sync: (projectPath: string): Promise<CloudSyncReport> =>
+      ipcRenderer.invoke('cloud:sync', projectPath),
+    members: (): Promise<{ success: boolean; members?: Array<{ email: string; role: CloudRole }>; error?: string }> =>
+      ipcRenderer.invoke('cloud:members'),
+    invite: (email: string, role: CloudRole): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('cloud:invite', email, role),
+    setRole: (email: string, role: CloudRole): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('cloud:set-role', email, role),
   },
   ai: {
     status: (projectPath?: string) => ipcRenderer.invoke('ai:status', projectPath),

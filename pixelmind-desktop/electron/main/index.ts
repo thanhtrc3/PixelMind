@@ -139,6 +139,12 @@ import type { FileSearchOptions } from '../../shared/api'
 import { createSecretStore } from './secretStore'
 import { runDeployCommand } from './deploy'
 import { idleDeployState, type DeployProvider, type DeployState } from '../../shared/deploy'
+import { parseEnvText, readSupabaseConfig, type SupabaseConfig } from './supabaseConfig'
+import { createAuthService } from './auth'
+import { createCloudClient } from './supabaseCloud'
+import { syncDocs } from './cloudSync'
+import { buildSettingsSnapshot, readSettingsPayload, buildTokensSnapshot, readTokensPayload } from './cloudSnapshots'
+import { canWrite, type CloudDoc, type CloudRole, type CloudSyncReport } from '../../shared/cloud'
 
 // Tắt Same-Origin Policy & Site Isolation cho iframe trong Electron
 app.commandLine.appendSwitch('disable-web-security')
@@ -199,6 +205,34 @@ function getDeployStore(provider: string) {
 }
 let deployState: DeployState = idleDeployState()
 const sendDeploy = () => mainWindow?.webContents.send('deploy:state', deployState)
+
+let supabaseConfig: SupabaseConfig | null = null
+let authService: ReturnType<typeof createAuthService> | null = null
+
+async function initSupabaseAuth() {
+  if (authService) return authService
+  const envFile = join(app.getAppPath(), '.env')
+  const envText = await fs.readFile(envFile, 'utf8').catch(() => '')
+  const env = { ...parseEnvText(envText), ...process.env }
+  supabaseConfig = readSupabaseConfig(env)
+  const sessionStore = createSecretStore(join(app.getPath('userData'), 'supabase-session.json'), safeStorage)
+  let memoryRefreshToken: string | null = null
+  authService = createAuthService({
+    config: supabaseConfig,
+    fetchImpl: fetch,
+    session: {
+      load: async () => (sessionStore.available ? sessionStore.load() : memoryRefreshToken),
+      save: async (value) => {
+        memoryRefreshToken = value
+        if (sessionStore.available) await sessionStore.save(value)
+      },
+    },
+  })
+  void authService.restore().then((state) => {
+    mainWindow?.webContents.send('auth:state', state)
+  }).catch(() => undefined)
+  return authService
+}
 
 /* ── Chặn thoát khi dev server còn chạy (Settings → confirmQuitRunning) ── */
 let allowWindowClose = false
@@ -443,6 +477,14 @@ function buildMenu() {
         {
           label: 'Triển khai / Preview URL…',
           click: () => sendMenuAction('deploy'),
+        },
+        {
+          label: 'Tài khoản Supabase…',
+          click: () => sendMenuAction('login'),
+        },
+        {
+          label: 'Đồng bộ & Chia sẻ Cloud…',
+          click: () => sendMenuAction('cloud'),
         },
         {
           label: 'Mở trang trong trình duyệt ngoài',
@@ -3997,6 +4039,199 @@ ipcMain.handle('deploy:start', async (_e, projectId: string) => {
   return deployState
 })
 
+/* ───────────────────────── IPC: Supabase Auth & Cloud (D1-23, D1-24, D1-25) ───────────────────────── */
+
+ipcMain.handle('auth:state', async () => {
+  const a = await initSupabaseAuth()
+  return a.state()
+})
+
+ipcMain.handle('auth:sign-in', async (_e, email: string, password: string) => {
+  const a = await initSupabaseAuth()
+  const res = await a.signIn(email, password)
+  mainWindow?.webContents.send('auth:state', res.state)
+  return res
+})
+
+ipcMain.handle('auth:sign-out', async () => {
+  const a = await initSupabaseAuth()
+  const state = await a.signOut()
+  mainWindow?.webContents.send('auth:state', state)
+  return state
+})
+
+ipcMain.handle('cloud:sync', async (_e, projectPath: string): Promise<CloudSyncReport> => {
+  const empty: CloudSyncReport = { ok: false, pushed: [], pulled: [], conflicts: [], skipped: [] }
+  const a = await initSupabaseAuth()
+  if (!supabaseConfig) return { ...empty, error: 'Chưa cấu hình Supabase (SUPABASE_URL / SUPABASE_ANON_KEY).' }
+  if (!a.accessToken()) {
+    await a.refresh()
+    if (!a.accessToken()) return { ...empty, error: a.state().error || 'Bạn cần đăng nhập để đồng bộ.' }
+  }
+  const store = await readStore()
+  const workspaceId = (store.settings.cloudWorkspaceId || '').trim()
+  const email = a.userEmail()
+  if (!workspaceId) return { ...empty, error: 'Chưa nhập Workspace ID trong Cài đặt → Dữ liệu → Cloud.' }
+  if (!email) return { ...empty, error: 'Không xác định được email phiên đăng nhập.' }
+
+  const client = createCloudClient({
+    baseUrl: supabaseConfig.url,
+    anonKey: supabaseConfig.anonKey,
+    accessToken: () => a.accessToken(),
+    fetchImpl: fetch,
+  })
+  let role: CloudRole | null = null
+  try {
+    role = await client.role(workspaceId, email)
+  } catch (error: any) {
+    return { ...empty, error: `Không kiểm tra được quyền: ${error?.message || error}` }
+  }
+  if (!role) return { ...empty, error: 'Tài khoản này không phải thành viên của workspace.' }
+
+  const local: Array<{ doc: CloudDoc; payload: unknown }> = [
+    { doc: 'settings', payload: buildSettingsSnapshot(store.settings) },
+  ]
+  const tokensFile = join(projectPath || '', '.pixelmind', 'tokens.json')
+  try {
+    const rawTokens = JSON.parse(await fs.readFile(tokensFile, 'utf8')) as DesignTokens
+    if (rawTokens && Array.isArray(rawTokens.colors)) {
+      local.push({ doc: 'designTokens', payload: buildTokensSnapshot(rawTokens) })
+    }
+  } catch {
+    /* dự án chưa có tokens: không đồng bộ tài liệu này */
+  }
+
+  const syncFile = join(app.getPath('userData'), 'cloud-sync.json')
+  const lastSynced = await fs.readFile(syncFile, 'utf8').then((t) => JSON.parse(t)).catch(() => ({}))
+  const adapter = {
+    pull: (doc: CloudDoc) => client.pull(workspaceId, doc),
+    push: async (doc: CloudDoc, payload: unknown) => {
+      if (!canWrite(role)) throw new Error('Bạn là Viewer: chỉ được xem workspace, không được ghi dữ liệu.')
+      await client.push(workspaceId, doc, payload)
+    },
+  }
+
+  const hooks = {
+    lastSynced: lastSynced.docs ?? {},
+    onPull: async (doc: CloudDoc, payload: unknown) => {
+      if (doc === 'settings') {
+        const incoming = readSettingsPayload(payload)
+        if (!incoming) throw new Error('Payload Settings không hợp lệ hoặc sai phiên bản schema.')
+        await updateSettings(incoming)
+      } else {
+        const incoming = readTokensPayload(payload)
+        if (!incoming) throw new Error('Payload Design Tokens không hợp lệ hoặc sai phiên bản schema.')
+        if (projectPath) {
+          const dir = join(projectPath, '.pixelmind')
+          await fs.mkdir(dir, { recursive: true })
+          await fs.copyFile(join(dir, 'tokens.json'), join(dir, `tokens.backup-${Date.now()}.json`)).catch(() => undefined)
+          await fs.writeFile(join(dir, 'tokens.json'), JSON.stringify(incoming, null, 2), 'utf8')
+        }
+      }
+    },
+    onPush: async (doc: CloudDoc, hash: string) => {
+      lastSynced.docs = { ...(lastSynced.docs ?? {}), [doc]: hash }
+      await fs.writeFile(syncFile, JSON.stringify(lastSynced, null, 2), 'utf8')
+    },
+    onConflict: async (doc: CloudDoc, localPayload: unknown) => {
+      const dir = join(app.getPath('userData'), 'cloud-conflicts')
+      await fs.mkdir(dir, { recursive: true })
+      const file = join(dir, `${doc}-${Date.now()}.json`)
+      await fs.writeFile(file, JSON.stringify(localPayload, null, 2), 'utf8')
+      return file
+    },
+  }
+
+  const result = await syncDocs(adapter, local, hooks)
+  return result
+})
+
+ipcMain.handle('cloud:members', async () => {
+  const a = await initSupabaseAuth()
+  if (!supabaseConfig) return { success: false, error: 'Chưa cấu hình Supabase.' }
+  if (!a.accessToken()) {
+    await a.refresh()
+    if (!a.accessToken()) return { success: false, error: a.state().error || 'Bạn cần đăng nhập.' }
+  }
+  const store = await readStore()
+  const workspaceId = (store.settings.cloudWorkspaceId || '').trim()
+  if (!workspaceId) return { success: false, error: 'Chưa nhập Workspace ID.' }
+  try {
+    const client = createCloudClient({
+      baseUrl: supabaseConfig.url,
+      anonKey: supabaseConfig.anonKey,
+      accessToken: () => a.accessToken(),
+      fetchImpl: fetch,
+    })
+    const members = await client.members(workspaceId)
+    return { success: true, members }
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) }
+  }
+})
+
+ipcMain.handle('cloud:invite', async (_e, email: string, role: CloudRole) => {
+  const a = await initSupabaseAuth()
+  if (!supabaseConfig) return { success: false, error: 'Chưa cấu hình Supabase.' }
+  if (!a.accessToken()) {
+    await a.refresh()
+    if (!a.accessToken()) return { success: false, error: a.state().error || 'Bạn cần đăng nhập.' }
+  }
+  const store = await readStore()
+  const workspaceId = (store.settings.cloudWorkspaceId || '').trim()
+  if (!workspaceId) return { success: false, error: 'Chưa nhập Workspace ID.' }
+  try {
+    const client = createCloudClient({
+      baseUrl: supabaseConfig.url,
+      anonKey: supabaseConfig.anonKey,
+      accessToken: () => a.accessToken(),
+      fetchImpl: fetch,
+    })
+    const myEmail = a.userEmail()
+    if (myEmail) {
+      const myRole = await client.role(workspaceId, myEmail)
+      if (myRole !== 'owner') {
+        return { success: false, error: 'Chỉ Owner mới được chia sẻ workspace.' }
+      }
+    }
+    await client.invite(workspaceId, email, role)
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) }
+  }
+})
+
+ipcMain.handle('cloud:set-role', async (_e, email: string, role: CloudRole) => {
+  const a = await initSupabaseAuth()
+  if (!supabaseConfig) return { success: false, error: 'Chưa cấu hình Supabase.' }
+  if (!a.accessToken()) {
+    await a.refresh()
+    if (!a.accessToken()) return { success: false, error: a.state().error || 'Bạn cần đăng nhập.' }
+  }
+  const store = await readStore()
+  const workspaceId = (store.settings.cloudWorkspaceId || '').trim()
+  if (!workspaceId) return { success: false, error: 'Chưa nhập Workspace ID.' }
+  try {
+    const client = createCloudClient({
+      baseUrl: supabaseConfig.url,
+      anonKey: supabaseConfig.anonKey,
+      accessToken: () => a.accessToken(),
+      fetchImpl: fetch,
+    })
+    const myEmail = a.userEmail()
+    if (myEmail) {
+      const myRole = await client.role(workspaceId, myEmail)
+      if (myRole !== 'owner') {
+        return { success: false, error: 'Chỉ Owner mới được chia sẻ workspace.' }
+      }
+    }
+    await client.setRole(workspaceId, email, role)
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) }
+  }
+})
+
 /* ───────────────────────── IPC: AI ───────────────────────── */
 
 ipcMain.handle('ai:status', async (_e, projectPath?: string) => {
@@ -5124,6 +5359,7 @@ if (!gotLock) {
 
     buildMenu()
     createWindow()
+    void initSupabaseAuth()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

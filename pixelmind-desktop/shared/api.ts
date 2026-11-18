@@ -39,6 +39,8 @@ import type { AiApi } from './ai'
 import type { A11yScanResult } from './a11y'
 import type { MockApiConfig, MockApiState } from './mockApi'
 import type { DeployProvider, DeployState, DeployLog } from './deploy'
+import type { AuthState, SignInResult } from './auth'
+import type { CloudRole, CloudSyncReport } from './cloud'
 import type {
   ImageApplyOptions,
   ImageApplyResult,
@@ -360,6 +362,18 @@ export interface PixelMindApi {
     state(): Promise<DeployState>
     onLog(cb: (log: DeployLog) => void): () => void
     onState(cb: (state: DeployState) => void): () => void
+  }
+  auth: {
+    state(): Promise<AuthState>
+    signIn(email: string, password: string): Promise<SignInResult>
+    signOut(): Promise<AuthState>
+    onState(cb: (state: AuthState) => void): () => void
+  }
+  cloud: {
+    sync(projectPath: string): Promise<CloudSyncReport>
+    members(): Promise<{ success: boolean; members?: Array<{ email: string; role: CloudRole }>; error?: string }>
+    invite(email: string, role: CloudRole): Promise<{ success: boolean; error?: string }>
+    setRole(email: string, role: CloudRole): Promise<{ success: boolean; error?: string }>
   }
   ai: AiApi
   window?: {

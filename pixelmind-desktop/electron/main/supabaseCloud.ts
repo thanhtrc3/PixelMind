@@ -64,7 +64,7 @@ export function createCloudClient(deps: CloudClientDeps): CloudClient {
         throw new Error(await readError(res))
       }
 
-      const rows: any[] = await res.json()
+      const rows = (await res.json()) as any[]
       if (!Array.isArray(rows) || rows.length === 0) {
         return null
       }
@@ -120,7 +120,7 @@ export function createCloudClient(deps: CloudClientDeps): CloudClient {
         throw new Error(await readError(res))
       }
 
-      const rows: any[] = await res.json()
+      const rows = (await res.json()) as any[]
       if (!Array.isArray(rows) || rows.length === 0) {
         return null
       }
@@ -139,7 +139,7 @@ export function createCloudClient(deps: CloudClientDeps): CloudClient {
         throw new Error(await readError(res))
       }
 
-      const rows: any[] = await res.json()
+      const rows = (await res.json()) as any[]
       if (!Array.isArray(rows)) return []
 
       return rows
