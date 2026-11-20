@@ -120,21 +120,21 @@ Không thể cam kết “không bao giờ xung đột” nếu cả hai cùng s
 
 ### P0 — Hoàn thiện công cụ Canvas hiện có
 
-- [ ] **D2-01 — Split slider so sánh Live với ảnh mẫu.** Hiển thị ảnh và trang Live đồng thời, kéo đường chia trước/sau; xử lý thay đổi kích thước viewport. **Nghiệm thu:** kéo được toàn dải, ảnh không bị lệch tỷ lệ so với khung.
+- [x] **D2-01 — Split slider so sánh Live với ảnh mẫu.** Hiển thị ảnh và trang Live đồng thời, kéo đường chia trước/sau; xử lý thay đổi kích thước viewport. **Nghiệm thu:** kéo được toàn dải, ảnh không bị lệch tỷ lệ so với khung.
 - [ ] **D2-02 — Difference mode.** Tạo chế độ so sánh sai khác hình ảnh trên cùng route/viewport và hiển thị vùng khác biệt; không chỉ áp `mix-blend-mode` lên hai lớp không được căn chỉnh. **Nghiệm thu:** ảnh giống nhau cho kết quả ít sai khác; đổi màu/vị trí tạo vùng báo khác biệt.
 - [ ] **D2-03 — Gắn AI Sidecar vào phần tử đang chọn.** Mở Sidecar từ nút cạnh khung chọn hoặc phím tắt; gửi ngữ cảnh phần tử; hỗ trợ preview, hoàn tác và đồng bộ code. **Nghiệm thu:** thử chọn phần tử, đề nghị đổi style, xem trước, hoàn tác và lưu xuống file.
-- [ ] **D2-04 — Điều khiển viền hover bằng setting.** Ẩn/hiện viền hover theo `hoverOutline` đã được Dev 1 truyền xuống. **Nghiệm thu:** bật/tắt setting đổi hành vi ngay cả khi đang Inspect.
-- [ ] **D2-05 — Đồng bộ lựa chọn Canvas với Layers.** Khi chọn phần tử trên Canvas, cập nhật lựa chọn và cuộn Layers tới đúng node theo `syncCanvasToTree`. **Nghiệm thu:** phần tử lồng sâu được đưa vào vùng nhìn và tắt setting thì không tự cuộn.
-- [ ] **D2-06 — Hiển thị/tắt lưới Canvas theo setting.** Dùng trạng thái `canvasGrid` hiện có để bật/tắt lưới nền trên vùng Canvas. **Nghiệm thu:** đổi setting cập nhật lưới ngay, không ảnh hưởng lưới trong ảnh chụp trang.
-- [ ] **D2-07 — Smart guides và snapping.** Khi kéo/resize, gióng theo cạnh/tâm phần tử liên quan, hiển thị khoảng cách và snap trong ngưỡng nhỏ có thể kiểm soát. **Nghiệm thu:** guides bám đúng tọa độ khi zoom; không làm thay đổi vị trí ngoài dự kiến sau khi thả.
+- [x] **D2-04 — Điều khiển viền hover bằng setting.** Ẩn/hiện viền hover theo `hoverOutline` đã được Dev 1 truyền xuống. **Nghiệm thu:** bật/tắt setting đổi hành vi ngay cả khi đang Inspect.
+- [x] **D2-05 — Đồng bộ lựa chọn Canvas với Layers.** Khi chọn phần tử trên Canvas, cập nhật lựa chọn và cuộn Layers tới đúng node theo `syncCanvasToTree`. **Nghiệm thu:** phần tử lồng sâu được đưa vào vùng nhìn và tắt setting thì không tự cuộn.
+- [x] **D2-06 — Hiển thị/tắt lưới Canvas theo setting.** Dùng trạng thái `canvasGrid` hiện có để bật/tắt lưới nền trên vùng Canvas. **Nghiệm thu:** đổi setting cập nhật lưới ngay, không ảnh hưởng lưới trong ảnh chụp trang.
+- [x] **D2-07 — Smart guides và snapping.** Khi kéo/resize, gióng theo cạnh/tâm phần tử liên quan, hiển thị khoảng cách và snap trong ngưỡng nhỏ có thể kiểm soát. **Nghiệm thu:** guides bám đúng tọa độ khi zoom; không làm thay đổi vị trí ngoài dự kiến sau khi thả.
 - [ ] **D2-08 — Rulers Canvas.** Hiển thị thước X/Y và chỉ báo vị trí con trỏ, đồng bộ với zoom/pan. **Nghiệm thu:** khoảng chia đúng theo pixel của viewport ở nhiều mức zoom.
 
 ### P1 — Kiểm soát trạng thái và viewport
 
-- [ ] **D2-09 — Multi-Viewport đồng thời.** Hiển thị Mobile/Tablet/Desktop cùng lúc bằng route hiện tại và nhãn kích thước. **Nghiệm thu:** ba viewport chạy ổn định, mỗi khung có kích thước đúng.
-- [ ] **D2-10 — Đồng bộ route/scroll giữa viewport.** Chuyển route và cuộn đồng bộ theo thiết lập người dùng. **Nghiệm thu:** route giữ nhất quán; scroll đồng bộ theo tỷ lệ, không tạo vòng lặp sự kiện.
-- [ ] **D2-11 — State Switcher.** Xem/chỉnh trạng thái `:hover`, `:focus`, `:active`, `:disabled` mà không cần thao tác chuột/bàn phím thật lên phần tử. **Nghiệm thu:** trạng thái giả lập có thể thoát và không bị ghi nhầm vào source code.
-- [ ] **D2-12 — Eyedropper.** Hút màu từ vùng Canvas hỗ trợ, hiển thị mã màu và cho phép áp dụng vào thuộc tính/token phù hợp. **Nghiệm thu:** trường hợp API không hỗ trợ/quyền bị từ chối có hướng dẫn.
+- [x] **D2-09 — Multi-Viewport đồng thời.** Hiển thị Mobile/Tablet/Desktop cùng lúc bằng route hiện tại và nhãn kích thước. **Nghiệm thu:** ba viewport chạy ổn định, mỗi khung có kích thước đúng.
+- [x] **D2-10 — Đồng bộ route/scroll giữa viewport.** Chuyển route và cuộn đồng bộ theo thiết lập người dùng. **Nghiệm thu:** route giữ nhất quán; scroll đồng bộ theo tỷ lệ, không tạo vòng lặp sự kiện.
+- [x] **D2-11 — State Switcher.** Xem/chỉnh trạng thái `:hover`, `:focus`, `:active`, `:disabled` mà không cần thao tác chuột/bàn phím thật lên phần tử. **Nghiệm thu:** trạng thái giả lập có thể thoát và không bị ghi nhầm vào source code.
+- [x] **D2-12 — Eyedropper.** Hút màu từ vùng Canvas hỗ trợ, hiển thị mã màu và cho phép áp dụng vào thuộc tính/token phù hợp. **Nghiệm thu:** trường hợp API không hỗ trợ/quyền bị từ chối có hướng dẫn.
 - [ ] **D2-13 — Breakpoint Manager.** Tạo/sửa/xóa breakpoint riêng và dùng ngay trong bộ chọn viewport. **Nghiệm thu:** giá trị lưu hợp lệ, không trùng gây lỗi và mặc định hiện có không bị mất.
 - [ ] **D2-14 — CSS Variables theo phần tử.** Hiển thị biến CSS đang áp dụng và cho gán token thay cho giá trị cứng trong Inspector. **Nghiệm thu:** áp dụng biến lưu được vào mã nguồn hoặc báo rõ khi framework không hỗ trợ.
 
