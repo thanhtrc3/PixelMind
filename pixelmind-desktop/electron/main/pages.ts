@@ -1,6 +1,5 @@
 import { promises as fs, constants as fsConstants } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
-import { shell } from 'electron'
 import type { PageFilePreview } from '../../shared/types'
 
 export type PageTemplateKind =
@@ -306,31 +305,52 @@ const escapeHtml = (value: string): string =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 
-function buildTemplate(kind: PageTemplateKind, title: string, route: string): string {
+export function buildTemplate(kind: PageTemplateKind, title: string, route: string): string {
   const safeTitle = title.trim() || 'Trang mới'
   const htmlTitle = escapeHtml(safeTitle)
   const htmlRoute = escapeHtml(route)
   const jsTitle = JSON.stringify(safeTitle)
 
-  if (kind === 'next-app') {
+  if (kind === 'next-app' || kind === 'next-pages') {
     return `export default function Page() {
   return (
-    <main style={{ padding: 24 }}>
-      <h1>${htmlTitle}</h1>
-      <p>Trang ${htmlRoute} được tạo bởi PixelMind.</p>
-    </main>
-  )
-}
-`
-  }
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#1e293b', backgroundColor: '#f8fafc' }}>
+      <header style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '16px 24px' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <a href="/" style={{ fontWeight: 700, fontSize: 18, color: '#0f172a', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>🌐</span> PixelMind
+          </a>
+          <nav style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+            <a href="/" style={{ color: '#64748b', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}>Trang chủ</a>
+            <a href="#" style={{ color: '#2563eb', textDecoration: 'none', fontSize: 14, fontWeight: 600 }}>${htmlTitle}</a>
+            <a href="#about" style={{ color: '#64748b', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}>Giới thiệu</a>
+            <a href="#contact" style={{ color: '#64748b', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}>Liên hệ</a>
+          </nav>
+        </div>
+      </header>
 
-  if (kind === 'next-pages') {
-    return `export default function Page() {
-  return (
-    <main style={{ padding: 24 }}>
-      <h1>${htmlTitle}</h1>
-      <p>Trang ${htmlRoute} được tạo bởi PixelMind.</p>
-    </main>
+      <main style={{ flex: 1, maxWidth: 1200, width: '100%', margin: '0 auto', padding: '40px 24px' }}>
+        <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 32, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, color: '#0f172a', marginTop: 0, marginBottom: 8 }}>${htmlTitle}</h1>
+          <p style={{ color: '#64748b', fontSize: 15, marginBottom: 24 }}>Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
+          <div style={{ border: '2px dashed #cbd5e1', borderRadius: 8, padding: '48px 24px', textAlign: 'center', background: '#f8fafc', color: '#94a3b8' }}>
+            <p style={{ margin: 0, fontSize: 16, fontWeight: 500, color: '#64748b' }}>Khu vực nội dung chính</p>
+            <p style={{ margin: '8px 0 0 0', fontSize: 14 }}>Kéo thả linh kiện hoặc bắt đầu thiết kế giao diện của bạn tại đây.</p>
+          </div>
+        </div>
+      </main>
+
+      <footer style={{ background: '#ffffff', borderTop: '1px solid #e2e8f0', padding: 24, textAlign: 'center', color: '#64748b', fontSize: 14 }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <p style={{ margin: 0 }}>&copy; 2026 PixelMind. Tất cả quyền được bảo lưu.</p>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <a href="#" style={{ color: '#64748b', textDecoration: 'none' }}>Chính sách bảo mật</a>
+            <a href="#" style={{ color: '#64748b', textDecoration: 'none' }}>Điều khoản dịch vụ</a>
+            <a href="#" style={{ color: '#64748b', textDecoration: 'none' }}>Trợ giúp</a>
+          </div>
+        </div>
+      </footer>
+    </div>
   )
 }
 `
@@ -338,22 +358,93 @@ function buildTemplate(kind: PageTemplateKind, title: string, route: string): st
 
   if (kind === 'vue') {
     return `<template>
-  <main style="padding: 24px">
-    <h1>${htmlTitle}</h1>
-    <p>Trang ${htmlRoute} được tạo bởi PixelMind.</p>
-  </main>
+  <div style="min-height: 100vh; display: flex; flex-direction: column; font-family: system-ui, -apple-system, sans-serif; color: #1e293b; background-color: #f8fafc">
+    <header style="background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 16px 24px">
+      <div style="max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between">
+        <a href="/" style="font-weight: 700; font-size: 18px; color: #0f172a; text-decoration: none; display: flex; align-items: center; gap: 8px">
+          <span>🌐</span> PixelMind
+        </a>
+        <nav style="display: flex; gap: 20px; align-items: center">
+          <a href="/" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Trang chủ</a>
+          <a href="#" style="color: #2563eb; text-decoration: none; font-size: 14px; font-weight: 600">{{ title }}</a>
+          <a href="#about" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Giới thiệu</a>
+          <a href="#contact" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Liên hệ</a>
+        </nav>
+      </div>
+    </header>
+
+    <main style="flex: 1; max-width: 1200px; width: 100%; margin: 0 auto; padding: 40px 24px">
+      <div style="background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05)">
+        <h1 style="font-size: 28px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px">{{ title }}</h1>
+        <p style="color: #64748b; font-size: 15px; margin-bottom: 24px">Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
+        <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 48px 24px; text-align: center; background: #f8fafc; color: #94a3b8">
+          <p style="margin: 0; font-size: 16px; font-weight: 500; color: #64748b">Khu vực nội dung chính</p>
+          <p style="margin: 8px 0 0 0; font-size: 14px">Kéo thả linh kiện hoặc bắt đầu thiết kế giao diện của bạn tại đây.</p>
+        </div>
+      </div>
+    </main>
+
+    <footer style="background: #ffffff; border-top: 1px solid #e2e8f0; padding: 24px; text-align: center; color: #64748b; font-size: 14px">
+      <div style="max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px">
+        <p style="margin: 0">&copy; 2026 PixelMind. Tất cả quyền được bảo lưu.</p>
+        <div style="display: flex; gap: 16px">
+          <a href="#" style="color: #64748b; text-decoration: none">Chính sách bảo mật</a>
+          <a href="#" style="color: #64748b; text-decoration: none">Điều khoản dịch vụ</a>
+          <a href="#" style="color: #64748b; text-decoration: none">Trợ giúp</a>
+        </div>
+      </div>
+    </footer>
+  </div>
 </template>
 
 <script setup>
+const title = ${jsTitle}
 </script>
 `
   }
 
   if (kind === 'sveltekit') {
-    return `<main style="padding: 24px">
-  <h1>${htmlTitle}</h1>
-  <p>Trang ${htmlRoute} được tạo bởi PixelMind.</p>
-</main>
+    return `<script>
+  const title = ${jsTitle}
+</script>
+
+<div style="min-height: 100vh; display: flex; flex-direction: column; font-family: system-ui, -apple-system, sans-serif; color: #1e293b; background-color: #f8fafc">
+  <header style="background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 16px 24px">
+    <div style="max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between">
+      <a href="/" style="font-weight: 700; font-size: 18px; color: #0f172a; text-decoration: none; display: flex; align-items: center; gap: 8px">
+        <span>🌐</span> PixelMind
+      </a>
+      <nav style="display: flex; gap: 20px; align-items: center">
+        <a href="/" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Trang chủ</a>
+        <a href="#" style="color: #2563eb; text-decoration: none; font-size: 14px; font-weight: 600">{title}</a>
+        <a href="#about" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Giới thiệu</a>
+        <a href="#contact" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Liên hệ</a>
+      </nav>
+    </div>
+  </header>
+
+  <main style="flex: 1; max-width: 1200px; width: 100%; margin: 0 auto; padding: 40px 24px">
+    <div style="background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05)">
+      <h1 style="font-size: 28px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px">{title}</h1>
+      <p style="color: #64748b; font-size: 15px; margin-bottom: 24px">Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
+      <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 48px 24px; text-align: center; background: #f8fafc; color: #94a3b8">
+        <p style="margin: 0; font-size: 16px; font-weight: 500; color: #64748b">Khu vực nội dung chính</p>
+        <p style="margin: 8px 0 0 0; font-size: 14px">Kéo thả linh kiện hoặc bắt đầu thiết kế giao diện của bạn tại đây.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer style="background: #ffffff; border-top: 1px solid #e2e8f0; padding: 24px; text-align: center; color: #64748b; font-size: 14px">
+    <div style="max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px">
+      <p style="margin: 0">&copy; 2026 PixelMind. Tất cả quyền được bảo lưu.</p>
+      <div style="display: flex; gap: 16px">
+        <a href="#" style="color: #64748b; text-decoration: none">Chính sách bảo mật</a>
+        <a href="#" style="color: #64748b; text-decoration: none">Điều khoản dịch vụ</a>
+        <a href="#" style="color: #64748b; text-decoration: none">Trợ giúp</a>
+      </div>
+    </div>
+  </footer>
+</div>
 `
   }
 
@@ -368,11 +459,44 @@ const title = ${jsTitle}
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
   </head>
-  <body>
-    <main style="padding: 24px">
-      <h1>{title}</h1>
-      <p>Trang ${htmlRoute} được tạo bởi PixelMind.</p>
-    </main>
+  <body style="margin: 0; padding: 0;">
+    <div style="min-height: 100vh; display: flex; flex-direction: column; font-family: system-ui, -apple-system, sans-serif; color: #1e293b; background-color: #f8fafc">
+      <header style="background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 16px 24px">
+        <div style="max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between">
+          <a href="/" style="font-weight: 700; font-size: 18px; color: #0f172a; text-decoration: none; display: flex; align-items: center; gap: 8px">
+            <span>🌐</span> PixelMind
+          </a>
+          <nav style="display: flex; gap: 20px; align-items: center">
+            <a href="/" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Trang chủ</a>
+            <a href="#" style="color: #2563eb; text-decoration: none; font-size: 14px; font-weight: 600">{title}</a>
+            <a href="#about" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Giới thiệu</a>
+            <a href="#contact" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Liên hệ</a>
+          </nav>
+        </div>
+      </header>
+
+      <main style="flex: 1; max-width: 1200px; width: 100%; margin: 0 auto; padding: 40px 24px">
+        <div style="background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05)">
+          <h1 style="font-size: 28px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px">{title}</h1>
+          <p style="color: #64748b; font-size: 15px; margin-bottom: 24px">Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
+          <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 48px 24px; text-align: center; background: #f8fafc; color: #94a3b8">
+            <p style="margin: 0; font-size: 16px; font-weight: 500; color: #64748b">Khu vực nội dung chính</p>
+            <p style="margin: 8px 0 0 0; font-size: 14px">Kéo thả linh kiện hoặc bắt đầu thiết kế giao diện của bạn tại đây.</p>
+          </div>
+        </div>
+      </main>
+
+      <footer style="background: #ffffff; border-top: 1px solid #e2e8f0; padding: 24px; text-align: center; color: #64748b; font-size: 14px">
+        <div style="max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px">
+          <p style="margin: 0">&copy; 2026 PixelMind. Tất cả quyền được bảo lưu.</p>
+          <div style="display: flex; gap: 16px">
+            <a href="#" style="color: #64748b; text-decoration: none">Chính sách bảo mật</a>
+            <a href="#" style="color: #64748b; text-decoration: none">Điều khoản dịch vụ</a>
+            <a href="#" style="color: #64748b; text-decoration: none">Trợ giúp</a>
+          </div>
+        </div>
+      </footer>
+    </div>
   </body>
 </html>
 `
@@ -385,11 +509,44 @@ const title = ${jsTitle}
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${htmlTitle}</title>
   </head>
-  <body>
-    <main style="padding: 24px">
-      <h1>${htmlTitle}</h1>
-      <p>Trang ${htmlRoute} được tạo bởi PixelMind.</p>
-    </main>
+  <body style="margin: 0; padding: 0;">
+    <div style="min-height: 100vh; display: flex; flex-direction: column; font-family: system-ui, -apple-system, sans-serif; color: #1e293b; background-color: #f8fafc">
+      <header style="background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 16px 24px">
+        <div style="max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between">
+          <a href="/" style="font-weight: 700; font-size: 18px; color: #0f172a; text-decoration: none; display: flex; align-items: center; gap: 8px">
+            <span>🌐</span> PixelMind
+          </a>
+          <nav style="display: flex; gap: 20px; align-items: center">
+            <a href="/" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Trang chủ</a>
+            <a href="#" style="color: #2563eb; text-decoration: none; font-size: 14px; font-weight: 600">${htmlTitle}</a>
+            <a href="#about" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Giới thiệu</a>
+            <a href="#contact" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Liên hệ</a>
+          </nav>
+        </div>
+      </header>
+
+      <main style="flex: 1; max-width: 1200px; width: 100%; margin: 0 auto; padding: 40px 24px">
+        <div style="background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05)">
+          <h1 style="font-size: 28px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px">${htmlTitle}</h1>
+          <p style="color: #64748b; font-size: 15px; margin-bottom: 24px">Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
+          <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 48px 24px; text-align: center; background: #f8fafc; color: #94a3b8">
+            <p style="margin: 0; font-size: 16px; font-weight: 500; color: #64748b">Khu vực nội dung chính</p>
+            <p style="margin: 8px 0 0 0; font-size: 14px">Kéo thả linh kiện hoặc bắt đầu thiết kế giao diện của bạn tại đây.</p>
+          </div>
+        </div>
+      </main>
+
+      <footer style="background: #ffffff; border-top: 1px solid #e2e8f0; padding: 24px; text-align: center; color: #64748b; font-size: 14px">
+        <div style="max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px">
+          <p style="margin: 0">&copy; 2026 PixelMind. Tất cả quyền được bảo lưu.</p>
+          <div style="display: flex; gap: 16px">
+            <a href="#" style="color: #64748b; text-decoration: none">Chính sách bảo mật</a>
+            <a href="#" style="color: #64748b; text-decoration: none">Điều khoản dịch vụ</a>
+            <a href="#" style="color: #64748b; text-decoration: none">Trợ giúp</a>
+          </div>
+        </div>
+      </footer>
+    </div>
   </body>
 </html>
 `
@@ -482,7 +639,13 @@ async function cleanupEmptyParents(projectPath: string, relativeFilePath: string
 export async function trashPageFile(projectPath: string, relativePath: string): Promise<boolean> {
   const absolute = assertInsideProject(projectPath, relativePath)
   if (!(await fileExists(absolute))) return false
-  await shell.trashItem(absolute)
+  const electron = await import('electron')
+  const shell = (electron as unknown as { shell?: { trashItem: (path: string) => Promise<void> } }).shell
+  if (shell?.trashItem) {
+    await shell.trashItem(absolute)
+  } else {
+    await fs.unlink(absolute)
+  }
   await cleanupEmptyParents(projectPath, relativePath)
   return true
 }

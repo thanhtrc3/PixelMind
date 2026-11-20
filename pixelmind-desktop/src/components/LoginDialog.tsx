@@ -3,7 +3,7 @@
    Đăng nhập/đăng xuất Supabase, bảo vệ token, không lưu password.
    ══════════════════════════════════════════════════════════════ */
 
-import { AlertTriangle, Loader2, LogIn, LogOut, ShieldCheck, User } from 'lucide-react'
+import { AlertTriangle, Eye, EyeOff, Loader2, LogIn, LogOut, ShieldCheck, User } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { AuthState } from '@shared/auth'
 import { api } from '../lib/bridge'
@@ -18,6 +18,7 @@ export default function LoginDialog({ onClose, onShowToast }: LoginDialogProps) 
   const [state, setState] = useState<AuthState | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -194,16 +195,40 @@ export default function LoginDialog({ onClose, onShowToast }: LoginDialogProps) 
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text, #f8fafc)' }}>Mật khẩu:</label>
-              <input
-                type="password"
-                className="pm-input"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="off"
-                disabled={busy}
-                required
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  className="pm-input"
+                  style={{ paddingRight: 32 }}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="off"
+                  disabled={busy}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  style={{
+                    position: 'absolute',
+                    right: 4,
+                    top: 0,
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '0 6px',
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-3)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
             </div>
           </form>
         )}
