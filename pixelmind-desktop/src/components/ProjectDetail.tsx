@@ -1,5 +1,6 @@
 import {
   Activity,
+  Archive,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -48,6 +49,7 @@ interface ProjectDetailProps {
   onInstall: () => void
   onCreateIndexHtml?: () => void
   onAddDevScript?: () => void
+  onExportZip?: () => void
 }
 
 const statusChip: Record<string, { label: string; cls: string }> = {
@@ -80,6 +82,7 @@ const ProjectDetail = ({
   onInstall,
   onCreateIndexHtml,
   onAddDevScript,
+  onExportZip,
 }: ProjectDetailProps) => {
   const [allVersions, setAllVersions] = useState(false)
   const [allActivity, setAllActivity] = useState(false)
@@ -141,6 +144,15 @@ const ProjectDetail = ({
           <button className="btn" onClick={onOpenFolder}>
             <FolderOpen size={13} /> Mở thư mục
           </button>
+          {onExportZip && (
+            <button
+              className="btn"
+              onClick={onExportZip}
+              title="Đóng gói mã nguồn thành tệp ZIP để chia sẻ hoặc sao lưu"
+            >
+              <Archive size={13} /> Xuất ZIP
+            </button>
+          )}
           {running ? (
             <button className="btn danger" onClick={onStop}>
               <Square size={12} /> Dừng

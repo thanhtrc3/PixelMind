@@ -19,7 +19,7 @@ import type {
   ToolboxWritePayload,
   ToolboxWriteResult,
 } from '../../shared/toolbox'
-import { detectFramework, escapeRazor, htmlToJsx } from '../../shared/toolbox'
+import { detectFramework, escapeRazor, htmlToJsx } from '../../shared/toolbox.ts'
 
 const VOID_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
@@ -409,6 +409,23 @@ function getRouteCandidates(currentPath?: string): string[] {
     list.push(`Pages/${c1}/${c2}.cshtml`)
     list.push(`src/pages/${c1}/${c2}.tsx`)
   }
+  // Cùng quy ước route → tệp mà lúc tạo trang PixelMind dùng, để chèn part vào
+  // đúng tệp của trang mới thay vì rơi về trang chủ.
+  list.push(
+    `${clean}/index.html`,
+    `${clean}.html`,
+    `app/${clean}/page.tsx`,
+    `app/${clean}/page.jsx`,
+    `src/app/${clean}/page.tsx`,
+    `src/app/${clean}/page.jsx`,
+    `pages/${clean}.tsx`,
+    `pages/${clean}.jsx`,
+    `src/routes/${clean}/+page.svelte`,
+    `routes/${clean}/+page.svelte`,
+    `pages/${clean}.astro`,
+    `src/pages/${clean}.astro`,
+    `pages/${clean}.vue`,
+  )
   return list
 }
 
@@ -425,6 +442,8 @@ async function resolveSourceFile(
         return { fullPath: target.fullPath, content, range: best.candidate.range }
       }
       if (kind === 'insert') {
+        // Không chèn part vào layout/view dùng chung: part sẽ lặp lại trên mọi trang.
+        if (basename(target.fullPath).startsWith('_')) return null
         return { fullPath: target.fullPath, content, range: null }
       }
       // Không thấy trong tệp đã dò — tiếp tục quét các tệp khác bên dưới.
@@ -498,9 +517,13 @@ async function resolveSourceFile(
         } catch {}
       }
     }
-    const htmlFile = codeFiles.find((file) => /\.(html?|php|cshtml|razor)$/i.test(file) && !basename(file).startsWith('_'))
-    if (htmlFile) {
-      return { fullPath: htmlFile, content: await fs.readFile(htmlFile, 'utf8'), range: null }
+    // Đã biết route nhưng không có tệp tương ứng: KHÔNG đoán bừa sang tệp khác
+    // (part sẽ rơi nhầm trang hoặc vào layout dùng chung).
+    if (routeCandidates.length === 0) {
+      const htmlFile = codeFiles.find((file) => /\.(html?|php|cshtml|razor)$/i.test(file) && !basename(file).startsWith('_'))
+      if (htmlFile) {
+        return { fullPath: htmlFile, content: await fs.readFile(htmlFile, 'utf8'), range: null }
+      }
     }
   }
   return null
@@ -530,6 +553,16 @@ function cssToFrameworkBlock(css: string, framework: FrameworkKind): string {
   }
   const body = framework === 'razor' ? escapeRazor(trimmed) : trimmed
   return `\n<style data-pm-toolbox>\n${body}\n</style>`
+}
+
+function jsToFrameworkBlock(js: string, framework: FrameworkKind): string {
+  const trimmed = js.trim()
+  if (!trimmed) return ''
+  if (framework === 'jsx') {
+    const safe = trimmed.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
+    return `\n<script data-pm-toolbox dangerouslySetInnerHTML={{ __html: \`${safe}\` }} />`
+  }
+  return `\n<script data-pm-toolbox>\n${trimmed}\n</script>`
 }
 
 function appendToBody(content: string, block: string): { text: string; at: number } {
@@ -595,7 +628,8 @@ function mutateInsert(
 ): MutationPreview {
   const html = toFrameworkHtml(payload.html || '', framework)
   const cssBlock = payload.css ? cssToFrameworkBlock(payload.css, framework) : ''
-  const block = html + cssBlock
+  const jsBlock = payload.js ? jsToFrameworkBlock(payload.js, framework) : ''
+  const block = html + cssBlock + jsBlock
 
   let effectiveRange = inputRange
   let placement = target.placement || target.position || 'after'
@@ -990,7 +1024,7 @@ export async function runToolboxMutation(payload: ToolboxMutationPayload): Promi
       success: false,
       error:
         payload.kind === 'insert'
-          ? 'Không tìm thấy tệp mã nguồn phù hợp để chèn. Hãy mở một trang trong dự án trước.'
+          ? 'Trang này chưa có tệp mã nguồn để chèn (part mới chỉ hiện trên canvas). Hãy mở một trang đã có tệp trong dự án.'
           : 'Không dò được phần tử này trong mã nguồn. Hãy chọn lại phần tử hoặc lưu tệp rồi thử lại.',
     }
   }

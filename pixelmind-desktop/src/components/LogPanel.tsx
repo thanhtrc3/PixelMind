@@ -31,6 +31,8 @@ interface LogPanelProps {
   heading?: string
   installing?: boolean
   onInstall?: () => void
+  updatingDb?: boolean
+  onDatabaseUpdate?: () => void
   onRetry?: () => void
   onOpenFile?: (file: string) => void
   onToggleCollapse?: () => void
@@ -124,6 +126,8 @@ const LogPanel = ({
   heading,
   installing = false,
   onInstall,
+  updatingDb = false,
+  onDatabaseUpdate,
   onRetry,
   onOpenFile,
   onToggleCollapse,
@@ -675,6 +679,8 @@ const LogPanel = ({
                 error={parsedError}
                 installing={installing}
                 onInstall={onInstall}
+                updatingDb={updatingDb}
+                onDatabaseUpdate={onDatabaseUpdate}
                 onRetry={onRetry}
                 onOpenFile={onOpenFile}
                 showRawLogs={showRawLogs}

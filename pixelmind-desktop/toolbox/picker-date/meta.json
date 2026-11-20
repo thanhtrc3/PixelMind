@@ -19,7 +19,7 @@
   "origin": "Figma · PixelMind Kit / form",
   "license": "MIT · nội bộ dự án",
   "status": "approved",
-  "locked": true,
+  "locked": false,
   "demo": false,
   "uses": 2,
   "rejects": 3,

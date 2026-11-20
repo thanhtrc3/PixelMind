@@ -1,0 +1,1 @@
+Banner kêu gọi hành động với nền dải màu gradient tím xanh, tiêu đề thuyết phục và nút bấm mở rộng kích thước.

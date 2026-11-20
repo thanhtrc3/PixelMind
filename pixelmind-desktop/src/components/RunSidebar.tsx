@@ -71,8 +71,13 @@ const RunSidebar = ({
   const [copied, setCopied] = useState(false)
   const running = run?.status === 'running' || run?.status === 'starting'
   const options = [
-    ...project.scripts.map((s) => ({ value: s.name, label: `${s.name} — ${scriptLabel(s.kind)}` })),
-    ...(project.hasIndexHtml ? [{ value: 'static', label: 'Xem trước tĩnh (index.html)' }] : []),
+    ...project.scripts.map((s) => ({
+      value: s.name,
+      label: s.name === 'static' ? 'static — Máy chủ tĩnh (PixelMind)' : `${s.name} — ${scriptLabel(s.kind)}`,
+    })),
+    ...(project.hasIndexHtml && !project.scripts.some((s) => s.name === 'static')
+      ? [{ value: 'static', label: 'Xem trước tĩnh (index.html)' }]
+      : []),
     { value: 'custom', label: 'Lệnh tự nhập…' },
   ]
   const isCustom = script === 'custom'
@@ -303,6 +308,19 @@ const RunSidebar = ({
                   <ExternalLink size={12} />
                 </button>
               </div>
+            </div>
+          )}
+
+          {run?.portFallback && (
+            <div className="pm-side-alert warn" style={{ marginTop: 8 }}>
+              <div className="pm-side-alert__top">
+                <TriangleAlert size={13} className="pm-warn" />
+                <b>Cổng {run.requestedPort ?? ''} đang bị chiếm</b>
+              </div>
+              <p className="pm-hint" style={{ fontSize: 11, margin: '2px 0 0' }}>
+                PixelMind đã chuyển sang tự chọn cổng trống cho lượt chạy này. Dừng ứng dụng đang dùng cổng{' '}
+                {run.requestedPort ?? ''} hoặc đổi “Cổng dev ưu tiên” trong Cài đặt → Chạy &amp; Xem trước.
+              </p>
             </div>
           )}
 

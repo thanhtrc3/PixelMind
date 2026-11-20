@@ -1,0 +1,28 @@
+{
+  "id": "navbar-modern",
+  "name": "Thanh điều hướng hiện đại",
+  "groups": [
+    "navigation",
+    "header",
+    "layout"
+  ],
+  "tags": [
+    "navbar",
+    "menu",
+    "đầu trang",
+    "navigation",
+    "header"
+  ],
+  "version": "2.0.0",
+  "designMd": "DESIGN.md · 2026-11-01",
+  "author": "PixelMind Studio",
+  "origin": "PixelMind Modern UI Kit",
+  "license": "MIT",
+  "status": "approved",
+  "locked": false,
+  "demo": false,
+  "uses": 10,
+  "rejects": 0,
+  "updated": "2026-11-14",
+  "note": "Thanh điều hướng cố định trên cùng gồm logo, menu chính với hiệu ứng hover và nút Đăng ký nổi bật."
+}

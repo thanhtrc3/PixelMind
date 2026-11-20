@@ -1,0 +1,27 @@
+{
+  "id": "testimonial-card",
+  "name": "Card nhận xét khách hàng",
+  "groups": [
+    "feedback",
+    "card",
+    "marketing"
+  ],
+  "tags": [
+    "testimonial",
+    "đánh giá",
+    "review",
+    "khách hàng"
+  ],
+  "version": "2.0.0",
+  "designMd": "DESIGN.md · 2026-11-01",
+  "author": "PixelMind Studio",
+  "origin": "PixelMind Modern UI Kit",
+  "license": "MIT",
+  "status": "approved",
+  "locked": false,
+  "demo": false,
+  "uses": 10,
+  "rejects": 0,
+  "updated": "2026-11-14",
+  "note": "Card đánh giá của khách hàng với số sao vàng 5 sao, lời nhận xét trích dẫn, ảnh đại diện avatar và tên chức danh."
+}

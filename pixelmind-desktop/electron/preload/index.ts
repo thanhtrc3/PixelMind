@@ -21,7 +21,31 @@ import type {
   TerminalSession,
 } from '../../shared/types'
 import type { PixelMindApi, FileSearchOptions } from '../../shared/api'
+import type { A11yScanResult } from '../../shared/a11y'
+import type { MockApiConfig, MockApiState } from '../../shared/mockApi'
+import type { DeployProvider, DeployState, DeployLog } from '../../shared/deploy'
+import type { AuthState, SignInResult } from '../../shared/auth'
+import type { CloudRole, CloudSyncReport } from '../../shared/cloud'
 import type {
+  ArchiveProgress,
+  ZipExportOptions,
+  ZipExportResult,
+  ZipImportOptions,
+  ZipImportResult,
+  ZipInspection,
+} from '../../shared/archive'
+import type {
+  ImageApplyOptions,
+  ImageApplyResult,
+  ImageInspectResult,
+  ImageOptimizeOptions,
+  ImagePreviewResult,
+} from '../../shared/imageOptimize'
+import type {
+  CustomPartDeleteResult,
+  CustomPartInput,
+  CustomPartListResult,
+  CustomPartSaveResult,
   MutationPreview,
   ProjectScanResult,
   ToolboxMutationPayload,
@@ -57,6 +81,13 @@ const api: PixelMindApi = {
 
   projects: {
     pickFolder: (): Promise<ProjectRecord | null> => ipcRenderer.invoke('project:pick'),
+    pickFolderOnly: (): Promise<string | null> => ipcRenderer.invoke('project:pickFolderOnly'),
+    createFromTemplate: (options: {
+      templateId: string
+      parentDir: string
+      projectName: string
+    }): Promise<{ success: boolean; project?: ProjectRecord; error?: string }> =>
+      ipcRenderer.invoke('project:createFromTemplate', options),
     add: (folder: string): Promise<ProjectRecord | null> => ipcRenderer.invoke('project:add', folder),
     list: (): Promise<ProjectRecord[]> => ipcRenderer.invoke('project:list'),
     open: (id: string): Promise<ProjectRecord | null> => ipcRenderer.invoke('project:open', id),
@@ -106,6 +137,13 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('project:git-checkout', projectId, branchName),
     gitCreateBranch: (projectId: string, branchName: string, checkout = true) =>
       ipcRenderer.invoke('project:git-create-branch', projectId, branchName, checkout),
+    gitClone: (options: {
+      repoUrl: string
+      parentDir: string
+      folderName?: string
+    }) => ipcRenderer.invoke('project:git-clone', options),
+    gitSetRemote: (projectId: string, remoteUrl: string, remoteName = 'origin') =>
+      ipcRenderer.invoke('project:git-set-remote', projectId, remoteUrl, remoteName),
     gitPush: (projectId: string, setUpstream = false) =>
       ipcRenderer.invoke('project:git-push', projectId, setUpstream),
     gitPull: (projectId: string) => ipcRenderer.invoke('project:git-pull', projectId),
@@ -116,6 +154,20 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('project:add-dev-script', projectId),
     setCommand: (projectId: string, command: string): Promise<ProjectRecord | null> =>
       ipcRenderer.invoke('project:set-command', projectId, command),
+    pickZipFile: (): Promise<string | null> => ipcRenderer.invoke('project:zip-pick'),
+    inspectZip: (zipPath: string): Promise<ZipInspection> =>
+      ipcRenderer.invoke('project:zip-inspect', zipPath),
+    importZip: (options: ZipImportOptions): Promise<ZipImportResult> =>
+      ipcRenderer.invoke('project:zip-import', options),
+    pickZipSavePath: (defaultName: string): Promise<string | null> =>
+      ipcRenderer.invoke('project:zip-save-path', defaultName),
+    exportZip: (options: ZipExportOptions): Promise<ZipExportResult> =>
+      ipcRenderer.invoke('project:zip-export', options),
+    onArchiveProgress: (cb: (progress: ArchiveProgress) => void) => {
+      const listener = (_e: IpcRendererEvent, progress: ArchiveProgress) => cb(progress)
+      ipcRenderer.on('project:archive-progress', listener)
+      return () => ipcRenderer.removeListener('project:archive-progress', listener)
+    },
   },
 
   fs: {
@@ -160,10 +212,26 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('assets:restore', backupPath, destination),
   },
 
+  images: {
+    inspect: (path: string): Promise<ImageInspectResult> =>
+      ipcRenderer.invoke('images:inspect', path),
+    preview: (options: ImageOptimizeOptions): Promise<ImagePreviewResult> =>
+      ipcRenderer.invoke('images:preview', options),
+    apply: (options: ImageApplyOptions): Promise<ImageApplyResult> =>
+      ipcRenderer.invoke('images:apply', options),
+    revert: (
+      backupPath: string,
+      destination: string,
+    ): Promise<{ success: boolean; path?: string; error?: string }> =>
+      ipcRenderer.invoke('images:revert', backupPath, destination),
+  },
+
   run: {
     start: (projectId: string, script: string): Promise<RunState> =>
       ipcRenderer.invoke('run:start', projectId, script),
     install: (projectId: string): Promise<RunState> => ipcRenderer.invoke('run:install', projectId),
+    efDatabaseUpdate: (projectId: string): Promise<{ ok: boolean; output?: string; error?: string }> =>
+      ipcRenderer.invoke('run:ef-database-update', projectId),
     startCommand: (projectId: string, command: string): Promise<RunState> =>
       ipcRenderer.invoke('run:start-command', projectId, command),
     stop: (runId: string): Promise<boolean> => ipcRenderer.invoke('run:stop', runId),
@@ -252,6 +320,10 @@ const api: PixelMindApi = {
       id?: string
     }) => ipcRenderer.invoke('inspect:sync-nav', payload),
   },
+  a11y: {
+    scan: (payload: { axeSource: string; previewUrl?: string | null }): Promise<A11yScanResult> =>
+      ipcRenderer.invoke('a11y:scan', payload),
+  },
   tokens: {
     get: (projectPath: string) => ipcRenderer.invoke('tokens:get', projectPath),
     save: (payload: { projectPath: string; tokens: DesignTokens; syncTarget?: 'css' | 'tailwind' | 'both' }) =>
@@ -264,6 +336,70 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('toolbox:write-file', payload),
     scan: (projectPath: string): Promise<ProjectScanResult> =>
       ipcRenderer.invoke('toolbox:scan', projectPath),
+    listParts: (projectPath?: string): Promise<CustomPartListResult> =>
+      ipcRenderer.invoke('toolbox:parts-list', projectPath),
+    savePart: (input: CustomPartInput): Promise<CustomPartSaveResult> =>
+      ipcRenderer.invoke('toolbox:parts-save', input),
+    deletePart: (id: string, projectPath?: string): Promise<CustomPartDeleteResult> =>
+      ipcRenderer.invoke('toolbox:parts-delete', id, projectPath),
+  },
+  mock: {
+    load: (projectPath: string): Promise<MockApiConfig | null> =>
+      ipcRenderer.invoke('mock:load', projectPath),
+    save: (projectPath: string, config: MockApiConfig): Promise<{ success: boolean; errors?: string[] }> =>
+      ipcRenderer.invoke('mock:save', projectPath, config),
+    start: (projectPath: string, config: MockApiConfig): Promise<MockApiState> =>
+      ipcRenderer.invoke('mock:start', projectPath, config),
+    stop: (): Promise<MockApiState> => ipcRenderer.invoke('mock:stop'),
+    state: (): Promise<MockApiState> => ipcRenderer.invoke('mock:state'),
+    onState: (cb: (state: MockApiState) => void) => {
+      const listener = (_e: IpcRendererEvent, state: MockApiState) => cb(state)
+      ipcRenderer.on('mock:state', listener)
+      return () => ipcRenderer.removeListener('mock:state', listener)
+    },
+  },
+  deploy: {
+    setToken: (provider: DeployProvider, token: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('deploy:set-token', { provider, token }),
+    hasToken: (provider: DeployProvider): Promise<boolean> =>
+      ipcRenderer.invoke('deploy:has-token', provider),
+    clearToken: (provider: DeployProvider): Promise<boolean> =>
+      ipcRenderer.invoke('deploy:clear-token', provider),
+    start: (projectId: string): Promise<DeployState> =>
+      ipcRenderer.invoke('deploy:start', projectId),
+    state: (): Promise<DeployState> =>
+      ipcRenderer.invoke('deploy:state'),
+    onLog: (cb: (log: DeployLog) => void) => {
+      const listener = (_e: IpcRendererEvent, log: DeployLog) => cb(log)
+      ipcRenderer.on('deploy:log', listener)
+      return () => ipcRenderer.removeListener('deploy:log', listener)
+    },
+    onState: (cb: (state: DeployState) => void) => {
+      const listener = (_e: IpcRendererEvent, state: DeployState) => cb(state)
+      ipcRenderer.on('deploy:state', listener)
+      return () => ipcRenderer.removeListener('deploy:state', listener)
+    },
+  },
+  auth: {
+    state: (): Promise<AuthState> => ipcRenderer.invoke('auth:state'),
+    signIn: (email: string, password: string): Promise<SignInResult> =>
+      ipcRenderer.invoke('auth:sign-in', email, password),
+    signOut: (): Promise<AuthState> => ipcRenderer.invoke('auth:sign-out'),
+    onState: (cb: (state: AuthState) => void) => {
+      const listener = (_e: IpcRendererEvent, state: AuthState) => cb(state)
+      ipcRenderer.on('auth:state', listener)
+      return () => ipcRenderer.removeListener('auth:state', listener)
+    },
+  },
+  cloud: {
+    sync: (projectPath: string): Promise<CloudSyncReport> =>
+      ipcRenderer.invoke('cloud:sync', projectPath),
+    members: (): Promise<{ success: boolean; members?: Array<{ email: string; role: CloudRole }>; error?: string }> =>
+      ipcRenderer.invoke('cloud:members'),
+    invite: (email: string, role: CloudRole): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('cloud:invite', email, role),
+    setRole: (email: string, role: CloudRole): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('cloud:set-role', email, role),
   },
   ai: {
     status: (projectPath?: string) => ipcRenderer.invoke('ai:status', projectPath),
@@ -351,6 +487,8 @@ const api: PixelMindApi = {
     isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
     setZoomFactor: (factor: number) => webFrame.setZoomFactor(factor),
     getZoomFactor: () => webFrame.getZoomFactor(),
+    captureRect: (rect: { x: number; y: number; width: number; height: number }) =>
+      ipcRenderer.invoke('window:captureRect', rect),
   },
 }
 

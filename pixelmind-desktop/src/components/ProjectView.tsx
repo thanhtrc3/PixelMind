@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react'
 import {
   Clock,
+  FileArchive,
   Folder,
   FolderOpen,
+  GitFork,
   Play,
+  Plus,
   Search,
   Star,
   Trash2,
@@ -20,6 +23,9 @@ interface ProjectViewProps {
   busy: boolean
   onOpen: (project: ProjectRecord) => void
   onOpenFolder: () => void
+  onNewProject?: () => void
+  onCloneGit?: () => void
+  onImportZip?: () => void
   onRemove: (project: ProjectRecord) => void
   onFavorite: (project: ProjectRecord) => void
   onReveal: (project: ProjectRecord) => void
@@ -32,6 +38,9 @@ const ProjectView = ({
   busy,
   onOpen,
   onOpenFolder,
+  onNewProject,
+  onCloneGit,
+  onImportZip,
   onRemove,
   onFavorite,
   onReveal,
@@ -69,7 +78,32 @@ const ProjectView = ({
               onKeyDown={(e) => e.stopPropagation()}
             />
           </div>
-          <button className="btn primary" onClick={onOpenFolder} disabled={busy}>
+          {onNewProject && (
+            <button className="btn primary" onClick={onNewProject} disabled={busy}>
+              <Plus size={13} /> Tạo dự án mới
+            </button>
+          )}
+          {onCloneGit && (
+            <button
+              className="btn"
+              onClick={onCloneGit}
+              disabled={busy}
+              title="Sao chép dự án từ GitHub / Git server về máy"
+            >
+              <GitFork size={13} /> Clone từ Git
+            </button>
+          )}
+          {onImportZip && (
+            <button
+              className="btn"
+              onClick={onImportZip}
+              disabled={busy}
+              title="Nhập dự án từ tệp ZIP có sẵn"
+            >
+              <FileArchive size={13} /> Nhập từ ZIP
+            </button>
+          )}
+          <button className="btn" onClick={onOpenFolder} disabled={busy}>
             <FolderOpen size={13} /> Mở thư mục
           </button>
         </div>
@@ -94,11 +128,26 @@ const ProjectView = ({
           <p>
             {projects.length
               ? 'Thử từ khoá khác hoặc xoá bộ lọc tìm kiếm.'
-              : 'Chọn một thư mục chứa mã nguồn (có package.json hoặc index.html) để bắt đầu.'}
+              : 'Chọn một thư mục chứa mã nguồn hoặc tạo nhanh dự án mới từ Template.'}
           </p>
           <div className="pm-empty__actions">
-            <button className="btn primary" onClick={onOpenFolder} disabled={busy}>
-              <FolderOpen size={13} /> Mở thư mục dự án
+            {onNewProject && (
+              <button className="btn primary" onClick={onNewProject} disabled={busy}>
+                <Plus size={13} /> Khởi tạo từ Template
+              </button>
+            )}
+            {onCloneGit && (
+              <button className="btn" onClick={onCloneGit} disabled={busy}>
+                <GitFork size={13} /> Clone từ Git
+              </button>
+            )}
+            {onImportZip && (
+              <button className="btn" onClick={onImportZip} disabled={busy}>
+                <FileArchive size={13} /> Nhập từ ZIP
+              </button>
+            )}
+            <button className="btn" onClick={onOpenFolder} disabled={busy}>
+              <FolderOpen size={13} /> Mở thư mục có sẵn
             </button>
           </div>
         </div>

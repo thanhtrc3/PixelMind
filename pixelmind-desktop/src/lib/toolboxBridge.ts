@@ -4,11 +4,50 @@
    - Phát yêu cầu chèn khi người dùng bấm "Chèn" hoặc thả vào canvas
    ══════════════════════════════════════════════════════════════ */
 
+import type { ProjectPage } from '../../shared/types'
+import type { PartPropDef, PartVariant } from '../../shared/toolbox.ts'
+import { resolvePartVariant } from '../../shared/toolbox.ts'
+
+const normalizeRoute = (value: string) => (value.split('?')[0].replace(/\/+$/, '') || '/').toLowerCase()
+
+/**
+ * Tệp nguồn của trang đang mở. Trang vừa tạo không có phần tử nào để dò,
+ * nếu không có tệp này bộ dò sẽ rơi về trang chủ và part bị ghi nhầm trang.
+ */
+export function pageFileForRoute(
+  pages: ProjectPage[] | undefined,
+  route: string | null | undefined,
+): string {
+  const wanted = normalizeRoute(route || '/')
+  const page = pages?.find((item) => item.filePath && normalizeRoute(item.route) === wanted)
+  return page?.filePath || ''
+}
+
+/**
+ * Dựng item chèn từ Part, đã thay placeholder theo biến thể đang chọn.
+ * Dùng chung cho nút Chèn, kéo-thả và Sao chép mã để đầu ra luôn khớp nhau.
+ */
+export function buildPartInsertItem(
+  part: { id: string; name: string; html: string; css?: string; js?: string; props?: PartPropDef[]; variants?: PartVariant[] },
+  variantId?: string | null,
+): ToolboxDragItem {
+  const resolved = resolvePartVariant(part, variantId)
+  return {
+    id: `part:${part.id}`,
+    name: part.name,
+    html: resolved.html,
+    css: resolved.css || undefined,
+    js: resolved.js || undefined,
+    source: 'part',
+  }
+}
+
 export interface ToolboxDragItem {
   id: string
   name: string
   html: string
   css?: string
+  js?: string
   source: 'builtin' | 'part' | 'project'
 }
 

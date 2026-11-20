@@ -1,0 +1,27 @@
+{
+  "id": "login-auth-card",
+  "name": "Thẻ đăng nhập tài khoản",
+  "groups": [
+    "form",
+    "card",
+    "layout"
+  ],
+  "tags": [
+    "login",
+    "auth",
+    "đăng nhập",
+    "tài khoản"
+  ],
+  "version": "2.0.0",
+  "designMd": "DESIGN.md · 2026-11-01",
+  "author": "PixelMind Studio",
+  "origin": "PixelMind Modern UI Kit",
+  "license": "MIT",
+  "status": "approved",
+  "locked": false,
+  "demo": false,
+  "uses": 10,
+  "rejects": 0,
+  "updated": "2026-11-14",
+  "note": "Thẻ đăng nhập bảo mật với các trường email, mật khẩu, nút ghi nhớ đăng nhập và liên kết quên mật khẩu."
+}

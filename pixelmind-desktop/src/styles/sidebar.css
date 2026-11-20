@@ -93,21 +93,33 @@
   align-items: center;
   gap: 8px;
   height: 36px;
+  min-width: 0;
   padding: 0 10px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
   flex-shrink: 0;
 }
 
+/* Tiêu đề tab: một dòng, cắt gọn bằng dấu … khi sidebar ở kích thước tối thiểu
+   (trước đây chữ dài như “Tài nguyên & Ảnh mẫu” bị xuống dòng và tràn khỏi header). */
 .pm-ws-hd__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
   font-size: calc(11px * var(--font-scale, 1));
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-2);
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pm-ws-hd__title > svg {
+  flex: none;
+  margin-right: 6px;
+  vertical-align: -2px;
 }
 
 .pm-ws-hd__actions {
@@ -115,6 +127,7 @@
   align-items: center;
   gap: 2px;
   margin-left: auto;
+  flex: none;
 }
 
 .pm-ws-hd__actions .pm-ibtn {
@@ -178,6 +191,180 @@
 }
 
 /* ── Content search results ── */
+.pm-search-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  color: var(--text-3, #94a3b8);
+  background: var(--panel-2, #18191f);
+  border: 1px solid var(--line, #2a2e39);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pm-search-chip:hover {
+  color: var(--text, #f8fafc);
+  border-color: var(--accent, #6d5df5);
+}
+
+.pm-search-chip.on {
+  background: var(--accent, #6d5df5);
+  border-color: var(--accent, #6d5df5);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.pm-search-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 5px 7px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--color-danger-text, #f87171);
+  background: color-mix(in srgb, var(--color-danger-text, #f87171) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger-text, #f87171) 35%, transparent);
+  border-radius: 5px;
+}
+
+.pm-search-error svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* ── Bộ lọc include/exclude glob cho tìm kiếm nội dung ── */
+.pm-search-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 2px;
+}
+
+.pm-search-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 10.5px;
+  color: var(--text-3, #94a3b8);
+  background: transparent;
+  border: 1px dashed var(--line, #2a2e39);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.pm-search-filter-toggle:hover,
+.pm-search-filter-toggle[aria-expanded='true'] {
+  color: var(--text, #f8fafc);
+  border-color: var(--accent, #6d5df5);
+  border-style: solid;
+}
+
+.pm-search-filter-toggle svg:last-child {
+  transition: transform 0.15s ease;
+}
+
+.pm-search-filter-toggle[aria-expanded='true'] svg:last-child {
+  transform: rotate(180deg);
+}
+
+.pm-search-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  color: #ffffff;
+  background: var(--accent, #6d5df5);
+  border-radius: 8px;
+}
+
+.pm-search-filter-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px;
+  background: var(--panel-2, #18191f);
+  border: 1px solid var(--line, #2a2e39);
+  border-radius: 5px;
+}
+
+.pm-search-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--text-3, #94a3b8);
+}
+
+.pm-search-filter-field input {
+  height: 22px;
+  padding: 0 6px;
+  font-size: 10.5px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text, #f8fafc);
+  background: var(--panel, #131519);
+  border: 1px solid var(--line, #2a2e39);
+  border-radius: 4px;
+  outline: none;
+}
+
+.pm-search-filter-field input:focus {
+  border-color: var(--accent, #6d5df5);
+}
+
+.pm-search-filter-field input::placeholder {
+  color: var(--text-faint, #5b626e);
+}
+
+.pm-search-filter-hint {
+  margin: 0;
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--text-faint, #5b626e);
+}
+
+.pm-search-filter-hint code {
+  padding: 0 3px;
+  font-size: 9.5px;
+  color: var(--text-2, #a3a9b4);
+  background: rgba(127, 127, 127, 0.14);
+  border-radius: 3px;
+}
+
+.pm-search-filter-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  align-self: flex-start;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 9.5px;
+  color: var(--text-3, #94a3b8);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.pm-search-filter-clear:hover {
+  color: var(--color-danger-text, #f87171);
+  background: rgba(248, 113, 113, 0.1);
+}
+
 .pm-content-search-results {
   display: flex;
   flex-direction: column;
@@ -263,6 +450,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+}
+
+/* Tô sáng đoạn khớp trong dòng preview của kết quả tìm kiếm */
+.pm-search-hit {
+  background: color-mix(in srgb, var(--accent, #6d5df5) 40%, transparent);
+  color: var(--text, #f8fafc);
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -607,11 +802,13 @@
 
 .pm-asset-toolbar {
   display: flex;
+  gap: 6px;
   margin-bottom: 8px;
 }
 
 .pm-asset-add {
   flex: 1;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -624,20 +821,36 @@
   color: var(--text-2);
   font-size: 11px;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
   cursor: pointer;
   transition: all 120ms ease;
 }
 
-.pm-asset-add:hover {
+.pm-asset-add span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pm-asset-add:hover:not(:disabled) {
   border-color: var(--accent-line, var(--accent));
   background: var(--accent-soft);
   color: var(--accent-text);
 }
 
-.pm-asset-delete {
+.pm-asset-add:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pm-asset-optimize-tool {
+  border-style: solid;
+}
+
+.pm-asset-delete,
+.pm-asset-optimize {
   position: absolute;
   top: 5px;
-  left: 5px;
   width: 18px;
   height: 18px;
   padding: 0;
@@ -652,13 +865,32 @@
   transition: opacity 120ms ease, background 120ms ease;
 }
 
+.pm-asset-delete {
+  left: 5px;
+}
+
+.pm-asset-optimize {
+  left: 27px;
+}
+
 .pm-asset-card:hover .pm-asset-delete,
-.pm-asset-delete:focus-visible {
+.pm-asset-card:hover .pm-asset-optimize,
+.pm-asset-delete:focus-visible,
+.pm-asset-optimize:focus-visible {
   opacity: 1;
+}
+
+/* Nút tối ưu luôn hiện mờ để dễ phát hiện, rõ hẳn khi hover. */
+.pm-asset-optimize {
+  opacity: 0.62;
 }
 
 .pm-asset-delete:hover {
   background: #ef4444;
+}
+
+.pm-asset-optimize:hover {
+  background: var(--accent);
 }
 
 .pm-asset-card.active {

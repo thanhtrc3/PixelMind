@@ -6,6 +6,13 @@ import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { userInfo } from 'node:os'
 import type { FileSearchMatch, FileSearchOptions } from '../../shared/api'
+import {
+  compileGlobList,
+  compileSearchQuery,
+  firstMatchInLine,
+  globMayMatchUnder,
+  matchesAnyGlob,
+} from '../../shared/search'
 import type {
   FileContent,
   FileNode,
@@ -1540,7 +1547,7 @@ export async function gitPushProject(
 
     const remotes = await gitRemotes(root)
     if (remotes.size === 0) {
-      return { ok: false, error: 'Dự án chưa cấu hình remote repository (GitHub).' }
+      return { ok: false, noRemote: true, error: 'Dự án chưa cấu hình remote repository (GitHub).' }
     }
     const remoteName = remotes.has('origin') ? 'origin' : Array.from(remotes)[0]
 
@@ -1589,6 +1596,190 @@ export async function gitPullProject(root: string): Promise<GitActionResult> {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     }
+  }
+}
+
+/** Cấu hình remote repository (mặc định 'origin'). */
+export async function gitSetRemote(
+  root: string,
+  remoteUrl: string,
+  remoteName = 'origin',
+): Promise<GitActionResult> {
+  try {
+    const cleanUrl = remoteUrl.trim()
+    if (!cleanUrl) return { ok: false, error: 'URL remote repository không được để trống.' }
+    const remotes = await gitRemotes(root)
+    if (remotes.has(remoteName)) {
+      await execFileAsync('git', ['-C', root, 'remote', 'set-url', remoteName, cleanUrl], {
+        windowsHide: true,
+        timeout: 10_000,
+      })
+    } else {
+      await execFileAsync('git', ['-C', root, 'remote', 'add', remoteName, cleanUrl], {
+        windowsHide: true,
+        timeout: 10_000,
+      })
+    }
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/** Clone một repository Git từ xa về máy tính. */
+export async function gitCloneRepository(
+  repoUrl: string,
+  parentDir: string,
+  folderName?: string,
+): Promise<{ ok: boolean; projectPath?: string; error?: string }> {
+  try {
+    const cleanUrl = repoUrl.trim()
+    if (!cleanUrl) {
+      return { ok: false, error: 'Vui lòng nhập đường dẫn repository Git hợp lệ.' }
+    }
+    const cleanParent = resolve(parentDir.trim())
+    if (!(await isDirectory(cleanParent))) {
+      return { ok: false, error: 'Thư mục đích không tồn tại hoặc không hợp lệ.' }
+    }
+
+    let targetName = folderName?.trim()
+    if (!targetName) {
+      const raw = cleanUrl.split('/').pop()?.replace(/\.git$/i, '') || 'repo'
+      targetName = raw.replace(/[/\\:*?"<>|]/g, '-').trim() || 'cloned-project'
+    }
+
+    const targetPath = join(cleanParent, targetName)
+
+    try {
+      const stat = await fs.stat(targetPath)
+      if (stat.isDirectory()) {
+        const files = await fs.readdir(targetPath)
+        if (files.length > 0) {
+          return {
+            ok: false,
+            error: `Thư mục "${targetName}" đã tồn tại tại nơi lưu và không rỗng. Vui lòng chọn tên khác.`,
+          }
+        }
+      }
+    } catch {
+      // Thư mục chưa tồn tại -> an toàn để git clone tạo mới
+    }
+
+    await execFileAsync('git', ['clone', cleanUrl, targetPath], {
+      windowsHide: true,
+      timeout: 180_000,
+      maxBuffer: 16 * 1024 * 1024,
+    })
+
+    return { ok: true, projectPath: targetPath }
+  } catch (err: any) {
+    const msg = err.message || String(err)
+    return { ok: false, error: `Clone thất bại: ${msg}` }
+  }
+}
+
+function extractMeaningfulEfError(err: any): string {
+  const combined = [err?.stderr, err?.stdout, err?.message].filter(Boolean).join('\n').trim()
+  if (!combined) return 'Không rõ nguyên nhân lỗi'
+
+  const lines = combined
+    .split(/\r?\n/)
+    .map((l: string) => l.trim())
+    .filter(
+      (l: string) =>
+        l &&
+        !l.startsWith('Build started') &&
+        !l.startsWith('dotnet watch') &&
+        !l.startsWith('Command failed:'),
+    )
+
+  for (const line of lines) {
+    if (
+      /fail:/i.test(line) ||
+      /error:/i.test(line) ||
+      /error CS\d+/i.test(line) ||
+      /Cannot open database/i.test(line) ||
+      /Login failed/i.test(line) ||
+      /Microsoft\.EntityFrameworkCore\.Design/i.test(line) ||
+      /No project was found/i.test(line) ||
+      /More than one project/i.test(line) ||
+      /A network-related or instance-specific error/i.test(line)
+    ) {
+      return line.replace(/^fail:\s*/i, '').replace(/^\[error\]\s*/i, '').trim()
+    }
+  }
+
+  return lines[lines.length - 1] || 'Lệnh dotnet ef database update thất bại.'
+}
+
+async function findStartupCsproj(root: string): Promise<string | undefined> {
+  const detected = await detectDotnetProject(root).catch(() => null)
+  if (detected?.projectFile) return detected.projectFile
+  if (detected?.projectDir) return detected.projectDir
+
+  try {
+    const entries = await fs.readdir(root, { withFileTypes: true })
+    const rootCsproj = entries.find((e) => e.isFile() && e.name.toLowerCase().endsWith('.csproj'))
+    if (rootCsproj) return rootCsproj.name
+    for (const e of entries) {
+      if (e.isDirectory() && !e.name.startsWith('.') && !IGNORED_DIRS.has(e.name)) {
+        const sub = await fs.readdir(join(root, e.name), { withFileTypes: true })
+        const subCsproj = sub.find((s) => s.isFile() && s.name.toLowerCase().endsWith('.csproj'))
+        if (subCsproj) return `${e.name}/${subCsproj.name}`
+      }
+    }
+  } catch {
+    /* bỏ qua */
+  }
+  return undefined
+}
+
+/** Chạy dotnet ef database update, tự động tìm .csproj và cài dotnet-ef tool nếu máy tính chưa có. */
+export async function runEfDatabaseUpdate(
+  projectPath: string,
+): Promise<{ ok: boolean; output?: string; error?: string }> {
+  const targetProject = await findStartupCsproj(projectPath)
+  const args = ['ef', 'database', 'update']
+  if (targetProject) {
+    args.push('--project', targetProject)
+  }
+
+  const runCmd = () =>
+    execFileAsync('dotnet', args, {
+      cwd: projectPath,
+      windowsHide: true,
+      timeout: 180_000,
+      maxBuffer: 16 * 1024 * 1024,
+    })
+
+  try {
+    const { stdout, stderr } = await runCmd()
+    return { ok: true, output: `${stdout}\n${stderr}`.trim() }
+  } catch (err: any) {
+    const rawMsg = [err.stderr, err.stdout, err.message].filter(Boolean).join('\n')
+    // Nếu hệ thống thiếu công cụ dòng lệnh dotnet-ef
+    if (
+      /could not be found/i.test(rawMsg) ||
+      /dotnet-ef/i.test(rawMsg) ||
+      /is not recognized/i.test(rawMsg) ||
+      /No executable found matching command "dotnet-ef"/i.test(rawMsg)
+    ) {
+      try {
+        await execFileAsync('dotnet', ['tool', 'install', '--global', 'dotnet-ef'], {
+          cwd: projectPath,
+          windowsHide: true,
+          timeout: 120_000,
+        })
+        const retryRes = await runCmd()
+        return { ok: true, output: `${retryRes.stdout}\n${retryRes.stderr}`.trim() }
+      } catch (retryErr: any) {
+        return { ok: false, error: extractMeaningfulEfError(retryErr) }
+      }
+    }
+    return { ok: false, error: extractMeaningfulEfError(err) }
   }
 }
 
@@ -1850,13 +2041,30 @@ export async function diagnoseProject(
     .then(() => true)
     .catch(async () =>
       fs
-        .access(join(dir, 'web', 'index.html'))
+        .access(join(dir, 'index.htm'))
         .then(() => true)
         .catch(async () =>
           fs
-            .access(join(dir, 'wwwroot', 'index.html'))
+            .access(join(dir, 'public', 'index.html'))
             .then(() => true)
-            .catch(() => false),
+            .catch(async () =>
+              fs
+                .access(join(dir, 'web', 'index.html'))
+                .then(() => true)
+                .catch(async () =>
+                  fs
+                    .access(join(dir, 'wwwroot', 'index.html'))
+                    .then(() => true)
+                    .catch(async () => {
+                      try {
+                        const entries = await fs.readdir(dir)
+                        return entries.some((e) => /\.(html|htm)$/i.test(e))
+                      } catch {
+                        return false
+                      }
+                    }),
+                ),
+            ),
         ),
     )
 
@@ -1968,6 +2176,7 @@ async function detectOtherProject(dir: string): Promise<{
   packageManager: PackageManager
   scripts: ScriptEntry[]
   hasIndexHtml: boolean
+  previewDir?: string
 } | null> {
   const exists = async (f: string) =>
     fs.access(join(dir, f)).then(() => true).catch(() => false)
@@ -2098,14 +2307,32 @@ async function detectOtherProject(dir: string): Promise<{
   }
 
   // 9. Web tĩnh thuần (HTML/CSS/JS)
-  if (await exists('index.html')) {
+  const hasRootIndex = (await exists('index.html')) || (await exists('index.htm'))
+  const hasPublicIndex =
+    (await exists(join('public', 'index.html'))) || (await exists(join('public', 'index.htm')))
+
+  let isStaticWeb = hasRootIndex || hasPublicIndex
+  let staticPreviewDir = hasPublicIndex && !hasRootIndex ? 'public' : ''
+
+  if (!isStaticWeb) {
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true })
+      const anyHtml = entries.some((e) => e.isFile() && /\.(html|htm)$/i.test(e.name))
+      if (anyHtml) {
+        isStaticWeb = true
+      }
+    } catch {}
+  }
+
+  if (isStaticWeb) {
     return {
       framework: 'HTML5 / Web Tĩnh',
       packageManager: 'none',
       scripts: [
-        { name: 'live-server', command: 'npx serve .', kind: 'dev' },
+        { name: 'static', command: 'static-server', kind: 'dev', direct: true },
       ],
       hasIndexHtml: true,
+      previewDir: staticPreviewDir,
     }
   }
 
@@ -2190,7 +2417,7 @@ export async function detectProject(folder: string): Promise<ProjectRecord> {
         packageManager: other.packageManager,
         scripts: other.scripts,
         hasIndexHtml: other.hasIndexHtml,
-        previewDir: '',
+        previewDir: other.previewDir ?? '',
         addedAt: Date.now(),
         lastOpenedAt: null,
         favorite: false,
@@ -2213,13 +2440,30 @@ export async function detectProject(folder: string): Promise<ProjectRecord> {
     .then(() => true)
     .catch(async () =>
       fs
-        .access(join(dir, 'web', 'index.html'))
+        .access(join(dir, 'index.htm'))
         .then(() => true)
         .catch(async () =>
           fs
-            .access(join(dir, 'wwwroot', 'index.html'))
+            .access(join(dir, 'public', 'index.html'))
             .then(() => true)
-            .catch(() => false),
+            .catch(async () =>
+              fs
+                .access(join(dir, 'web', 'index.html'))
+                .then(() => true)
+                .catch(async () =>
+                  fs
+                    .access(join(dir, 'wwwroot', 'index.html'))
+                    .then(() => true)
+                    .catch(async () => {
+                      try {
+                        const entries = await fs.readdir(dir)
+                        return entries.some((e) => /\.(html|htm)$/i.test(e))
+                      } catch {
+                        return false
+                      }
+                    }),
+                ),
+            ),
         ),
     )
 
@@ -2452,9 +2696,25 @@ export async function searchProjectContent(
   const q = (query || '').trim()
   if (!q || !root) return []
   const maxResults = Math.min(250, Math.max(1, options?.maxResults ?? 120))
-  const caseSensitive = Boolean(options?.caseSensitive)
-  const target = caseSensitive ? q : q.toLowerCase()
+  const compiled = compileSearchQuery(q, {
+    caseSensitive: Boolean(options?.caseSensitive),
+    regex: Boolean(options?.regex),
+    wholeWord: Boolean(options?.wholeWord),
+  })
+  // Regex sai → ném lỗi rõ ràng để giao diện hiển thị thay vì im lặng trả rỗng.
+  if (!compiled.regex) {
+    if (compiled.error) throw new Error(compiled.error)
+    return []
+  }
+  const matcher = compiled.regex
   const results: FileSearchMatch[] = []
+  const includeGlobs = compileGlobList(options?.includeGlobs)
+  const excludeGlobs = compileGlobList(options?.excludeGlobs)
+
+  /** Đường dẫn tương đối dùng '/' — cùng dạng mà glob của người dùng mô tả. */
+  const relPathOf = (target: string) => relative(root, target).replace(/\\/g, '/')
+  const isExcluded = (relPath: string) => excludeGlobs.length > 0 && matchesAnyGlob(relPath, excludeGlobs)
+  const isIncluded = (relPath: string) => includeGlobs.length === 0 || matchesAnyGlob(relPath, includeGlobs)
 
   const walk = async (dir: string) => {
     if (results.length >= maxResults) return
@@ -2468,12 +2728,17 @@ export async function searchProjectContent(
     for (const entry of entries) {
       if (results.length >= maxResults) break
       const name = entry.name
+      const relEntry = relPathOf(join(dir, name))
       if (entry.isDirectory()) {
         if (IGNORED_DIRS.has(name) || name.startsWith('.')) continue
+        // Cắt cả cây thư mục khi bị loại trừ hoặc chắc chắn không có tệp include.
+        if (isExcluded(relEntry)) continue
+        if (includeGlobs.length > 0 && !includeGlobs.some((glob) => globMayMatchUnder(glob, relEntry))) continue
         await walk(join(dir, name))
       } else if (entry.isFile()) {
         const ext = extname(name).slice(1).toLowerCase()
         if (!TEXT_EXT.has(ext)) continue
+        if (isExcluded(relEntry) || !isIncluded(relEntry)) continue
         const full = join(dir, name)
         try {
           const stat = await fs.stat(full)
@@ -2482,20 +2747,31 @@ export async function searchProjectContent(
           const lines = content.split(/\r?\n/)
           for (let i = 0; i < lines.length; i++) {
             const lineText = lines[i]
-            const check = caseSensitive ? lineText : lineText.toLowerCase()
-            const idx = check.indexOf(target)
-            if (idx !== -1) {
-              const rel = relative(root, full).replace(/\\/g, '/')
-              results.push({
-                file: rel,
-                fullPath: full,
-                line: i + 1,
-                preview: lineText.trim().slice(0, 300),
-                matchStart: idx,
-                matchEnd: idx + q.length,
-              })
-              if (results.length >= maxResults) break
-            }
+            const hit = firstMatchInLine(lineText, matcher)
+            if (!hit) continue
+            const rel = relEntry
+            const leading = lineText.length - lineText.trimStart().length
+            const preview = lineText.trim().slice(0, 300)
+            // Vị trí khớp tính theo dòng gốc (0-based) để editor đánh dấu đúng cột.
+            const matchStart = Math.max(0, Math.min(lineText.length, hit.index))
+            const matchEnd = Math.max(matchStart, Math.min(lineText.length, hit.index + hit.length))
+            // Vị trí trong preview (đã trim + cắt 300 ký tự) để tô sáng trong danh sách.
+            const previewMatchStart = Math.max(0, Math.min(preview.length, hit.index - leading))
+            const previewMatchEnd = Math.max(
+              previewMatchStart,
+              Math.min(preview.length, previewMatchStart + hit.length),
+            )
+            results.push({
+              file: rel,
+              fullPath: full,
+              line: i + 1,
+              preview,
+              matchStart,
+              matchEnd,
+              previewMatchStart,
+              previewMatchEnd,
+            })
+            if (results.length >= maxResults) break
           }
         } catch {
           // ignore unreadable files

@@ -6,6 +6,7 @@ import {
   Database,
   Download,
   FolderOpen,
+  Globe,
   Info,
   Keyboard,
   LayoutGrid,
@@ -43,13 +44,14 @@ interface SettingsDialogProps {
   onClose: () => void
 }
 
-type TabId = 'general' | 'appearance' | 'canvas' | 'run' | 'ai' | 'data' | 'about'
+type TabId = 'general' | 'appearance' | 'canvas' | 'run' | 'deploy' | 'ai' | 'data' | 'about'
 
 const TABS: Array<{ id: TabId; label: string; icon: typeof SettingsIcon }> = [
   { id: 'general', label: 'Chung', icon: SlidersHorizontal },
   { id: 'appearance', label: 'Giao diện', icon: Palette },
   { id: 'canvas', label: 'Canvas & Soi', icon: LayoutGrid },
   { id: 'run', label: 'Chạy & xem trước', icon: Terminal },
+  { id: 'deploy', label: 'Triển khai', icon: Globe },
   { id: 'ai', label: 'Trợ lý AI', icon: Sparkles },
   { id: 'data', label: 'Dữ liệu', icon: Database },
   { id: 'about', label: 'Giới thiệu & Phím tắt', icon: Info },
@@ -138,7 +140,55 @@ const SettingsDialog = ({
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null)
   const [aiTesting, setAiTesting] = useState(false)
   const [aiTest, setAiTest] = useState<AiTestResult | null>(null)
+  const [deployTokenInput, setDeployTokenInput] = useState('')
+  const [hasDeployToken, setHasDeployToken] = useState<boolean | null>(null)
+  const [deployTokenMsg, setDeployTokenMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  const deployProvider = settings.deployProvider || 'vercel'
+  useEffect(() => {
+    if (tab !== 'deploy') return
+    let alive = true
+    void api.deploy
+      .hasToken(deployProvider)
+      .then((has) => {
+        if (alive) setHasDeployToken(has)
+      })
+      .catch(() => {
+        if (alive) setHasDeployToken(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [tab, deployProvider])
+
+  const handleSaveDeployToken = async () => {
+    if (!deployTokenInput.trim()) return
+    setDeployTokenMsg(null)
+    try {
+      const res = await api.deploy.setToken(deployProvider, deployTokenInput.trim())
+      if (res.success) {
+        setDeployTokenInput('')
+        setHasDeployToken(true)
+        setDeployTokenMsg({ kind: 'ok', text: 'Đã lưu token an toàn (không hiển thị lại).' })
+      } else {
+        setDeployTokenMsg({ kind: 'err', text: res.error || 'Lỗi lưu token.' })
+      }
+    } catch (err) {
+      setDeployTokenMsg({ kind: 'err', text: (err as Error).message || 'Lỗi lưu token.' })
+    }
+  }
+
+  const handleClearDeployToken = async () => {
+    setDeployTokenMsg(null)
+    try {
+      await api.deploy.clearToken(deployProvider)
+      setHasDeployToken(false)
+      setDeployTokenMsg({ kind: 'ok', text: 'Đã xoá token đã lưu.' })
+    } catch (err) {
+      setDeployTokenMsg({ kind: 'err', text: (err as Error).message || 'Lỗi xoá token.' })
+    }
+  }
 
   useEffect(() => {
     if (tab !== 'ai') return
@@ -370,7 +420,10 @@ const SettingsDialog = ({
               <div className="pm-setting">
                 <div className="pm-setting__txt">
                   <b>Xác nhận khi thoát lúc máy chủ đang chạy</b>
-                  <span>Cảnh báo nếu bạn đóng ứng dụng trong khi tiến trình máy chủ dev vẫn đang hoạt động.</span>
+                  <span>
+                    Hỏi trước khi đóng cửa sổ hoặc thoát ứng dụng khi máy chủ dev vẫn đang chạy. Chọn “Ở lại” sẽ giữ
+                    nguyên máy chủ và cổng mạng; chọn “Thoát” mới dừng tiến trình và giải phóng cổng.
+                  </span>
                 </div>
                 <div className="pm-setting__ctrl">
                   <button
@@ -620,6 +673,23 @@ const SettingsDialog = ({
                   />
                 </div>
               </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Đồng bộ style từ Canvas</b>
+                  <span>Tự động: dùng Tailwind nếu dự án có cấu hình, ngược lại ghi inline. Inline: luôn ghi style. Tailwind: luôn thử ghi class.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <select
+                    value={settings.canvasStyleSync ?? 'auto'}
+                    onChange={(event) => onUpdate({ canvasStyleSync: event.target.value as Settings['canvasStyleSync'] })}
+                  >
+                    <option value="auto">Tự động</option>
+                    <option value="inline">Inline style</option>
+                    <option value="tailwind">Tailwind class</option>
+                  </select>
+                </div>
+              </div>
             </>
           )}
 
@@ -701,12 +771,158 @@ const SettingsDialog = ({
                 </div>
               </div>
 
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Cổng dev ưu tiên (Preferred Port)</b>
+                  <span>
+                    Yêu cầu dev server dùng cổng này (ví dụ: 3000, 5173). Để <b>0</b> để tự động chọn cổng trống. Nếu
+                    cổng đang bị chiếm, PixelMind sẽ cảnh báo trong log và tự chọn cổng khác thay vì tắt tiến trình lạ.
+                  </span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <input
+                    className="pm-input"
+                    type="number"
+                    min={0}
+                    max={65535}
+                    step={1}
+                    style={{ width: 120 }}
+                    value={settings.preferredPort ?? 0}
+                    onChange={(e) => {
+                      const next = Number(e.target.value)
+                      if (!Number.isFinite(next)) return
+                      onUpdate({ preferredPort: next <= 0 ? 0 : Math.min(65535, Math.trunc(next)) })
+                    }}
+                  />
+                </div>
+              </div>
+
               <div className="pm-guide__card" style={{ marginTop: 14 }}>
                 <b style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Sparkles size={13} color="var(--accent)" /> Cơ chế cô lập & bảo vệ cổng mạng
+                  <Sparkles size={13} color="var(--accent)" /> Cơ chế cô lập &amp; bảo vệ cổng mạng
                 </b>
                 <p style={{ margin: '6px 0 0', lineHeight: 1.6 }}>
-                  PixelMind tự động nhận diện trình quản lý gói phù hợp với dự án (npm, pnpm, yarn, bun, dotnet, composer, python, maven). Khi bạn thoát dự án hoặc đóng ứng dụng, cơ chế tiêu diệt tiến trình cấp hệ điều hành (killPort) sẽ giải phóng hoàn toàn cổng mạng để không bị lỗi xung đột cổng.
+                  PixelMind tự động nhận diện trình quản lý gói phù hợp với dự án (npm, pnpm, yarn, bun, dotnet,
+                  composer, python, maven) và chèn cổng ưu tiên theo đúng loại runner (<code>--port</code> cho
+                  Vite/Next/Angular, <code>--urls</code> cho ASP.NET Core, <code>--web-port</code> cho Flutter...). Khi
+                  bạn thoát dự án hoặc đóng ứng dụng, cơ chế tiêu diệt tiến trình cấp hệ điều hành (killPort) sẽ giải
+                  phóng hoàn toàn cổng mạng để không bị lỗi xung đột cổng.
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* ═══════════════════════════════════════════════
+              TAB: TRIỂN KHAI / DEPLOY (D1-26)
+              ═══════════════════════════════════════════════ */}
+          {tab === 'deploy' && (
+            <>
+              <h3>Triển khai &amp; Preview URL</h3>
+              <p className="pm-desc">
+                Cấu hình lệnh triển khai nhanh lên Vercel, Netlify hoặc dịch vụ tuỳ chọn. Token được mã hoá an toàn qua hệ thống khoá của hệ điều hành.
+              </p>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Dịch vụ triển khai (Provider)</b>
+                  <span>Chọn nền tảng xuất bản để cấu hình biến môi trường phù hợp.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <select
+                    className="pm-select"
+                    value={settings.deployProvider || 'vercel'}
+                    onChange={(e) => onUpdate({ deployProvider: e.target.value as 'vercel' | 'netlify' | 'custom' })}
+                  >
+                    <option value="vercel">Vercel</option>
+                    <option value="netlify">Netlify</option>
+                    <option value="custom">Tuỳ chỉnh (Custom)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Lệnh triển khai (Deploy Command)</b>
+                  <span>Lệnh CLI sẽ chạy trong thư mục dự án (ví dụ: vercel deploy --prod --yes).</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <input
+                    type="text"
+                    className="pm-input"
+                    style={{ width: 260 }}
+                    placeholder="vercel deploy --prod --yes"
+                    value={settings.deployCommand || ''}
+                    onChange={(e) => onUpdate({ deployCommand: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Tên biến môi trường chứa token</b>
+                  <span>Biến môi trường truyền token cho lệnh CLI khi chạy (mặc định VERCEL_TOKEN hoặc NETLIFY_AUTH_TOKEN).</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <input
+                    type="text"
+                    className="pm-input"
+                    style={{ width: 260 }}
+                    placeholder={settings.deployProvider === 'netlify' ? 'NETLIFY_AUTH_TOKEN' : 'VERCEL_TOKEN'}
+                    value={settings.deployTokenEnv || ''}
+                    onChange={(e) => onUpdate({ deployTokenEnv: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="pm-setting" style={{ alignItems: 'flex-start' }}>
+                <div className="pm-setting__txt">
+                  <b>Lưu token an toàn cho {settings.deployProvider || 'vercel'}</b>
+                  <span>
+                    {hasDeployToken
+                      ? 'Đã có token lưu an toàn trên máy này. Nhập token mới bên dưới để ghi đè.'
+                      : 'Chưa lưu token — lệnh deploy sẽ dùng biến môi trường của hệ thống.'}
+                  </span>
+                </div>
+                <div className="pm-setting__ctrl" style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      type="password"
+                      className="pm-input"
+                      style={{ width: 200 }}
+                      placeholder="Nhập token bí mật…"
+                      value={deployTokenInput}
+                      onChange={(e) => setDeployTokenInput(e.target.value)}
+                    />
+                    <button
+                      className="pm-btn pm-btn--primary"
+                      disabled={!deployTokenInput.trim()}
+                      onClick={handleSaveDeployToken}
+                    >
+                      Lưu token
+                    </button>
+                    {hasDeployToken && (
+                      <button className="pm-btn pm-btn--ghost" onClick={handleClearDeployToken}>
+                        Xoá
+                      </button>
+                    )}
+                  </div>
+                  {deployTokenMsg && (
+                    <div
+                      className={deployTokenMsg.kind === 'err' ? 'pm-console-warn' : 'pm-desc'}
+                      style={{ fontSize: 12, margin: 0 }}
+                    >
+                      {deployTokenMsg.text}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="pm-guide__card" style={{ marginTop: 14 }}>
+                <b style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Sparkles size={13} color="var(--accent)" /> Bảo mật Token
+                </b>
+                <p style={{ margin: '6px 0 0', lineHeight: 1.6 }}>
+                  Token được mã hoá bằng khoá bảo mật của hệ điều hành (Windows DPAPI / macOS Keychain / Linux Secret Service) qua Electron <code>safeStorage</code>. Token không bao giờ được ghi ra nhật ký hoặc hiển thị lại trên giao diện.
                 </p>
               </div>
             </>
@@ -990,6 +1206,23 @@ const SettingsDialog = ({
                   </div>
                 </div>
               )}
+
+              <div className="pm-setting">
+                <div className="pm-setting__txt">
+                  <b>Workspace Cloud ID (Supabase)</b>
+                  <span>Lấy ID sau khi chạy docs/sql/2026-11-18-cloud.sql trên Supabase để đồng bộ Cài đặt &amp; Tokens.</span>
+                </div>
+                <div className="pm-setting__ctrl">
+                  <input
+                    type="text"
+                    className="pm-input mono"
+                    style={{ width: 260 }}
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    value={settings.cloudWorkspaceId ?? ''}
+                    onChange={(e) => onUpdate({ cloudWorkspaceId: e.target.value.trim() })}
+                  />
+                </div>
+              </div>
 
               {/* VÙNG NGUY HIỂM (DANGER ZONE) */}
               <div className="pm-danger-zone">

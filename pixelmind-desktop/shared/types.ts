@@ -24,6 +24,7 @@ export interface Settings {
   smartGuides?: boolean // Thước đo khoảng cách thông minh
   syncCanvasToTree?: boolean // Tự động chọn và cuộn tới phần tử trong cây Layers
   hoverOutline?: boolean // Viền xanh khi rê chuột vào phần tử
+  canvasStyleSync?: 'auto' | 'inline' | 'tailwind' // Chế độ ghi style từ Canvas
   clearConsoleOnRun?: boolean // Tự động xóa console khi chạy lại
   maxLogLines?: number // Giới hạn dòng log RAM (500, 1000, 2000, 5000)
   preferredPort?: number // Cổng dev mặc định ưu tiên (0 = tự động)
@@ -34,6 +35,14 @@ export interface Settings {
   aiModel?: string
   aiTemperature?: number
   aiMaxTokens?: number
+
+  // Triển khai / Deploy (D1-26)
+  deployProvider?: 'vercel' | 'netlify' | 'custom'
+  deployCommand?: string
+  deployTokenEnv?: string
+
+  // Đồng bộ Cloud Supabase (D1-24, D1-25)
+  cloudWorkspaceId?: string
 }
 
 export interface ScriptEntry {
@@ -232,6 +241,7 @@ export interface GitCommitResult {
 export interface GitActionResult {
   ok: boolean
   error?: string
+  noRemote?: boolean
 }
 
 export type ActivityStatus = 'ok' | 'warn' | 'err' | 'info'
@@ -256,6 +266,10 @@ export interface ProjectMeta {
   activity: ProjectActivity[]
   /** Lệnh người dùng tự nhập cho dự án không có script sẵn. */
   customCommand: string
+  /** URL triển khai thực tế gần nhất (D1-26). */
+  deployUrl?: string
+  deployAt?: number
+  deployProvider?: 'vercel' | 'netlify' | 'custom'
 }
 
 export type IssueLevel = 'error' | 'warning' | 'info'
@@ -353,6 +367,12 @@ export interface RunState {
   exitCode: number | null
   startedAt: number
   kind: 'script' | 'static' | 'install' | 'command'
+  /** Cổng ưu tiên (Settings) đã yêu cầu cho lượt chạy này; null/undefined = tự động. */
+  requestedPort?: number | null
+  /** Cổng thực sự đã yêu cầu dev server dùng; null/undefined = runner tự chọn. */
+  appliedPort?: number | null
+  /** Cổng ưu tiên bị chiếm nên đã quay về chế độ tự chọn cổng. */
+  portFallback?: boolean
 }
 
 export interface RunLog {
@@ -440,6 +460,7 @@ export const DEFAULT_SETTINGS: Settings = {
   smartGuides: true,
   syncCanvasToTree: true,
   hoverOutline: true,
+  canvasStyleSync: 'auto',
   clearConsoleOnRun: true,
   maxLogLines: 1000,
   preferredPort: 0,
@@ -448,4 +469,8 @@ export const DEFAULT_SETTINGS: Settings = {
   aiModel: 'gpt-4o-mini',
   aiTemperature: 0.2,
   aiMaxTokens: 2048,
+  deployProvider: 'vercel',
+  deployCommand: '',
+  deployTokenEnv: 'VERCEL_TOKEN',
+  cloudWorkspaceId: '',
 }

@@ -1,0 +1,27 @@
+{
+  "id": "contact-form-card",
+  "name": "Biểu mẫu liên hệ hoàn chỉnh",
+  "groups": [
+    "form",
+    "card",
+    "layout"
+  ],
+  "tags": [
+    "contact",
+    "liên hệ",
+    "form",
+    "biểu mẫu"
+  ],
+  "version": "2.0.0",
+  "designMd": "DESIGN.md · 2026-11-01",
+  "author": "PixelMind Studio",
+  "origin": "PixelMind Modern UI Kit",
+  "license": "MIT",
+  "status": "approved",
+  "locked": false,
+  "demo": false,
+  "uses": 10,
+  "rejects": 0,
+  "updated": "2026-11-14",
+  "note": "Form liên hệ có đầy đủ trường nhập Họ tên, Email, Tiêu đề câu hỏi, Nội dung tin nhắn và nút gửi phản hồi."
+}

@@ -1,4 +1,4 @@
-import { GitBranch, FolderOpen, Radio, WifiOff } from 'lucide-react'
+import { Bell, FolderOpen, GitBranch, Radio, WifiOff } from 'lucide-react'
 import type { ProjectRecord, ProjectStat, RunState } from '@shared/types'
 
 interface StatusBarProps {
@@ -8,9 +8,20 @@ interface StatusBarProps {
   branch: string | null
   version: string
   isDesktop: boolean
+  unreadNotifications?: number
+  onToggleNotifications?: () => void
 }
 
-const StatusBar = ({ project, run, stats, branch, version, isDesktop }: StatusBarProps) => {
+const StatusBar = ({
+  project,
+  run,
+  stats,
+  branch,
+  version,
+  isDesktop,
+  unreadNotifications = 0,
+  onToggleNotifications,
+}: StatusBarProps) => {
   const running = run?.status === 'running' || run?.status === 'starting'
 
   return (
@@ -38,6 +49,24 @@ const StatusBar = ({ project, run, stats, branch, version, isDesktop }: StatusBa
       )}
 
       <span className="pm-status__grow" />
+
+      {onToggleNotifications && (
+        <button
+          className={`pm-status__item pm-status__btn ${unreadNotifications > 0 ? 'has-unread' : ''}`}
+          onClick={onToggleNotifications}
+          title={
+            unreadNotifications > 0
+              ? `${unreadNotifications} thông báo mới chưa đọc. Nhấp để xem lịch sử.`
+              : 'Xem lịch sử thông báo'
+          }
+        >
+          <Bell size={11} />
+          <span>Thông báo</span>
+          {unreadNotifications > 0 && (
+            <span className="pm-status__unread-badge">{unreadNotifications}</span>
+          )}
+        </button>
+      )}
 
       <span className="pm-status__item">
         {running ? (

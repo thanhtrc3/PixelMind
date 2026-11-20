@@ -1,10 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell } from 'electron'
-import { basename, dirname, extname, join, resolve, sep } from 'node:path'
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell, safeStorage } from 'electron'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import type { MenuItemConstructorOptions, OpenDialogOptions } from 'electron'
+import type { MenuItemConstructorOptions, OpenDialogOptions, WebContents } from 'electron'
 import type {
   DesignTokens,
+  GitActionResult,
   GitGraphScope,
   GitRollbackResult,
   ProjectPage,
@@ -13,16 +14,24 @@ import type {
   StoreData,
   TerminalCreateOptions,
 } from '../../shared/types'
-import type { ToolboxMutationPayload, ToolboxWritePayload } from '../../shared/toolbox'
+import type { CustomPartInput, ToolboxMutationPayload, ToolboxWritePayload } from '../../shared/toolbox'
+import type {
+  ArchiveProgress,
+  ZipExportOptions,
+  ZipExportResult,
+  ZipImportOptions,
+  ZipImportResult,
+  ZipInspection,
+} from '../../shared/archive'
+import type { ImageApplyOptions, ImageOptimizeOptions } from '../../shared/imageOptimize'
 import {
   DEFAULT_DESIGN_TOKENS,
   generateVariablesCss,
   generateTailwindTokensConfig,
   generateTailwindThemeCss,
   parseVariablesCss,
-  stylesToTailwindClasses,
 } from '../../shared/designTokens'
-import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetSettings, resetStore, storeFilePath } from './store'
+import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetSettings, resetStore, storeFilePath, requireOpenedProject, requireOpenedProjectId } from './store'
 import {
   addDevScriptToPkg,
   createIndexHtmlFile,
@@ -30,6 +39,7 @@ import {
   diagnoseProject,
   gitBranch,
   gitCheckoutBranch,
+  gitCloneRepository,
   gitCommitMessage,
   gitCreateNewBranch,
   gitDiscardPaths,
@@ -38,6 +48,7 @@ import {
   gitPushProject,
   getGitDiffStats,
   gitRevertFiles,
+  gitSetRemote,
   gitStagePaths,
   gitUnstagePaths,
   initGit,
@@ -48,11 +59,19 @@ import {
   readGitStatus,
   readTree,
   rollbackGit,
+  runEfDatabaseUpdate,
   searchProjectContent,
   statProject,
   writeFileContent,
 } from './projects'
 import { RunnerManager } from './runner'
+import { decideQuit } from './quitGuard'
+import {
+  normalizeWindowState,
+  readWindowStateFile,
+  writeWindowStateFile,
+  type WindowState,
+} from './windowState'
 import { TerminalManager } from './terminal'
 import {
   copyPageFile,
@@ -62,10 +81,24 @@ import {
   trashPageFile,
 } from './pages'
 import { runToolboxMutation, scanProjectToolbox, writeToolboxFile } from './toolbox'
+import { deleteCustomPart, listCustomParts, saveCustomPart } from './customParts'
+import { MockApiServer, readMockConfig, writeMockConfig } from './mockApi'
+import { emptyMockState, normalizeMockConfig } from '../../shared/mockApi'
+import type { MockApiConfig } from '../../shared/mockApi'
+import { runA11yScan } from './a11y'
+import { emptyA11yResult } from '../../shared/a11y'
+import type { A11yScanResult } from '../../shared/a11y'
+import { exportProjectToZip, inspectZipFile, extractZipSafely } from './archive'
 import {
-  applyHtmlTailwindAttributes,
-  applyJsxTailwindAttributes,
-  camelToKebabCase,
+  applyOptimizedImage,
+  inspectImage,
+  previewImage,
+  revertOptimizedImage,
+} from './images'
+import {
+  buildStyleUpdate,
+  shouldUseTailwind,
+  type StyleSyncMode,
 } from './styleSync'
 import {
   cancelChat,
@@ -103,6 +136,15 @@ import type {
   AiToolCallRequest,
 } from '../../shared/ai'
 import type { FileSearchOptions } from '../../shared/api'
+import { createSecretStore } from './secretStore'
+import { runDeployCommand } from './deploy'
+import { idleDeployState, type DeployProvider, type DeployState } from '../../shared/deploy'
+import { parseEnvText, readSupabaseConfig, type SupabaseConfig } from './supabaseConfig'
+import { createAuthService } from './auth'
+import { createCloudClient } from './supabaseCloud'
+import { syncDocs } from './cloudSync'
+import { buildSettingsSnapshot, readSettingsPayload, buildTokensSnapshot, readTokensPayload } from './cloudSnapshots'
+import { canWrite, type CloudDoc, type CloudRole, type CloudSyncReport } from '../../shared/cloud'
 
 // Tắt Same-Origin Policy & Site Isolation cho iframe trong Electron
 app.commandLine.appendSwitch('disable-web-security')
@@ -148,6 +190,121 @@ const terminalManager = new TerminalManager(
   (event) => mainWindow?.webContents.send('terminal:exit', event),
 )
 
+const mockApi = new MockApiServer()
+mockApi.onChange((state) => mainWindow?.webContents.send('mock:state', state))
+
+const deployStores = new Map<string, ReturnType<typeof createSecretStore>>()
+function getDeployStore(provider: string) {
+  let store = deployStores.get(provider)
+  if (!store) {
+    const file = join(app.getPath('userData'), `deploy-token-${provider}.json`)
+    store = createSecretStore(file, safeStorage)
+    deployStores.set(provider, store)
+  }
+  return store
+}
+let deployState: DeployState = idleDeployState()
+const sendDeploy = () => mainWindow?.webContents.send('deploy:state', deployState)
+
+let supabaseConfig: SupabaseConfig | null = null
+let authService: ReturnType<typeof createAuthService> | null = null
+
+async function initSupabaseAuth() {
+  if (authService) return authService
+  const envFile = join(app.getAppPath(), '.env')
+  const envText = await fs.readFile(envFile, 'utf8').catch(() => '')
+  const env = { ...parseEnvText(envText), ...process.env }
+  supabaseConfig = readSupabaseConfig(env)
+  const sessionStore = createSecretStore(join(app.getPath('userData'), 'supabase-session.json'), safeStorage)
+  let memoryRefreshToken: string | null = null
+  authService = createAuthService({
+    config: supabaseConfig,
+    fetchImpl: fetch,
+    session: {
+      load: async () => (sessionStore.available ? sessionStore.load() : memoryRefreshToken),
+      save: async (value) => {
+        memoryRefreshToken = value
+        if (sessionStore.available) await sessionStore.save(value)
+      },
+    },
+  })
+  void authService.restore().then((state) => {
+    mainWindow?.webContents.send('auth:state', state)
+  }).catch(() => undefined)
+  return authService
+}
+
+/* ── Chặn thoát khi dev server còn chạy (Settings → confirmQuitRunning) ── */
+let allowWindowClose = false
+let quitApproved = false
+let quitPromptOpen = false
+
+/** Số tiến trình máy chủ đang chạy hoặc đang khởi động. */
+function countRunningProcesses(): number {
+  return runner.list().filter((state) => state.status === 'running' || state.status === 'starting').length
+}
+
+async function confirmQuitWithUser(runningCount: number): Promise<boolean> {
+  const running = runner.list().filter((state) => state.status === 'running' || state.status === 'starting')
+  const names = running
+    .map((state) => state.script)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(', ')
+  const options = {
+    type: 'warning' as const,
+    title: 'Máy chủ vẫn đang chạy',
+    message: `Còn ${runningCount} tiến trình máy chủ đang chạy`,
+    detail:
+      `${names ? `Tiến trình: ${names}\n\n` : ''}` +
+      'Nếu thoát, PixelMind sẽ dừng các tiến trình này và giải phóng cổng mạng. ' +
+      'Chọn “Ở lại” để tiếp tục làm việc mà không dừng máy chủ.',
+    buttons: ['Ở lại', 'Thoát và dừng máy chủ'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  }
+  const result = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options)
+  // Chỉ nút thứ hai mới đồng ý thoát; Esc / đóng hộp thoại = ở lại.
+  return result.response === 1
+}
+
+/** Hỏi xác nhận trước khi đóng cửa sổ hoặc thoát ứng dụng. */
+async function requestQuitApproval(): Promise<boolean> {
+  const decision = await decideQuit({
+    readConfirmSetting: async () => (await readStore()).settings.confirmQuitRunning,
+    countRunning: countRunningProcesses,
+    confirmExit: confirmQuitWithUser,
+  })
+  if (!decision.allow) {
+    // "Ở lại": không dừng runner, không đóng cửa sổ.
+    console.info(`[quit] Người dùng chọn ở lại (${decision.reason}).`)
+  }
+  return decision.allow
+}
+
+/** Bắt đầu một lượt xin phép thoát (chống mở nhiều hộp thoại cùng lúc). */
+function handleQuitAttempt(): void {
+  if (quitPromptOpen) return
+  quitPromptOpen = true
+  void (async () => {
+    try {
+      const allow = await requestQuitApproval()
+      if (!allow) return
+      quitApproved = true
+      allowWindowClose = true
+      if (mainWindow) mainWindow.close()
+      else app.quit()
+    } catch (error) {
+      console.error('[quit] Không xác nhận được yêu cầu thoát:', error)
+    } finally {
+      quitPromptOpen = false
+    }
+  })()
+}
+
 const samePath = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase()
 
 function sendMenuAction(action: string) {
@@ -164,6 +321,15 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+O',
           click: () => sendMenuAction('open-folder'),
         },
+        {
+          label: 'Nhập dự án từ ZIP…',
+          click: () => sendMenuAction('import-zip'),
+        },
+        {
+          label: 'Xuất dự án ra ZIP…',
+          click: () => sendMenuAction('export-zip'),
+        },
+        { type: 'separator' },
         {
           label: 'Màn hình dự án',
           accelerator: 'CmdOrCtrl+Shift+O',
@@ -301,6 +467,26 @@ function buildMenu() {
           click: () => sendMenuAction('tokens'),
         },
         {
+          label: 'Kiểm tra trợ năng (Accessibility)',
+          click: () => sendMenuAction('a11y'),
+        },
+        {
+          label: 'Mock API cho dự án…',
+          click: () => sendMenuAction('mock'),
+        },
+        {
+          label: 'Triển khai / Preview URL…',
+          click: () => sendMenuAction('deploy'),
+        },
+        {
+          label: 'Tài khoản Supabase…',
+          click: () => sendMenuAction('login'),
+        },
+        {
+          label: 'Đồng bộ & Chia sẻ Cloud…',
+          click: () => sendMenuAction('cloud'),
+        },
+        {
           label: 'Mở trang trong trình duyệt ngoài',
           click: () => sendMenuAction('open-browser'),
         },
@@ -322,14 +508,30 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+/** File lưu trạng thái cửa sổ (bounds + maximize) trong thư mục dữ liệu ứng dụng. */
+function windowStatePath(): string {
+  return join(app.getPath('userData'), 'window-state.json')
+}
+
 function createWindow() {
   /* Co cửa sổ theo vùng làm việc thực tế để không bị tràn ra ngoài màn hình
      (máy dùng tỉ lệ hiển thị 125% thường có vùng làm việc nhỏ hơn 1440×900). */
   const { workAreaSize } = screen.getPrimaryDisplay()
-  const width = Math.min(1440, Math.max(960, workAreaSize.width - 24))
-  const height = Math.min(900, Math.max(640, workAreaSize.height - 24))
+  const defaultWidth = Math.min(1440, Math.max(960, workAreaSize.width - 24))
+  const defaultHeight = Math.min(900, Math.max(640, workAreaSize.height - 24))
+
+  /* Khôi phục đúng vị trí/kích thước và trạng thái maximize của lần thoát trước. */
+  const workAreas = screen.getAllDisplays().map((display) => display.workArea)
+  const stateFilePath = windowStatePath()
+  const savedState = normalizeWindowState(readWindowStateFile(stateFilePath), workAreas)
+  const savedBounds = savedState?.bounds
+
+  const width = savedBounds?.width ?? defaultWidth
+  const height = savedBounds?.height ?? defaultHeight
 
   mainWindow = new BrowserWindow({
+    x: savedBounds?.x,
+    y: savedBounds?.y,
     width,
     height,
     minWidth: Math.min(1080, width),
@@ -350,7 +552,45 @@ function createWindow() {
     },
   })
 
-  mainWindow.on('ready-to-show', () => mainWindow?.show())
+  let stateSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** Chụp trạng thái hiện tại; khi đang maximize vẫn lưu kích thước "bình thường". */
+  const captureWindowState = (): WindowState | null => {
+    if (!mainWindow || mainWindow.isDestroyed()) return null
+    if (mainWindow.isMinimized() || mainWindow.isFullScreen()) return null
+    const maximized = mainWindow.isMaximized()
+    const rawBounds = maximized ? mainWindow.getNormalBounds() : mainWindow.getBounds()
+    const normalized = normalizeWindowState(
+      { bounds: rawBounds, maximized },
+      screen.getAllDisplays().map((display) => display.workArea),
+    )
+    return normalized ?? { bounds: rawBounds, maximized }
+  }
+
+  const persistWindowState = () => {
+    const state = captureWindowState()
+    if (state) writeWindowStateFile(stateFilePath, state)
+  }
+
+  /* Gộp các sự kiện resize/move/maximize liên tiếp thành một lần ghi. */
+  const queueWindowStateSave = () => {
+    if (stateSaveTimer !== null) clearTimeout(stateSaveTimer)
+    stateSaveTimer = setTimeout(() => {
+      stateSaveTimer = null
+      persistWindowState()
+    }, 350)
+  }
+
+  mainWindow.on('resize', queueWindowStateSave)
+  mainWindow.on('move', queueWindowStateSave)
+  mainWindow.on('maximize', queueWindowStateSave)
+  mainWindow.on('unmaximize', queueWindowStateSave)
+
+  mainWindow.on('ready-to-show', () => {
+    // Áp trạng thái maximize trước khi hiện để tránh nháy từ kích thước thường sang toàn màn hình.
+    if (savedState?.maximized) mainWindow?.maximize()
+    mainWindow?.show()
+  })
 
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
     const responseHeaders = { ...details.responseHeaders }
@@ -407,12 +647,27 @@ function createWindow() {
     }
   })
 
-  mainWindow.on('close', () => {
-    runner.stopAll()
+  mainWindow.on('close', (event) => {
+    // Luôn lưu trạng thái cửa sổ trước khi xử lý thoát (kể cả khi người dùng chọn Ở lại).
+    if (stateSaveTimer !== null) {
+      clearTimeout(stateSaveTimer)
+      stateSaveTimer = null
+    }
+    persistWindowState()
+
+    // Đã xác nhận thoát → cho đóng; ngược lại hỏi trước khi dừng máy chủ.
+    if (allowWindowClose) return
+    event.preventDefault()
+    handleQuitAttempt()
   })
 
   mainWindow.on('closed', () => {
+    if (stateSaveTimer !== null) {
+      clearTimeout(stateSaveTimer)
+      stateSaveTimer = null
+    }
     mainWindow = null
+    allowWindowClose = false
   })
 
   const devUrl = process.env['ELECTRON_RENDERER_URL']
@@ -458,8 +713,11 @@ ipcMain.handle('system:clear-cache', async (): Promise<boolean> => {
 
 ipcMain.handle('store:reset', async (): Promise<StoreData> => {
   runner.stopAll()
+  void mockApi.stop()
   return resetStore()
 })
+
+import { scaffoldProjectFromTemplate } from './templates'
 
 ipcMain.handle('store:path', () => storeFilePath())
 
@@ -467,12 +725,13 @@ ipcMain.handle('store:path', () => storeFilePath())
 
 ipcMain.handle('project:pick', async (): Promise<ProjectRecord | null> => {
   const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
-    title: 'Chọn thư mục hoặc tệp dự án (.sln, .csproj, package.json)',
+    title: 'Chọn thư mục dự án hoặc tệp (.sln, .csproj, package.json, index.html)',
     properties: ['openDirectory', 'openFile'],
     filters: [
-      { name: 'Dự án được hỗ trợ (*.sln, *.csproj, package.json)', extensions: ['sln', 'csproj', 'json'] },
+      { name: 'Dự án được hỗ trợ (*.sln, *.csproj, package.json, *.html)', extensions: ['sln', 'csproj', 'json', 'html', 'htm'] },
       { name: 'Visual Studio Solution (*.sln)', extensions: ['sln'] },
       { name: 'C# Project (*.csproj)', extensions: ['csproj'] },
+      { name: 'Web tĩnh (*.html, *.htm)', extensions: ['html', 'htm'] },
       { name: 'Tất cả tệp', extensions: ['*'] },
     ],
     buttonLabel: 'Mở dự án này',
@@ -480,6 +739,45 @@ ipcMain.handle('project:pick', async (): Promise<ProjectRecord | null> => {
   if (result.canceled || !result.filePaths.length) return null
   return addProject(result.filePaths[0])
 })
+
+ipcMain.handle('project:pickFolderOnly', async (): Promise<string | null> => {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+    title: 'Chọn thư mục để lưu dự án mới',
+    properties: ['openDirectory', 'createDirectory'],
+    buttonLabel: 'Chọn thư mục này',
+  })
+  if (result.canceled || !result.filePaths.length) return null
+  return result.filePaths[0]
+})
+
+ipcMain.handle(
+  'project:createFromTemplate',
+  async (
+    _event,
+    options: { templateId: string; parentDir: string; projectName: string },
+  ): Promise<{ success: boolean; project?: ProjectRecord; error?: string }> => {
+    try {
+      const scaffoldRes = await scaffoldProjectFromTemplate(options)
+      if (!scaffoldRes.success || !scaffoldRes.projectPath) {
+        return { success: false, error: scaffoldRes.error || 'Khởi tạo tệp thất bại.' }
+      }
+
+      // Khởi tạo git và nạp dự án vào PixelMind
+      try {
+        await initGit(scaffoldRes.projectPath)
+      } catch {}
+
+      const project = await addProject(scaffoldRes.projectPath)
+      if (!project) {
+        return { success: false, error: 'Không thể đăng ký dự án vào PixelMind.' }
+      }
+
+      return { success: true, project }
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Lỗi không xác định khi tạo dự án.' }
+    }
+  },
+)
 
 /** Ghép kết quả dò mới vào bản ghi cũ, giữ dữ liệu người dùng đã tạo. */
 async function mergeDetected(project: ProjectRecord, fresh: ProjectRecord): Promise<ProjectRecord> {
@@ -790,6 +1088,295 @@ ipcMain.handle('project:git-push', async (_e, id: string, setUpstream = false) =
   }
   return res
 })
+
+ipcMain.handle(
+  'project:git-set-remote',
+  async (
+    _event,
+    projectId: string,
+    remoteUrl: string,
+    remoteName = 'origin',
+  ): Promise<GitActionResult> => {
+    const store = await readStore()
+    const project = store.projects.find((p) => p.id === projectId)
+    if (!project) return { ok: false, error: 'Không tìm thấy dự án.' }
+
+    const res = await gitSetRemote(project.path, remoteUrl, remoteName)
+    if (res.ok) {
+      await appendActivity(projectId, {
+        actor: 'bạn',
+        action: `Cấu hình remote repository: ${remoteUrl}`,
+        kind: 'người',
+        status: 'ok',
+      })
+    }
+    return res
+  },
+)
+
+ipcMain.handle(
+  'project:git-clone',
+  async (
+    _event,
+    options: { repoUrl: string; parentDir: string; folderName?: string },
+  ): Promise<{ ok: boolean; project?: ProjectRecord; error?: string }> => {
+    try {
+      const cloneRes = await gitCloneRepository(
+        options.repoUrl,
+        options.parentDir,
+        options.folderName,
+      )
+      if (!cloneRes.ok || !cloneRes.projectPath) {
+        return { ok: false, error: cloneRes.error || 'Clone mã nguồn thất bại.' }
+      }
+
+      const project = await addProject(cloneRes.projectPath)
+      if (!project) {
+        return { ok: false, error: 'Không thể đăng ký dự án vào PixelMind sau khi clone.' }
+      }
+
+      await appendActivity(project.id, {
+        actor: 'bạn',
+        action: `Clone dự án từ ${options.repoUrl}`,
+        kind: 'người',
+        status: 'ok',
+      })
+
+      return { ok: true, project }
+    } catch (err: any) {
+      return { ok: false, error: err.message || 'Lỗi không xác định khi clone dự án.' }
+    }
+  },
+)
+
+/* ── Nhập / xuất dự án ZIP (D1-11, D1-13) ── */
+
+/** Gửi tiến trình về renderer, giới hạn tần suất để không làm nghẽn IPC. */
+function createArchiveProgressSender(sender: WebContents) {
+  let lastSent = 0
+  return (progress: ArchiveProgress) => {
+    const now = Date.now()
+    if (progress.processed < progress.total && now - lastSent < 80) return
+    lastSent = now
+    if (!sender.isDestroyed()) sender.send('project:archive-progress', progress)
+  }
+}
+
+ipcMain.handle('project:zip-pick', async (): Promise<string | null> => {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
+    title: 'Chọn tệp ZIP của dự án',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Dự án ZIP (*.zip)', extensions: ['zip'] },
+      { name: 'Tất cả tệp', extensions: ['*'] },
+    ],
+    buttonLabel: 'Chọn tệp ZIP',
+  })
+  if (result.canceled || !result.filePaths.length) return null
+  return result.filePaths[0]
+})
+
+ipcMain.handle('project:zip-inspect', async (_event, zipPath: string): Promise<ZipInspection> => {
+  if (!zipPath || typeof zipPath !== 'string') {
+    return {
+      ok: false,
+      error: 'Chưa chọn tệp ZIP.',
+      fileCount: 0,
+      directoryCount: 0,
+      totalBytes: 0,
+      compressedBytes: 0,
+      entries: [],
+      warnings: [],
+    }
+  }
+  return inspectZipFile(resolve(zipPath))
+})
+
+ipcMain.handle(
+  'project:zip-import',
+  async (event, options: ZipImportOptions): Promise<ZipImportResult> => {
+    let staging: string | null = null
+    try {
+      if (!options?.zipPath) {
+        return { ok: false, error: 'Chưa chọn tệp ZIP để nhập.' }
+      }
+      if (!options.parentDir || !String(options.parentDir).trim()) {
+        return { ok: false, error: 'Chưa chọn thư mục lưu dự án trên máy.' }
+      }
+      const zipPath = resolve(options.zipPath)
+      const parentDir = resolve(options.parentDir)
+      if (!(await isDirectory(parentDir))) {
+        return { ok: false, error: 'Thư mục đích không tồn tại hoặc không hợp lệ.' }
+      }
+
+      /* Kiểm tra lại ở main process — không tin dữ liệu renderer gửi lên. */
+      const inspection = await inspectZipFile(zipPath)
+      if (!inspection.ok) {
+        return { ok: false, error: inspection.error, warnings: inspection.warnings }
+      }
+
+      let projectName = (options.projectName || '').trim()
+      if (!projectName) {
+        projectName = basename(zipPath, extname(zipPath)).trim()
+      }
+      if (
+        !projectName ||
+        projectName === '.' ||
+        projectName === '..' ||
+        /[/\\:*?"<>|]/.test(projectName) ||
+        /[. ]$/.test(projectName) ||
+        /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(projectName)
+      ) {
+        return {
+          ok: false,
+          error: 'Tên thư mục dự án không hợp lệ. Không dùng ký tự / \\ : * ? " < > |.',
+        }
+      }
+
+      const targetPath = resolve(parentDir, projectName)
+      const relTarget = relative(parentDir, targetPath)
+      if (!relTarget || relTarget.startsWith('..') || isAbsolute(relTarget)) {
+        return { ok: false, error: 'Đường dẫn dự án không hợp lệ.' }
+      }
+
+      try {
+        const existing = await fs.stat(targetPath)
+        if (existing.isDirectory()) {
+          const items = await fs.readdir(targetPath)
+          if (items.length > 0) {
+            return {
+              ok: false,
+              error: `Thư mục “${projectName}” đã tồn tại và không rỗng. Vui lòng chọn tên khác.`,
+            }
+          }
+          await fs.rmdir(targetPath)
+        } else {
+          return {
+            ok: false,
+            error: `Đã có tệp trùng tên “${projectName}” tại thư mục đích. Vui lòng chọn tên khác.`,
+          }
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          return {
+            ok: false,
+            error: `Không kiểm tra được thư mục đích: ${(err as Error).message}`,
+          }
+        }
+      }
+
+      /* Giải nén vào thư mục tạm rồi đổi tên — lỗi giữa chừng không để lại dự án dở dang. */
+      staging = join(parentDir, `.pixelmind-zip-${randomUUID().slice(0, 8)}`)
+      await fs.mkdir(staging, { recursive: true })
+
+      const extracted = await extractZipSafely(zipPath, staging, {
+        stripRoot: options.stripRoot !== false,
+        onProgress: createArchiveProgressSender(event.sender),
+      })
+      if (!extracted.ok) {
+        return {
+          ok: false,
+          error: extracted.error,
+          warnings: [...inspection.warnings, ...(extracted.warnings ?? [])],
+        }
+      }
+
+      await fs.rename(staging, targetPath)
+      staging = null
+
+      const project = await addProject(targetPath)
+      if (!project) {
+        return {
+          ok: false,
+          error: `Đã giải nén vào “${targetPath}” nhưng không đăng ký được dự án vào PixelMind.`,
+          warnings: inspection.warnings,
+        }
+      }
+
+      await appendActivity(project.id, {
+        actor: 'bạn',
+        action: `Nhập dự án từ ZIP ${basename(zipPath)}`,
+        kind: 'người',
+        status: 'ok',
+      })
+
+      return {
+        ok: true,
+        project,
+        projectPath: targetPath,
+        fileCount: extracted.fileCount,
+        warnings: [...inspection.warnings, ...(extracted.warnings ?? [])],
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        error: (err as Error).message || 'Lỗi không xác định khi nhập dự án ZIP.',
+      }
+    } finally {
+      if (staging) {
+        await fs.rm(staging, { recursive: true, force: true }).catch(() => undefined)
+      }
+    }
+  },
+)
+
+ipcMain.handle('project:zip-save-path', async (_event, defaultName: string): Promise<string | null> => {
+  const cleanName = (defaultName || 'du-an').replace(/[/\\:*?"<>|]/g, '-').trim() || 'du-an'
+  const withExt = cleanName.toLowerCase().endsWith('.zip') ? cleanName : `${cleanName}.zip`
+  const result = await dialog.showSaveDialog(mainWindow ?? undefined!, {
+    title: 'Xuất dự án ra tệp ZIP',
+    defaultPath: join(app.getPath('documents'), withExt),
+    filters: [{ name: 'Tệp ZIP (*.zip)', extensions: ['zip'] }],
+    buttonLabel: 'Xuất ZIP',
+  })
+  if (result.canceled || !result.filePath) return null
+  return result.filePath.toLowerCase().endsWith('.zip') ? result.filePath : `${result.filePath}.zip`
+})
+
+ipcMain.handle(
+  'project:zip-export',
+  async (event, options: ZipExportOptions): Promise<ZipExportResult> => {
+    try {
+      if (!options?.projectId) {
+        return { ok: false, error: 'Chưa chọn dự án cần xuất ZIP.' }
+      }
+      if (!options.zipPath) {
+        return { ok: false, error: 'Chưa chọn đường dẫn lưu tệp ZIP.' }
+      }
+
+      const store = await readStore()
+      const project = store.projects.find((item) => item.id === options.projectId)
+      if (!project) {
+        return { ok: false, error: 'Không tìm thấy dự án cần xuất ZIP.' }
+      }
+      if (!(await isDirectory(project.path))) {
+        return { ok: false, error: 'Thư mục dự án không còn tồn tại trên máy.' }
+      }
+
+      const res = await exportProjectToZip({
+        root: project.path,
+        zipPath: resolve(options.zipPath),
+        includeGit: Boolean(options.includeGit),
+        onProgress: createArchiveProgressSender(event.sender),
+      })
+
+      if (res.ok) {
+        await appendActivity(project.id, {
+          actor: 'bạn',
+          action: `Xuất dự án ra ZIP (${res.fileCount ?? 0} tệp)`,
+          kind: 'người',
+          status: 'ok',
+        })
+      }
+      return res
+    } catch (err) {
+      return {
+        ok: false,
+        error: (err as Error).message || 'Lỗi không xác định khi xuất dự án ZIP.',
+      }
+    }
+  },
+)
 
 ipcMain.handle('project:git-pull', async (_e, id: string) => {
   const store = await readStore()
@@ -1270,6 +1857,40 @@ ipcMain.handle('assets:restore', async (_e, backupPath: string, destination: str
   }
 })
 
+/* ───────────────────────── IPC: tối ưu ảnh (D1-14) ───────────────────────── */
+
+ipcMain.handle('images:inspect', async (_e, target: string) => {
+  if (!target || typeof target !== 'string') {
+    return { ok: false, error: 'Chưa chọn ảnh để tối ưu.' }
+  }
+  return inspectImage(resolve(target))
+})
+
+ipcMain.handle('images:preview', async (_e, options: ImageOptimizeOptions) => {
+  if (!options?.path) {
+    return { ok: false, error: 'Chưa chọn ảnh để xem trước.' }
+  }
+  return previewImage({ ...options, path: resolve(options.path) })
+})
+
+ipcMain.handle('images:apply', async (_e, options: ImageApplyOptions) => {
+  if (!options?.path) {
+    return { ok: false, error: 'Chưa chọn ảnh để tối ưu.' }
+  }
+  return applyOptimizedImage({
+    ...options,
+    path: resolve(options.path),
+    backupDir: assetBackupDir(),
+  })
+})
+
+ipcMain.handle('images:revert', async (_e, backupPath: string, destination: string) => {
+  if (!backupPath || !destination) {
+    return { success: false, error: 'Thiếu thông tin khôi phục ảnh.' }
+  }
+  return revertOptimizedImage(backupPath, destination, assetBackupDir())
+})
+
 /* ───────────────────────── IPC: chạy dự án ───────────────────────── */
 
 ipcMain.handle('run:start', async (_e, projectId: string, script: string) => {
@@ -1277,10 +1898,11 @@ ipcMain.handle('run:start', async (_e, projectId: string, script: string) => {
   const project = store.projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Không tìm thấy dự án trong danh sách.')
   const entry = project.scripts.find((item) => item.name === script)
+  const portOptions = { preferredPort: store.settings.preferredPort }
   const state =
     script === 'static'
-      ? await runner.startStatic(project)
-      : runner.startScript(project, script, entry?.direct ? entry.command : undefined)
+      ? await runner.startStatic(project, portOptions)
+      : await runner.startScript(project, script, entry?.direct ? entry.command : undefined, portOptions)
   await appendActivity(projectId, {
     actor: 'hệ thống',
     action: `Chạy script “${script}” cho ${project.name}`,
@@ -1294,7 +1916,7 @@ ipcMain.handle('run:install', async (_e, projectId: string) => {
   const store = await readStore()
   const project = store.projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Không tìm thấy dự án trong danh sách.')
-  const state = runner.startInstall(project)
+  const state = await runner.startInstall(project)
   await appendActivity(projectId, {
     actor: 'hệ thống',
     action: `Bắt đầu cài đặt thư viện (${project.packageManager || 'npm'} install)`,
@@ -1315,7 +1937,7 @@ ipcMain.handle('run:start-command', async (_e, projectId: string, command: strin
     ...item,
     meta: { ...item.meta, customCommand: clean },
   }))
-  const state = runner.startCommand(project, clean)
+  const state = await runner.startCommand(project, clean, { preferredPort: store.settings.preferredPort })
   await appendActivity(projectId, {
     actor: 'hệ thống',
     action: `Chạy lệnh tự nhập cho ${project.name}: ${clean}`,
@@ -1347,6 +1969,23 @@ ipcMain.handle('run:stop-project', async (_e, projectId: string) => {
 ipcMain.handle('run:stop-all', async () => {
   runner.stopAll()
   return true
+})
+
+ipcMain.handle('run:ef-database-update', async (_e, projectId: string) => {
+  const store = await readStore()
+  const project = store.projects.find((p) => p.id === projectId)
+  if (!project) return { ok: false, error: 'Không tìm thấy dự án trong danh sách.' }
+
+  const res = await runEfDatabaseUpdate(project.path)
+  if (res.ok) {
+    await appendActivity(projectId, {
+      actor: 'bạn',
+      action: 'Chạy cập nhật Database (dotnet ef database update)',
+      kind: 'người',
+      status: 'ok',
+    })
+  }
+  return res
 })
 
 /* ───────────────────────── IPC: Terminal tương tác thật (PTY) ───────────────────────── */
@@ -1422,6 +2061,31 @@ ipcMain.handle('window:close', () => {
 ipcMain.handle('window:is-maximized', () => {
   return mainWindow?.isMaximized() ?? false
 })
+
+ipcMain.handle(
+  'window:captureRect',
+  async (_event, rect: { x: number; y: number; width: number; height: number }) => {
+    if (!mainWindow) return null
+    try {
+      const contentBounds = mainWindow.getContentBounds()
+      const cropX = Math.max(0, Math.min(contentBounds.width - 1, Math.round(rect.x)))
+      const cropY = Math.max(0, Math.min(contentBounds.height - 1, Math.round(rect.y)))
+      const cropW = Math.max(1, Math.min(contentBounds.width - cropX, Math.round(rect.width)))
+      const cropH = Math.max(1, Math.min(contentBounds.height - cropY, Math.round(rect.height)))
+
+      const nativeImg = await mainWindow.webContents.capturePage({
+        x: cropX,
+        y: cropY,
+        width: cropW,
+        height: cropH,
+      })
+      return nativeImg.toDataURL()
+    } catch (err) {
+      console.error('Failed to captureRect', err)
+      return null
+    }
+  },
+)
 
 /* ───────────────────────── IPC: Inspector & Live DOM Bridge ───────────────────────── */
 
@@ -1948,6 +2612,17 @@ function getInspectorScript(isActive: boolean) {
         var node = nodes[i];
         parent.insertBefore(node, reference);
         if (node.nodeType === 1) {
+          if (node.tagName && node.tagName.toLowerCase() === 'script') {
+            try {
+              var s = document.createElement('script');
+              for (var a = 0; a < node.attributes.length; a++) {
+                s.setAttribute(node.attributes[a].name, node.attributes[a].value);
+              }
+              s.textContent = node.textContent;
+              parent.replaceChild(s, node);
+              node = s;
+            } catch(e) {}
+          }
           uids = uids.concat(uidElements(node));
         }
       }
@@ -1975,7 +2650,20 @@ function getInspectorScript(isActive: boolean) {
       for (var i = 0; i < nodes.length; i++) {
         var node = nodes[i];
         parent.insertBefore(node, reference);
-        if (node.nodeType === 1) uids = uids.concat(uidElements(node));
+        if (node.nodeType === 1) {
+          if (node.tagName && node.tagName.toLowerCase() === 'script') {
+            try {
+              var s = document.createElement('script');
+              for (var a = 0; a < node.attributes.length; a++) {
+                s.setAttribute(node.attributes[a].name, node.attributes[a].value);
+              }
+              s.textContent = node.textContent;
+              parent.replaceChild(s, node);
+              node = s;
+            } catch(e) {}
+          }
+          uids = uids.concat(uidElements(node));
+        }
       }
       return { uids: uids, parentUid: ensureUid(parent), index: index };
     }
@@ -2933,6 +3621,23 @@ function injectInspectorIntoAllFrames(enabled: boolean) {
   }
 }
 
+ipcMain.handle(
+  'a11y:scan',
+  async (
+    _e,
+    { axeSource, previewUrl }: { axeSource: string; previewUrl?: string | null },
+  ): Promise<A11yScanResult> => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return emptyA11yResult('no-frame', 'Cửa sổ ứng dụng chưa sẵn sàng.')
+    }
+    const frames = getInjectableChildFrames().map((frame) => ({
+      url: frame.url,
+      executeJavaScript: (code: string) => frame.executeJavaScript(code),
+    }))
+    return runA11yScan(frames, String(axeSource || ''), previewUrl ?? null)
+  },
+)
+
 ipcMain.handle('inspect:set-mode', (_e, enabled: boolean) => {
   inspectModeActive = enabled
   injectInspectorIntoAllFrames(enabled)
@@ -3200,6 +3905,333 @@ ipcMain.handle('toolbox:scan', async (_e, projectPath: string) => {
   }
 })
 
+ipcMain.handle('toolbox:parts-list', async (_e, projectPath?: string) => {
+  return await listCustomParts(app.getPath('userData'), projectPath)
+})
+
+ipcMain.handle('toolbox:parts-save', async (_e, input: CustomPartInput) => {
+  return await saveCustomPart(app.getPath('userData'), input)
+})
+
+ipcMain.handle('toolbox:parts-delete', async (_e, id: string, projectPath?: string) => {
+  return await deleteCustomPart(app.getPath('userData'), id, projectPath)
+})
+
+/* ───────────────────────── IPC: Mock API ───────────────────────── */
+
+ipcMain.handle('mock:load', async (_e, projectPath: string) => readMockConfig(projectPath))
+
+ipcMain.handle('mock:save', async (_e, projectPath: string, config: MockApiConfig) => {
+  const { errors } = normalizeMockConfig(config)
+  if (errors.length > 0) return { success: false, errors }
+  await writeMockConfig(projectPath, config)
+  return { success: true }
+})
+
+ipcMain.handle('mock:start', async (_e, projectPath: string, config: MockApiConfig) => {
+  const { config: safe, errors } = normalizeMockConfig(config)
+  if (errors.length > 0) return { ...emptyMockState(), projectPath, error: errors.join(' ') }
+  const state = await mockApi.start(safe, projectPath)
+  if (state.running) await writeMockConfig(projectPath, safe).catch(() => undefined)
+  return state
+})
+
+ipcMain.handle('mock:stop', async () => mockApi.stop())
+
+ipcMain.handle('mock:state', async () => mockApi.state())
+
+/* ───────────────────────── IPC: Triển khai / Deploy (D1-26) ───────────────────────── */
+
+ipcMain.handle('deploy:set-token', async (_e, { provider, token }: { provider: DeployProvider; token: string }) => {
+  const store = getDeployStore(provider)
+  if (!store.available) {
+    return {
+      success: false,
+      error: 'Hệ điều hành không hỗ trợ lưu mã hoá. Hãy đặt token trong biến môi trường khi chạy ứng dụng.',
+    }
+  }
+  const trimmed = (token || '').trim()
+  if (!trimmed) {
+    return { success: false, error: 'Token không được để trống.' }
+  }
+  await store.save(trimmed)
+  return { success: true }
+})
+
+ipcMain.handle('deploy:has-token', async (_e, provider: DeployProvider) => {
+  const store = getDeployStore(provider)
+  const val = await store.load()
+  return val !== null
+})
+
+ipcMain.handle('deploy:clear-token', async (_e, provider: DeployProvider) => {
+  const store = getDeployStore(provider)
+  await store.save(null)
+  return true
+})
+
+ipcMain.handle('deploy:state', async () => deployState)
+
+ipcMain.handle('deploy:start', async (_e, projectId: string) => {
+  if (deployState.status === 'running') {
+    return { ...deployState, error: 'Đang có một lượt triển khai chạy.' }
+  }
+  const storeData = await readStore()
+  const project = storeData.projects.find((p) => p.id === projectId)
+  if (!project) {
+    return { status: 'error', url: null, phase: '', error: 'Không tìm thấy dự án.' }
+  }
+  const settings = storeData.settings
+  const command = (settings.deployCommand || '').trim()
+  if (!command) {
+    return {
+      status: 'error',
+      url: null,
+      phase: '',
+      error: 'Chưa cấu hình lệnh triển khai (Cài đặt → Triển khai).',
+    }
+  }
+  const provider = settings.deployProvider || 'vercel'
+  const store = getDeployStore(provider)
+  const token = await store.load()
+  const envName =
+    (settings.deployTokenEnv || '').trim() ||
+    (provider === 'netlify' ? 'NETLIFY_AUTH_TOKEN' : 'VERCEL_TOKEN')
+  const env: Record<string, string> = token ? { [envName]: token } : {}
+  const secrets = token ? [token] : []
+
+  deployState = { status: 'running', url: null, phase: 'Đang chạy lệnh triển khai…' }
+  sendDeploy()
+
+  try {
+    const result = await runDeployCommand({
+      command,
+      cwd: project.path,
+      env,
+      secrets,
+      onLog: (log) => mainWindow?.webContents.send('deploy:log', log),
+    })
+
+    if (result.ok) {
+      deployState = { status: 'success', url: result.url, phase: 'Hoàn tất' }
+      await patchProject(project.id, (p) => ({
+        ...p,
+        meta: {
+          ...p.meta,
+          deployUrl: result.url ?? p.meta.deployUrl,
+          deployAt: Date.now(),
+          deployProvider: provider,
+        },
+      }))
+    } else {
+      deployState = { status: 'error', url: null, phase: '', error: result.error }
+    }
+  } catch (err) {
+    deployState = {
+      status: 'error',
+      url: null,
+      phase: '',
+      error: (err as Error).message || String(err),
+    }
+  }
+
+  sendDeploy()
+  return deployState
+})
+
+/* ───────────────────────── IPC: Supabase Auth & Cloud (D1-23, D1-24, D1-25) ───────────────────────── */
+
+ipcMain.handle('auth:state', async () => {
+  const a = await initSupabaseAuth()
+  return a.state()
+})
+
+ipcMain.handle('auth:sign-in', async (_e, email: string, password: string) => {
+  const a = await initSupabaseAuth()
+  const res = await a.signIn(email, password)
+  mainWindow?.webContents.send('auth:state', res.state)
+  return res
+})
+
+ipcMain.handle('auth:sign-out', async () => {
+  const a = await initSupabaseAuth()
+  const state = await a.signOut()
+  mainWindow?.webContents.send('auth:state', state)
+  return state
+})
+
+ipcMain.handle('cloud:sync', async (_e, projectPath: string): Promise<CloudSyncReport> => {
+  const empty: CloudSyncReport = { ok: false, pushed: [], pulled: [], conflicts: [], skipped: [] }
+  const a = await initSupabaseAuth()
+  if (!supabaseConfig) return { ...empty, error: 'Chưa cấu hình Supabase (SUPABASE_URL / SUPABASE_ANON_KEY).' }
+  if (!a.accessToken()) {
+    await a.refresh()
+    if (!a.accessToken()) return { ...empty, error: a.state().error || 'Bạn cần đăng nhập để đồng bộ.' }
+  }
+  const store = await readStore()
+  const workspaceId = (store.settings.cloudWorkspaceId || '').trim()
+  const email = a.userEmail()
+  if (!workspaceId) return { ...empty, error: 'Chưa nhập Workspace ID trong Cài đặt → Dữ liệu → Cloud.' }
+  if (!email) return { ...empty, error: 'Không xác định được email phiên đăng nhập.' }
+
+  const client = createCloudClient({
+    baseUrl: supabaseConfig.url,
+    anonKey: supabaseConfig.anonKey,
+    accessToken: () => a.accessToken(),
+    fetchImpl: fetch,
+  })
+  let role: CloudRole | null = null
+  try {
+    role = await client.role(workspaceId, email)
+  } catch (error: any) {
+    return { ...empty, error: `Không kiểm tra được quyền: ${error?.message || error}` }
+  }
+  if (!role) return { ...empty, error: 'Tài khoản này không phải thành viên của workspace.' }
+
+  const local: Array<{ doc: CloudDoc; payload: unknown }> = [
+    { doc: 'settings', payload: buildSettingsSnapshot(store.settings) },
+  ]
+  const tokensFile = join(projectPath || '', '.pixelmind', 'tokens.json')
+  try {
+    const rawTokens = JSON.parse(await fs.readFile(tokensFile, 'utf8')) as DesignTokens
+    if (rawTokens && Array.isArray(rawTokens.colors)) {
+      local.push({ doc: 'designTokens', payload: buildTokensSnapshot(rawTokens) })
+    }
+  } catch {
+    /* dự án chưa có tokens: không đồng bộ tài liệu này */
+  }
+
+  const syncFile = join(app.getPath('userData'), 'cloud-sync.json')
+  const lastSynced = await fs.readFile(syncFile, 'utf8').then((t) => JSON.parse(t)).catch(() => ({}))
+  const adapter = {
+    pull: (doc: CloudDoc) => client.pull(workspaceId, doc),
+    push: async (doc: CloudDoc, payload: unknown) => {
+      if (!canWrite(role)) throw new Error('Bạn là Viewer: chỉ được xem workspace, không được ghi dữ liệu.')
+      await client.push(workspaceId, doc, payload)
+    },
+  }
+
+  const hooks = {
+    lastSynced: lastSynced.docs ?? {},
+    onPull: async (doc: CloudDoc, payload: unknown) => {
+      if (doc === 'settings') {
+        const incoming = readSettingsPayload(payload)
+        if (!incoming) throw new Error('Payload Settings không hợp lệ hoặc sai phiên bản schema.')
+        await updateSettings(incoming)
+      } else {
+        const incoming = readTokensPayload(payload)
+        if (!incoming) throw new Error('Payload Design Tokens không hợp lệ hoặc sai phiên bản schema.')
+        if (projectPath) {
+          const dir = join(projectPath, '.pixelmind')
+          await fs.mkdir(dir, { recursive: true })
+          await fs.copyFile(join(dir, 'tokens.json'), join(dir, `tokens.backup-${Date.now()}.json`)).catch(() => undefined)
+          await fs.writeFile(join(dir, 'tokens.json'), JSON.stringify(incoming, null, 2), 'utf8')
+        }
+      }
+    },
+    onPush: async (doc: CloudDoc, hash: string) => {
+      lastSynced.docs = { ...(lastSynced.docs ?? {}), [doc]: hash }
+      await fs.writeFile(syncFile, JSON.stringify(lastSynced, null, 2), 'utf8')
+    },
+    onConflict: async (doc: CloudDoc, localPayload: unknown) => {
+      const dir = join(app.getPath('userData'), 'cloud-conflicts')
+      await fs.mkdir(dir, { recursive: true })
+      const file = join(dir, `${doc}-${Date.now()}.json`)
+      await fs.writeFile(file, JSON.stringify(localPayload, null, 2), 'utf8')
+      return file
+    },
+  }
+
+  const result = await syncDocs(adapter, local, hooks)
+  return result
+})
+
+ipcMain.handle('cloud:members', async () => {
+  const a = await initSupabaseAuth()
+  if (!supabaseConfig) return { success: false, error: 'Chưa cấu hình Supabase.' }
+  if (!a.accessToken()) {
+    await a.refresh()
+    if (!a.accessToken()) return { success: false, error: a.state().error || 'Bạn cần đăng nhập.' }
+  }
+  const store = await readStore()
+  const workspaceId = (store.settings.cloudWorkspaceId || '').trim()
+  if (!workspaceId) return { success: false, error: 'Chưa nhập Workspace ID.' }
+  try {
+    const client = createCloudClient({
+      baseUrl: supabaseConfig.url,
+      anonKey: supabaseConfig.anonKey,
+      accessToken: () => a.accessToken(),
+      fetchImpl: fetch,
+    })
+    const members = await client.members(workspaceId)
+    return { success: true, members }
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) }
+  }
+})
+
+ipcMain.handle('cloud:invite', async (_e, email: string, role: CloudRole) => {
+  const a = await initSupabaseAuth()
+  if (!supabaseConfig) return { success: false, error: 'Chưa cấu hình Supabase.' }
+  if (!a.accessToken()) {
+    await a.refresh()
+    if (!a.accessToken()) return { success: false, error: a.state().error || 'Bạn cần đăng nhập.' }
+  }
+  const store = await readStore()
+  const workspaceId = (store.settings.cloudWorkspaceId || '').trim()
+  if (!workspaceId) return { success: false, error: 'Chưa nhập Workspace ID.' }
+  try {
+    const client = createCloudClient({
+      baseUrl: supabaseConfig.url,
+      anonKey: supabaseConfig.anonKey,
+      accessToken: () => a.accessToken(),
+      fetchImpl: fetch,
+    })
+    const myEmail = a.userEmail()
+    if (myEmail) {
+      const myRole = await client.role(workspaceId, myEmail)
+      if (myRole !== 'owner') {
+        return { success: false, error: 'Chỉ Owner mới được chia sẻ workspace.' }
+      }
+    }
+    await client.invite(workspaceId, email, role)
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) }
+  }
+})
+
+ipcMain.handle('cloud:set-role', async (_e, email: string, role: CloudRole) => {
+  const a = await initSupabaseAuth()
+  if (!supabaseConfig) return { success: false, error: 'Chưa cấu hình Supabase.' }
+  if (!a.accessToken()) {
+    await a.refresh()
+    if (!a.accessToken()) return { success: false, error: a.state().error || 'Bạn cần đăng nhập.' }
+  }
+  const store = await readStore()
+  const workspaceId = (store.settings.cloudWorkspaceId || '').trim()
+  if (!workspaceId) return { success: false, error: 'Chưa nhập Workspace ID.' }
+  try {
+    const client = createCloudClient({
+      baseUrl: supabaseConfig.url,
+      anonKey: supabaseConfig.anonKey,
+      accessToken: () => a.accessToken(),
+      fetchImpl: fetch,
+    })
+    const myEmail = a.userEmail()
+    if (myEmail) {
+      const myRole = await client.role(workspaceId, myEmail)
+      if (myRole !== 'owner') {
+        return { success: false, error: 'Chỉ Owner mới được chia sẻ workspace.' }
+      }
+    }
+    await client.setRole(workspaceId, email, role)
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) }
+  }
+})
+
 /* ───────────────────────── IPC: AI ───────────────────────── */
 
 ipcMain.handle('ai:status', async (_e, projectPath?: string) => {
@@ -3241,6 +4273,8 @@ ipcMain.handle('ai:test', async (_e, projectPath?: string) => {
 })
 
 ipcMain.handle('ai:chat:start', async (event, request: AiChatStartRequest) => {
+  if (!request.projectPath) throw new Error('Thiếu thư mục dự án để chạy AI.')
+  await requireOpenedProject(request.projectPath)
   return startChat(request, (chatEvent) => {
     if (!event.sender.isDestroyed()) {
       event.sender.send('ai:chat:event', chatEvent)
@@ -3279,24 +4313,30 @@ ipcMain.handle('ai:chats:remove', async (_e, projectId: string, conversationId: 
 )
 
 ipcMain.handle('ai:context', async (_e, request: AiContextRequest) => {
+  if (!request.projectPath) throw new Error('Thiếu thư mục dự án để đọc ngữ cảnh AI.')
+  await requireOpenedProject(request.projectPath)
   return buildContextPack(request)
 })
 
 ipcMain.handle('ai:changes:list', async (_e, projectId: string) => listChanges(projectId))
 
 ipcMain.handle('ai:changes:propose', async (_e, request: AiProposeChangeRequest) => {
+  await requireOpenedProject(request.projectPath)
   return proposeChange(request)
 })
 
 ipcMain.handle('ai:changes:accept', async (_e, projectId: string, changeId: string) => {
+  await requireOpenedProjectId(projectId)
   return acceptChange(projectId, changeId)
 })
 
 ipcMain.handle('ai:changes:reject', async (_e, projectId: string, changeId: string) => {
+  await requireOpenedProjectId(projectId)
   return rejectChange(projectId, changeId)
 })
 
 ipcMain.handle('ai:changes:undo', async (_e, projectId: string, changeId: string) => {
+  await requireOpenedProjectId(projectId)
   return undoChange(projectId, changeId)
 })
 
@@ -3305,6 +4345,7 @@ ipcMain.handle('ai:changes:diff-stats', async (_e, projectPath: string) => {
 })
 
 ipcMain.handle('ai:changes:git-revert', async (_e, projectPath: string, files?: string[]) => {
+  await requireOpenedProject(projectPath)
   return gitRevertFiles(projectPath, files)
 })
 
@@ -3340,6 +4381,7 @@ ipcMain.handle('ai:cost:setBudget', async (_e, projectId: string, budgetTokens: 
 ipcMain.handle('ai:cost:reset', async (_e, projectId?: string) => resetCostStats(projectId))
 
 ipcMain.handle('ai:cli:run', async (event, request: AiCliRunRequest) => {
+  await requireOpenedProject(request.projectPath)
   return runCliAgent(request, (cliEvent) => {
     if (!event.sender.isDestroyed()) {
       event.sender.send('ai:cli:event', cliEvent)
@@ -3395,21 +4437,6 @@ async function readProjectDesignTokens(projectPath: string): Promise<DesignToken
     }
   } catch {}
   return DEFAULT_DESIGN_TOKENS
-}
-
-/** Dự án đã có bộ token PixelMind chưa (tokens.json / variables.css / tailwind.tokens.js). */
-async function projectHasPixelMindTokens(projectPath: string): Promise<boolean> {
-  if (!projectPath) return false
-  if (await fileExists(join(projectPath, '.pixelmind', 'tokens.json'))) return true
-  if (await fileExists(join(projectPath, 'tailwind.tokens.js'))) return true
-  const cssDir = await findProjectCssDir(projectPath).catch(() => projectPath)
-  for (const candidate of [join(cssDir, 'variables.css'), join(projectPath, 'variables.css')]) {
-    try {
-      const text = await fs.readFile(candidate, 'utf8')
-      if (text.includes('--color-primary') || text.includes('--spacing-1:')) return true
-    } catch {}
-  }
-  return false
 }
 
 /** Tìm thư mục gốc dự án từ đường dẫn file nguồn (nếu renderer không truyền projectPath). */
@@ -3576,90 +4603,31 @@ ipcMain.handle(
 
       if (styleEntries.length > 0 && tagLineIdx !== -1) {
         let line = lines[tagLineIdx]
-        let handled = false
 
-        if (styleMode !== 'inline') {
-          const projectRoot = await resolveProjectRoot(fullPath, projectPath)
-          tailwindVersion =
-            styleMode === 'tailwind' ? 'v3' : await detectTailwindVersion(projectRoot)
-
-          if (tailwindVersion && projectRoot) {
-            const hasTokens = await projectHasPixelMindTokens(projectRoot)
-            const tokens = hasTokens
-              ? await readProjectDesignTokens(projectRoot)
-              : { colors: [], typography: [], spacing: [], radius: [] }
-            const conversion = stylesToTailwindClasses(finalStyles, tokens, {
-              arbitraryValues: true,
-            })
-            const convertedProperties = conversion.applied.map((item) => item.property)
-            const update = isJsx
-              ? applyJsxTailwindAttributes(
-                  line,
-                  tagRegex,
-                  conversion.classes,
-                  conversion.residualStyles,
-                  convertedProperties,
-                  tokens
-                )
-              : applyHtmlTailwindAttributes(
-                  line,
-                  tagRegex,
-                  conversion.classes,
-                  conversion.residualStyles,
-                  convertedProperties,
-                  tokens
-                )
-
-            if (!update.unsafe) {
-              line = update.line
-              modified = update.modified
-              appliedClasses = conversion.classes
-              residualStyles = conversion.residualStyles
-              appliedMode = conversion.classes.length > 0 ? 'tailwind' : 'inline'
-              handled = true
-            }
+        const mode = (styleMode || 'auto') as StyleSyncMode
+        const projectRoot = await resolveProjectRoot(fullPath, projectPath)
+        const detected = projectRoot ? await detectTailwindVersion(projectRoot) : null
+        tailwindVersion = detected ?? null
+        const allowTailwind = Boolean(projectRoot) && shouldUseTailwind(mode, detected)
+        const tokens = projectRoot ? await readProjectDesignTokens(projectRoot) : { ...DEFAULT_DESIGN_TOKENS }
+        const update = buildStyleUpdate({
+          line,
+          isJsx,
+          tagName,
+          styles: finalStyles,
+          tokens,
+          allowTailwind,
+        })
+        line = update.line
+        appliedMode = update.mode
+        appliedClasses = update.appliedClasses
+        residualStyles = update.residualStyles
+        modified = update.modified
+        if (update.unsafe) {
+          return {
+            success: false,
+            error: 'Phần tử dùng className/style động nên không ghi class an toàn được. Hãy sửa trực tiếp trong mã nguồn.',
           }
-        }
-
-        if (!handled) {
-          appliedClasses = []
-          residualStyles = {}
-          appliedMode = 'inline'
-          if (isJsx) {
-            const jsxStyleStr = styleEntries.map(([k, v]) => `${k}: '${v}'`).join(', ')
-            if (/style=\{\{.*?\}\}/i.test(line)) {
-              line = line.replace(/style=\{\{.*?\}\}/i, `style={{ ${jsxStyleStr} }}`)
-            } else {
-              line = line.replace(tagRegex, `$1 style={{ ${jsxStyleStr} }}$2`)
-            }
-          } else {
-            // HTML / CSHTML / Razor
-            const existingStyleMatch = line.match(/style=(["'])(.*?)\1/i)
-            if (existingStyleMatch) {
-              const existingMap: Record<string, string> = {}
-              existingStyleMatch[2].split(';').forEach((part) => {
-                const colonIdx = part.indexOf(':')
-                if (colonIdx !== -1) {
-                  const k = part.slice(0, colonIdx).trim()
-                  const v = part.slice(colonIdx + 1).trim()
-                  if (k && v) existingMap[k.toLowerCase()] = v
-                }
-              })
-              styleEntries.forEach(([k, v]) => {
-                existingMap[camelToKebabCase(k)] = v
-              })
-              const mergedStyleStr = Object.entries(existingMap)
-                .map(([k, v]) => `${k}: ${v};`)
-                .join(' ')
-              line = line.replace(/style=(["']).*?\1/i, `style="${mergedStyleStr}"`)
-            } else {
-              const htmlStyleStr = styleEntries
-                .map(([k, v]) => `${camelToKebabCase(k)}: ${v};`)
-                .join(' ')
-              line = line.replace(tagRegex, `$1 style="${htmlStyleStr}"$2`)
-            }
-          }
-          modified = true
         }
 
         lines[tagLineIdx] = line
@@ -3705,6 +4673,17 @@ ipcMain.handle(
         await fs.writeFile(fullPath, content, 'utf8')
         return {
           success: true,
+          mode: appliedMode,
+          tailwindVersion: tailwindVersion ?? undefined,
+          appliedClasses,
+          residualStyles,
+        }
+      }
+
+      if (tagLineIdx !== -1) {
+        return {
+          success: true,
+          updatedLine: lines[tagLineIdx],
           mode: appliedMode,
           tailwindVersion: tailwindVersion ?? undefined,
           appliedClasses,
@@ -4390,6 +5369,7 @@ if (!gotLock) {
 
     buildMenu()
     createWindow()
+    void initSupabaseAuth()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -4402,23 +5382,33 @@ if (!gotLock) {
     if (process.platform !== 'darwin') app.quit()
   })
 
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
+    // Thoát bằng menu/⌘Q/Ctrl+Q khi chưa xác nhận → hỏi trước, giữ nguyên server nếu ở lại.
+    if (!quitApproved) {
+      event.preventDefault()
+      handleQuitAttempt()
+      return
+    }
     runner.stopAll()
     terminalManager.killAll()
+    void mockApi.stop()
   })
 
   process.on('exit', () => {
     runner.stopAll()
     terminalManager.killAll()
+    void mockApi.stop()
   })
   process.on('SIGINT', () => {
     runner.stopAll()
     terminalManager.killAll()
+    void mockApi.stop()
     process.exit(0)
   })
   process.on('SIGTERM', () => {
     runner.stopAll()
     terminalManager.killAll()
+    void mockApi.stop()
     process.exit(0)
   })
 }

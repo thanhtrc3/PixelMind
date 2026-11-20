@@ -294,6 +294,10 @@ const AddPageDialog = ({
       setError('Hãy nhập tiêu đề trang.')
       return
     }
+    if (!isEditing && !previewLoading && filePreview && !filePreview.supported) {
+      setError(filePreview.reason || 'Chưa hỗ trợ tạo trang tự động cho dự án này.')
+      return
+    }
     const normalized = cleanRoute.startsWith('/') ? cleanRoute : `/${cleanRoute}`
     const parsedParams = sampleParams
       .split(',')
@@ -354,7 +358,11 @@ const AddPageDialog = ({
           <button className="btn" onClick={onClose}>
             Huỷ
           </button>
-          <button className="btn primary" onClick={submit}>
+          <button
+            className="btn primary"
+            onClick={submit}
+            disabled={!isEditing && !previewLoading && !!filePreview && !filePreview.supported}
+          >
             {isEditing ? <Pencil size={12} /> : <FilePlus2 size={12} />} {isEditing ? 'Lưu thay đổi' : 'Thêm trang'}
           </button>
         </>

@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
+import { isSameProjectPath } from './aiSafe'
 import { DEFAULT_SETTINGS } from '../../shared/types'
 import type {
   ActivityKind,
@@ -76,6 +77,29 @@ export async function readStore(): Promise<StoreData> {
     cache = normalize(null)
   }
   return cache
+}
+
+/** Chỉ thư mục đã mở trong PixelMind mới được AI sửa (chặn đường dẫn lạ từ renderer). */
+export async function requireOpenedProject(projectPath: string): Promise<ProjectRecord> {
+  const project = (await readStore()).projects.find((item) =>
+    isSameProjectPath(item.path, projectPath),
+  )
+  if (!project) {
+    throw new Error(
+      'Thư mục này chưa được mở trong PixelMind nên AI không được sửa. Hãy mở dự án trong PixelMind trước.',
+    )
+  }
+  return project
+}
+
+export async function requireOpenedProjectId(projectId: string): Promise<ProjectRecord> {
+  const project = (await readStore()).projects.find((item) => item.id === projectId)
+  if (!project) {
+    throw new Error(
+      'Dự án này chưa được mở trong PixelMind nên AI không được sửa. Hãy mở dự án trong PixelMind trước.',
+    )
+  }
+  return project
 }
 
 async function persist(data: StoreData): Promise<void> {

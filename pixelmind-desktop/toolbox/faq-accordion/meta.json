@@ -1,0 +1,27 @@
+{
+  "id": "faq-accordion",
+  "name": "Khối câu hỏi thường gặp (FAQ)",
+  "groups": [
+    "text",
+    "layout",
+    "form"
+  ],
+  "tags": [
+    "faq",
+    "câu hỏi",
+    "accordion",
+    "hỏi đáp"
+  ],
+  "version": "2.0.0",
+  "designMd": "DESIGN.md · 2026-11-01",
+  "author": "PixelMind Studio",
+  "origin": "PixelMind Modern UI Kit",
+  "license": "MIT",
+  "status": "approved",
+  "locked": false,
+  "demo": false,
+  "uses": 10,
+  "rejects": 0,
+  "updated": "2026-11-14",
+  "note": "Khối câu hỏi thường gặp FAQ gồm các câu hỏi phổ biến với câu trả lời súc tích và biểu tượng mở rộng."
+}

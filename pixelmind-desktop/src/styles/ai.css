@@ -1603,6 +1603,10 @@
   flex-direction: column;
   gap: 7px;
 }
+/* Thẻ diff dùng overflow:hidden nên min-height = 0 và bị flex co lại khi danh sách dài. */
+.pm-ai-list > * {
+  flex-shrink: 0;
+}
 .pm-ai-list__hd {
   display: flex;
   align-items: center;

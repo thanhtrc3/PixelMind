@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import {
   Columns2,
@@ -29,8 +29,19 @@ import type {
   Settings,
 } from '@shared/types'
 import { parseRunError } from '../lib/errorParser'
+import type { FileSearchRange } from '../../shared/api'
+import { toWorkspaceCanvasSettings } from '../lib/canvasSettings'
 import { editorBuffer } from '../lib/editorBuffer'
-import { LAYOUT_KEYS, persistFlag, readStoredFlag } from '../lib/layoutPrefs'
+import {
+  LAYOUT_KEYS,
+  PANEL_SIZE_LIMITS,
+  persistFlag,
+  persistPanelSizes,
+  readPanelSizes,
+  readStoredFlag,
+  type PanelSizeKey,
+  type PanelSizeMap,
+} from '../lib/layoutPrefs'
 import WorkspaceSidebar, { type ReferenceAsset, type SidebarTab } from './WorkspaceSidebar'
 import FileViewer from './FileViewer'
 import CanvasArea from './CanvasArea'
@@ -47,9 +58,11 @@ interface WorkspaceViewProps {
   fileLoading: boolean
   selectedPath: string | null
   initialLine?: number | null
+  /** Vùng khớp tìm kiếm cần đánh dấu trong dòng (0-based). */
+  initialMatch?: FileSearchRange | null
   query: string
   onQuery: (value: string) => void
-  onSelectFile: (node: FileNode, initialLine?: number) => void
+  onSelectFile: (node: FileNode, initialLine?: number, match?: FileSearchRange) => void
   onRefresh: () => void
   onOpenFolder: () => void
   run: RunState | null
@@ -76,6 +89,8 @@ interface WorkspaceViewProps {
   onOpenFileExternal: (path: string) => void
   onOpenDiagnosis?: () => void
   onInstall?: () => void
+  updatingDb?: boolean
+  onDatabaseUpdate?: () => void
   onCreateIndexHtml?: () => void
   onAddDevScript?: () => void
   activeTab: 'file' | 'preview'
@@ -107,28 +122,15 @@ interface WorkspaceViewProps {
   onOpenTheme?: () => void
   canvasReloadToken?: number
   onAIApplied?: () => void
+  /** Chạy lại dự án sau khi AI sửa xong để tiến trình cũ không giữ mã lỗi. */
+  onRestart?: () => void
+  /** Workspace có đang là màn hình hiển thị không (vẫn mounted khi ẩn để giữ phiên AI). */
+  active?: boolean
 }
 
 const DEFAULT_AI_PANEL_WIDTH = 400
-
-/** Đọc độ rộng Trợ lý AI đã lưu; không dùng state để tránh re-render khi đang kéo. */
-const savedAiPanelWidth = (): number => {
-  try {
-    const saved = Number(window.localStorage.getItem('pm.aiPanelSize'))
-    if (Number.isFinite(saved) && saved >= 220 && saved <= 860) return saved
-  } catch {}
-  return DEFAULT_AI_PANEL_WIDTH
-}
-
-/** Lưu độ rộng panel kế bên thanh kéo (không gây re-render). */
-const rememberAiPanelWidth = (panel: Element | null | undefined): void => {
-  if (!panel) return
-  const width = Math.round(panel.getBoundingClientRect().width)
-  if (width < 180) return
-  try {
-    window.localStorage.setItem('pm.aiPanelSize', String(width))
-  } catch {}
-}
+const DEFAULT_SIDEBAR_WIDTH = 320
+const DEFAULT_RIGHT_PANEL_WIDTH = 300
 
 const WorkspaceView = ({
   project,
@@ -138,6 +140,7 @@ const WorkspaceView = ({
   fileLoading,
   selectedPath,
   initialLine,
+  initialMatch,
   query,
   onQuery,
   onSelectFile,
@@ -166,6 +169,8 @@ const WorkspaceView = ({
   onOpenFileExternal,
   onOpenDiagnosis,
   onInstall,
+  updatingDb = false,
+  onDatabaseUpdate,
   onCreateIndexHtml,
   onAddDevScript,
   activeTab,
@@ -197,17 +202,150 @@ const WorkspaceView = ({
   onOpenTheme,
   canvasReloadToken = 0,
   onAIApplied,
+  onRestart,
+  active = true,
 }: WorkspaceViewProps) => {
-  const parsedError = useMemo(() => parseRunError(logs, run), [logs, run])
+  const rawParsedError = useMemo(() => parseRunError(logs, run), [logs, run])
+  /* AI đã build kiểm tra vượt qua → ẩn thẻ lỗi cũ; lần chạy mới thì hiện lại. */
+  const [fixVerified, setFixVerified] = useState(false)
+  useEffect(() => {
+    setFixVerified(false)
+  }, [run])
+  const parsedError = fixVerified ? null : rawParsedError
   /* App có thể đã nắn chỉnh route ASP.NET Core; ưu tiên URL đó. */
   const canvasUrl = previewUrl ?? run?.url ?? null
 
   const logPanelRef = usePanelRef()
+  const sidebarPanelRef = usePanelRef()
+  const rightPanelRef = usePanelRef()
+  const aiPanelRef = usePanelRef()
+
+  /* Chống gọi toggle hai lần khi kéo panel qua ngưỡng thu gọn (nhiều sự kiện resize). */
+  const sidebarCollapseHandledRef = useRef(false)
+  const rightCollapseHandledRef = useRef(false)
+  const aiCollapseHandledRef = useRef(false)
+
   const [isLogCollapsed, setIsLogCollapsed] = useState(() =>
     readStoredFlag(LAYOUT_KEYS.logCollapsed, false),
   )
   // Chế độ tập trung toàn màn hình Canvas (ẩn cả cây tệp và sidebar)
   const [focusCanvas, setFocusCanvas] = useState(false)
+
+  // Kích thước panel đã lưu theo từng dự án (đọc một lần khi mở; đổi dự án sẽ nạp lại).
+  const [initialPanelSizes] = useState<PanelSizeMap>(() => readPanelSizes(project?.id))
+  const panelSizesRef = useRef<PanelSizeMap>(initialPanelSizes)
+  /* Kích thước "thoải mái" gần nhất trước khi kéo panel qua ngưỡng thu gọn: dùng để
+     mở lại panel ở kích thước cũ thay vì dính mức tối thiểu. */
+  const sidebarComfortRef = useRef(initialPanelSizes.sidebar ?? DEFAULT_SIDEBAR_WIDTH)
+  const rightComfortRef = useRef(initialPanelSizes.rightPanel ?? DEFAULT_RIGHT_PANEL_WIDTH)
+  const aiComfortRef = useRef(initialPanelSizes.aiPanel ?? DEFAULT_AI_PANEL_WIDTH)
+  const projectIdRef = useRef<string | null>(project?.id ?? null)
+  const panelPersistTimerRef = useRef<number | null>(null)
+
+  /** Ghi nhớ kích thước panel đang kéo, debounce 250ms rồi lưu vào localStorage. */
+  const rememberPanelSize = useCallback((key: PanelSizeKey, pixels: number) => {
+    const limits = PANEL_SIZE_LIMITS[key]
+    if (!Number.isFinite(pixels) || pixels < limits.min) return
+    const rounded = Math.round(pixels)
+    if (panelSizesRef.current[key] === rounded) return
+    panelSizesRef.current = { ...panelSizesRef.current, [key]: rounded }
+    const projectId = projectIdRef.current
+    if (!projectId) return
+    const snapshot = { ...panelSizesRef.current }
+    if (panelPersistTimerRef.current !== null) {
+      window.clearTimeout(panelPersistTimerRef.current)
+    }
+    panelPersistTimerRef.current = window.setTimeout(() => {
+      panelPersistTimerRef.current = null
+      persistPanelSizes(projectId, snapshot)
+    }, 250)
+  }, [])
+
+  /** Đọc kích thước đã lưu khi mở dự án hoặc chuyển dự án. */
+  useEffect(() => {
+    const projectId = project?.id ?? null
+    projectIdRef.current = projectId
+    const sizes = readPanelSizes(projectId)
+    panelSizesRef.current = sizes
+    if (sizes.sidebar) sidebarComfortRef.current = sizes.sidebar
+    if (sizes.rightPanel) rightComfortRef.current = sizes.rightPanel
+    if (sizes.aiPanel) aiComfortRef.current = sizes.aiPanel
+  }, [project?.id])
+
+  // Panel bị tháo ra khi thu gọn rồi mở lại → áp lại kích thước gần nhất trong phiên.
+  // Chỉ đọc từ ref (không đọc lại localStorage) để không ghi đè thay đổi vừa kéo.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const sizes = panelSizesRef.current
+      if (!focusCanvas && isSidebarOpen && sizes.sidebar) {
+        sidebarPanelRef.current?.resize(`${sizes.sidebar}px`)
+      }
+      // Chỉ khôi phục chiều cao nhật ký khi panel đang mở thật sự (không phải trạng thái thu gọn).
+      if (isBottomPanelOpen && !isLogCollapsed && sizes.bottomPanel) {
+        logPanelRef.current?.resize(`${sizes.bottomPanel}px`)
+      }
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [
+    project?.id,
+    focusCanvas,
+    isSidebarOpen,
+    isBottomPanelOpen,
+    isLogCollapsed,
+    logPanelRef,
+    sidebarPanelRef,
+  ])
+
+  /* Trợ lý AI luôn được mount (kể cả khi panel đóng) để phiên đang chạy không bị ngắt:
+     panel chỉ thu gọn về 0px thay vì tháo khỏi cây React. Dùng layout effect để thu gọn
+     trước khi trình duyệt vẽ, tránh nháy panel một khung hình. */
+  useLayoutEffect(() => {
+    const panel = aiPanelRef.current
+    if (!panel) return
+    if (aiPanelOpen && !focusCanvas) {
+      panel.expand()
+      const saved = panelSizesRef.current.aiPanel
+      if (saved) panel.resize(`${saved}px`)
+    } else {
+      panel.collapse()
+    }
+  }, [aiPanelOpen, focusCanvas, aiPanelRef])
+
+  /* Panel phải cũng luôn được mount (chỉ thu gọn khi đóng hoặc khi Trợ lý AI mở):
+     nếu tháo hẳn khỏi Group, mỗi lần panel khác mount lại thư viện sẽ khôi phục
+     kích thước đã thu gọn và panel tự bung ra ngoài ý muốn. */
+  useLayoutEffect(() => {
+    const panel = rightPanelRef.current
+    if (!panel) return
+    if (isRightPanelOpen && !aiPanelOpen && !focusCanvas) {
+      panel.expand()
+      const saved = panelSizesRef.current.rightPanel
+      if (saved) panel.resize(`${saved}px`)
+    } else {
+      panel.collapse()
+    }
+  }, [isRightPanelOpen, aiPanelOpen, focusCanvas, rightPanelRef])
+
+  // Bảng nhật ký bị tháo ra khi đóng/mở lại → khôi phục chiều cao trước đó.
+  const wasBottomPanelOpenRef = useRef(isBottomPanelOpen)
+  useEffect(() => {
+    const wasOpen = wasBottomPanelOpenRef.current
+    wasBottomPanelOpenRef.current = isBottomPanelOpen
+    if (!isBottomPanelOpen || wasOpen || isLogCollapsed) return
+    const saved = panelSizesRef.current.bottomPanel
+    if (!saved) return
+    const id = window.setTimeout(() => logPanelRef.current?.resize(`${saved}px`), 0)
+    return () => window.clearTimeout(id)
+  }, [isBottomPanelOpen, isLogCollapsed, logPanelRef])
+
+  // Dọn timer lưu kích thước khi đóng Workspace.
+  useEffect(() => {
+    return () => {
+      if (panelPersistTimerRef.current !== null) {
+        window.clearTimeout(panelPersistTimerRef.current)
+      }
+    }
+  }, [])
   const [localReloadToken, setLocalReloadToken] = useState(0)
   const [isBufferDirty, setIsBufferDirty] = useState(editorBuffer.isDirty())
   const [aiSelection, setAiSelection] = useState<AiSelectedElement | null>(null)
@@ -287,6 +425,8 @@ const WorkspaceView = ({
   // Phím tắt bàn phím toàn cục: Ctrl+S (Lưu), Ctrl+Z (Hoàn tác), Ctrl+Y (Làm lại), Ctrl+B (Toggle Sidebar)
   useEffect(() => {
     const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      // Workspace vẫn mounted khi ở màn hình khác (giữ phiên AI) → chỉ nhận phím tắt khi đang hiển thị.
+      if (!active) return
       const target = e.target as HTMLElement
       const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
 
@@ -373,7 +513,7 @@ const WorkspaceView = ({
 
     window.addEventListener('keydown', handleGlobalShortcuts)
     return () => window.removeEventListener('keydown', handleGlobalShortcuts)
-  }, [isSidebarOpen, onToggleSidebar, onSidebarTabChange, onToggleAIPanel])
+  }, [active, isSidebarOpen, onToggleSidebar, onSidebarTabChange, onToggleAIPanel])
 
   // Lắng nghe phím Escape để thoát chế độ Focus Canvas
   useEffect(() => {
@@ -405,6 +545,18 @@ const WorkspaceView = ({
     )
   }
 
+  /* Panel AI và panel phải luôn nằm trong Group; khi ẩn chỉ thu gọn về 0px.
+     defaultSize = 0 lúc ẩn để nếu thư viện khởi tạo lại layout (khi panel khác
+     mount/unmount) thì chúng vẫn giữ 0px thay vì bung về kích thước mặc định. */
+  const aiVisible = aiPanelOpen && !focusCanvas
+  const rightPanelVisible = isRightPanelOpen && !aiPanelOpen && !focusCanvas
+  const aiDefaultSize = aiVisible
+    ? `${panelSizesRef.current.aiPanel ?? initialPanelSizes.aiPanel ?? DEFAULT_AI_PANEL_WIDTH}px`
+    : '0px'
+  const rightPanelDefaultSize = rightPanelVisible
+    ? `${panelSizesRef.current.rightPanel ?? initialPanelSizes.rightPanel ?? DEFAULT_RIGHT_PANEL_WIDTH}px`
+    : '0px'
+
   return (
     <div className="pm-workspace">
       <Group orientation="horizontal" style={{ flex: 1 }}>
@@ -412,7 +564,31 @@ const WorkspaceView = ({
         {!focusCanvas && (
           isSidebarOpen ? (
             <>
-              <Panel defaultSize="320px" minSize="220px" maxSize="520px" collapsible>
+              <Panel
+                panelRef={sidebarPanelRef}
+                defaultSize={`${initialPanelSizes.sidebar ?? DEFAULT_SIDEBAR_WIDTH}px`}
+                minSize={PANEL_SIZE_LIMITS.sidebar.min}
+                maxSize={PANEL_SIZE_LIMITS.sidebar.max}
+                collapsible
+                onResize={(size) => {
+                  // Kéo qua ngưỡng thu gọn: đồng bộ cờ mở/đóng để nút trên thanh công cụ đổi theo.
+                  const collapsed = (sidebarPanelRef.current?.isCollapsed() ?? false) || size.inPixels <= 0
+                  if (collapsed) {
+                    if (isSidebarOpen && !sidebarCollapseHandledRef.current) {
+                      sidebarCollapseHandledRef.current = true
+                      // Nhớ kích thước trước khi kéo qua ngưỡng, tránh lần sau mở lại ở mức tối thiểu.
+                      rememberPanelSize('sidebar', sidebarComfortRef.current)
+                      onToggleSidebar?.()
+                    }
+                    return
+                  }
+                  sidebarCollapseHandledRef.current = false
+                  if (size.inPixels >= PANEL_SIZE_LIMITS.sidebar.min + 24) {
+                    sidebarComfortRef.current = Math.round(size.inPixels)
+                  }
+                  rememberPanelSize('sidebar', size.inPixels)
+                }}
+              >
                 <WorkspaceSidebar
                   project={project}
                   tree={tree}
@@ -805,6 +981,7 @@ const WorkspaceView = ({
                     <CanvasArea
                       url={canvasUrl}
                       running={run?.status === 'running' || run?.status === 'starting'}
+                      canvasSettings={toWorkspaceCanvasSettings(settings)}
                       projectName={project.name}
                       projectPath={project.path}
                       error={parsedError}
@@ -813,6 +990,8 @@ const WorkspaceView = ({
                       onStop={onStop}
                       onOpenExternal={onOpenExternal}
                       onInstall={onInstall}
+                      updatingDb={updatingDb}
+                      onDatabaseUpdate={onDatabaseUpdate}
                       onCreateIndexHtml={onCreateIndexHtml}
                       onAddDevScript={onAddDevScript}
                       onUrlChange={onUrlChange}
@@ -849,6 +1028,7 @@ const WorkspaceView = ({
                       autoSave={settings.autoSave !== false}
                       rootPath={project.path}
                       initialLine={initialLine}
+                      initialMatch={initialMatch}
                       onOpenExternal={onOpenFileExternal}
                       onShowInFolder={onShowInFolder}
                       onShowToast={onShowToast}
@@ -869,16 +1049,16 @@ const WorkspaceView = ({
               {isBottomPanelOpen && (
                 <Panel
                   panelRef={logPanelRef}
-                  defaultSize="24%"
+                  defaultSize={
+                    initialPanelSizes.bottomPanel ? `${initialPanelSizes.bottomPanel}px` : '24%'
+                  }
                   minSize="36px"
                   maxSize="75%"
-                  onResize={() => {
-                    if (logPanelRef.current) {
-                      try {
-                        const px = logPanelRef.current.getSize().inPixels
-                        setIsLogCollapsed(px <= 45)
-                      } catch {}
-                    }
+                  onResize={(size) => {
+                    const px = size.inPixels
+                    setIsLogCollapsed(px <= 45)
+                    // Bỏ qua lúc thu gọn để không ghi đè chiều cao đang dùng.
+                    if (px > 45) rememberPanelSize('bottomPanel', px)
                   }}
                 >
                   <LogPanel
@@ -888,6 +1068,8 @@ const WorkspaceView = ({
                     projectPath={project?.path}
                     installing={installing}
                     onInstall={onInstall}
+                    updatingDb={updatingDb}
+                    onDatabaseUpdate={onDatabaseUpdate}
                     onRetry={onRun}
                     onOpenFile={(target) => {
                       const match = tabs.find((t) => t.toLowerCase().endsWith(target.toLowerCase()))
@@ -924,11 +1106,34 @@ const WorkspaceView = ({
           </div>
         </Panel>
 
-        {/* ── RunSidebar (ẩn khi AI mở để nhường cột phải cho Trợ lý AI) ── */}
-        {!focusCanvas && isRightPanelOpen && !aiPanelOpen && (
-          <>
-            <Separator className="pm-resize" />
-            <Panel defaultSize="300px" minSize="264px" maxSize="460px" collapsible>
+        {/* ── RunSidebar (tự thu gọn về 0px khi AI mở để nhường cột phải cho Trợ lý AI) ── */}
+        {rightPanelVisible && <Separator className="pm-resize" />}
+        <Panel
+          panelRef={rightPanelRef}
+          defaultSize={rightPanelDefaultSize}
+          minSize={PANEL_SIZE_LIMITS.rightPanel.min}
+          maxSize={PANEL_SIZE_LIMITS.rightPanel.max}
+          collapsible
+          onResize={(size) => {
+            const collapsed = (rightPanelRef.current?.isCollapsed() ?? false) || size.inPixels <= 0
+            if (collapsed) {
+              // Chỉ coi là người dùng kéo đóng khi panel đang thực sự hiển thị.
+              if (rightPanelVisible && !rightCollapseHandledRef.current) {
+                rightCollapseHandledRef.current = true
+                rememberPanelSize('rightPanel', rightComfortRef.current)
+                onToggleRightPanel?.()
+              }
+              return
+            }
+            rightCollapseHandledRef.current = false
+            if (rightPanelVisible) {
+              if (size.inPixels >= PANEL_SIZE_LIMITS.rightPanel.min + 24) {
+                rightComfortRef.current = Math.round(size.inPixels)
+              }
+              rememberPanelSize('rightPanel', size.inPixels)
+            }
+          }}
+        >
               <div className="pm-panel" style={{ borderLeft: '1px solid var(--line)' }}>
                 <RunSidebar
                   project={project}
@@ -955,65 +1160,78 @@ const WorkspaceView = ({
                   onAddDevScript={onAddDevScript}
                 />
               </div>
-            </Panel>
-          </>
-        )}
+        </Panel>
 
-        {/* ── Trợ lý AI: dock thật vào layout, không đè lên nội dung ── */}
-        {!focusCanvas && aiPanelOpen && onToggleAIPanel && onShowToast && (
-          <>
-            <Separator
-              className="pm-resize pm-resize-ai"
-              title="Kéo để thay đổi độ rộng Trợ lý AI"
-              onPointerUp={(event) =>
-                rememberAiPanelWidth(event.currentTarget.nextElementSibling)
-              }
-              onKeyUp={(event) => {
-                if (event.key.startsWith('Arrow')) {
-                  rememberAiPanelWidth(event.currentTarget.nextElementSibling)
-                }
-              }}
-            />
-            <Panel
-              defaultSize={`${savedAiPanelWidth()}px`}
-              minSize="220px"
-              maxSize="860px"
-            >
-              <AIPanel
-                open={aiPanelOpen}
-                onClose={onToggleAIPanel}
-                projectId={project.id}
-                projectPath={project.path}
-                projectName={project.name}
-                route={currentRoute}
-                selected={aiSelection}
-                parsedError={parsedError}
-                rawLogs={logs}
-                initialTab={aiInitialTab}
-                onTriggerBuild={onRun}
-                errorLog={
-                  parsedError
-                    ? [
-                        parsedError.title,
-                        parsedError.summary,
-                        parsedError.file
-                          ? `${parsedError.file}${parsedError.line ? `:${parsedError.line}` : ''}`
-                          : '',
-                        parsedError.recommendation,
-                      ]
-                        .filter(Boolean)
-                        .join('\n')
-                    : ''
-                }
-                onOpenDesign={() => onOpenDesign?.()}
-                onOpenTheme={() => onOpenTheme?.()}
-                onOpenSettings={onSettings}
-                onApplied={onAIApplied}
-                onShowToast={onShowToast}
-              />
-            </Panel>
-          </>
+        {/* ── Trợ lý AI: dock thật vào layout, không đè lên nội dung ──
+             Panel luôn được render; khi đóng chỉ thu gọn về 0px để AIPanel không bị
+             unmount (mất listener stream) nếu người dùng đóng panel hoặc đổi màn hình. */}
+        {aiVisible && (
+          <Separator
+            className="pm-resize pm-resize-ai"
+            title="Kéo để thay đổi độ rộng Trợ lý AI"
+          />
         )}
+        <Panel
+          panelRef={aiPanelRef}
+          className="pm-ai-panel"
+          defaultSize={aiDefaultSize}
+          minSize={PANEL_SIZE_LIMITS.aiPanel.min}
+          maxSize={PANEL_SIZE_LIMITS.aiPanel.max}
+          collapsible
+          onResize={(size) => {
+            const collapsed = (aiPanelRef.current?.isCollapsed() ?? false) || size.inPixels <= 0
+            if (collapsed) {
+              if (aiPanelOpen && !focusCanvas && !aiCollapseHandledRef.current) {
+                aiCollapseHandledRef.current = true
+                rememberPanelSize('aiPanel', aiComfortRef.current)
+                onToggleAIPanel?.()
+              }
+              return
+            }
+            aiCollapseHandledRef.current = false
+            if (aiPanelOpen && !focusCanvas) {
+              if (size.inPixels >= PANEL_SIZE_LIMITS.aiPanel.min + 24) {
+                aiComfortRef.current = Math.round(size.inPixels)
+              }
+              rememberPanelSize('aiPanel', size.inPixels)
+            }
+          }}
+        >
+          <AIPanel
+            open
+            onClose={() => onToggleAIPanel?.()}
+            projectId={project.id}
+            projectPath={project.path}
+            projectName={project.name}
+            route={currentRoute}
+            selected={aiSelection}
+            parsedError={parsedError}
+            rawLogs={logs}
+            initialTab={aiInitialTab}
+            onTriggerBuild={onRun}
+            errorLog={
+              parsedError
+                ? [
+                    parsedError.title,
+                    parsedError.summary,
+                    parsedError.file
+                      ? `${parsedError.file}${parsedError.line ? `:${parsedError.line}` : ''}`
+                      : '',
+                    parsedError.recommendation,
+                  ]
+                    .filter(Boolean)
+                    .join('\n')
+                : ''
+            }
+            onOpenDesign={() => onOpenDesign?.()}
+            onOpenTheme={() => onOpenTheme?.()}
+            onOpenSettings={onSettings}
+            onApplied={onAIApplied}
+            onFixVerified={() => setFixVerified(true)}
+            onRestart={onRestart}
+            onShowToast={onShowToast ?? (() => {})}
+          />
+        </Panel>
       </Group>
     </div>
   )

@@ -123,6 +123,10 @@ interface AIPanelProps {
   onOpenSettings?: () => void
   /** Gọi sau khi một thay đổi được áp dụng/hoàn tác để canvas tải lại. */
   onApplied?: () => void
+  /** Gọi khi build kiểm tra đã vượt qua → UI ẩn thẻ lỗi cũ. */
+  onFixVerified?: () => void
+  /** Gọi sau khi sửa thành công để chạy lại dự án với mã mới (tiến trình cũ vẫn giữ mã lỗi). */
+  onRestart?: () => void
   onShowToast: (kind: ToastKind, text: string) => void
 }
 
@@ -594,6 +598,8 @@ const AIPanel = ({
   onOpenTheme,
   onOpenSettings,
   onApplied,
+  onFixVerified,
+  onRestart,
   onShowToast: _onShowToast,
 }: AIPanelProps) => {
   const [tab, setTab] = useState<AiTab>(initialTab || 'chat')
@@ -1821,6 +1827,7 @@ const AIPanel = ({
     const maxAttempts = 3
     let attempt = 1
     let success = false
+    let appliedAny = false
     let currentErrText =
       errorLog ||
       (parsedError
@@ -1831,7 +1838,7 @@ const AIPanel = ({
       setLoopLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`])
     }
 
-    addLog(`🚀 BẮT ĐẦU VÒNG LẶP TỰ SỬA LỖI (Tối đa ${maxAttempts} lần thử)`)
+    addLog(`🚀 BẮT ĐẦU VÒNG LẶP TỰ SỬA LỖI`)
     if (parsedError) {
       addLog(`Phát hiện lỗi: ${parsedError.title} (${parsedError.type})`)
       if (parsedError.file) addLog(`Tệp nghi vấn: ${parsedError.file}:${parsedError.line || 1}`)
@@ -1844,7 +1851,7 @@ const AIPanel = ({
       }
 
       setLoopAttempt(attempt)
-      addLog(`\n═══════ LẦN THỬ ${attempt}/${maxAttempts} ═══════`)
+      addLog(`\n═══════ LẦN THỬ ${attempt} ═══════`)
 
       // BƯỚC 1: PROPOSE (Đề xuất)
       setLoopStage('proposing')
@@ -1921,6 +1928,7 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
 
         try {
           await api.ai.changes.accept(projectId, currentProposed.id)
+          appliedAny = true
           setAppliedChangeIds((prev) => [...prev, currentProposed!.id])
           onApplied?.()
         } catch (applyErr) {
@@ -1963,8 +1971,20 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
       if (isOk) {
         success = true
         setLoopStage('success')
-        addLog(`\n🎉 [4/4 Verify] SỬA THÀNH CÔNG LỖI BUILD Ở LẦN THỬ ${attempt}!`)
-        notifyChat('ok', `🎉 Đã sửa thành công lỗi build sau lần thử ${attempt}!`)
+        if (appliedAny) {
+          addLog(`\n🎉 [4/4 Verify] SỬA THÀNH CÔNG LỖI BUILD Ở LẦN THỬ ${attempt}!`)
+          notifyChat('ok', `🎉 Đã sửa thành công lỗi build sau lần thử ${attempt}!`)
+          // Tiến trình đang chạy vẫn giữ mã cũ → phải chạy lại thì trang mới hết lỗi.
+          onRestart?.()
+        } else {
+          // Build vốn đã qua (không có bản vá nào được áp dụng) — không được nói "đã sửa"
+          addLog(`\n✓ [4/4 Verify] Build đã vượt qua, không cần bản vá nào.`)
+          notifyChat('info', 'Build đã vượt qua — không cần sửa.')
+        }
+        // Chỉ ẩn thẻ lỗi khi lỗi thuộc nhóm build/biên dịch (run_build chứng minh được).
+        // Lỗi cổng mạng/DB/công cụ không thể coi là đã sửa chỉ vì build qua.
+        const buildTypes: ParsedError['type'][] = ['syntax_error', 'build_error', 'typescript_error', 'missing_package']
+        if (!parsedError || buildTypes.includes(parsedError.type)) onFixVerified?.()
         break
       } else {
         addLog(`[4/4 Verify] Lần thử ${attempt} chưa thành công.`)
@@ -1980,8 +2000,8 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
         notifyChat('info', 'Đã kích hoạt Kill-switch dừng vòng lặp tự sửa.')
       } else {
         setLoopStage('failed')
-        addLog(`\n❌ ĐÃ HẾT ${maxAttempts} LẦN THỬ TỰ ĐỘNG! DỪNG LẠI VÀ BÁO "CẦN NGƯỜI XEM".`)
-        notifyChat('err', 'Đã hết 3 lần thử tự động nhưng chưa khắc phục được. Cần người xem!')
+        addLog(`\n❌ ĐÃ HẾT LƯỢT THỬ TỰ ĐỘNG! DỪNG LẠI VÀ BÁO "CẦN NGƯỜI XEM".`)
+        notifyChat('err', 'Đã hết lượt thử tự động nhưng chưa khắc phục được. Cần người xem!')
       }
     }
 
@@ -3384,7 +3404,7 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
           <div className="pm-ai-list">
             <div className="pm-ai-list__hd">
               <span>Lỗi biên dịch &amp; Vòng lặp tự sửa</span>
-              <span className="pm-ai-muted">Tối đa 3 lần thử · Snapshot · Rollback</span>
+              <span className="pm-ai-muted">Snapshot · Rollback</span>
             </div>
 
             {/* ── Thẻ lỗi build thật từ errorParser ── */}
@@ -3468,7 +3488,7 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
                     }}
                   >
                     <span className="pm-ai-badge is-previewing">
-                      Lần thử {loopAttempt}/3
+                      Lần thử {loopAttempt}
                     </span>
                     <span style={{ color: 'var(--text-2)' }}>
                       {loopStage === 'proposing' && 'Đang yêu cầu AI đề xuất bản vá...'}
@@ -3515,19 +3535,20 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
               <div className="pm-ai-error__ft" style={{ marginTop: 4 }}>
                 {!loopActive ? (
                   <>
-                    <button
-                      className="btn sm primary"
-                      onClick={() => void runAutoFixLoop()}
-                      disabled={!parsedError && !errorLog}
-                      title="Bắt đầu vòng lặp AI tự động phân tích và sửa lỗi tối đa 3 lần"
-                      style={{
-                        fontWeight: 600,
-                        gap: 5,
-                      }}
-                    >
-                      <Wand2 size={12} />
-                      <span>Nhờ AI sửa (Tối đa 3 lần)</span>
-                    </button>
+                    {(parsedError || errorLog) && (
+                      <button
+                        className="btn sm primary"
+                        onClick={() => void runAutoFixLoop()}
+                        title="Bắt đầu vòng lặp AI tự động phân tích và sửa lỗi"
+                        style={{
+                          fontWeight: 600,
+                          gap: 5,
+                        }}
+                      >
+                        <Wand2 size={12} />
+                        <span>Nhờ AI sửa</span>
+                      </button>
+                    )}
 
                     {appliedChangeIds.length > 0 && (
                       <button

@@ -1,0 +1,28 @@
+{
+  "id": "feature-grid-modern",
+  "name": "Lưới tính năng ba thẻ nổi",
+  "groups": [
+    "card",
+    "layout",
+    "marketing"
+  ],
+  "tags": [
+    "tính năng",
+    "features",
+    "card",
+    "lưới",
+    "grid"
+  ],
+  "version": "2.0.0",
+  "designMd": "DESIGN.md · 2026-11-01",
+  "author": "PixelMind Studio",
+  "origin": "PixelMind Modern UI Kit",
+  "license": "MIT",
+  "status": "approved",
+  "locked": false,
+  "demo": false,
+  "uses": 10,
+  "rejects": 0,
+  "updated": "2026-11-14",
+  "note": "Lưới 3 card giới thiệu tính năng có icon nổi bật, tiêu đề, mô tả và hiệu ứng viền phát sáng khi hover."
+}

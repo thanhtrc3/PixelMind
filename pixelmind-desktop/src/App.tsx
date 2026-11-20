@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Archive,
   BookOpen,
   ClipboardList,
+  Cloud,
   Database,
+  FileArchive,
   FileText,
   FolderKanban,
   FolderOpen,
   FolderTree,
+  Globe,
   History,
   Image as ImageIcon,
   Layers,
@@ -18,11 +22,13 @@ import {
   RefreshCw,
   Settings as SettingsIcon,
   ShieldAlert,
+  Server,
   Sparkles,
   Square,
   SunMoon,
   Trash2,
   TriangleAlert,
+  User,
   Wand2,
   Zap,
 } from 'lucide-react'
@@ -39,11 +45,17 @@ import type {
   Settings,
   StoreData,
 } from '@shared/types'
+import type { FileSearchRange } from '@shared/api'
 import { api, isDesktop } from './lib/bridge'
 import { applyThemeVariables } from './lib/theme'
-import { fileName } from './lib/format'
+import { fileName, formatBytes } from './lib/format'
 import { editorBuffer } from './lib/editorBuffer'
 import { LAYOUT_KEYS, persistFlag, readStoredFlag } from './lib/layoutPrefs'
+import {
+  parseWorkspaceTabs,
+  restoreWorkspaceTabs as restoreSavedWorkspaceTabs,
+  serializeWorkspaceTabs,
+} from './lib/workspaceTabs'
 import TitleBar from './components/TitleBar'
 import TopBar from './components/TopBar'
 import type { SidebarTab } from './components/WorkspaceSidebar'
@@ -57,6 +69,11 @@ import WorkspaceView from './components/WorkspaceView'
 import StatusBar from './components/StatusBar'
 import SettingsDialog from './components/SettingsDialog'
 import DesignTokensDialog from './components/DesignTokensDialog'
+import AccessibilityDialog from './components/AccessibilityDialog'
+import MockApiDialog from './components/MockApiDialog'
+import DeployDialog from './components/DeployDialog'
+import LoginDialog from './components/LoginDialog'
+import CloudDialog from './components/CloudDialog'
 import GuideDialog from './components/GuideDialog'
 import CommandPalette from './components/CommandPalette'
 import type { PaletteCommand } from './components/CommandPalette'
@@ -66,6 +83,19 @@ import type { ToastMessage } from './components/ToastStack'
 import DiagnosisDialog from './components/DiagnosisDialog'
 import AIDesignImportDialog from './components/AIDesignImportDialog'
 import AIThemeDialog from './components/AIThemeDialog'
+import NotificationCenter from './components/ide/NotificationCenter'
+import TemplateGalleryDialog from './components/ide/TemplateGalleryDialog'
+import CloneGitDialog from './components/ide/CloneGitDialog'
+import ImportZipDialog from './components/ide/ImportZipDialog'
+import ExportZipDialog from './components/ide/ExportZipDialog'
+import type { AppNotification } from './lib/notifications'
+import {
+  createNotification,
+  markAsRead,
+  parseNotifications,
+  prependNotification,
+  serializeNotifications,
+} from './lib/notifications'
 
 const EMPTY_STORE: StoreData = {
   settings: { ...DEFAULT_SETTINGS },
@@ -73,11 +103,13 @@ const EMPTY_STORE: StoreData = {
   lastProjectId: null,
 }
 
+const workspaceTabsKey = (projectId: string) => `pm.workspace_tabs.${projectId}`
+
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : typeof error === 'string' ? error : 'Đã xảy ra lỗi không xác định.'
 
 type View = 'projects' | 'detail' | 'workspace'
-type DialogId = 'settings' | 'guide' | 'palette' | 'tokens'
+type DialogId = 'settings' | 'guide' | 'palette' | 'tokens' | 'a11y' | 'mock' | 'deploy' | 'login' | 'cloud'
 
 const App = () => {
   const [storeData, setStoreData] = useState<StoreData>(EMPTY_STORE)
@@ -109,7 +141,9 @@ const App = () => {
   const [fileLoading, setFileLoading] = useState(false)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [initialLine, setInitialLine] = useState<number | null>(null)
+  const [initialMatch, setInitialMatch] = useState<FileSearchRange | null>(null)
   const [openPaths, setOpenPaths] = useState<string[]>([])
+  const fileLoadRequestRef = useRef(0)
   const [recentPaths, setRecentPaths] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<'file' | 'preview'>('preview')
 
@@ -131,6 +165,7 @@ const App = () => {
   const [designOpen, setDesignOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const [updatingDb, setUpdatingDb] = useState(false)
   const [addPageOpen, setAddPageOpen] = useState(false)
   const [pageToEdit, setPageToEdit] = useState<ProjectPage | null>(null)
   const [pageToDelete, setPageToDelete] = useState<ProjectPage | null>(null)
@@ -139,6 +174,18 @@ const App = () => {
   const [paramChooserPage, setParamChooserPage] = useState<ProjectPage | null>(null)
   const [pendingDelete, setPendingDelete] = useState<ProjectRecord | null>(null)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    try {
+      return parseNotifications(localStorage.getItem('pm.notification_history'))
+    } catch {
+      return []
+    }
+  })
+  const [notifCenterOpen, setNotifCenterOpen] = useState(false)
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false)
+  const [cloneGitOpen, setCloneGitOpen] = useState(false)
+  const [importZipOpen, setImportZipOpen] = useState(false)
+  const [exportZipOpen, setExportZipOpen] = useState(false)
 
   const settings = storeData.settings
   const project = useMemo(
@@ -178,12 +225,46 @@ const App = () => {
 
   /* ── Tiện ích nhỏ ─────────────────────────────────────── */
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('pm.notification_history', serializeNotifications(notifications))
+    } catch {
+      /* Bộ nhớ cục bộ có thể bị đầy */
+    }
+  }, [notifications])
+
   const showToast = (kind: ToastMessage['kind'], text: string) => {
     const id = Date.now() + Math.random()
     setToasts((prev) => [...prev.slice(-2), { id, kind, text }])
+
+    // Lưu vào Trung tâm lịch sử thông báo (D1-09)
+    const newNotif = createNotification(kind, text)
+    setNotifications((prev) => prependNotification(prev, newNotif))
   }
 
   const dismissToast = (id: number) => setToasts((prev) => prev.filter((item) => item.id !== id))
+
+  useEffect(() => {
+    if (!projectId) return
+    try {
+      localStorage.setItem(
+        workspaceTabsKey(projectId),
+        serializeWorkspaceTabs(openPaths, selectedPath, activeTab),
+      )
+    } catch {
+      /* Bộ nhớ cục bộ có thể bị tắt hoặc đầy. */
+    }
+  }, [projectId, openPaths, selectedPath, activeTab])
+
+  const restoreWorkspaceTabs = async (targetProjectId: string) => {
+    let raw: string | null = null
+    try {
+      raw = localStorage.getItem(workspaceTabsKey(targetProjectId))
+    } catch {
+      /* Bộ nhớ cục bộ có thể bị tắt. */
+    }
+    return restoreSavedWorkspaceTabs(parseWorkspaceTabs(raw), api.fs)
+  }
 
   // Ghi nhớ trạng thái bố cục giữa các lần mở app.
   // Chỉ lưu bố cục giao diện — canvas/máy chủ vẫn luôn khởi động ở trạng thái tắt.
@@ -360,6 +441,8 @@ const App = () => {
       }
 
       const opened = (await api.projects.open(target.id)) ?? target
+      const restoredTabs = await restoreWorkspaceTabs(opened.id)
+      fileLoadRequestRef.current += 1
       setStoreData((prev) => ({
         ...prev,
         lastProjectId: opened.id,
@@ -367,11 +450,13 @@ const App = () => {
       }))
       setProjectId(opened.id)
       setView('detail')
-      setOpenPaths([])
-      setFile(null)
-      setSelectedPath(null)
+      setOpenPaths(restoredTabs.paths)
+      setFile(restoredTabs.file)
+      setFileLoading(false)
+      setSelectedPath(restoredTabs.selectedPath)
       setInitialLine(null)
-      setActiveTab('preview')
+      setInitialMatch(null)
+      setActiveTab(restoredTabs.activeTab)
       setQuery('')
       setLogs([])
       setRun(null)
@@ -386,6 +471,12 @@ const App = () => {
       await loadTree(opened)
       const running = await api.run.ofProject(opened.id)
       setRun(running)
+      if (restoredTabs.inaccessibleCount > 0) {
+        showToast(
+          'info',
+          `Đã bỏ qua ${restoredTabs.inaccessibleCount} tab vì tệp đã bị xóa hoặc không thể truy cập.`,
+        )
+      }
 
       // Kiểm tra chẩn đoán và tự động mở báo cáo nếu phát hiện lỗi nghiêm trọng (như thiếu node_modules)
       const diag = opened.diagnosis ?? (await api.projects.diagnose(opened.path))
@@ -452,10 +543,12 @@ const App = () => {
         lastProjectId: prev.lastProjectId === target.id ? null : prev.lastProjectId,
       }))
       if (projectId === target.id) {
+        fileLoadRequestRef.current += 1
         setProjectId(null)
         setView('projects')
         setTree([])
         setFile(null)
+        setFileLoading(false)
         setSelectedPath(null)
         setOpenPaths([])
         setRun(null)
@@ -637,53 +730,72 @@ const App = () => {
   const openFile = async (
     node: FileNode | { path: string; name?: string; ext?: string; type?: 'file' },
     line?: number,
+    match?: FileSearchRange,
   ) => {
+    const requestId = ++fileLoadRequestRef.current
     setSelectedPath(node.path)
     setActiveTab('file')
     setFileLoading(true)
     setInitialLine(line ?? null)
+    setInitialMatch(match ?? null)
     addRecentPath(node.path)
     try {
       const content = await api.fs.read(node.path)
+      if (requestId !== fileLoadRequestRef.current) return
       setFile(content)
       setOpenPaths((prev) => (prev.includes(node.path) ? prev : [...prev, node.path]))
     } catch (error) {
+      if (requestId !== fileLoadRequestRef.current) return
       setFile(null)
+      setSelectedPath(null)
+      setActiveTab('preview')
       showToast('err', `Không đọc được tệp ${node.name || node.path}: ${errorMessage(error)}`)
     } finally {
-      setFileLoading(false)
+      if (requestId === fileLoadRequestRef.current) setFileLoading(false)
     }
   }
 
-  const selectTab = (path: string, line?: number) => {
+  const selectTab = (path: string, line?: number, match?: FileSearchRange) => {
     setActiveTab('file')
     setInitialLine(line ?? null)
+    setInitialMatch(match ?? null)
     addRecentPath(path)
     if (path === selectedPath) return
+    const requestId = ++fileLoadRequestRef.current
     setSelectedPath(path)
     setFileLoading(true)
     api.fs
       .read(path)
-      .then((content) => setFile(content))
-      .catch((error) => showToast('err', `Không đọc được tệp: ${errorMessage(error)}`))
-      .finally(() => setFileLoading(false))
+      .then((content) => {
+        if (requestId === fileLoadRequestRef.current) setFile(content)
+      })
+      .catch((error) => {
+        if (requestId !== fileLoadRequestRef.current) return
+        setOpenPaths((prev) => prev.filter((item) => item !== path))
+        setFile(null)
+        setSelectedPath(null)
+        setActiveTab('preview')
+        showToast('err', `Đã đóng tab không đọc được: ${errorMessage(error)}`)
+      })
+      .finally(() => {
+        if (requestId === fileLoadRequestRef.current) setFileLoading(false)
+      })
   }
 
   const closeTab = (path: string) => {
-    setOpenPaths((prev) => {
-      const next = prev.filter((item) => item !== path)
-      if (path === selectedPath) {
-        const fallback = next[next.length - 1] ?? null
-        setSelectedPath(fallback)
-        if (fallback) {
-          void api.fs.read(fallback).then((content) => setFile(content))
-        } else {
-          setFile(null)
-          setActiveTab('preview')
-        }
-      }
-      return next
-    })
+    const next = openPaths.filter((item) => item !== path)
+    setOpenPaths(next)
+    if (path !== selectedPath) return
+    const fallback = next[next.length - 1] ?? null
+    if (fallback) {
+      selectTab(fallback)
+    } else {
+      fileLoadRequestRef.current += 1
+      setSelectedPath(null)
+      setFile(null)
+      setFileLoading(false)
+      setActiveTab('preview')
+    }
   }
 
   /* ── Chạy dự án & Cài đặt thư viện ────────────────────── */
@@ -738,6 +850,38 @@ const App = () => {
     } catch (error) {
       setInstalling(false)
       showToast('err', `Không thể bắt đầu cài đặt: ${errorMessage(error)}`)
+    }
+  }
+
+  const handleDatabaseUpdate = async () => {
+    if (!project) return
+    setUpdatingDb(true)
+    showToast('info', 'Đang cập nhật database (dotnet ef database update)...')
+    try {
+      if (!api.run.efDatabaseUpdate) {
+        showToast('err', 'Tính năng chỉ hỗ trợ trên bản desktop.')
+        return
+      }
+      const res = await api.run.efDatabaseUpdate(project.id)
+      if (res.ok) {
+        showToast('ok', '✨ Đã tạo và cập nhật Database thành công! Đang khởi động lại...')
+        try {
+          if (run) {
+            await api.run.stop(run.id)
+          } else if (api.run?.stopOfProject) {
+            await api.run.stopOfProject(project.id)
+          }
+        } catch {}
+        setRun(null)
+        await new Promise((r) => setTimeout(r, 600))
+        await startRun()
+      } else {
+        showToast('err', `Cập nhật database thất bại: ${res.error || 'không rõ lỗi'}`)
+      }
+    } catch (err: any) {
+      showToast('err', `Lỗi khi chạy database update: ${errorMessage(err)}`)
+    } finally {
+      setUpdatingDb(false)
     }
   }
 
@@ -880,6 +1024,13 @@ const App = () => {
     }
   }
 
+  /** AI vừa sửa xong: tiến trình cũ vẫn chạy mã lỗi nên phải dừng rồi chạy lại. */
+  const restartRun = async () => {
+    if (!run) return
+    await stopRun()
+    await startRun()
+  }
+
   /** Thoát khỏi dự án hiện tại về danh sách dự án (tự động tắt dev server để tránh chiếm cổng) */
   const handleExitToProjects = async () => {
     if (run && (run.status === 'running' || run.status === 'starting')) {
@@ -919,12 +1070,17 @@ const App = () => {
         if (data.settings.openLastProject && last) {
           const opened = await api.projects.open(last.id)
           if (opened) {
+            const restoredTabs = await restoreWorkspaceTabs(opened.id)
             setProjectId(opened.id)
             setView('detail')
+            setOpenPaths(restoredTabs.paths)
+            setFile(restoredTabs.file)
+            setSelectedPath(restoredTabs.selectedPath)
+            setActiveTab(restoredTabs.activeTab)
             setCustomCommand(opened.meta.customCommand || '')
-      setTargetRoute('')
-      targetRouteRef.current = ''
-      setPreviewUrl(null)
+            setTargetRoute('')
+            targetRouteRef.current = ''
+            setPreviewUrl(null)
             const [nodes, stat, git, running] = await Promise.all([
               api.fs.tree(opened.path, data.settings.showHidden),
               api.fs.stat(opened.path),
@@ -935,6 +1091,12 @@ const App = () => {
             setStats(stat)
             setBranch(git)
             setRun(running)
+            if (restoredTabs.inaccessibleCount > 0) {
+              showToast(
+                'info',
+                `Đã bỏ qua ${restoredTabs.inaccessibleCount} tab vì tệp đã bị xóa hoặc không thể truy cập.`,
+              )
+            }
 
             // Kiểm tra chẩn đoán ban đầu
             if (opened.diagnosis?.issues.some((i) => i.level === 'error')) {
@@ -1005,6 +1167,19 @@ const App = () => {
 
   /* ── Phím tắt + menu hệ thống ──────────────────────────── */
 
+  const openImportZip = () => {
+    setView('projects')
+    setImportZipOpen(true)
+  }
+
+  const openExportZip = () => {
+    if (!project) {
+      showToast('info', 'Hãy mở một dự án trước khi xuất ZIP.')
+      return
+    }
+    setExportZipOpen(true)
+  }
+
   const actionsRef = useRef({
     openFolder,
     startRun,
@@ -1017,6 +1192,8 @@ const App = () => {
     handleInstall,
     setIsSidebarOpen,
     setSidebarTab,
+    openImportZip,
+    openExportZip,
   })
   actionsRef.current = {
     openFolder,
@@ -1030,6 +1207,8 @@ const App = () => {
     handleInstall,
     setIsSidebarOpen,
     setSidebarTab,
+    openImportZip,
+    openExportZip,
   }
 
   useEffect(() => {
@@ -1085,6 +1264,12 @@ const App = () => {
       switch (action) {
         case 'open-folder':
           void actionsRef.current.openFolder()
+          break
+        case 'import-zip':
+          actionsRef.current.openImportZip()
+          break
+        case 'export-zip':
+          actionsRef.current.openExportZip()
           break
         case 'run':
           void actionsRef.current.startRun()
@@ -1162,6 +1347,21 @@ const App = () => {
         case 'tokens':
           setDialog('tokens')
           break
+        case 'a11y':
+          setDialog('a11y')
+          break
+        case 'mock':
+          setDialog('mock')
+          break
+        case 'deploy':
+          setDialog('deploy')
+          break
+        case 'login':
+          setDialog('login')
+          break
+        case 'cloud':
+          setDialog('cloud')
+          break
         case 'install-deps':
           void actionsRef.current.handleInstall()
           break
@@ -1192,6 +1392,19 @@ const App = () => {
         icon: FolderOpen,
         keys: 'Ctrl O',
         run: () => void openFolder(),
+      },
+      {
+        id: 'import-zip',
+        label: 'Nhập dự án từ tệp ZIP…',
+        icon: FileArchive,
+        run: openImportZip,
+      },
+      {
+        id: 'export-zip',
+        label: 'Xuất dự án hiện tại ra tệp ZIP…',
+        icon: Archive,
+        disabled: !project,
+        run: openExportZip,
       },
       {
         id: 'projects',
@@ -1363,6 +1576,39 @@ const App = () => {
         run: () => setDialog('tokens'),
       },
       {
+        id: 'a11y',
+        label: 'Kiểm tra trợ năng (Accessibility - axe-core)',
+        icon: ShieldAlert,
+        run: () => setDialog('a11y'),
+      },
+      {
+        id: 'mock',
+        label: 'Mock API cho dự án thử nghiệm',
+        icon: Server,
+        run: () => setDialog('mock'),
+      },
+      {
+        id: 'deploy',
+        label: 'Triển khai / Preview URL…',
+        hint: 'Vercel · Netlify · CLI tuỳ chỉnh',
+        icon: Globe,
+        run: () => setDialog('deploy'),
+      },
+      {
+        id: 'login',
+        label: 'Tài khoản Supabase…',
+        hint: 'Đăng nhập · Đăng xuất phiên làm việc',
+        icon: User,
+        run: () => setDialog('login'),
+      },
+      {
+        id: 'cloud',
+        label: 'Đồng bộ Cloud & Chia sẻ…',
+        hint: 'Đồng bộ Settings & Tokens · Phân quyền thành viên',
+        icon: Cloud,
+        run: () => setDialog('cloud'),
+      },
+      {
         id: 'ai-panel',
         label: 'Mở Trợ lý AI',
         hint: 'Chat · ngữ cảnh · duyệt diff · tự sửa lỗi',
@@ -1484,7 +1730,7 @@ const App = () => {
 
       <div className="pm-body">
         <main className="pm-main">
-          {view === 'projects' ? (
+          {view === 'projects' && (
             <ProjectView
               projects={storeData.projects}
               home={appInfo?.home}
@@ -1492,11 +1738,15 @@ const App = () => {
               busy={busy}
               onOpen={(item) => void openProject(item)}
               onOpenFolder={() => void openFolder()}
+              onNewProject={() => setTemplateGalleryOpen(true)}
+              onCloneGit={() => setCloneGitOpen(true)}
+              onImportZip={() => setImportZipOpen(true)}
               onRemove={requestRemove}
               onFavorite={(item) => void toggleFavorite(item)}
               onReveal={(item) => void api.fs.openPath(item.path)}
             />
-          ) : view === 'detail' && project ? (
+          )}
+          {view === 'detail' && project && (
             <ProjectDetail
               project={project}
               run={run}
@@ -1525,9 +1775,18 @@ const App = () => {
               onInstall={() => void handleInstall()}
               onCreateIndexHtml={() => void handleCreateIndexHtml()}
               onAddDevScript={() => void handleAddDevScript()}
+              onExportZip={() => setExportZipOpen(true)}
             />
-          ) : (
+          )}
+          {/* Workspace luôn được giữ mounted (ẩn khi ở màn hình khác) để phiên AI
+              và các tác vụ đang chạy không bị ngắt khi người dùng điều hướng. */}
+          <div
+            className="pm-view-host"
+            data-hidden={view !== 'workspace'}
+            aria-hidden={view !== 'workspace'}
+          >
             <WorkspaceView
+              active={view === 'workspace'}
               project={project}
               tree={tree}
               treeLoading={treeLoading}
@@ -1535,9 +1794,10 @@ const App = () => {
               fileLoading={fileLoading}
               selectedPath={selectedPath}
               initialLine={initialLine}
+              initialMatch={initialMatch}
               query={query}
               onQuery={setQuery}
-              onSelectFile={(node, line) => void openFile(node, line)}
+              onSelectFile={(node, line, match) => void openFile(node, line, match)}
               onRefresh={() => void refreshProject()}
               onOpenFolder={() => void openFolder()}
               run={run}
@@ -1563,6 +1823,8 @@ const App = () => {
               previewUrl={previewUrl}
               onOpenDiagnosis={() => setDiagnosisOpen(true)}
               onInstall={() => void handleInstall()}
+              updatingDb={updatingDb}
+              onDatabaseUpdate={() => void handleDatabaseUpdate()}
               onCreateIndexHtml={() => void handleCreateIndexHtml()}
               onAddDevScript={() => void handleAddDevScript()}
               activeTab={activeTab}
@@ -1600,8 +1862,9 @@ const App = () => {
                 setCanvasReloadToken((value) => value + 1)
                 void refreshProject()
               }}
+              onRestart={() => void restartRun()}
             />
-          )}
+          </div>
         </main>
       </div>
 
@@ -1612,6 +1875,8 @@ const App = () => {
         branch={branch}
         version={appInfo?.appVersion ?? '0.1.0'}
         isDesktop={isDesktop}
+        unreadNotifications={notifications.filter((n) => !n.read).length}
+        onToggleNotifications={() => setNotifCenterOpen((prev) => !prev)}
       />
 
       {dialog === 'settings' && (
@@ -1630,11 +1895,13 @@ const App = () => {
                 await api.run.stopAll()
               }
               const data = await api.store.reset()
+              fileLoadRequestRef.current += 1
               setStoreData(data)
               setProjectId(null)
               setView('projects')
               setTree([])
               setFile(null)
+              setFileLoading(false)
               setOpenPaths([])
               setRun(null)
               setLogs([])
@@ -1655,6 +1922,47 @@ const App = () => {
           projectName={project?.name}
           onClose={() => setDialog(null)}
           showToast={(msg) => showToast('info', msg)}
+        />
+      )}
+
+      {dialog === 'a11y' && (
+        <AccessibilityDialog
+          previewUrl={view === 'workspace' ? (previewUrl ?? run?.url ?? null) : null}
+          onClose={() => setDialog(null)}
+        />
+      )}
+
+      {dialog === 'mock' && (
+        <MockApiDialog
+          projectPath={project?.path ?? null}
+          onClose={() => setDialog(null)}
+          onShowToast={showToast}
+        />
+      )}
+
+      {dialog === 'deploy' && project && (
+        <DeployDialog
+          project={project}
+          settings={settings}
+          onClose={() => setDialog(null)}
+          onShowToast={showToast}
+        />
+      )}
+
+      {dialog === 'login' && (
+        <LoginDialog
+          onClose={() => setDialog(null)}
+          onShowToast={showToast}
+        />
+      )}
+
+      {dialog === 'cloud' && (
+        <CloudDialog
+          settings={settings}
+          projectPath={project?.path ?? null}
+          onUpdate={(patch) => void updateSettings(patch)}
+          onShowToast={showToast}
+          onClose={() => setDialog(null)}
         />
       )}
 
@@ -1734,6 +2042,17 @@ const App = () => {
             const fileExt = fileName.split('.').pop() || ''
             void openFile({ path, name: fileName, ext: fileExt, type: 'file' })
           }}
+          onOpenContentMatch={(match) => {
+            const fileName = match.file.split('/').pop() || match.file
+            const fileExt = fileName.split('.').pop() || ''
+            void openFile(
+              { path: match.fullPath, name: fileName, ext: fileExt, type: 'file' },
+              match.line,
+              typeof match.matchStart === 'number'
+                ? { start: match.matchStart, end: match.matchEnd ?? match.matchStart }
+                : undefined,
+            )
+          }}
           onClose={() => setDialog(null)}
         />
       )}
@@ -1804,6 +2123,126 @@ const App = () => {
       )}
 
       <ToastStack items={toasts} onDismiss={dismissToast} />
+
+      {notifCenterOpen && (
+        <div
+          className="pm-notif-backdrop"
+          onClick={() => setNotifCenterOpen(false)}
+        >
+          <NotificationCenter
+            notifications={notifications}
+            onMarkAsRead={(id) => setNotifications((prev) => markAsRead(prev, id))}
+            onClearAll={() => setNotifications([])}
+            onClose={() => setNotifCenterOpen(false)}
+            onCopyText={(text) => {
+              void navigator.clipboard?.writeText(text)
+              showToast('ok', 'Đã sao chép nội dung thông báo!')
+            }}
+          />
+        </div>
+      )}
+
+      {templateGalleryOpen && (
+        <TemplateGalleryDialog
+          onClose={() => setTemplateGalleryOpen(false)}
+          onSelectFolder={async () => {
+            if (api.projects.pickFolderOnly) {
+              return api.projects.pickFolderOnly()
+            }
+            return null
+          }}
+          onCreateProject={async (opts) => {
+            if (!api.projects.createFromTemplate) {
+              return { success: false, error: 'Chức năng tạo dự án chỉ hỗ trợ trên bản desktop.' }
+            }
+            const res = await api.projects.createFromTemplate(opts)
+            if (res.success && res.project) {
+              const list = await api.projects.list()
+              setStoreData((prev) => ({ ...prev, projects: list }))
+              await openProject(res.project, true)
+              showToast('ok', `✨ Đã khởi tạo dự án "${opts.projectName}" từ template thành công!`)
+              return { success: true }
+            }
+            return { success: false, error: res.error || 'Khởi tạo thất bại.' }
+          }}
+        />
+      )}
+
+      {cloneGitOpen && (
+        <CloneGitDialog
+          onClose={() => setCloneGitOpen(false)}
+          onSelectFolder={async () => {
+            if (api.projects.pickFolderOnly) {
+              return api.projects.pickFolderOnly()
+            }
+            return null
+          }}
+          onClone={async (opts) => {
+            if (!api.projects.gitClone) {
+              return { success: false, error: 'Chức năng clone Git chỉ hỗ trợ trên bản desktop.' }
+            }
+            const res = await api.projects.gitClone(opts)
+            if (res.ok && res.project) {
+              const list = await api.projects.list()
+              setStoreData((prev) => ({ ...prev, projects: list }))
+              await openProject(res.project, true)
+              showToast('ok', `✨ Đã clone thành công dự án "${res.project.name}" từ Git!`)
+              return { success: true }
+            }
+            return { success: false, error: res.error || 'Clone dự án thất bại.' }
+          }}
+        />
+      )}
+      {importZipOpen && (
+        <ImportZipDialog
+          onClose={() => setImportZipOpen(false)}
+          onPickZip={async () => (api.projects.pickZipFile ? api.projects.pickZipFile() : null)}
+          onSelectFolder={async () =>
+            api.projects.pickFolderOnly ? api.projects.pickFolderOnly() : null
+          }
+          onImport={async (options) => {
+            if (!api.projects.importZip) {
+              return { ok: false, error: 'Chức năng nhập ZIP chỉ hỗ trợ trên bản desktop.' }
+            }
+            const res = await api.projects.importZip(options)
+            if (res.ok && res.project) {
+              const list = await api.projects.list()
+              setStoreData((prev) => ({ ...prev, projects: list }))
+              await openProject(res.project, true)
+              const warningText = res.warnings?.length
+                ? ` (${res.warnings.length} cảnh báo)`
+                : ''
+              showToast('ok', `✨ Đã nhập dự án “${res.project.name}” từ ZIP${warningText}.`)
+            }
+            return { ok: res.ok, error: res.error, warnings: res.warnings }
+          }}
+        />
+      )}
+
+      {exportZipOpen && project && (
+        <ExportZipDialog
+          project={project}
+          onClose={() => setExportZipOpen(false)}
+          onPickSavePath={async (defaultName) =>
+            api.projects.pickZipSavePath ? api.projects.pickZipSavePath(defaultName) : null
+          }
+          onExport={async (options) => {
+            if (!api.projects.exportZip) {
+              return { ok: false, error: 'Chức năng xuất ZIP chỉ hỗ trợ trên bản desktop.' }
+            }
+            const res = await api.projects.exportZip(options)
+            if (res.ok) {
+              showToast(
+                'ok',
+                `📦 Đã xuất ZIP ${res.fileCount ?? 0} tệp (${formatBytes(res.totalBytes ?? 0)}).`,
+              )
+            } else {
+              showToast('err', res.error || 'Xuất dự án ZIP thất bại.')
+            }
+            return res
+          }}
+        />
+      )}
     </div>
   )
 }

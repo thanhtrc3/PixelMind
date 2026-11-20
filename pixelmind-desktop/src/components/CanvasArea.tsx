@@ -18,6 +18,7 @@ import {
   ArrowUp,
   Check,
   CheckCircle2,
+  BoxSelect,
   ChevronDown,
   ChevronUp,
   ClipboardPaste,
@@ -37,6 +38,7 @@ import {
   MousePointer2,
   Move,
   Network,
+  PackagePlus,
   Play,
   RefreshCw,
   RotateCcw,
@@ -60,6 +62,7 @@ import {
   Pipette,
 } from 'lucide-react'
 import type { ParsedError } from '../lib/errorParser'
+import type { CanvasSettings } from '../lib/canvasSettings'
 import { formatBytes } from '../lib/format'
 import VisualErrorCard from './VisualErrorCard'
 import DesignTokensDialog from './DesignTokensDialog'
@@ -90,6 +93,7 @@ import {
   type PseudoSnapshot,
 } from '../lib/pseudoStates'
 import AISidecar from './AISidecar'
+import SavePartModal from './ide/SavePartModal'
 import type { DesignTokens, ProjectPage, ColorToken } from '@shared/types'
 import type {
   ElementMutationTarget,
@@ -99,7 +103,8 @@ import type {
 } from '@shared/toolbox'
 import { editorBuffer, type ActionType, type DomMutationRecord, type ElementSnapshot } from '../lib/editorBuffer'
 import { elementClipboard } from '../lib/elementClipboard'
-import { onToolboxInsert, takePendingToolboxInsert, toolboxDrag } from '../lib/toolboxBridge'
+import { onToolboxInsert, takePendingToolboxInsert, toolboxDrag, pageFileForRoute } from '../lib/toolboxBridge'
+import { buildSelectorMatcher, enclosingHtml, extractMatchedRules } from '../lib/partCapture'
 import type { ToolboxDragItem } from '../lib/toolboxBridge'
 import { PencilFillIcon } from './PanelIcons'
 import MultiPageCanvas from './MultiPageCanvas'
@@ -260,15 +265,18 @@ export interface RealElementInfo {
 interface CanvasAreaProps {
   url: string | null
   running: boolean
+  canvasSettings: CanvasSettings
   projectName: string
   projectId?: string
   projectPath?: string
   error?: ParsedError | null
   installing?: boolean
+  updatingDb?: boolean
   onRun?: () => void
   onStop?: () => void
   onOpenExternal?: (url: string) => void
   onInstall?: () => void
+  onDatabaseUpdate?: () => void
   onCreateIndexHtml?: () => void
   onAddDevScript?: () => void
   onUrlChange?: (url: string, pathname: string) => void
@@ -381,6 +389,7 @@ const displayGridTracks = (value: string | undefined, count: number): string => 
   return raw
 }
 
+
 function GridTrackInput({
   label,
   value,
@@ -418,10 +427,10 @@ function GridTrackInput({
           if (e.key === 'Enter') {
             e.preventDefault()
             commit()
-            ;(e.target as HTMLInputElement).blur()
+              ; (e.target as HTMLInputElement).blur()
           } else if (e.key === 'Escape') {
             setDraft(value)
-            ;(e.target as HTMLInputElement).blur()
+              ; (e.target as HTMLInputElement).blur()
           }
         }}
       />
@@ -432,15 +441,18 @@ function GridTrackInput({
 const CanvasArea = ({
   url,
   running,
+  canvasSettings,
   projectName,
   projectId,
   projectPath,
   error,
   installing = false,
+  updatingDb = false,
   onRun,
   onStop: _onStop,
   onOpenExternal,
   onInstall,
+  onDatabaseUpdate,
   onCreateIndexHtml: _onCreateIndexHtml,
   onAddDevScript: _onAddDevScript,
   onUrlChange,
@@ -554,6 +566,7 @@ const CanvasArea = ({
       try {
         const img = window.localStorage.getItem('pm.canvasOverlay')
         setInternalOverlayImage(img)
+        if (img) setInternalOverlayVisible(true)
       } catch {}
     }
     window.addEventListener('pm:overlay-updated', handleOverlayUpdated)
@@ -635,7 +648,7 @@ const CanvasArea = ({
     copy: () => void
     paste: () => void
     deleteSelection: () => void
-  }>({ copy: () => {}, paste: () => {}, deleteSelection: () => {} })
+  }>({ copy: () => { }, paste: () => { }, deleteSelection: () => { } })
   const [resizingEl, setResizingEl] = useState<ResizingState | null>(null)
   const [inspectorWidth, setInspectorWidth] = useState(320)
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
@@ -691,6 +704,15 @@ const CanvasArea = ({
     textBefore?: string
     textAfter?: string
   } | null>(null)
+  const [savePartModalOpen, setSavePartModalOpen] = useState(false)
+  const [savePartHtml, setSavePartHtml] = useState('')
+  const [savePartCss, setSavePartCss] = useState('')
+  const [savePartJs, setSavePartJs] = useState('')
+  const [savePartStylesheets, setSavePartStylesheets] = useState<string[]>([])
+  const [savePartPreviewImage, setSavePartPreviewImage] = useState<string>('')
+  const [isSelectingForPart, setIsSelectingForPart] = useState(false)
+  const isSelectingForPartRef = useRef(false)
+  isSelectingForPartRef.current = isSelectingForPart
   const [mutationBusy, setMutationBusy] = useState(false)
   const [attrsDraft, setAttrsDraft] = useState({ id: '', className: '', text: '' })
   const toolboxRequestsRef = useRef<Map<string, (data: any) => void>>(new Map())
@@ -929,6 +951,299 @@ const CanvasArea = ({
     [],
   )
 
+  const handleStartPartLasso = useCallback(() => {
+    setIsSelectingForPart(true)
+    setIsInspectMode(true)
+    setSavePartModalOpen(false)
+    showToast('⬚ Cây bút lưu Part: Hãy kéo chuột khoanh một vùng trên Canvas để chọn các phần tử cần lưu.', 'info')
+  }, [showToast])
+
+  useEffect(() => {
+    const handleLasso = () => handleStartPartLasso()
+    window.addEventListener('pixelmind:start-part-lasso', handleLasso)
+    return () => window.removeEventListener('pixelmind:start-part-lasso', handleLasso)
+  }, [handleStartPartLasso])
+
+  const handleOpenSavePart = useCallback(async (html?: string, css?: string, customItems?: RealElementInfo[]) => {
+    const targetItems = customItems && customItems.length > 0
+      ? customItems
+      : (multiSelection.length > 1 ? multiSelection : (selectedEl ? [selectedEl] : []))
+
+    let targetHtml = html || ''
+    const liveDoc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+    if (!targetHtml) {
+      if (targetItems.length > 1) {
+        // Giữ tổ tiên chung để CSS phụ thuộc ancestor (vd `.auth-card input`) không bị mất.
+        const nodes = targetItems
+          .map((item) => (item.uid ? liveDoc?.querySelector<HTMLElement>(`[data-pm-uid="${item.uid}"]`) : null))
+          .filter((node): node is HTMLElement => Boolean(node))
+        targetHtml = nodes.length === targetItems.length ? enclosingHtml(nodes) : ''
+      }
+      if (!targetHtml) {
+        targetHtml = targetItems.length > 1
+          ? targetItems
+            .map((el) => el.outerHTML || '')
+            .filter(Boolean)
+            .join('\n')
+          : (selectedEl?.outerHTML || (targetItems[0]?.outerHTML) || '')
+      }
+    }
+    const cleanTarget = targetHtml.replace(/\sdata-pm-(?:uid|multi)(?:="[^"]*")?/g, '').trim()
+    if (!cleanTarget) {
+      showToast('Hãy chọn ít nhất một phần tử trên trang để lưu thành Part.', 'info')
+      return
+    }
+
+    // Đảm bảo đóng context menu nếu đang mở và đợi một nhịp để giao diện gỡ bỏ menu hoàn toàn
+    setCanvasContextMenu(null)
+    await new Promise((resolve) => setTimeout(resolve, 80))
+
+    // Tính toán Bounding Box bao trọn tất cả các phần tử được chọn
+    let combinedRect: { left: number; top: number; width: number; height: number } | null = null
+    if (targetItems.length > 0) {
+      let minLeft = Infinity
+      let minTop = Infinity
+      let maxRight = -Infinity
+      let maxBottom = -Infinity
+      for (const item of targetItems) {
+        if (item.rect && item.rect.width > 0 && item.rect.height > 0) {
+          minLeft = Math.min(minLeft, item.rect.left)
+          minTop = Math.min(minTop, item.rect.top)
+          maxRight = Math.max(maxRight, item.rect.left + item.rect.width)
+          maxBottom = Math.max(maxBottom, item.rect.top + item.rect.height)
+        }
+      }
+      if (minLeft < Infinity && maxRight > -Infinity) {
+        combinedRect = {
+          left: minLeft,
+          top: minTop,
+          width: maxRight - minLeft,
+          height: maxBottom - minTop,
+        }
+      }
+    }
+
+    // Chụp ảnh màn hình thực tế (pixel-perfect) của phần tử / nhóm phần tử đang chọn trên Canvas
+    let realScreenshot = ''
+    if (api.window?.captureRect && iframeRef.current) {
+      try {
+        const iframeEl = iframeRef.current
+        const iframeBounds = iframeEl.getBoundingClientRect()
+        const elRect = combinedRect || selectedEl?.rect
+        if (elRect && elRect.width > 0 && elRect.height > 0) {
+          // Tính hệ số scale giữa kích thước hiển thị trên Canvas và kích thước nội bộ iframe
+          const iframeW = iframeEl.clientWidth || iframeEl.offsetWidth || 1
+          const iframeH = iframeEl.clientHeight || iframeEl.offsetHeight || 1
+          const scaleX = iframeBounds.width / iframeW
+          const scaleY = iframeBounds.height / iframeH
+
+          // Toạ độ thực tế của phần tử trên màn hình ứng dụng (đã nhân scale)
+          const targetX = Math.round(iframeBounds.left + elRect.left * scaleX)
+          const targetY = Math.round(iframeBounds.top + elRect.top * scaleY)
+          const targetW = Math.round(elRect.width * scaleX)
+          const targetH = Math.round(elRect.height * scaleY)
+
+          // Cắt gọn trong phạm vi khung nhìn của iframe (tránh dính thanh công cụ hoặc Inspector bên phải)
+          const clampedX = Math.max(Math.round(iframeBounds.left), targetX)
+          const clampedY = Math.max(Math.round(iframeBounds.top), targetY)
+          const clampedW = Math.max(1, Math.min(Math.round(iframeBounds.right) - clampedX, targetW))
+          const clampedH = Math.max(1, Math.min(Math.round(iframeBounds.bottom) - clampedY, targetH))
+
+          const rect = {
+            x: clampedX,
+            y: clampedY,
+            width: clampedW,
+            height: clampedH,
+          }
+          const shot = await api.window.captureRect(rect)
+          if (shot && shot.startsWith('data:image/')) {
+            realScreenshot = shot
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Trích xuất script nội dòng hoặc script gắn với phần tử nếu có
+    let finalHtml = cleanTarget
+    let extractedJs = ''
+    const scriptMatches = finalHtml.match(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)
+    if (scriptMatches) {
+      extractedJs = scriptMatches
+        .map((s) => s.replace(/<script\b[^>]*>|<\/script>/gi, '').trim())
+        .filter(Boolean)
+        .join('\n\n')
+      finalHtml = finalHtml.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').trim()
+    }
+
+    // Trích xuất stylesheet và CSS thực tế từ Canvas Document
+    const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+    const extractedStylesheets: string[] = []
+    let extractedRules = css || ''
+
+    if (doc) {
+      // 1. Lấy tất cả link stylesheet từ trang Canvas
+      doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]').forEach((link) => {
+        if (link.href) extractedStylesheets.push(link.href)
+      })
+
+      // 2. Thu thập các quy tắc CSS từ stylesheets nếu chưa có css truyền vào
+      if (!extractedRules) {
+        try {
+          const classNames = new Set<string>()
+          const idNames = new Set<string>()
+          const tempDiv = document.createElement('div')
+          tempDiv.innerHTML = finalHtml
+          tempDiv.querySelectorAll('*').forEach((node) => {
+            node.classList.forEach((c) => classNames.add(c))
+            if (node.id) idNames.add(node.id)
+          })
+
+          const matchedRules: string[] = []
+          // Khớp trọn token class/id: nếu dùng `includes('.btn')` thì Bootstrap (nạp trước
+          // site.css) chiếm hết chỗ và CSS thật của part bị cắt mất.
+          const selectorHits = buildSelectorMatcher(classNames, idNames)
+          const MAX_RULES = 600
+
+          // A. Đọc từ các thẻ <style> inline trong trang (luôn đọc được không bị CORS)
+          doc.querySelectorAll<HTMLStyleElement>('style').forEach((styleEl) => {
+            const cssText = styleEl.textContent || ''
+            if (!cssText) return
+            matchedRules.push(...extractMatchedRules(cssText, selectorHits))
+          })
+
+          // B. Đọc từ doc.styleSheets (CSSOM)
+          for (let i = 0; i < doc.styleSheets.length && matchedRules.length < MAX_RULES; i++) {
+            try {
+              const sheet = doc.styleSheets[i]
+              const rules = sheet.cssRules || sheet.rules
+              if (!rules) continue
+              for (let j = 0; j < rules.length; j++) {
+                const r = rules[j]
+                if (r instanceof CSSStyleRule) {
+                  const sel = r.selectorText || ''
+                  if (selectorHits(sel)) {
+                    matchedRules.push(r.cssText)
+                  }
+                }
+              }
+            } catch {
+              // Ignore cross-origin access restriction here, handled below via fetch
+            }
+          }
+
+          // C. Nếu matchedRules vẫn ít hoặc bị CORS chặn, fetch nội dung từ các link stylesheet.
+          //    Đi kèm @import nội bộ (vd variables.css chứa design token) để part không mất biến CSS.
+          if (matchedRules.length === 0 && extractedStylesheets.length > 0) {
+            const readCss = async (href: string, depth = 0): Promise<string> => {
+              const res = await fetch(href)
+              if (!res.ok) return ''
+              const text = await res.text()
+              if (depth >= 5) return text
+              const imports = Array.from(text.matchAll(/@import\s+(?:url\()?['"]?([^'");]+)['"]?\)?[^;]*;/gi))
+                .map((m) => m[1].trim())
+                .filter((url) => !/^(?:[a-z]+:)?\/\//i.test(url) && !url.startsWith('data:'))
+              if (imports.length === 0) return text
+              const nested: string[] = []
+              for (const url of imports) {
+                try {
+                  nested.push(await readCss(new URL(url, href).href, depth + 1))
+                } catch {
+                  // Bỏ qua @import không đọc được
+                }
+              }
+              // @import phải đứng trước để cascade giữ đúng thứ tự
+              return `${nested.join('\n')}\n${text}`
+            }
+            for (const href of extractedStylesheets.slice(0, 5)) {
+              try {
+                const text = await readCss(href)
+                for (const rule of extractMatchedRules(text, selectorHits)) {
+                  if (matchedRules.length >= MAX_RULES) break
+                  matchedRules.push(rule)
+                }
+              } catch {
+                // Ignore fetch error
+              }
+            }
+          }
+
+          // D. Nếu vẫn không có rule nào, trích xuất computed styles thiết yếu từ DOM thật
+          if (matchedRules.length === 0 && targetItems.length > 0) {
+            const defaultView = doc.defaultView || window
+            targetItems.slice(0, 5).forEach((item, idx) => {
+              const domNode = item.uid
+                ? doc.querySelector(`[data-pm-uid="${item.uid}"]`)
+                : null
+              if (domNode instanceof HTMLElement) {
+                const cs = defaultView.getComputedStyle(domNode)
+                const props = [
+                  'background-color', 'color', 'font-family', 'font-size', 'font-weight',
+                  'padding', 'margin', 'border', 'border-radius', 'display', 'box-shadow'
+                ]
+                const decls = props
+                  .map((p) => {
+                    const val = cs.getPropertyValue(p)
+                    return val && val !== 'none' && val !== 'normal' && val !== 'auto' && val !== 'rgba(0, 0, 0, 0)'
+                      ? `${p}: ${val};`
+                      : ''
+                  })
+                  .filter(Boolean)
+                  .join(' ')
+                if (decls) {
+                  const selector = domNode.className
+                    ? `.${domNode.className.trim().split(/\s+/).join('.')}`
+                    : (domNode.id ? `#${domNode.id}` : `part-el-${idx}`)
+                  matchedRules.push(`${selector} { ${decls} }`)
+                }
+              }
+            })
+          }
+
+          if (matchedRules.length > 0) {
+            extractedRules = Array.from(new Set(matchedRules)).join('\n')
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // E. Quét thêm các script liên quan đến id của phần tử trong trang
+      if (!extractedJs) {
+        try {
+          const idNames = new Set<string>()
+          const tempDiv = document.createElement('div')
+          tempDiv.innerHTML = finalHtml
+          tempDiv.querySelectorAll('[id]').forEach((el) => {
+            if (el.id) idNames.add(el.id)
+          })
+          const foundScripts: string[] = []
+          doc.querySelectorAll('script').forEach((sc) => {
+            const scText = sc.textContent || ''
+            if (!scText) return
+            const hasIdRef = Array.from(idNames).some((id) => scText.includes(id))
+            if (hasIdRef) {
+              foundScripts.push(scText.trim())
+            }
+          })
+          if (foundScripts.length > 0) {
+            extractedJs = foundScripts.join('\n\n')
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    setSavePartHtml(finalHtml)
+    setSavePartCss(extractedRules)
+    setSavePartJs(extractedJs)
+    setSavePartStylesheets(extractedStylesheets)
+    setSavePartPreviewImage(realScreenshot)
+    setSavePartModalOpen(true)
+  }, [selectedEl, multiSelection, showToast])
+
   const currentVp = VIEWPORTS.find((v) => v.key === viewport) ?? VIEWPORTS[0]
 
   // Báo ngữ cảnh phần tử đang chọn ra ngoài cho AI Panel.
@@ -1134,7 +1449,10 @@ const CanvasArea = ({
           setIsSidecarOpen(false)
           return
         }
-        if (selectedEl || multiSelection.length > 0) {
+        if (isSelectingForPartRef.current) {
+          setIsSelectingForPart(false)
+          showToast('Đã huỷ khoanh vùng lưu Part', 'info')
+        } else if (selectedEl || multiSelection.length > 0) {
           setSelectedEl(null)
           setMultiSelection([])
           iframeRef.current?.contentWindow?.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
@@ -1389,10 +1707,10 @@ const CanvasArea = ({
             },
             sourceLoc: reparentSourceLoc
               ? {
-                  filePath: reparentSourceLoc.filePath,
-                  fullPath: reparentSourceLoc.fullPath,
-                  lineNumber: reparentSourceLoc.lineNumber,
-                }
+                filePath: reparentSourceLoc.filePath,
+                fullPath: reparentSourceLoc.fullPath,
+                lineNumber: reparentSourceLoc.lineNumber,
+              }
               : undefined,
             before: {
               styles: {},
@@ -1443,6 +1761,11 @@ const CanvasArea = ({
               styles: { ...payload.computedStyles },
             })
           }
+          if (isSelectingForPartRef.current) {
+            setIsSelectingForPart(false)
+            showToast(`✨ Đã chọn phần tử ${payload.tagName.toUpperCase()} vào Part!`, 'ok')
+            void handleOpenSavePart(undefined, undefined, [payload])
+          }
         }
       } else if (e.data.type === 'PM_SELECTION_CHANGED') {
         const payload = e.data.payload || {}
@@ -1468,9 +1791,19 @@ const CanvasArea = ({
         } else if (items.length === 0) {
           setSelectedEl(null)
         }
+        if (isSelectingForPartRef.current && items.length > 0) {
+          setIsSelectingForPart(false)
+          showToast(`✨ Đã gom ${items.length} phần tử vào Part!`, 'ok')
+          void handleOpenSavePart(undefined, undefined, items)
+        }
       } else if (e.data.type === 'PM_KEYBOARD_SHORTCUT') {
         const { key, shiftKey, ctrlKey } = e.data.payload || {}
-        if (key === 's') {
+        if (key === 'Escape' || key === 'Esc') {
+          if (isSelectingForPartRef.current) {
+            setIsSelectingForPart(false)
+            showToast('Đã huỷ khoanh vùng lưu Part', 'info')
+          }
+        } else if (key === 's') {
           editorBuffer.saveAllDirtyFiles(showToast)
         } else if (key === 'z' && !shiftKey) {
           if (editorBuffer.canUndo()) editorBuffer.undo()
@@ -2310,10 +2643,10 @@ const CanvasArea = ({
             },
             sourceLoc: sourceLoc
               ? {
-                  filePath: sourceLoc.filePath,
-                  fullPath: sourceLoc.fullPath,
-                  lineNumber: sourceLoc.lineNumber,
-                }
+                filePath: sourceLoc.filePath,
+                fullPath: sourceLoc.fullPath,
+                lineNumber: sourceLoc.lineNumber,
+              }
               : undefined,
             before: {
               styles: initial.beforeStyles,
@@ -2429,7 +2762,7 @@ const CanvasArea = ({
               })
               fullPath = loc?.fullPath
               lineNumber = loc?.lineNumber
-            } catch {}
+            } catch { }
           }
 
           if (!fullPath) {
@@ -2447,6 +2780,7 @@ const CanvasArea = ({
               tagName: item.tagName,
               lineNumber,
               projectPath: projectPath || undefined,
+              styleMode: canvasSettings.styleSync,
             })
             if (res?.success) saved += 1
             else failed += 1
@@ -2476,10 +2810,17 @@ const CanvasArea = ({
         tagName: selectedEl?.tagName,
         lineNumber: sourceLoc!.lineNumber,
         projectPath: projectPath || undefined,
+        styleMode: canvasSettings.styleSync,
       })
 
       if (res?.success) {
-        showToast(`Đã lưu vĩnh viễn vào ${sourceLoc!.filePath}!`)
+        if (res?.mode === 'tailwind' && res.appliedClasses?.length) {
+          showToast(
+            `Đã lưu vào ${sourceLoc!.filePath}: ${res.appliedClasses.length} class Tailwind, ${Object.keys(res.residualStyles || {}).length} thuộc tính giữ inline.`
+          )
+        } else {
+          showToast(`Đã lưu inline vào ${sourceLoc!.filePath} (không chuyển được sang Tailwind).`)
+        }
         setModifiedStyles({})
       } else {
         showToast(`Lỗi khi lưu tệp: ${res?.error || 'Không xác định'}`)
@@ -2703,7 +3044,16 @@ const CanvasArea = ({
               resolvedFullPath = loc.fullPath
               resolvedLineNumber = loc.lineNumber
             }
-          } catch {}
+          } catch { }
+        }
+
+        // Trang mới chưa có phần tử nào để dò: ghi thẳng vào tệp của trang đang mở.
+        // Nếu để bộ dò tự tìm, nó rơi về trang chủ (index.html) và part biến mất khỏi trang.
+        if (!resolvedFullPath) {
+          const pageFile = pageFileForRoute(pages, currentRoute || currentRouteRef.current)
+          if (pageFile) {
+            resolvedFullPath = `${projectPath.replace(/[\\/]+$/, '')}/${pageFile.replace(/\\/g, '/')}`
+          }
         }
 
         const targetObj = {
@@ -2712,9 +3062,9 @@ const CanvasArea = ({
           lineNumber: resolvedLineNumber,
         }
 
-        const domHtml = item.css
-          ? `${item.html}\n<style data-pm-toolbox>${item.css}</style>`
-          : item.html
+        const styleTag = item.css ? `\n<style data-pm-toolbox>${item.css}</style>` : ''
+        const scriptTag = item.js ? `\n<script data-pm-toolbox>${item.js}</script>` : ''
+        const domHtml = `${item.html}${styleTag}${scriptTag}`
 
         const startEpoch = docEpochRef.current
 
@@ -2735,6 +3085,7 @@ const CanvasArea = ({
             target: targetObj,
             html: item.html,
             css: item.css,
+            js: item.js,
             dryRun: false,
           })
         } catch (err) {
@@ -2756,17 +3107,17 @@ const CanvasArea = ({
           },
           sourceLoc: writeResult?.fullPath
             ? {
-                filePath: writeResult.filePath || '',
-                fullPath: writeResult.fullPath,
-                lineNumber: writeResult.startLine || 1,
-              }
+              filePath: writeResult.filePath || '',
+              fullPath: writeResult.fullPath,
+              lineNumber: writeResult.startLine || 1,
+            }
             : (resolvedFullPath
-                ? {
-                    filePath: writeResult?.filePath || '',
-                    fullPath: resolvedFullPath,
-                    lineNumber: resolvedLineNumber || 1,
-                  }
-                : undefined),
+              ? {
+                filePath: writeResult?.filePath || '',
+                fullPath: resolvedFullPath,
+                lineNumber: resolvedLineNumber || 1,
+              }
+              : undefined),
           before: { styles: {} },
           after: { styles: {} },
           dom: {
@@ -2782,14 +3133,18 @@ const CanvasArea = ({
           docEpoch: startEpoch,
         })
 
-        showToast(`Đã chèn “${item.name}” vào trang (Ctrl+Z để hoàn tác)`, 'ok')
+        if (writeResult?.success === false) {
+          showToast(`${writeResult.error || 'Không ghi được vào tệp nguồn'} — part chỉ mới hiện trên canvas.`, 'warn')
+        } else {
+          showToast(`Đã chèn “${item.name}” vào trang (Ctrl+Z để hoàn tác)`, 'ok')
+        }
       } finally {
         window.setTimeout(() => {
           isInsertingRef.current = false
         }, 400)
       }
     },
-    [projectPath, selectedEl, sourceLoc, buildTarget, sendToolboxMessage, showToast],
+    [projectPath, selectedEl, sourceLoc, buildTarget, sendToolboxMessage, showToast, pages, currentRoute],
   )
 
   const beginToolboxDelete = useCallback(async () => {
@@ -3553,7 +3908,7 @@ const CanvasArea = ({
     })
     // Đồng thời đưa vào clipboard hệ thống để có thể dán ra ngoài ứng dụng
     try {
-      Promise.resolve(navigator.clipboard?.writeText(html)).catch(() => {})
+      Promise.resolve(navigator.clipboard?.writeText(html)).catch(() => { })
     } catch {
       /* Clipboard hệ thống có thể bị từ chối quyền — bỏ qua */
     }
@@ -3607,7 +3962,7 @@ const CanvasArea = ({
             resolvedFullPath = loc.fullPath
             resolvedLineNumber = loc.lineNumber
           }
-        } catch {}
+        } catch { }
       }
 
       const targetObj = {
@@ -3666,16 +4021,16 @@ const CanvasArea = ({
         },
         sourceLoc: writeResult?.fullPath
           ? {
-              filePath: writeResult.filePath || '',
-              fullPath: writeResult.fullPath,
-              lineNumber: writeResult.startLine || 1,
-            }
+            filePath: writeResult.filePath || '',
+            fullPath: writeResult.fullPath,
+            lineNumber: writeResult.startLine || 1,
+          }
           : resolvedFullPath
             ? {
-                filePath: '',
-                fullPath: resolvedFullPath,
-                lineNumber: resolvedLineNumber || 1,
-              }
+              filePath: '',
+              fullPath: resolvedFullPath,
+              lineNumber: resolvedLineNumber || 1,
+            }
             : undefined,
         before: { styles: {} },
         after: { styles: {} },
@@ -3855,10 +4210,10 @@ const CanvasArea = ({
           },
           sourceLoc: firstEdit
             ? {
-                filePath: firstEdit.filePath || '',
-                fullPath: firstEdit.fullPath,
-                lineNumber: firstEdit.lineNumber || 1,
-              }
+              filePath: firstEdit.filePath || '',
+              fullPath: firstEdit.fullPath,
+              lineNumber: firstEdit.lineNumber || 1,
+            }
             : undefined,
           before: { styles: {} },
           after: { styles: {} },
@@ -4154,10 +4509,10 @@ const CanvasArea = ({
         },
         sourceLoc: result.fullPath
           ? {
-              filePath: result.filePath || '',
-              fullPath: result.fullPath,
-              lineNumber: result.startLine || 1,
-            }
+            filePath: result.filePath || '',
+            fullPath: result.fullPath,
+            lineNumber: result.startLine || 1,
+          }
           : undefined,
         before: { styles: {}, text: textBefore },
         after: { styles: {}, text: textAfter },
@@ -4964,16 +5319,16 @@ const CanvasArea = ({
         )
       )}
 
-                {(isPanActive || isPanning) && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      zIndex: 50,
-                      cursor: isPanning ? 'grabbing' : 'grab',
-                    }}
-                  />
-                )}
+      {(isPanActive || isPanning) && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 50,
+            cursor: isPanning ? 'grabbing' : 'grab',
+          }}
+        />
+      )}
 
                 {/* D2-04: Khung viền hover phần tử khi soi (chỉ hiển thị khi hoverOutline bật) */}
                 {isInspectMode && hoverOutline && hoverEl && (!selectedEl || hoverEl.uid !== selectedEl.uid) && (
@@ -5000,217 +5355,217 @@ const CanvasArea = ({
                   </div>
                 )}
 
-                {/* Khung viền chỉ báo Khung cha (Chỉ hiển thị khi đang kéo chuột di chuyển để định hướng) */}
-                {isInspectMode && isMovingEl && selectedEl && selectedEl.parent && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: selectedEl.parent.rect.top,
-                      left: selectedEl.parent.rect.left,
-                      width: selectedEl.parent.rect.width,
-                      height: selectedEl.parent.rect.height,
-                      border: '1.5px dashed rgba(99, 102, 241, 0.45)',
-                      borderRadius: 6,
-                      pointerEvents: 'none',
-                      zIndex: 35,
-                    }}
-                  >
-                    <span
-                      style={{
-                        position: 'absolute',
-                        bottom: '100%',
-                        left: 0,
-                        marginBottom: 2,
-                        padding: '1px 6px',
-                        borderRadius: 4,
-                        background: 'rgba(99, 102, 241, 0.85)',
-                        color: '#ffffff',
-                        fontSize: 10,
-                        fontWeight: 600,
-                        letterSpacing: '0.02em',
-                      }}
-                    >
-                      Khung cha: {selectedEl.parent.tag}
-                    </span>
-                  </div>
-                )}
+      {/* Khung viền chỉ báo Khung cha (Chỉ hiển thị khi đang kéo chuột di chuyển để định hướng) */}
+      {isInspectMode && isMovingEl && selectedEl && selectedEl.parent && (
+        <div
+          style={{
+            position: 'absolute',
+            top: selectedEl.parent.rect.top,
+            left: selectedEl.parent.rect.left,
+            width: selectedEl.parent.rect.width,
+            height: selectedEl.parent.rect.height,
+            border: '1.5px dashed rgba(99, 102, 241, 0.45)',
+            borderRadius: 6,
+            pointerEvents: 'none',
+            zIndex: 35,
+          }}
+        >
+          <span
+            style={{
+              position: 'absolute',
+              bottom: '100%',
+              left: 0,
+              marginBottom: 2,
+              padding: '1px 6px',
+              borderRadius: 4,
+              background: 'rgba(99, 102, 241, 0.85)',
+              color: '#ffffff',
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: '0.02em',
+            }}
+          >
+            Khung cha: {selectedEl.parent.tag}
+          </span>
+        </div>
+      )}
 
-                {/* Khung viền chỉ báo Đích Thả Mới (Drop Target Zone Indicator) */}
-                {isInspectMode && isMovingEl && dropTargetHover && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: dropTargetHover.rect.top,
-                      left: dropTargetHover.rect.left,
-                      width: dropTargetHover.rect.width,
-                      height: dropTargetHover.rect.height,
-                      border: '2px solid #22c55e',
-                      backgroundColor: 'rgba(34, 197, 94, 0.12)',
-                      borderRadius: 6,
-                      pointerEvents: 'none',
-                      zIndex: 38,
-                      boxShadow: '0 0 0 3px rgba(34, 197, 94, 0.25)',
-                      transition: 'all 60ms ease-out',
-                    }}
-                  >
-                    <span
-                      style={{
-                        position: 'absolute',
-                        top: -22,
-                        left: 0,
-                        padding: '2px 8px',
-                        borderRadius: 4,
-                        background: '#16a34a',
-                        color: '#ffffff',
-                        fontSize: 10.5,
-                        fontWeight: 700,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-                      }}
-                    >
-                      <span>📥 Thả vào:</span>
-                      <code>{dropTargetHover.tag}</code>
-                    </span>
-                  </div>
-                )}
+      {/* Khung viền chỉ báo Đích Thả Mới (Drop Target Zone Indicator) */}
+      {isInspectMode && isMovingEl && dropTargetHover && (
+        <div
+          style={{
+            position: 'absolute',
+            top: dropTargetHover.rect.top,
+            left: dropTargetHover.rect.left,
+            width: dropTargetHover.rect.width,
+            height: dropTargetHover.rect.height,
+            border: '2px solid #22c55e',
+            backgroundColor: 'rgba(34, 197, 94, 0.12)',
+            borderRadius: 6,
+            pointerEvents: 'none',
+            zIndex: 38,
+            boxShadow: '0 0 0 3px rgba(34, 197, 94, 0.25)',
+            transition: 'all 60ms ease-out',
+          }}
+        >
+          <span
+            style={{
+              position: 'absolute',
+              top: -22,
+              left: 0,
+              padding: '2px 8px',
+              borderRadius: 4,
+              background: '#16a34a',
+              color: '#ffffff',
+              fontSize: 10.5,
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+            }}
+          >
+            <span>📥 Thả vào:</span>
+            <code>{dropTargetHover.tag}</code>
+          </span>
+        </div>
+      )}
 
-                {/* Khung chỉ báo thả phần tử từ Hộp công cụ — chuẩn VS2022 / Webflow */}
-                {toolboxDropHover && (
-                  <>
-                    {/* Bounding box mờ bao quanh phần tử mục tiêu */}
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: toolboxDropHover.rect.top,
-                        left: toolboxDropHover.rect.left,
-                        width: toolboxDropHover.rect.width,
-                        height: toolboxDropHover.rect.height,
-                        border: toolboxDropHover.placement === 'inside'
-                          ? '2.5px dashed #0284c7'
-                          : '1px dashed rgba(2, 132, 199, 0.45)',
-                        backgroundColor: toolboxDropHover.placement === 'inside'
-                          ? 'rgba(2, 132, 199, 0.14)'
-                          : 'rgba(2, 132, 199, 0.04)',
-                        borderRadius: 6,
-                        pointerEvents: 'none',
-                        zIndex: 39,
-                        boxShadow: toolboxDropHover.placement === 'inside'
-                          ? '0 0 0 3px rgba(2, 132, 199, 0.25), inset 0 0 14px rgba(2, 132, 199, 0.15)'
-                          : 'none',
-                        transition: 'all 60ms ease-out',
-                      }}
-                    />
+      {/* Khung chỉ báo thả phần tử từ Hộp công cụ — chuẩn VS2022 / Webflow */}
+      {toolboxDropHover && (
+        <>
+          {/* Bounding box mờ bao quanh phần tử mục tiêu */}
+          <div
+            style={{
+              position: 'absolute',
+              top: toolboxDropHover.rect.top,
+              left: toolboxDropHover.rect.left,
+              width: toolboxDropHover.rect.width,
+              height: toolboxDropHover.rect.height,
+              border: toolboxDropHover.placement === 'inside'
+                ? '2.5px dashed #0284c7'
+                : '1px dashed rgba(2, 132, 199, 0.45)',
+              backgroundColor: toolboxDropHover.placement === 'inside'
+                ? 'rgba(2, 132, 199, 0.14)'
+                : 'rgba(2, 132, 199, 0.04)',
+              borderRadius: 6,
+              pointerEvents: 'none',
+              zIndex: 39,
+              boxShadow: toolboxDropHover.placement === 'inside'
+                ? '0 0 0 3px rgba(2, 132, 199, 0.25), inset 0 0 14px rgba(2, 132, 199, 0.15)'
+                : 'none',
+              transition: 'all 60ms ease-out',
+            }}
+          />
 
-                    {/* VẠCH XANH CHỈ THỊ CHÈN TRƯỚC / SAU CHUẨN VS2022 / FIGMA */}
-                    {toolboxDropHover.placement !== 'inside' && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: toolboxDropHover.placement === 'before'
-                            ? toolboxDropHover.rect.top - 2
-                            : toolboxDropHover.rect.top + toolboxDropHover.rect.height - 2,
-                          left: Math.max(0, toolboxDropHover.rect.left - 4),
-                          width: toolboxDropHover.rect.width + 8,
-                          height: 4,
-                          background: '#0284c7',
-                          borderRadius: 2,
-                          zIndex: 41,
-                          pointerEvents: 'none',
-                          boxShadow: '0 0 10px rgba(2, 132, 199, 0.8), 0 0 3px #38bdf8',
-                        }}
-                      >
-                        {/* Điểm neo tròn bên trái */}
-                        <span
-                          style={{
-                            position: 'absolute',
-                            left: -4,
-                            top: -3,
-                            width: 10,
-                            height: 10,
-                            borderRadius: '50%',
-                            background: '#0284c7',
-                            border: '2px solid #ffffff',
-                            boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
-                          }}
-                        />
-                        {/* Điểm neo tròn bên phải */}
-                        <span
-                          style={{
-                            position: 'absolute',
-                            right: -4,
-                            top: -3,
-                            width: 10,
-                            height: 10,
-                            borderRadius: '50%',
-                            background: '#0284c7',
-                            border: '2px solid #ffffff',
-                            boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
-                          }}
-                        />
-                      </div>
-                    )}
+          {/* VẠCH XANH CHỈ THỊ CHÈN TRƯỚC / SAU CHUẨN VS2022 / FIGMA */}
+          {toolboxDropHover.placement !== 'inside' && (
+            <div
+              style={{
+                position: 'absolute',
+                top: toolboxDropHover.placement === 'before'
+                  ? toolboxDropHover.rect.top - 2
+                  : toolboxDropHover.rect.top + toolboxDropHover.rect.height - 2,
+                left: Math.max(0, toolboxDropHover.rect.left - 4),
+                width: toolboxDropHover.rect.width + 8,
+                height: 4,
+                background: '#0284c7',
+                borderRadius: 2,
+                zIndex: 41,
+                pointerEvents: 'none',
+                boxShadow: '0 0 10px rgba(2, 132, 199, 0.8), 0 0 3px #38bdf8',
+              }}
+            >
+              {/* Điểm neo tròn bên trái */}
+              <span
+                style={{
+                  position: 'absolute',
+                  left: -4,
+                  top: -3,
+                  width: 10,
+                  height: 10,
+                  borderRadius: '50%',
+                  background: '#0284c7',
+                  border: '2px solid #ffffff',
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                }}
+              />
+              {/* Điểm neo tròn bên phải */}
+              <span
+                style={{
+                  position: 'absolute',
+                  right: -4,
+                  top: -3,
+                  width: 10,
+                  height: 10,
+                  borderRadius: '50%',
+                  background: '#0284c7',
+                  border: '2px solid #ffffff',
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                }}
+              />
+            </div>
+          )}
 
-                    {/* Pill nhãn hiển thị vị trí chèn */}
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: toolboxDropHover.placement === 'before'
-                          ? Math.max(2, toolboxDropHover.rect.top - 24)
-                          : toolboxDropHover.placement === 'after'
-                            ? toolboxDropHover.rect.top + toolboxDropHover.rect.height + 4
-                            : Math.max(2, toolboxDropHover.rect.top - 22),
-                        left: toolboxDropHover.rect.left,
-                        padding: '3px 9px',
-                        borderRadius: 4,
-                        background: '#0284c7',
-                        color: '#ffffff',
-                        fontSize: 10.5,
-                        fontWeight: 700,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
-                        zIndex: 42,
-                        pointerEvents: 'none',
-                      }}
-                    >
-                      <span>
-                        {toolboxDropHover.placement === 'inside'
-                          ? '📥 Thả vào trong:'
-                          : toolboxDropHover.placement === 'before'
-                            ? '⬆️ Chèn trước:'
-                            : '⬇️ Chèn sau:'}
-                      </span>
-                      <code style={{ background: 'rgba(0,0,0,0.25)', padding: '1px 5px', borderRadius: 3 }}>
-                        {toolboxDropHover.tag}
-                      </code>
-                    </div>
-                  </>
-                )}
+          {/* Pill nhãn hiển thị vị trí chèn */}
+          <div
+            style={{
+              position: 'absolute',
+              top: toolboxDropHover.placement === 'before'
+                ? Math.max(2, toolboxDropHover.rect.top - 24)
+                : toolboxDropHover.placement === 'after'
+                  ? toolboxDropHover.rect.top + toolboxDropHover.rect.height + 4
+                  : Math.max(2, toolboxDropHover.rect.top - 22),
+              left: toolboxDropHover.rect.left,
+              padding: '3px 9px',
+              borderRadius: 4,
+              background: '#0284c7',
+              color: '#ffffff',
+              fontSize: 10.5,
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+              zIndex: 42,
+              pointerEvents: 'none',
+            }}
+          >
+            <span>
+              {toolboxDropHover.placement === 'inside'
+                ? '📥 Thả vào trong:'
+                : toolboxDropHover.placement === 'before'
+                  ? '⬆️ Chèn trước:'
+                  : '⬇️ Chèn sau:'}
+            </span>
+            <code style={{ background: 'rgba(0,0,0,0.25)', padding: '1px 5px', borderRadius: 3 }}>
+              {toolboxDropHover.tag}
+            </code>
+          </div>
+        </>
+      )}
 
-                {/* Khung viền phần tử ĐÃ CHỌN (Selection Box) */}
-                {isInspectMode && selectedEl && (() => {
-                  return (
-                    <div
-                      className="canvas__inspect-selected"
-                      style={{
-                        top: selectedEl.rect.top,
-                        left: selectedEl.rect.left,
-                        width: selectedEl.rect.width,
-                        height: selectedEl.rect.height,
-                      }}
-                    >
-                      {/* Nút kéo di chuyển vị trí phần tử (Icon-only, gọn gàng và tinh tế) */}
-                      <div
-                        className="canvas__inspect-move-bar"
-                        style={selectedEl.rect.top < 26 ? { top: 2, right: 2 } : undefined}
-                        onMouseDown={handleStartElementMove}
-                        title="Bấm giữ và kéo để di chuyển vị trí phần tử"
-                      >
-                        <Move size={12} strokeWidth={2.4} />
-                      </div>
+      {/* Khung viền phần tử ĐÃ CHỌN (Selection Box) */}
+      {isInspectMode && selectedEl && (() => {
+        return (
+          <div
+            className="canvas__inspect-selected"
+            style={{
+              top: selectedEl.rect.top,
+              left: selectedEl.rect.left,
+              width: selectedEl.rect.width,
+              height: selectedEl.rect.height,
+            }}
+          >
+            {/* Nút kéo di chuyển vị trí phần tử (Icon-only, gọn gàng và tinh tế) */}
+            <div
+              className="canvas__inspect-move-bar"
+              style={selectedEl.rect.top < 26 ? { top: 2, right: 2 } : undefined}
+              onMouseDown={handleStartElementMove}
+              title="Bấm giữ và kéo để di chuyển vị trí phần tử"
+            >
+              <Move size={12} strokeWidth={2.4} />
+            </div>
 
                       {/* D2-03: Nút mở AI Sidecar trên góc khung viền chọn */}
                       <button
@@ -5260,17 +5615,17 @@ const CanvasArea = ({
                         {Math.round(selectedEl.rect.width)} × {Math.round(selectedEl.rect.height)}
                       </span>
 
-                      {RESIZE_HANDLES.map((h) => (
-                        <span
-                          key={h.key}
-                          className={`canvas__inspect-handle ${h.key}`}
-                          onMouseDown={(e) => handleStartElementResize(e, h.key)}
-                          title={`Kéo để thay đổi kích thước (${h.label})`}
-                        />
-                      ))}
-                    </div>
-                  )
-                })()}
+            {RESIZE_HANDLES.map((h) => (
+              <span
+                key={h.key}
+                className={`canvas__inspect-handle ${h.key}`}
+                onMouseDown={(e) => handleStartElementResize(e, h.key)}
+                title={`Kéo để thay đổi kích thước (${h.label})`}
+              />
+            ))}
+          </div>
+        )
+      })()}
 
                 {/* D2-03: Component AI Sidecar gắn vào phần tử đang chọn */}
                 {isInspectMode && isSidecarOpen && selectedEl && (
@@ -5312,6 +5667,8 @@ const CanvasArea = ({
                       error={error}
                       installing={installing}
                       onInstall={onInstall}
+                      updatingDb={updatingDb}
+                      onDatabaseUpdate={onDatabaseUpdate}
                       onRetry={onRun}
                       onAskAI={onOpenAIPanel}
                     />
@@ -5620,6 +5977,34 @@ const CanvasArea = ({
               <PencilFillIcon size={12} />
             </button>
 
+            <button
+              className={`canvas__seg-btn ${isSelectingForPart ? 'active accent' : ''}`}
+              onClick={() => {
+                if (isSelectingForPart) {
+                  setIsSelectingForPart(false)
+                  showToast('Đã huỷ khoanh vùng lưu Part', 'info')
+                } else {
+                  handleStartPartLasso()
+                }
+              }}
+              title="Cây bút: Khoanh vùng nhiều phần tử trên Canvas để lưu Part"
+              style={{
+                height: 24,
+                padding: '0 8px',
+                gap: 5,
+                borderRadius: 6,
+                fontWeight: 650,
+                background: isSelectingForPart ? '#10b981' : 'var(--panel-2)',
+                color: isSelectingForPart ? '#ffffff' : 'var(--text)',
+                border: '1px solid var(--line)',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              <BoxSelect size={12} />
+              <span style={{ fontSize: 11 }}></span>
+            </button>
+
             {TOOLS.map((t) => (
               <button
                 key={t.key}
@@ -5787,16 +6172,16 @@ const CanvasArea = ({
             style={
               viewport === 'responsive'
                 ? {
-                    position: 'absolute',
-                    inset: 0,
-                    width: '100%',
-                    height: '100%',
-                    overflow: 'hidden',
-                    background: '#ffffff',
-                  }
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  overflow: 'hidden',
+                  background: '#ffffff',
+                }
                 : {
-                    transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom / 100})`,
-                  }
+                  transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom / 100})`,
+                }
             }
           >
             {viewport === 'multi' ? (
@@ -6009,6 +6394,24 @@ const CanvasArea = ({
                 <Trash2 size={11} /> Xoá
               </button>
               <button
+                className="btn secondary"
+                style={{
+                  height: 24,
+                  fontSize: 11,
+                  padding: '0 8px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: 'rgba(99, 102, 241, 0.18)',
+                  borderColor: 'rgba(99, 102, 241, 0.4)',
+                  color: '#c7d2fe',
+                }}
+                onClick={() => void handleOpenSavePart()}
+                title="Lưu các phần tử đang chọn thành Part mới trong Toolbox"
+              >
+                <PackagePlus size={11} /> Lưu Part {multiSelection.length > 1 ? `(${multiSelection.length})` : ''}
+              </button>
+              <button
                 className="canvas__tool-btn"
                 style={{ width: 24, height: 24 }}
                 title="Bỏ chọn (Esc)"
@@ -6024,7 +6427,14 @@ const CanvasArea = ({
           )}
 
           <div className="canvas__hint">
-            <span>▷ Soi phần tử (I) · Kéo vùng để chọn nhiều · Shift + Click để cộng/trừ · Ctrl+C / Ctrl+V sao chép-dán · F vừa khung</span>
+            {isSelectingForPart ? (
+              <span style={{ color: '#34d399', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <BoxSelect size={13} />
+                Đang ở chế độ Khoanh vùng lưu Part: Hãy kéo chuột khoanh các phần tử trên Canvas (hoặc click để chọn, bấm Esc để huỷ)
+              </span>
+            ) : (
+              <span>▷ Soi phần tử (I) · Kéo vùng để chọn nhiều · Shift + Click để cộng/trừ · Ctrl+C / Ctrl+V sao chép-dán · F vừa khung</span>
+            )}
           </div>
         </div>
 
@@ -6099,6 +6509,13 @@ const CanvasArea = ({
                     onClick={() => void beginToolboxDuplicate()}
                   >
                     <Copy size={13} />
+                  </button>
+                  <button
+                    className="canvas__tool-btn"
+                    title="Lưu phần tử thành Part (Linh kiện mẫu vào Toolbox)"
+                    onClick={() => handleOpenSavePart()}
+                  >
+                    <PackagePlus size={13} />
                   </button>
                   <button
                     className="canvas__tool-btn canvas__tool-btn--danger"
@@ -6380,268 +6797,268 @@ const CanvasArea = ({
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-                            {/* Ma trận căn chỉnh 3×3: Align Items × Justify Content — luôn hiển thị */}
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                                <span className="canvas__inspector-field-lbl">Căn chỉnh 3×3 (Align × Justify)</span>
-                                <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#38bdf8' }}>
-                                  {isFlexLayout || isGridLayout
-                                    ? `${matrixAlign} / ${matrixJustify}`
-                                    : `display: ${selectedEl.computedStyles.display || 'block'}`}
-                                </span>
-                              </div>
-                              <div className="canvas__align-matrix">
-                                {ALIGN_MATRIX_VALUES.map((alignValue) =>
-                                  ALIGN_MATRIX_VALUES.map((justifyValue) => {
-                                    const active =
-                                      (isFlexLayout || isGridLayout) &&
-                                      matrixAlign === alignValue &&
-                                      matrixJustify === justifyValue
-                                    const row = alignValue === 'flex-start' ? 'flex-start' : alignValue === 'flex-end' ? 'flex-end' : 'center'
-                                    const column = justifyValue === 'flex-start' ? 'flex-start' : justifyValue === 'flex-end' ? 'flex-end' : 'center'
-                                    return (
-                                      <button
-                                        key={`${alignValue}-${justifyValue}`}
-                                        type="button"
-                                        className={`canvas__align-matrix-cell ${active ? 'active' : ''}`}
-                                        title={`align-items: ${alignValue} · justify-content: ${justifyValue}`}
-                                        aria-label={`Căn ${alignValue} theo trục phụ, ${justifyValue} theo trục chính`}
-                                        onClick={() => {
-                                          const styles: Record<string, string> = {
-                                            alignItems: alignValue,
-                                            justifyContent: justifyValue,
-                                          }
-                                          // Nếu phần tử chưa phải flex/grid, tự bật flex để ma trận có tác dụng.
-                                          if (!isFlexLayout && !isGridLayout) styles.display = 'flex'
-                                          handleApplyLiveChange(styles, undefined, {
-                                            description: `Căn chỉnh ${alignValue} / ${justifyValue}`,
-                                            actionType: 'STYLE',
-                                          })
-                                        }}
-                                      >
-                                        <span className="canvas__align-matrix-box" style={{ alignItems: row, justifyContent: column }}>
-                                          <span className="canvas__align-matrix-dot" />
-                                        </span>
-                                      </button>
-                                    )
-                                  })
-                                )}
-                              </div>
-                              <div className="canvas__align-matrix-caption">
-                                Hàng: align-items · Cột: justify-content
-                              </div>
-                              {!(isFlexLayout || isGridLayout) && (
-                                <div className="canvas__align-matrix-hint">
-                                  Phần tử đang là <b>{selectedEl.computedStyles.display || 'block'}</b>. Bấm một ô
-                                  bất kỳ để tự chuyển sang <b>flex</b> và căn chỉnh các phần tử con.
-                                </div>
+                          {/* Ma trận căn chỉnh 3×3: Align Items × Justify Content — luôn hiển thị */}
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span className="canvas__inspector-field-lbl">Căn chỉnh 3×3 (Align × Justify)</span>
+                              <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#38bdf8' }}>
+                                {isFlexLayout || isGridLayout
+                                  ? `${matrixAlign} / ${matrixJustify}`
+                                  : `display: ${selectedEl.computedStyles.display || 'block'}`}
+                              </span>
+                            </div>
+                            <div className="canvas__align-matrix">
+                              {ALIGN_MATRIX_VALUES.map((alignValue) =>
+                                ALIGN_MATRIX_VALUES.map((justifyValue) => {
+                                  const active =
+                                    (isFlexLayout || isGridLayout) &&
+                                    matrixAlign === alignValue &&
+                                    matrixJustify === justifyValue
+                                  const row = alignValue === 'flex-start' ? 'flex-start' : alignValue === 'flex-end' ? 'flex-end' : 'center'
+                                  const column = justifyValue === 'flex-start' ? 'flex-start' : justifyValue === 'flex-end' ? 'flex-end' : 'center'
+                                  return (
+                                    <button
+                                      key={`${alignValue}-${justifyValue}`}
+                                      type="button"
+                                      className={`canvas__align-matrix-cell ${active ? 'active' : ''}`}
+                                      title={`align-items: ${alignValue} · justify-content: ${justifyValue}`}
+                                      aria-label={`Căn ${alignValue} theo trục phụ, ${justifyValue} theo trục chính`}
+                                      onClick={() => {
+                                        const styles: Record<string, string> = {
+                                          alignItems: alignValue,
+                                          justifyContent: justifyValue,
+                                        }
+                                        // Nếu phần tử chưa phải flex/grid, tự bật flex để ma trận có tác dụng.
+                                        if (!isFlexLayout && !isGridLayout) styles.display = 'flex'
+                                        handleApplyLiveChange(styles, undefined, {
+                                          description: `Căn chỉnh ${alignValue} / ${justifyValue}`,
+                                          actionType: 'STYLE',
+                                        })
+                                      }}
+                                    >
+                                      <span className="canvas__align-matrix-box" style={{ alignItems: row, justifyContent: column }}>
+                                        <span className="canvas__align-matrix-dot" />
+                                      </span>
+                                    </button>
+                                  )
+                                })
                               )}
                             </div>
-
-                            {(isFlexLayout || isGridLayout) && (
-                              <>
-                            {/* Align Items — giá trị mở rộng */}
-                            <div>
-                              <span className="canvas__inspector-field-lbl">Căn trục phụ (Align Items)</span>
-                              <div className="canvas__btn-group">
-                                {[
-                                  { label: 'Đầu', val: 'flex-start' },
-                                  { label: 'Giữa', val: 'center' },
-                                  { label: 'Cuối', val: 'flex-end' },
-                                  { label: 'Giãn', val: 'stretch' },
-                                  { label: 'Baseline', val: 'baseline' },
-                                ].map((item) => (
-                                  <button
-                                    key={item.val}
-                                    className={`canvas__btn-group-item ${selectedEl.computedStyles.alignItems === item.val ? 'active' : ''}`}
-                                    onClick={() => handleApplyLiveChange({ alignItems: item.val })}
-                                  >
-                                    {item.label}
-                                  </button>
-                                ))}
-                              </div>
+                            <div className="canvas__align-matrix-caption">
+                              Hàng: align-items · Cột: justify-content
                             </div>
-
-                            {/* Justify Content — giá trị mở rộng */}
-                            <div>
-                              <span className="canvas__inspector-field-lbl">Căn trục chính (Justify Content)</span>
-                              <div className="canvas__btn-group">
-                                {[
-                                  { label: 'Đầu', val: 'flex-start' },
-                                  { label: 'Giữa', val: 'center' },
-                                  { label: 'Cuối', val: 'flex-end' },
-                                  { label: 'Space between', val: 'space-between' },
-                                  { label: 'Space around', val: 'space-around' },
-                                  { label: 'Space evenly', val: 'space-evenly' },
-                                ].map((item) => (
-                                  <button
-                                    key={item.val}
-                                    className={`canvas__btn-group-item ${selectedEl.computedStyles.justifyContent === item.val ? 'active' : ''}`}
-                                    onClick={() => handleApplyLiveChange({ justifyContent: item.val })}
-                                  >
-                                    {item.label}
-                                  </button>
-                                ))}
+                            {!(isFlexLayout || isGridLayout) && (
+                              <div className="canvas__align-matrix-hint">
+                                Phần tử đang là <b>{selectedEl.computedStyles.display || 'block'}</b>. Bấm một ô
+                                bất kỳ để tự chuyển sang <b>flex</b> và căn chỉnh các phần tử con.
                               </div>
-                            </div>
-
-                            {/* Gap */}
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <span className="canvas__inspector-field-lbl">Khoảng cách giữa các phần tử (Gap)</span>
-                                <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#38bdf8' }}>
-                                  {selectedEl.computedStyles.gap || '0px'}
-                                </span>
-                              </div>
-                              <div className="canvas__slider-row">
-                                <input
-                                  type="range"
-                                  min="0"
-                                  max="48"
-                                  value={parseInt(selectedEl.computedStyles.gap) || 0}
-                                  onChange={(e) => handleApplyLiveChange({ gap: `${e.target.value}px` })}
-                                />
-                                <span className="canvas__slider-val">{selectedEl.computedStyles.gap || '0px'}</span>
-                              </div>
-                            </div>
-
-                            {/* Flex Direction */}
-                            {isFlexLayout && (
-                              <div>
-                                <span className="canvas__inspector-field-lbl">Hướng sắp xếp (Direction)</span>
-                                <div className="canvas__btn-group">
-                                  {[
-                                    { label: 'Ngang ➔', val: 'row', icon: ArrowRight },
-                                    { label: 'Dọc ⬇', val: 'column', icon: ArrowDown },
-                                    { label: 'Đảo ⬅', val: 'row-reverse', icon: ArrowLeft },
-                                    { label: 'Đảo ⬆', val: 'column-reverse', icon: ArrowUp },
-                                  ].map((item) => (
-                                    <button
-                                      key={item.val}
-                                      className={`canvas__btn-group-item ${selectedEl.computedStyles.flexDirection === item.val ? 'active' : ''}`}
-                                      onClick={() => handleApplyLiveChange({ flexDirection: item.val })}
-                                    >
-                                      {item.label}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Flex Wrap */}
-                            {isFlexLayout && (
-                              <div>
-                                <span className="canvas__inspector-field-lbl">Xuống dòng (Flex Wrap)</span>
-                                <div className="canvas__btn-group">
-                                  {[
-                                    { label: 'Không (nowrap)', val: 'nowrap' },
-                                    { label: 'Tự xuống dòng (wrap)', val: 'wrap' },
-                                    { label: 'Đảo (wrap-reverse)', val: 'wrap-reverse' },
-                                  ].map((item) => (
-                                    <button
-                                      key={item.val}
-                                      className={`canvas__btn-group-item ${selectedEl.computedStyles.flexWrap === item.val ? 'active' : ''}`}
-                                      onClick={() => handleApplyLiveChange({ flexWrap: item.val })}
-                                    >
-                                      {item.label}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Grid visual editor — chỉ hiện khi display: grid */}
-                            {isGridLayout && (
-                              <div className="canvas__grid-editor">
-                                <div className="canvas__grid-editor-hd">
-                                  <span>Trình chỉnh Grid</span>
-                                  <span className="canvas__grid-editor-size">
-                                    {gridColCount} × {gridRowCount}
-                                  </span>
-                                </div>
-
-                                <div
-                                  className="canvas__grid-preview"
-                                  style={{
-                                    gridTemplateColumns: `repeat(${Math.min(gridColCount, GRID_MAX_TRACKS)}, 1fr)`,
-                                    gridTemplateRows: `repeat(${Math.min(gridRowCount, GRID_MAX_TRACKS)}, 1fr)`,
-                                  }}
-                                >
-                                  {Array.from({ length: gridColCount * gridRowCount }).map((_, index) => (
-                                    <span key={index} className="canvas__grid-preview-cell" />
-                                  ))}
-                                </div>
-
-                                <div className="canvas__grid-steppers">
-                                  <div className="canvas__grid-stepper">
-                                    <span>Cột</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => setGridTracks('columns', gridColCount - 1)}
-                                      disabled={gridColCount <= 1}
-                                      aria-label="Giảm số cột"
-                                    >
-                                      −
-                                    </button>
-                                    <b>{gridColCount}</b>
-                                    <button
-                                      type="button"
-                                      onClick={() => setGridTracks('columns', gridColCount + 1)}
-                                      disabled={gridColCount >= GRID_MAX_TRACKS}
-                                      aria-label="Tăng số cột"
-                                    >
-                                      +
-                                    </button>
-                                  </div>
-                                  <div className="canvas__grid-stepper">
-                                    <span>Hàng</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => setGridTracks('rows', gridRowCount - 1)}
-                                      disabled={gridRowCount <= 1}
-                                      aria-label="Giảm số hàng"
-                                    >
-                                      −
-                                    </button>
-                                    <b>{gridRowCount}</b>
-                                    <button
-                                      type="button"
-                                      onClick={() => setGridTracks('rows', gridRowCount + 1)}
-                                      disabled={gridRowCount >= GRID_MAX_TRACKS}
-                                      aria-label="Tăng số hàng"
-                                    >
-                                      +
-                                    </button>
-                                  </div>
-                                </div>
-
-                                <GridTrackInput
-                                  label="grid-template-columns"
-                                  value={displayGridTracks(selectedEl.computedStyles.gridTemplateColumns, gridColCount)}
-                                  onApply={(value) =>
-                                    handleApplyLiveChange(
-                                      { gridTemplateColumns: value },
-                                      undefined,
-                                      { description: `grid-template-columns: ${value}`, actionType: 'STYLE' }
-                                    )
-                                  }
-                                />
-                                <GridTrackInput
-                                  label="grid-template-rows"
-                                  value={displayGridTracks(selectedEl.computedStyles.gridTemplateRows, gridRowCount)}
-                                  onApply={(value) =>
-                                    handleApplyLiveChange(
-                                      { gridTemplateRows: value },
-                                      undefined,
-                                      { description: `grid-template-rows: ${value}`, actionType: 'STYLE' }
-                                    )
-                                  }
-                                />
-                              </div>
-                            )}
-                              </>
                             )}
                           </div>
+
+                          {(isFlexLayout || isGridLayout) && (
+                            <>
+                              {/* Align Items — giá trị mở rộng */}
+                              <div>
+                                <span className="canvas__inspector-field-lbl">Căn trục phụ (Align Items)</span>
+                                <div className="canvas__btn-group">
+                                  {[
+                                    { label: 'Đầu', val: 'flex-start' },
+                                    { label: 'Giữa', val: 'center' },
+                                    { label: 'Cuối', val: 'flex-end' },
+                                    { label: 'Giãn', val: 'stretch' },
+                                    { label: 'Baseline', val: 'baseline' },
+                                  ].map((item) => (
+                                    <button
+                                      key={item.val}
+                                      className={`canvas__btn-group-item ${selectedEl.computedStyles.alignItems === item.val ? 'active' : ''}`}
+                                      onClick={() => handleApplyLiveChange({ alignItems: item.val })}
+                                    >
+                                      {item.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Justify Content — giá trị mở rộng */}
+                              <div>
+                                <span className="canvas__inspector-field-lbl">Căn trục chính (Justify Content)</span>
+                                <div className="canvas__btn-group">
+                                  {[
+                                    { label: 'Đầu', val: 'flex-start' },
+                                    { label: 'Giữa', val: 'center' },
+                                    { label: 'Cuối', val: 'flex-end' },
+                                    { label: 'Space between', val: 'space-between' },
+                                    { label: 'Space around', val: 'space-around' },
+                                    { label: 'Space evenly', val: 'space-evenly' },
+                                  ].map((item) => (
+                                    <button
+                                      key={item.val}
+                                      className={`canvas__btn-group-item ${selectedEl.computedStyles.justifyContent === item.val ? 'active' : ''}`}
+                                      onClick={() => handleApplyLiveChange({ justifyContent: item.val })}
+                                    >
+                                      {item.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Gap */}
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span className="canvas__inspector-field-lbl">Khoảng cách giữa các phần tử (Gap)</span>
+                                  <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#38bdf8' }}>
+                                    {selectedEl.computedStyles.gap || '0px'}
+                                  </span>
+                                </div>
+                                <div className="canvas__slider-row">
+                                  <input
+                                    type="range"
+                                    min="0"
+                                    max="48"
+                                    value={parseInt(selectedEl.computedStyles.gap) || 0}
+                                    onChange={(e) => handleApplyLiveChange({ gap: `${e.target.value}px` })}
+                                  />
+                                  <span className="canvas__slider-val">{selectedEl.computedStyles.gap || '0px'}</span>
+                                </div>
+                              </div>
+
+                              {/* Flex Direction */}
+                              {isFlexLayout && (
+                                <div>
+                                  <span className="canvas__inspector-field-lbl">Hướng sắp xếp (Direction)</span>
+                                  <div className="canvas__btn-group">
+                                    {[
+                                      { label: 'Ngang ➔', val: 'row', icon: ArrowRight },
+                                      { label: 'Dọc ⬇', val: 'column', icon: ArrowDown },
+                                      { label: 'Đảo ⬅', val: 'row-reverse', icon: ArrowLeft },
+                                      { label: 'Đảo ⬆', val: 'column-reverse', icon: ArrowUp },
+                                    ].map((item) => (
+                                      <button
+                                        key={item.val}
+                                        className={`canvas__btn-group-item ${selectedEl.computedStyles.flexDirection === item.val ? 'active' : ''}`}
+                                        onClick={() => handleApplyLiveChange({ flexDirection: item.val })}
+                                      >
+                                        {item.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Flex Wrap */}
+                              {isFlexLayout && (
+                                <div>
+                                  <span className="canvas__inspector-field-lbl">Xuống dòng (Flex Wrap)</span>
+                                  <div className="canvas__btn-group">
+                                    {[
+                                      { label: 'Không (nowrap)', val: 'nowrap' },
+                                      { label: 'Tự xuống dòng (wrap)', val: 'wrap' },
+                                      { label: 'Đảo (wrap-reverse)', val: 'wrap-reverse' },
+                                    ].map((item) => (
+                                      <button
+                                        key={item.val}
+                                        className={`canvas__btn-group-item ${selectedEl.computedStyles.flexWrap === item.val ? 'active' : ''}`}
+                                        onClick={() => handleApplyLiveChange({ flexWrap: item.val })}
+                                      >
+                                        {item.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Grid visual editor — chỉ hiện khi display: grid */}
+                              {isGridLayout && (
+                                <div className="canvas__grid-editor">
+                                  <div className="canvas__grid-editor-hd">
+                                    <span>Trình chỉnh Grid</span>
+                                    <span className="canvas__grid-editor-size">
+                                      {gridColCount} × {gridRowCount}
+                                    </span>
+                                  </div>
+
+                                  <div
+                                    className="canvas__grid-preview"
+                                    style={{
+                                      gridTemplateColumns: `repeat(${Math.min(gridColCount, GRID_MAX_TRACKS)}, 1fr)`,
+                                      gridTemplateRows: `repeat(${Math.min(gridRowCount, GRID_MAX_TRACKS)}, 1fr)`,
+                                    }}
+                                  >
+                                    {Array.from({ length: gridColCount * gridRowCount }).map((_, index) => (
+                                      <span key={index} className="canvas__grid-preview-cell" />
+                                    ))}
+                                  </div>
+
+                                  <div className="canvas__grid-steppers">
+                                    <div className="canvas__grid-stepper">
+                                      <span>Cột</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setGridTracks('columns', gridColCount - 1)}
+                                        disabled={gridColCount <= 1}
+                                        aria-label="Giảm số cột"
+                                      >
+                                        −
+                                      </button>
+                                      <b>{gridColCount}</b>
+                                      <button
+                                        type="button"
+                                        onClick={() => setGridTracks('columns', gridColCount + 1)}
+                                        disabled={gridColCount >= GRID_MAX_TRACKS}
+                                        aria-label="Tăng số cột"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                    <div className="canvas__grid-stepper">
+                                      <span>Hàng</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setGridTracks('rows', gridRowCount - 1)}
+                                        disabled={gridRowCount <= 1}
+                                        aria-label="Giảm số hàng"
+                                      >
+                                        −
+                                      </button>
+                                      <b>{gridRowCount}</b>
+                                      <button
+                                        type="button"
+                                        onClick={() => setGridTracks('rows', gridRowCount + 1)}
+                                        disabled={gridRowCount >= GRID_MAX_TRACKS}
+                                        aria-label="Tăng số hàng"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <GridTrackInput
+                                    label="grid-template-columns"
+                                    value={displayGridTracks(selectedEl.computedStyles.gridTemplateColumns, gridColCount)}
+                                    onApply={(value) =>
+                                      handleApplyLiveChange(
+                                        { gridTemplateColumns: value },
+                                        undefined,
+                                        { description: `grid-template-columns: ${value}`, actionType: 'STYLE' }
+                                      )
+                                    }
+                                  />
+                                  <GridTrackInput
+                                    label="grid-template-rows"
+                                    value={displayGridTracks(selectedEl.computedStyles.gridTemplateRows, gridRowCount)}
+                                    onApply={(value) =>
+                                      handleApplyLiveChange(
+                                        { gridTemplateRows: value },
+                                        undefined,
+                                        { description: `grid-template-rows: ${value}`, actionType: 'STYLE' }
+                                      )
+                                    }
+                                  />
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
 
                       {/* 3. KHOẢNG CÁCH TRỰC QUAN WEBFLOW & DEVTOOLS BOX MODEL */}
@@ -8548,6 +8965,20 @@ const CanvasArea = ({
           <button
             className="pm-canvas-context-menu__item"
             onClick={() => {
+              const items = multiSelection.length > 1 ? multiSelection : [canvasContextMenu.info]
+              setCanvasContextMenu(null)
+              setTimeout(() => {
+                void handleOpenSavePart(undefined, undefined, items)
+              }, 40)
+            }}
+          >
+            <PackagePlus size={13} />
+            <span>{multiSelection.length > 1 ? `Lưu ${multiSelection.length} phần tử đã chọn thành Part...` : 'Lưu thành Part (Toolbox)...'}</span>
+          </button>
+
+          <button
+            className="pm-canvas-context-menu__item"
+            onClick={() => {
               if (canvasContextMenu.info.selector) {
                 void navigator.clipboard.writeText(canvasContextMenu.info.selector)
                 showToast('Đã sao chép CSS Selector.', 'ok')
@@ -8594,6 +9025,23 @@ const CanvasArea = ({
         }}
         onConfirm={(customBlock?: string) => void applyPendingMutation(customBlock)}
         onPreviewOnly={() => void applyPreviewOnlyMutation()}
+      />
+
+      <SavePartModal
+        open={savePartModalOpen}
+        initialHtml={savePartHtml}
+        initialCss={savePartCss}
+        initialJs={savePartJs}
+        initialPreview={savePartPreviewImage}
+        stylesheetLinks={savePartStylesheets}
+        language="html"
+        projectPath={projectPath}
+        onClose={() => setSavePartModalOpen(false)}
+        onPickFromCanvas={handleStartPartLasso}
+        onSaved={(_part) => {
+          window.dispatchEvent(new CustomEvent('pm:custom-parts-changed'))
+        }}
+        onShowToast={(kind, text) => showToast(text, kind)}
       />
 
     </div>

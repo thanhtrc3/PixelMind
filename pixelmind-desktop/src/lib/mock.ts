@@ -311,6 +311,39 @@ export function createBrowserMock(): PixelMindApi {
       async pickFolder() {
         return null
       },
+      async pickFolderOnly() {
+        return null
+      },
+      async createFromTemplate() {
+        return { success: false, error: 'Chức năng tạo dự án chỉ hỗ trợ trên bản desktop.' }
+      },
+      async pickZipFile() {
+        return null
+      },
+      async inspectZip() {
+        return {
+          ok: false,
+          error: 'Chức năng nhập dự án ZIP chỉ hỗ trợ trên bản desktop.',
+          fileCount: 0,
+          directoryCount: 0,
+          totalBytes: 0,
+          compressedBytes: 0,
+          entries: [],
+          warnings: [],
+        }
+      },
+      async importZip() {
+        return { ok: false, error: 'Chức năng nhập dự án ZIP chỉ hỗ trợ trên bản desktop.' }
+      },
+      async pickZipSavePath() {
+        return null
+      },
+      async exportZip() {
+        return { ok: false, error: 'Chức năng xuất dự án ZIP chỉ hỗ trợ trên bản desktop.' }
+      },
+      onArchiveProgress() {
+        return () => {}
+      },
       async add() {
         return null
       },
@@ -480,6 +513,12 @@ export function createBrowserMock(): PixelMindApi {
       async gitCreateBranch() {
         return { ok: true }
       },
+      async gitClone() {
+        return { ok: false, error: 'Chức năng clone Git chỉ hỗ trợ trên bản desktop.' }
+      },
+      async gitSetRemote() {
+        return { ok: true }
+      },
       async gitPush() {
         return { ok: true }
       },
@@ -576,6 +615,20 @@ export function createBrowserMock(): PixelMindApi {
         return { success: false, error: 'Chỉ khả dụng trên bản desktop' }
       },
     },
+    images: {
+      async inspect() {
+        return { ok: false, error: 'Chức năng tối ưu ảnh chỉ hỗ trợ trên bản desktop.' }
+      },
+      async preview() {
+        return { ok: false, error: 'Chức năng tối ưu ảnh chỉ hỗ trợ trên bản desktop.' }
+      },
+      async apply() {
+        return { ok: false, error: 'Chức năng tối ưu ảnh chỉ hỗ trợ trên bản desktop.' }
+      },
+      async revert() {
+        return { success: false, error: 'Chức năng tối ưu ảnh chỉ hỗ trợ trên bản desktop.' }
+      },
+    },
     run: {
       async install(projectId) {
         clear()
@@ -601,6 +654,9 @@ export function createBrowserMock(): PixelMindApi {
           }, 1500),
         )
         return currentRun
+      },
+      async efDatabaseUpdate() {
+        return { ok: true, output: 'Done. Applied all migrations.' }
       },
       async start(projectId, script) {
         clear()
@@ -807,6 +863,19 @@ export function createBrowserMock(): PixelMindApi {
         return { success: true, filePath: 'src/App.tsx', lineNumber: 1 }
       },
     },
+    a11y: {
+      async scan() {
+        return {
+          ok: false,
+          reason: 'no-frame' as const,
+          error: 'Bản giả lập trên trình duyệt không có khung xem trước để quét.',
+          scannedAt: Date.now(),
+          violations: [],
+          counts: { critical: 0, serious: 0, moderate: 0, minor: 0 },
+          total: 0,
+        }
+      },
+    },
     tokens: {
       async get(_projectPath) {
         return { ...DEFAULT_DESIGN_TOKENS }
@@ -840,6 +909,115 @@ export function createBrowserMock(): PixelMindApi {
           assets: [],
           routes: [],
         }
+      },
+      async listParts(_projectPath) {
+        return { success: true, parts: [] }
+      },
+      async savePart(input) {
+        return {
+          success: true,
+          part: {
+            id: 'mock-part',
+            name: input.name,
+            description: input.description || '',
+            html: input.html,
+            language: input.language || 'html',
+            tags: ['custom'],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        }
+      },
+      async deletePart(_id, _projectPath) {
+        return { success: true }
+      },
+    },
+    mock: {
+      async load(_projectPath) {
+        return null
+      },
+      async save(_projectPath, _config) {
+        return { success: true }
+      },
+      async start(projectPath, config) {
+        return {
+          running: true,
+          port: config.port || 4500,
+          url: `http://127.0.0.1:${config.port || 4500}`,
+          projectPath,
+          calls: [],
+        }
+      },
+      async stop() {
+        return { running: false, port: null, url: null, calls: [] }
+      },
+      async state() {
+        return { running: false, port: null, url: null, calls: [] }
+      },
+      onState(_cb) {
+        return () => undefined
+      },
+    },
+    auth: {
+      async state() {
+        return { status: 'unconfigured', user: null, expiresAt: null }
+      },
+      async signIn(_email, _password) {
+        return {
+          ok: false,
+          state: { status: 'unconfigured', user: null, expiresAt: null, error: 'Bản giả lập không đăng nhập được.' },
+          error: 'Bản giả lập không đăng nhập được.',
+        }
+      },
+      async signOut() {
+        return { status: 'signed-out', user: null, expiresAt: null }
+      },
+      onState(_cb) {
+        return () => undefined
+      },
+    },
+    cloud: {
+      async sync(_projectPath) {
+        return {
+          ok: false,
+          error: 'Bản giả lập không đồng bộ cloud.',
+          pushed: [],
+          pulled: [],
+          conflicts: [],
+          skipped: [],
+        }
+      },
+      async members() {
+        return { success: false, error: 'Bản giả lập không hỗ trợ thành viên cloud.' }
+      },
+      async invite(_email, _role) {
+        return { success: false, error: 'Bản giả lập không hỗ trợ phân quyền.' }
+      },
+      async setRole(_email, _role) {
+        return { success: false, error: 'Bản giả lập không hỗ trợ phân quyền.' }
+      },
+    },
+    deploy: {
+      async setToken(_provider, _token) {
+        return { success: true }
+      },
+      async hasToken(_provider) {
+        return false
+      },
+      async clearToken(_provider) {
+        return true
+      },
+      async start(_projectId) {
+        return { status: 'error', url: null, phase: '', error: 'Bản giả lập không chạy được lệnh deploy.' }
+      },
+      async state() {
+        return { status: 'idle', url: null, phase: '' }
+      },
+      onLog(_cb) {
+        return () => undefined
+      },
+      onState(_cb) {
+        return () => undefined
       },
     },
     ai: {
@@ -1175,6 +1353,9 @@ export function createBrowserMock(): PixelMindApi {
       },
       getZoomFactor() {
         return 1
+      },
+      async captureRect() {
+        return null
       },
     },
   }

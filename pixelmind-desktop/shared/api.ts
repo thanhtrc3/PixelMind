@@ -25,6 +25,10 @@ import type {
   TerminalSession,
 } from './types'
 import type {
+  CustomPartDeleteResult,
+  CustomPartInput,
+  CustomPartListResult,
+  CustomPartSaveResult,
   MutationPreview,
   ProjectScanResult,
   ToolboxMutationPayload,
@@ -32,19 +36,60 @@ import type {
   ToolboxWriteResult,
 } from './toolbox'
 import type { AiApi } from './ai'
+import type { A11yScanResult } from './a11y'
+import type { MockApiConfig, MockApiState } from './mockApi'
+import type { DeployProvider, DeployState, DeployLog } from './deploy'
+import type { AuthState, SignInResult } from './auth'
+import type { CloudRole, CloudSyncReport } from './cloud'
+import type {
+  ImageApplyOptions,
+  ImageApplyResult,
+  ImageInspectResult,
+  ImageOptimizeOptions,
+  ImagePreviewResult,
+} from './imageOptimize'
+import type {
+  ArchiveProgress,
+  ZipExportOptions,
+  ZipExportResult,
+  ZipImportOptions,
+  ZipImportResult,
+  ZipInspection,
+} from './archive'
 
 export interface FileSearchMatch {
   file: string
   fullPath: string
   line: number
   preview: string
+  /** Vị trí bắt đầu của đoạn khớp trong dòng gốc (0-based, tính cả thụt lề). */
   matchStart?: number
+  /** Vị trí kết thúc (không bao gồm) trong dòng gốc (0-based). */
   matchEnd?: number
+  /** Vị trí khớp trong `preview` (0-based) — dùng để tô sáng trong danh sách kết quả. */
+  previewMatchStart?: number
+  /** Vị trí kết thúc (không bao gồm) trong `preview` (0-based). */
+  previewMatchEnd?: number
+}
+
+export interface FileSearchRange {
+  /** Cột bắt đầu trong dòng (0-based). */
+  start: number
+  /** Cột kết thúc, không bao gồm (0-based). */
+  end: number
 }
 
 export interface FileSearchOptions {
   caseSensitive?: boolean
   maxResults?: number
+  /** Coi truy vấn là biểu thức chính quy (RegExp). */
+  regex?: boolean
+  /** Chỉ khớp khi từ trọn vẹn. */
+  wholeWord?: boolean
+  /** Chỉ tìm trong các tệp khớp glob (ví dụ `*.tsx`, `src/**`). Rỗng = mọi tệp văn bản. */
+  includeGlobs?: string[]
+  /** Bỏ qua các tệp/thư mục khớp glob (ví dụ `src/generated/**`, `*.min.js`). */
+  excludeGlobs?: string[]
 }
 
 /** Hợp đồng API mà preload (Electron) và bản giả lập trên trình duyệt cùng cài đặt. */
@@ -60,6 +105,12 @@ export interface PixelMindApi {
   }
   projects: {
     pickFolder(): Promise<ProjectRecord | null>
+    pickFolderOnly(): Promise<string | null>
+    createFromTemplate(options: {
+      templateId: string
+      parentDir: string
+      projectName: string
+    }): Promise<{ success: boolean; project?: ProjectRecord; error?: string }>
     add(folder: string): Promise<ProjectRecord | null>
     list(): Promise<ProjectRecord[]>
     open(id: string): Promise<ProjectRecord | null>
@@ -111,10 +162,36 @@ export interface PixelMindApi {
     gitCheckout(projectId: string, branchName: string): Promise<GitActionResult>
     /** Tạo nhánh mới (và tuỳ chọn checkout sang nhánh đó). */
     gitCreateBranch(projectId: string, branchName: string, checkout?: boolean): Promise<GitActionResult>
+    /** Clone một repository Git từ xa về máy và đăng ký thành dự án. */
+    gitClone(options: {
+      repoUrl: string
+      parentDir: string
+      folderName?: string
+    }): Promise<{ ok: boolean; project?: ProjectRecord; error?: string }>
+    /** Cấu hình remote repository (mặc định 'origin'). */
+    gitSetRemote(
+      projectId: string,
+      remoteUrl: string,
+      remoteName?: string,
+    ): Promise<GitActionResult>
     gitInit(projectId: string): Promise<boolean>
     createIndexHtml(projectId: string): Promise<boolean>
     addDevScript(projectId: string): Promise<boolean>
     setCommand(projectId: string, command: string): Promise<ProjectRecord | null>
+
+    /* ── Nhập / xuất dự án ZIP (D1-11, D1-13) ── */
+    /** Mở hộp thoại chọn tệp ZIP cần nhập. */
+    pickZipFile(): Promise<string | null>
+    /** Kiểm tra ZIP trước khi nhập: số tệp, dung lượng, thư mục gốc và lỗi an toàn. */
+    inspectZip(zipPath: string): Promise<ZipInspection>
+    /** Giải nén ZIP vào thư mục đích và đăng ký thành dự án. */
+    importZip(options: ZipImportOptions): Promise<ZipImportResult>
+    /** Mở hộp thoại chọn nơi lưu tệp ZIP khi xuất dự án. */
+    pickZipSavePath(defaultName: string): Promise<string | null>
+    /** Xuất dự án ra ZIP, loại trừ dependency/VCS/artifact build. */
+    exportZip(options: ZipExportOptions): Promise<ZipExportResult>
+    /** Lắng nghe tiến trình nhập/xuất ZIP. */
+    onArchiveProgress(cb: (progress: ArchiveProgress) => void): () => void
   }
   fs: {
     tree(root: string, showHidden?: boolean): Promise<FileNode[]>
@@ -147,9 +224,23 @@ export interface PixelMindApi {
       destination: string,
     ): Promise<{ success: boolean; path?: string; error?: string }>
   }
+  images: {
+    /** Đọc thông tin ảnh: định dạng, kích thước, dung lượng, khung hình. */
+    inspect(path: string): Promise<ImageInspectResult>
+    /** Xem trước kết quả tối ưu (dung lượng thật + thumbnail) mà không ghi tệp. */
+    preview(options: ImageOptimizeOptions): Promise<ImagePreviewResult>
+    /** Ghi ảnh tối ưu ra tệp mới hoặc thay thế ảnh gốc khi đã xác nhận. */
+    apply(options: ImageApplyOptions): Promise<ImageApplyResult>
+    /** Khôi phục ảnh gốc từ bản sao lưu (Undo thay thế ảnh). */
+    revert(
+      backupPath: string,
+      destination: string,
+    ): Promise<{ success: boolean; path?: string; error?: string }>
+  }
   run: {
     start(projectId: string, script: string): Promise<RunState>
     install(projectId: string): Promise<RunState>
+    efDatabaseUpdate(projectId: string): Promise<{ ok: boolean; output?: string; error?: string }>
     startCommand(projectId: string, command: string): Promise<RunState>
     stop(runId: string): Promise<boolean>
     stopOfProject?(projectId: string): Promise<boolean>
@@ -226,6 +317,10 @@ export interface PixelMindApi {
       newLine?: string
     }>
   }
+  a11y: {
+    /** Quét accessibility trang preview đang mở bằng axe-core. */
+    scan(payload: { axeSource: string; previewUrl?: string | null }): Promise<A11yScanResult>
+  }
   tokens: {
     get(projectPath: string): Promise<DesignTokens>
     save(payload: {
@@ -241,6 +336,44 @@ export interface PixelMindApi {
     writeFile(payload: ToolboxWritePayload): Promise<ToolboxWriteResult>
     /** Quét component / partial / class / asset / route của dự án. */
     scan(projectPath: string): Promise<ProjectScanResult>
+    /** Danh sách Part do người dùng tự lưu. */
+    listParts(projectPath?: string): Promise<CustomPartListResult>
+    /** Lưu một vùng chọn thành Part mới. */
+    savePart(input: CustomPartInput): Promise<CustomPartSaveResult>
+    /** Xoá một Part tự tạo. */
+    deletePart(id: string, projectPath?: string): Promise<CustomPartDeleteResult>
+  }
+  mock: {
+    /** Đọc cấu hình đã lưu của dự án (null nếu chưa có). */
+    load(projectPath: string): Promise<MockApiConfig | null>
+    /** Lưu cấu hình; trả lỗi validate nếu có. */
+    save(projectPath: string, config: MockApiConfig): Promise<{ success: boolean; errors?: string[] }>
+    /** Khởi động server; state.error nếu cổng bận. */
+    start(projectPath: string, config: MockApiConfig): Promise<MockApiState>
+    stop(): Promise<MockApiState>
+    state(): Promise<MockApiState>
+    onState(cb: (state: MockApiState) => void): () => void
+  }
+  deploy: {
+    setToken(provider: DeployProvider, token: string): Promise<{ success: boolean; error?: string }>
+    hasToken(provider: DeployProvider): Promise<boolean>
+    clearToken(provider: DeployProvider): Promise<boolean>
+    start(projectId: string): Promise<DeployState>
+    state(): Promise<DeployState>
+    onLog(cb: (log: DeployLog) => void): () => void
+    onState(cb: (state: DeployState) => void): () => void
+  }
+  auth: {
+    state(): Promise<AuthState>
+    signIn(email: string, password: string): Promise<SignInResult>
+    signOut(): Promise<AuthState>
+    onState(cb: (state: AuthState) => void): () => void
+  }
+  cloud: {
+    sync(projectPath: string): Promise<CloudSyncReport>
+    members(): Promise<{ success: boolean; members?: Array<{ email: string; role: CloudRole }>; error?: string }>
+    invite(email: string, role: CloudRole): Promise<{ success: boolean; error?: string }>
+    setRole(email: string, role: CloudRole): Promise<{ success: boolean; error?: string }>
   }
   ai: AiApi
   window?: {
@@ -250,5 +383,6 @@ export interface PixelMindApi {
     isMaximized: () => Promise<boolean>
     setZoomFactor?: (factor: number) => void
     getZoomFactor?: () => number
+    captureRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   }
 }

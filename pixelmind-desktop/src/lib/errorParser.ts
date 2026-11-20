@@ -2,6 +2,7 @@ import type { RunLog, RunState } from '@shared/types'
 
 export type ErrorType =
   | 'missing_package'
+  | 'database_error'
   | 'port_in_use'
   | 'electron_cache_lock'
   | 'command_not_found'
@@ -20,7 +21,7 @@ export interface ParsedError {
   column?: number
   recommendation: string
   actionLabel?: string
-  actionKind?: 'install' | 'open_file' | 'retry'
+  actionKind?: 'install' | 'open_file' | 'retry' | 'ef_database_update'
   packageNames?: string[]
 }
 
@@ -94,6 +95,29 @@ export function parseRunError(logs: RunLog[], run?: RunState | null): ParsedErro
       recommendation: 'Bấm nút "Khôi phục NuGet ngay" bên dưới để hệ thống chạy lệnh "dotnet restore".',
       actionLabel: 'Khôi phục NuGet (dotnet restore)',
       actionKind: 'install',
+    }
+  }
+
+  // 2b. Lỗi kết nối SQL Server / EF Core: Database chưa tồn tại (Error 4060)
+  if (
+    /Cannot open database\s*["']([^"']+)["']\s*requested by the login/i.test(combined) ||
+    /Error Number:\s*4060/i.test(combined) ||
+    (/Login failed for user/i.test(combined) && /Cannot open database/i.test(combined))
+  ) {
+    const dbMatch = combined.match(/Cannot open database\s*["']([^"']+)["']/i)
+    const dbName = dbMatch ? dbMatch[1] : ''
+    return {
+      type: 'database_error',
+      title: dbName
+        ? `Chưa tạo Database "${dbName}" (SQL Server Error 4060)`
+        : 'Chưa tạo Database trên SQL Server (Error 4060)',
+      summary: dbName
+        ? `Cơ sở dữ liệu "${dbName}" chưa tồn tại trong SQL Server hoặc tài khoản chưa được cấp quyền truy cập.`
+        : 'Cơ sở dữ liệu của dự án chưa được khởi tạo trên SQL Server.',
+      recommendation:
+        'Bấm nút bên dưới để PixelMind tự động chạy "dotnet ef database update", tạo database và cập nhật các bảng dữ liệu cho dự án.',
+      actionLabel: 'Tạo Database (dotnet ef database update)',
+      actionKind: 'ef_database_update',
     }
   }
 

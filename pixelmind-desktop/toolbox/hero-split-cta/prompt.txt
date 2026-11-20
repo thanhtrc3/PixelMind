@@ -1,0 +1,1 @@
+Khung Hero 2 cột gồm tiêu đề gradient lớn, phụ đề, 2 nút kêu gọi hành động và hộp xem trước đồ hoạ.
