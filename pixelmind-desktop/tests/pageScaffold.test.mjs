@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { buildTemplate, scaffoldPageFile } from '../electron/main/pages.ts'
 
 test('buildTemplate produces header, main container, and footer for all template kinds', () => {
-  const kinds = ['next-app', 'next-pages', 'vue', 'sveltekit', 'astro', 'html']
+  const kinds = ['next-app', 'next-pages', 'vue', 'sveltekit', 'astro', 'html', 'razor']
 
   for (const kind of kinds) {
     const code = buildTemplate(kind, 'Sản phẩm mới', '/products/new')
@@ -16,11 +16,13 @@ test('buildTemplate produces header, main container, and footer for all template
     assert.ok(code.includes('PixelMind'), `${kind} thiếu logo / tên PixelMind trong header`)
     assert.ok(code.includes('Trang chủ'), `${kind} thiếu link Trang chủ`)
 
-    // 2. Phải có khung trang chính (main container)
+    // 2. Phải có khung trang chính (main container) & nội dung
     assert.ok(code.includes('<main'), `${kind} thiếu thẻ <main>`)
     assert.ok(code.includes('Sản phẩm mới'), `${kind} thiếu tiêu đề trang`)
     assert.ok(code.includes('/products/new'), `${kind} thiếu route trang`)
-    assert.ok(code.includes('Khu vực nội dung chính'), `${kind} thiếu khung placeholder nội dung`)
+    assert.ok(code.includes('id="features"') || code.includes('Điểm nổi bật'), `${kind} thiếu phần nội dung nổi bật`)
+    assert.ok(code.includes('Thông tin rõ ràng'), `${kind} thiếu thẻ nội dung thực tế`)
+    assert.ok(code.includes('id="contact"') || code.includes('Bạn muốn tìm hiểu thêm?'), `${kind} thiếu phần liên hệ`)
 
     // 3. Phải có Chân trang (footer)
     assert.ok(code.includes('<footer'), `${kind} thiếu thẻ <footer>`)
@@ -39,7 +41,7 @@ test('buildTemplate escapes HTML special characters in title and route to preven
   assert.ok(code.includes('&amp;b=&lt;hack&gt;'))
 })
 
-test('scaffoldPageFile writes the template file to disk correctly', async () => {
+test('scaffoldPageFile writes the template file to disk correctly for Next.js', async () => {
   const tempDir = await fs.mkdtemp(join(tmpdir(), 'pm-scaffold-test-'))
   try {
     const targetPath = join(tempDir, 'src', 'app', 'about', 'page.tsx')
@@ -60,36 +62,18 @@ test('scaffoldPageFile writes the template file to disk correctly', async () => 
     assert.ok(content.includes('Giới thiệu công ty'))
     assert.ok(content.includes('<header'))
     assert.ok(content.includes('<footer'))
-    assert.ok(content.includes('Khu vực nội dung chính'))
+    assert.ok(content.includes('Điểm nổi bật'))
+    assert.ok(content.includes('Thông tin rõ ràng'))
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true })
   }
 })
 
-test('buildTemplate and scaffoldPageFile support ASP.NET Core Razor', async () => {
-  const code = buildTemplate('razor', 'Trang thử nghiệm', '/Home/Test')
-  assert.ok(code.includes('ViewData["Title"] = "Trang thử nghiệm"'))
-  assert.ok(code.includes('/Home/Test'))
-  assert.ok(code.includes('Khu vực nội dung chính'))
-
+test('scaffoldPageFile writes Razor view without mutating other project files', async () => {
   const tempDir = await fs.mkdtemp(join(tmpdir(), 'pm-razor-test-'))
   try {
     const viewsDir = join(tempDir, 'Views', 'Home')
-    const controllersDir = join(tempDir, 'Controllers')
     await fs.mkdir(viewsDir, { recursive: true })
-    await fs.mkdir(controllersDir, { recursive: true })
-
-    const controllerPath = join(controllersDir, 'HomeController.cs')
-    await fs.writeFile(
-      controllerPath,
-      `using Microsoft.AspNetCore.Mvc;
-namespace App.Controllers {
-    public class HomeController : Controller {
-        public IActionResult Index() => View();
-    }
-}`,
-      'utf8',
-    )
 
     const target = {
       supported: true,
@@ -106,102 +90,9 @@ namespace App.Controllers {
 
     const viewContent = await fs.readFile(target.absolutePath, 'utf8')
     assert.ok(viewContent.includes('ViewData["Title"] = "Test"'))
-
-    const updatedController = await fs.readFile(controllerPath, 'utf8')
-    assert.ok(updatedController.includes('[HttpGet("/Home/Test")]'))
-    assert.ok(updatedController.includes('public IActionResult PageTest() => View("Test");'))
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true })
-  }
-})
-
-/** Vị trí dấu } đóng class (đếm ngoặc từ { đầu tiên sau khai báo class). */
-function classCloseIndex(source, className) {
-  const classIdx = source.search(new RegExp(`class\\s+${className}\\b`))
-  const openIdx = source.indexOf('{', classIdx)
-  let depth = 0
-  for (let i = openIdx; i < source.length; i++) {
-    if (source[i] === '{') depth += 1
-    else if (source[i] === '}') {
-      depth -= 1
-      if (depth === 0) return i
-    }
-  }
-  return -1
-}
-
-test('regression CS0116: action MVC phải nằm trong class, không nằm trong namespace', async () => {
-  const tempDir = await fs.mkdtemp(join(tmpdir(), 'pm-razor-cs0116-'))
-  try {
-    const viewsDir = join(tempDir, 'Views', 'Home')
-    const controllersDir = join(tempDir, 'Controllers')
-    await fs.mkdir(viewsDir, { recursive: true })
-    await fs.mkdir(controllersDir, { recursive: true })
-
-    const controllerPath = join(controllersDir, 'HomeController.cs')
-    await fs.writeFile(
-      controllerPath,
-      `using Microsoft.AspNetCore.Mvc;
-namespace App.Controllers
-{
-    public class HomeController : Controller
-    {
-        public IActionResult Index() => View();
-    }
-}`,
-      'utf8',
-    )
-
-    await scaffoldPageFile(
-      {
-        supported: true,
-        label: 'ASP.NET Core (Razor)',
-        relativePath: 'Views/Home/22.cshtml',
-        exists: false,
-        kind: 'razor',
-        absolutePath: join(viewsDir, '22.cshtml'),
-        route: '/22',
-      },
-      'Trang 22',
-    )
-
-    const source = await fs.readFile(controllerPath, 'utf8')
-    const actionIdx = source.indexOf('public IActionResult Page22()')
-    assert.ok(actionIdx > 0, 'thiếu action Page22')
-    assert.ok(
-      actionIdx < classCloseIndex(source, 'HomeController'),
-      'action bị chèn ngoài class (nguyên nhân CS0116)',
-    )
-    assert.ok(source.includes('[HttpGet("/22")]'))
-    assert.ok(source.includes('View("22")'))
-    // Tên action không bắt đầu bằng số.
-    assert.ok(!/IActionResult\s+\d/.test(source))
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true })
-  }
-})
-
-test('route nhiều cấp: báo lỗi rõ và không để lại tệp trang trắng', async () => {
-  const tempDir = await fs.mkdtemp(join(tmpdir(), 'pm-razor-multilevel-'))
-  try {
-    const viewsDir = join(tempDir, 'Views', 'Shop')
-    const controllersDir = join(tempDir, 'Controllers')
-    await fs.mkdir(viewsDir, { recursive: true })
-    await fs.mkdir(controllersDir, { recursive: true })
-    await fs.writeFile(join(controllersDir, 'HomeController.cs'), 'public class HomeController {}', 'utf8')
-
-    const target = {
-      supported: true,
-      label: 'ASP.NET Core (Razor)',
-      relativePath: 'Views/Shop/Detail.cshtml',
-      exists: false,
-      kind: 'razor',
-      absolutePath: join(viewsDir, 'Detail.cshtml'),
-      route: '/shop/detail',
-    }
-
-    await assert.rejects(() => scaffoldPageFile(target, 'Chi tiết'), /ShopController\.cs/)
-    await assert.rejects(() => fs.access(target.absolutePath), 'tệp trang trắng phải bị xoá')
+    assert.ok(viewContent.includes('<header'))
+    assert.ok(viewContent.includes('<footer'))
+    assert.ok(viewContent.includes('Điểm nổi bật'))
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true })
   }

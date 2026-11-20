@@ -384,10 +384,25 @@ export function buildTemplate(kind: PageTemplateKind, title: string, route: stri
         <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 32, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <h1 style={{ fontSize: 28, fontWeight: 700, color: '#0f172a', marginTop: 0, marginBottom: 8 }}>${htmlTitle}</h1>
           <p style={{ color: '#64748b', fontSize: 15, marginBottom: 24 }}>Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
-          <div style={{ border: '2px dashed #cbd5e1', borderRadius: 8, padding: '48px 24px', textAlign: 'center', background: '#f8fafc', color: '#94a3b8' }}>
-            <p style={{ margin: 0, fontSize: 16, fontWeight: 500, color: '#64748b' }}>Khu vực nội dung chính</p>
-            <p style={{ margin: '8px 0 0 0', fontSize: 14 }}>Kéo thả linh kiện hoặc bắt đầu thiết kế giao diện của bạn tại đây.</p>
-          </div>
+          <section style={{ borderRadius: 12, padding: '48px 32px', background: 'linear-gradient(135deg, #eff6ff, #f5f3ff)', marginBottom: 32 }}>
+            <p style={{ color: '#2563eb', fontSize: 13, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>Khám phá nội dung</p>
+            <h2 style={{ fontSize: 32, color: '#0f172a', margin: '12px 0' }}>Chào mừng đến với ${htmlTitle}</h2>
+            <p style={{ maxWidth: 640, color: '#475569', fontSize: 16, lineHeight: 1.7 }}>Tìm hiểu những thông tin hữu ích, khám phá các điểm nổi bật và bắt đầu trải nghiệm ngay hôm nay.</p>
+            <a href="#features" style={{ display: 'inline-block', marginTop: 12, padding: '12px 20px', borderRadius: 8, background: '#2563eb', color: '#ffffff', textDecoration: 'none', fontWeight: 600 }}>Khám phá ngay</a>
+          </section>
+          <section id="features" style={{ marginBottom: 32 }}>
+            <h2 style={{ fontSize: 24, color: '#0f172a' }}>Điểm nổi bật</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+              <article style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 22 }}><h3 style={{ color: '#1e293b', marginTop: 0 }}>Thông tin rõ ràng</h3><p style={{ color: '#64748b', lineHeight: 1.6 }}>Trình bày những điều người dùng cần biết theo cách dễ đọc và dễ tìm.</p></article>
+              <article style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 22 }}><h3 style={{ color: '#1e293b', marginTop: 0 }}>Trải nghiệm thuận tiện</h3><p style={{ color: '#64748b', lineHeight: 1.6 }}>Sắp xếp nội dung mạch lạc để người dùng nhanh chóng tìm thấy điều họ cần.</p></article>
+              <article style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 22 }}><h3 style={{ color: '#1e293b', marginTop: 0 }}>Luôn đồng hành</h3><p style={{ color: '#64748b', lineHeight: 1.6 }}>Tạo điểm kết nối để người dùng dễ dàng tìm hiểu thêm và liên hệ với bạn.</p></article>
+            </div>
+          </section>
+          <section id="contact" style={{ borderRadius: 12, padding: 28, background: '#f1f5f9' }}>
+            <h2 style={{ color: '#0f172a', marginTop: 0 }}>Bạn muốn tìm hiểu thêm?</h2>
+            <p style={{ color: '#475569', lineHeight: 1.6 }}>Khám phá thêm nội dung trên trang hoặc liên hệ với chúng tôi để được hỗ trợ.</p>
+            <a href="#features" style={{ color: '#2563eb', fontWeight: 600 }}>Xem các mục nổi bật</a>
+          </section>
         </div>
       </main>
 
@@ -428,10 +443,25 @@ export function buildTemplate(kind: PageTemplateKind, title: string, route: stri
       <div style="background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05)">
         <h1 style="font-size: 28px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px">{{ title }}</h1>
         <p style="color: #64748b; font-size: 15px; margin-bottom: 24px">Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
-        <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 48px 24px; text-align: center; background: #f8fafc; color: #94a3b8">
-          <p style="margin: 0; font-size: 16px; font-weight: 500; color: #64748b">Khu vực nội dung chính</p>
-          <p style="margin: 8px 0 0 0; font-size: 14px">Kéo thả linh kiện hoặc bắt đầu thiết kế giao diện của bạn tại đây.</p>
-        </div>
+        <section style="border-radius: 12px; padding: 48px 32px; background: linear-gradient(135deg, #eff6ff, #f5f3ff); margin-bottom: 32px">
+          <p style="color: #2563eb; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase">Khám phá nội dung</p>
+          <h2 style="font-size: 32px; color: #0f172a; margin: 12px 0">Chào mừng đến với {{ title }}</h2>
+          <p style="max-width: 640px; color: #475569; font-size: 16px; line-height: 1.7">Tìm hiểu những thông tin hữu ích, khám phá các điểm nổi bật và bắt đầu trải nghiệm ngay hôm nay.</p>
+          <a href="#features" style="display: inline-block; margin-top: 12px; padding: 12px 20px; border-radius: 8px; background: #2563eb; color: #ffffff; text-decoration: none; font-weight: 600">Khám phá ngay</a>
+        </section>
+        <section id="features" style="margin-bottom: 32px">
+          <h2 style="font-size: 24px; color: #0f172a">Điểm nổi bật</h2>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+            <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Thông tin rõ ràng</h3><p style="color: #64748b; line-height: 1.6">Trình bày những điều người dùng cần biết theo cách dễ đọc và dễ tìm.</p></article>
+            <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Trải nghiệm thuận tiện</h3><p style="color: #64748b; line-height: 1.6">Sắp xếp nội dung mạch lạc để người dùng nhanh chóng tìm thấy điều họ cần.</p></article>
+            <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Luôn đồng hành</h3><p style="color: #64748b; line-height: 1.6">Tạo điểm kết nối để người dùng dễ dàng tìm hiểu thêm và liên hệ với bạn.</p></article>
+          </div>
+        </section>
+        <section id="contact" style="border-radius: 12px; padding: 28px; background: #f1f5f9">
+          <h2 style="color: #0f172a; margin-top: 0">Bạn muốn tìm hiểu thêm?</h2>
+          <p style="color: #475569; line-height: 1.6">Khám phá thêm nội dung trên trang hoặc liên hệ với chúng tôi để được hỗ trợ.</p>
+          <a href="#features" style="color: #2563eb; font-weight: 600">Xem các mục nổi bật</a>
+        </section>
       </div>
     </main>
 
@@ -478,10 +508,25 @@ const title = ${jsTitle}
     <div style="background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05)">
       <h1 style="font-size: 28px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px">{title}</h1>
       <p style="color: #64748b; font-size: 15px; margin-bottom: 24px">Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
-      <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 48px 24px; text-align: center; background: #f8fafc; color: #94a3b8">
-        <p style="margin: 0; font-size: 16px; font-weight: 500; color: #64748b">Khu vực nội dung chính</p>
-        <p style="margin: 8px 0 0 0; font-size: 14px">Kéo thả linh kiện hoặc bắt đầu thiết kế giao diện của bạn tại đây.</p>
-      </div>
+      <section style="border-radius: 12px; padding: 48px 32px; background: linear-gradient(135deg, #eff6ff, #f5f3ff); margin-bottom: 32px">
+        <p style="color: #2563eb; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase">Khám phá nội dung</p>
+        <h2 style="font-size: 32px; color: #0f172a; margin: 12px 0">Chào mừng đến với {title}</h2>
+        <p style="max-width: 640px; color: #475569; font-size: 16px; line-height: 1.7">Tìm hiểu những thông tin hữu ích, khám phá các điểm nổi bật và bắt đầu trải nghiệm ngay hôm nay.</p>
+        <a href="#features" style="display: inline-block; margin-top: 12px; padding: 12px 20px; border-radius: 8px; background: #2563eb; color: #ffffff; text-decoration: none; font-weight: 600">Khám phá ngay</a>
+      </section>
+      <section id="features" style="margin-bottom: 32px">
+        <h2 style="font-size: 24px; color: #0f172a">Điểm nổi bật</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+          <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Thông tin rõ ràng</h3><p style="color: #64748b; line-height: 1.6">Trình bày những điều người dùng cần biết theo cách dễ đọc và dễ tìm.</p></article>
+          <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Trải nghiệm thuận tiện</h3><p style="color: #64748b; line-height: 1.6">Sắp xếp nội dung mạch lạc để người dùng nhanh chóng tìm thấy điều họ cần.</p></article>
+          <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Luôn đồng hành</h3><p style="color: #64748b; line-height: 1.6">Tạo điểm kết nối để người dùng dễ dàng tìm hiểu thêm và liên hệ với bạn.</p></article>
+        </div>
+      </section>
+      <section id="contact" style="border-radius: 12px; padding: 28px; background: #f1f5f9">
+        <h2 style="color: #0f172a; margin-top: 0">Bạn muốn tìm hiểu thêm?</h2>
+        <p style="color: #475569; line-height: 1.6">Khám phá thêm nội dung trên trang hoặc liên hệ với chúng tôi để được hỗ trợ.</p>
+        <a href="#features" style="color: #2563eb; font-weight: 600">Xem các mục nổi bật</a>
+      </section>
     </div>
   </main>
 
@@ -530,10 +575,25 @@ const title = ${jsTitle}
         <div style="background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05)">
           <h1 style="font-size: 28px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px">{title}</h1>
           <p style="color: #64748b; font-size: 15px; margin-bottom: 24px">Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
-          <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 48px 24px; text-align: center; background: #f8fafc; color: #94a3b8">
-            <p style="margin: 0; font-size: 16px; font-weight: 500; color: #64748b">Khu vực nội dung chính</p>
-            <p style="margin: 8px 0 0 0; font-size: 14px">Kéo thả linh kiện hoặc bắt đầu thiết kế giao diện của bạn tại đây.</p>
-          </div>
+          <section style="border-radius: 12px; padding: 48px 32px; background: linear-gradient(135deg, #eff6ff, #f5f3ff); margin-bottom: 32px">
+            <p style="color: #2563eb; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase">Khám phá nội dung</p>
+            <h2 style="font-size: 32px; color: #0f172a; margin: 12px 0">{title}</h2>
+            <p style="max-width: 640px; color: #475569; font-size: 16px; line-height: 1.7">Tìm hiểu những thông tin hữu ích, khám phá các điểm nổi bật và bắt đầu trải nghiệm ngay hôm nay.</p>
+            <a href="#features" style="display: inline-block; margin-top: 12px; padding: 12px 20px; border-radius: 8px; background: #2563eb; color: #ffffff; text-decoration: none; font-weight: 600">Khám phá ngay</a>
+          </section>
+          <section id="features" style="margin-bottom: 32px">
+            <h2 style="font-size: 24px; color: #0f172a">Điểm nổi bật</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+              <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Thông tin rõ ràng</h3><p style="color: #64748b; line-height: 1.6">Trình bày những điều người dùng cần biết theo cách dễ đọc và dễ tìm.</p></article>
+              <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Trải nghiệm thuận tiện</h3><p style="color: #64748b; line-height: 1.6">Sắp xếp nội dung mạch lạc để người dùng nhanh chóng tìm thấy điều họ cần.</p></article>
+              <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Luôn đồng hành</h3><p style="color: #64748b; line-height: 1.6">Tạo điểm kết nối để người dùng dễ dàng tìm hiểu thêm và liên hệ với bạn.</p></article>
+            </div>
+          </section>
+          <section id="contact" style="border-radius: 12px; padding: 28px; background: #f1f5f9">
+            <h2 style="color: #0f172a; margin-top: 0">Bạn muốn tìm hiểu thêm?</h2>
+            <p style="color: #475569; line-height: 1.6">Khám phá thêm nội dung trên trang hoặc liên hệ với chúng tôi để được hỗ trợ.</p>
+            <a href="#features" style="color: #2563eb; font-weight: 600">Xem các mục nổi bật</a>
+          </section>
         </div>
       </main>
 
@@ -558,13 +618,57 @@ const title = ${jsTitle}
     ViewData["Title"] = ${jsTitle};
 }
 
-<div class="card p-4 shadow-sm border-0" style="background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0 !important;">
-    <h1 class="h3 fw-bold mb-2 text-dark">@ViewData["Title"]</h1>
-    <p class="text-muted mb-4">Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
-    <div class="p-5 text-center rounded" style="border: 2px dashed #cbd5e1; background: #f8fafc;">
-        <p class="m-0 fw-bold text-secondary">Khu vực nội dung chính</p>
-        <p class="small text-muted m-0 mt-1">Kéo thả linh kiện hoặc bắt đầu thiết kế giao diện của bạn tại đây.</p>
-    </div>
+<div style="min-height: 100vh; display: flex; flex-direction: column; font-family: system-ui, -apple-system, sans-serif; color: #1e293b; background-color: #f8fafc">
+    <header style="background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 16px 24px">
+        <div style="max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between">
+            <a href="/" style="font-weight: 700; font-size: 18px; color: #0f172a; text-decoration: none; display: flex; align-items: center; gap: 8px">
+                <span>🌐</span> PixelMind
+            </a>
+            <nav style="display: flex; gap: 20px; align-items: center">
+                <a href="/" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Trang chủ</a>
+                <a href="#" style="color: #2563eb; text-decoration: none; font-size: 14px; font-weight: 600">@ViewData["Title"]</a>
+                <a href="#about" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Giới thiệu</a>
+                <a href="#contact" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Liên hệ</a>
+            </nav>
+        </div>
+    </header>
+
+    <main style="flex: 1; max-width: 1200px; width: 100%; margin: 0 auto; padding: 40px 24px">
+        <div style="background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05)">
+            <h1 style="font-size: 28px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px">@ViewData["Title"]</h1>
+            <p style="color: #64748b; font-size: 15px; margin-bottom: 24px">Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
+            <section style="border-radius: 12px; padding: 48px 32px; background: linear-gradient(135deg, #eff6ff, #f5f3ff); margin-bottom: 32px">
+                <p style="color: #2563eb; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase">Khám phá nội dung</p>
+                <h2 style="font-size: 32px; color: #0f172a; margin: 12px 0">Chào mừng đến với @ViewData["Title"]</h2>
+                <p style="max-width: 640px; color: #475569; font-size: 16px; line-height: 1.7">Tìm hiểu những thông tin hữu ích, khám phá các điểm nổi bật và bắt đầu trải nghiệm ngay hôm nay.</p>
+                <a href="#features" style="display: inline-block; margin-top: 12px; padding: 12px 20px; border-radius: 8px; background: #2563eb; color: #ffffff; text-decoration: none; font-weight: 600">Khám phá ngay</a>
+            </section>
+            <section id="features" style="margin-bottom: 32px">
+                <h2 style="font-size: 24px; color: #0f172a">Điểm nổi bật</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+                    <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Thông tin rõ ràng</h3><p style="color: #64748b; line-height: 1.6">Trình bày những điều người dùng cần biết theo cách dễ đọc và dễ tìm.</p></article>
+                    <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Trải nghiệm thuận tiện</h3><p style="color: #64748b; line-height: 1.6">Sắp xếp nội dung mạch lạc để người dùng nhanh chóng tìm thấy điều họ cần.</p></article>
+                    <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Luôn đồng hành</h3><p style="color: #64748b; line-height: 1.6">Tạo điểm kết nối để người dùng dễ dàng tìm hiểu thêm và liên hệ với bạn.</p></article>
+                </div>
+            </section>
+            <section id="contact" style="border-radius: 12px; padding: 28px; background: #f1f5f9">
+                <h2 style="color: #0f172a; margin-top: 0">Bạn muốn tìm hiểu thêm?</h2>
+                <p style="color: #475569; line-height: 1.6">Khám phá thêm nội dung trên trang hoặc liên hệ với chúng tôi để được hỗ trợ.</p>
+                <a href="#features" style="color: #2563eb; font-weight: 600">Xem các mục nổi bật</a>
+            </section>
+        </div>
+    </main>
+
+    <footer style="background: #ffffff; border-top: 1px solid #e2e8f0; padding: 24px; text-align: center; color: #64748b; font-size: 14px">
+        <div style="max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px">
+            <p style="margin: 0">&copy; 2026 PixelMind. Tất cả quyền được bảo lưu.</p>
+            <div style="display: flex; gap: 16px">
+                <a href="#" style="color: #64748b; text-decoration: none">Chính sách bảo mật</a>
+                <a href="#" style="color: #64748b; text-decoration: none">Điều khoản dịch vụ</a>
+                <a href="#" style="color: #64748b; text-decoration: none">Trợ giúp</a>
+            </div>
+        </div>
+    </footer>
 </div>
 `
   }
@@ -596,10 +700,25 @@ const title = ${jsTitle}
         <div style="background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05)">
           <h1 style="font-size: 28px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px">${htmlTitle}</h1>
           <p style="color: #64748b; font-size: 15px; margin-bottom: 24px">Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
-          <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 48px 24px; text-align: center; background: #f8fafc; color: #94a3b8">
-            <p style="margin: 0; font-size: 16px; font-weight: 500; color: #64748b">Khu vực nội dung chính</p>
-            <p style="margin: 8px 0 0 0; font-size: 14px">Kéo thả linh kiện hoặc bắt đầu thiết kế giao diện của bạn tại đây.</p>
-          </div>
+          <section style="border-radius: 12px; padding: 48px 32px; background: linear-gradient(135deg, #eff6ff, #f5f3ff); margin-bottom: 32px">
+            <p style="color: #2563eb; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase">Khám phá nội dung</p>
+            <h2 style="font-size: 32px; color: #0f172a; margin: 12px 0">${htmlTitle}</h2>
+            <p style="max-width: 640px; color: #475569; font-size: 16px; line-height: 1.7">Tìm hiểu những thông tin hữu ích, khám phá các điểm nổi bật và bắt đầu trải nghiệm ngay hôm nay.</p>
+            <a href="#features" style="display: inline-block; margin-top: 12px; padding: 12px 20px; border-radius: 8px; background: #2563eb; color: #ffffff; text-decoration: none; font-weight: 600">Khám phá ngay</a>
+          </section>
+          <section id="features" style="margin-bottom: 32px">
+            <h2 style="font-size: 24px; color: #0f172a">Điểm nổi bật</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+              <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Thông tin rõ ràng</h3><p style="color: #64748b; line-height: 1.6">Trình bày những điều người dùng cần biết theo cách dễ đọc và dễ tìm.</p></article>
+              <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Trải nghiệm thuận tiện</h3><p style="color: #64748b; line-height: 1.6">Sắp xếp nội dung mạch lạc để người dùng nhanh chóng tìm thấy điều họ cần.</p></article>
+              <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Luôn đồng hành</h3><p style="color: #64748b; line-height: 1.6">Tạo điểm kết nối để người dùng dễ dàng tìm hiểu thêm và liên hệ với bạn.</p></article>
+            </div>
+          </section>
+          <section id="contact" style="border-radius: 12px; padding: 28px; background: #f1f5f9">
+            <h2 style="color: #0f172a; margin-top: 0">Bạn muốn tìm hiểu thêm?</h2>
+            <p style="color: #475569; line-height: 1.6">Khám phá thêm nội dung trên trang hoặc liên hệ với chúng tôi để được hỗ trợ.</p>
+            <a href="#features" style="color: #2563eb; font-weight: 600">Xem các mục nổi bật</a>
+          </section>
         </div>
       </main>
 
@@ -619,65 +738,6 @@ const title = ${jsTitle}
 `
 }
 
-/** Tên action C# hợp lệ từ tên tệp view: "22" → "Page22", "my-page" → "PageMyPage". */
-function toActionName(viewName: string): string {
-  const pascal = viewName
-    .split(/[^A-Za-z0-9]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('')
-  return `Page${pascal || 'Index'}`
-}
-
-/** Nối route MVC vào controller: chèn action có [HttpGet("<route>")] vào ĐÚNG trong class. */
-async function wireRazorAction(target: PageFileTarget): Promise<void> {
-  const parts = target.relativePath.replace(/\\/g, '/').split('/')
-  const viewIdx = parts.findIndex((part) => part.toLowerCase() === 'views')
-  if (viewIdx < 0 || parts.length !== viewIdx + 3) {
-    throw new Error(
-      'Chưa hỗ trợ nối route nhiều cấp cho ASP.NET MVC. Hãy dùng route một cấp (ví dụ /GioiThieu).',
-    )
-  }
-  const controllerName = parts[viewIdx + 1]
-  const viewName = parts[viewIdx + 2].replace(/\.cshtml$/i, '')
-  const root = resolve(dirname(target.absolutePath), ...Array(parts.length - 1).fill('..'))
-  const controllerAbs = join(root, ...parts.slice(0, viewIdx), 'Controllers', `${controllerName}Controller.cs`)
-  if (!(await fileExists(controllerAbs))) {
-    throw new Error(`Không tìm thấy ${controllerName}Controller.cs để nối route ${target.route}.`)
-  }
-
-  const content = await fs.readFile(controllerAbs, 'utf8')
-  const actionName = toActionName(viewName)
-  const routeLiteral = target.route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  if (
-    new RegExp(`\\[HttpGet\\(\\s*"${routeLiteral}"`).test(content) ||
-    new RegExp(`\\b${actionName}\\s*\\(`).test(content)
-  ) {
-    return
-  }
-
-  // Tìm dấu } đóng class (trước đây chèn vào } của namespace → CS0116).
-  const classMatch = new RegExp(`class\\s+${controllerName}Controller\\b`).exec(content)
-  const openIdx = classMatch ? content.indexOf('{', classMatch.index) : -1
-  if (openIdx < 0) throw new Error(`Không đọc được class ${controllerName}Controller trong tệp controller.`)
-  /* shortcut: đếm ngoặc đơn giản, không hiểu ngoặc trong chuỗi/comment; nâng cấp nếu controller có chuỗi chứa { }. */
-  let depth = 0
-  let closeIdx = -1
-  for (let i = openIdx; i < content.length; i++) {
-    if (content[i] === '{') depth += 1
-    else if (content[i] === '}' && --depth === 0) {
-      closeIdx = i
-      break
-    }
-  }
-  if (closeIdx < 0) throw new Error(`Không tìm thấy điểm chèn action trong ${controllerName}Controller.cs.`)
-
-  const lineStart = content.lastIndexOf('\n', closeIdx) + 1
-  const indent = content.slice(lineStart, closeIdx).trim() ? '    ' : content.slice(lineStart, closeIdx) || '    '
-  const snippet = `${indent}    [HttpGet("${target.route}")]\n${indent}    public IActionResult ${actionName}() => View("${viewName}");\n`
-  await fs.writeFile(controllerAbs, content.slice(0, lineStart) + snippet + content.slice(lineStart), 'utf8')
-}
-
 export async function scaffoldPageFile(
   target: PageFileTarget,
   title: string,
@@ -693,16 +753,6 @@ export async function scaffoldPageFile(
     encoding: 'utf8',
     flag: 'wx',
   })
-
-  if (target.kind === 'razor') {
-    try {
-      await wireRazorAction(target)
-    } catch (error) {
-      // Không nối được route thì xoá tệp vừa tạo — thà báo lỗi còn hơn để lại trang trắng 404.
-      await fs.unlink(target.absolutePath).catch(() => {})
-      throw error
-    }
-  }
 
   return { relativePath: target.relativePath }
 }
