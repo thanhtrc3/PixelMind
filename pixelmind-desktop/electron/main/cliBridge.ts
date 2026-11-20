@@ -10,6 +10,7 @@ import {
   type AgentStreamFormat,
 } from './agentDefs'
 import { recordAudit } from './aiAudit'
+import { requireOpenedProject } from './store'
 
 const execFileAsync = promisify(execFile)
 
@@ -815,6 +816,23 @@ export async function runCliAgent(
   onEvent: (event: AiCliEvent) => void,
 ): Promise<{ id: string }> {
   const id = request.id || `cli-${Date.now().toString(36)}-${randomUUID().slice(0, 5)}`
+
+  try {
+    await requireOpenedProject(request.projectPath)
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Dự án chưa được mở trong PixelMind.'
+    void recordAudit({
+      type: 'cli',
+      summary: 'CLI bị chặn vì dự án chưa mở trong PixelMind',
+      ok: false,
+      detail: errorMsg,
+    })
+    setTimeout(() => {
+      onEvent({ id, type: 'error', text: errorMsg })
+      onEvent({ id, type: 'exit', code: 1 })
+    }, 10)
+    return { id }
+  }
 
   const def = findAgentDefByBinary(request.binary)
   if (!def) {

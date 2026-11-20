@@ -1024,6 +1024,13 @@ const App = () => {
     }
   }
 
+  /** AI vừa sửa xong: tiến trình cũ vẫn chạy mã lỗi nên phải dừng rồi chạy lại. */
+  const restartRun = async () => {
+    if (!run) return
+    await stopRun()
+    await startRun()
+  }
+
   /** Thoát khỏi dự án hiện tại về danh sách dự án (tự động tắt dev server để tránh chiếm cổng) */
   const handleExitToProjects = async () => {
     if (run && (run.status === 'running' || run.status === 'starting')) {
@@ -1855,6 +1862,7 @@ const App = () => {
                 setCanvasReloadToken((value) => value + 1)
                 void refreshProject()
               }}
+              onRestart={() => void restartRun()}
             />
           </div>
         </main>

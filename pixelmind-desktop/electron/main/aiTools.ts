@@ -14,6 +14,7 @@ import { isBlockedPath, isTextFile, readTextFileSafe, resolveProjectPath, toPosi
 import { proposeChange } from './aiApply'
 import { redactSecrets } from './aiGuardrails'
 import { recordAudit } from './aiAudit'
+import { requireOpenedProject } from './store'
 
 /* Tool Layer tối thiểu. AI chỉ được gọi đúng các tool trong danh sách này,
    mọi lần gọi đều đi qua kiểm tra đường dẫn và ghi audit log. */
@@ -536,6 +537,7 @@ export async function runTool(request: AiToolCallRequest): Promise<AiToolResult>
   let result: AiToolResult
   try {
     if (!request.projectPath) throw new Error('Thiếu đường dẫn dự án.')
+    await requireOpenedProject(request.projectPath)
     const root = resolve(request.projectPath)
     switch (schema.name) {
       case 'read_file':

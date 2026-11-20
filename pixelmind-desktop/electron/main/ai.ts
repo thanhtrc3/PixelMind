@@ -968,9 +968,9 @@ function compactCliContext(pack?: AiContextPack): string {
     }
   }
   if (pack.errors) compact.errors = pack.errors.slice(0, 2500)
-  // Chỉ gửi danh sách tệp dự án nếu chưa xác định được tệp nguồn cụ thể.
-  if (!pack.source?.filePath && pack.projectIndex?.length) {
-    compact.projectIndex = pack.projectIndex.slice(0, 80)
+  // Luôn gửi chỉ mục để AI biết cấu trúc dự án, kể cả khi đã xác định được tệp nguồn.
+  if (pack.projectIndex?.length) {
+    compact.projectIndex = pack.projectIndex
   }
   return `Ngữ cảnh dự án (JSON gọn):\n${JSON.stringify(compact)}`
 }

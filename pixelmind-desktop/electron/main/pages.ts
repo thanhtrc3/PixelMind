@@ -619,6 +619,65 @@ const title = ${jsTitle}
 `
 }
 
+/** Tên action C# hợp lệ từ tên tệp view: "22" → "Page22", "my-page" → "PageMyPage". */
+function toActionName(viewName: string): string {
+  const pascal = viewName
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('')
+  return `Page${pascal || 'Index'}`
+}
+
+/** Nối route MVC vào controller: chèn action có [HttpGet("<route>")] vào ĐÚNG trong class. */
+async function wireRazorAction(target: PageFileTarget): Promise<void> {
+  const parts = target.relativePath.replace(/\\/g, '/').split('/')
+  const viewIdx = parts.findIndex((part) => part.toLowerCase() === 'views')
+  if (viewIdx < 0 || parts.length !== viewIdx + 3) {
+    throw new Error(
+      'Chưa hỗ trợ nối route nhiều cấp cho ASP.NET MVC. Hãy dùng route một cấp (ví dụ /GioiThieu).',
+    )
+  }
+  const controllerName = parts[viewIdx + 1]
+  const viewName = parts[viewIdx + 2].replace(/\.cshtml$/i, '')
+  const root = resolve(dirname(target.absolutePath), ...Array(parts.length - 1).fill('..'))
+  const controllerAbs = join(root, ...parts.slice(0, viewIdx), 'Controllers', `${controllerName}Controller.cs`)
+  if (!(await fileExists(controllerAbs))) {
+    throw new Error(`Không tìm thấy ${controllerName}Controller.cs để nối route ${target.route}.`)
+  }
+
+  const content = await fs.readFile(controllerAbs, 'utf8')
+  const actionName = toActionName(viewName)
+  const routeLiteral = target.route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (
+    new RegExp(`\\[HttpGet\\(\\s*"${routeLiteral}"`).test(content) ||
+    new RegExp(`\\b${actionName}\\s*\\(`).test(content)
+  ) {
+    return
+  }
+
+  // Tìm dấu } đóng class (trước đây chèn vào } của namespace → CS0116).
+  const classMatch = new RegExp(`class\\s+${controllerName}Controller\\b`).exec(content)
+  const openIdx = classMatch ? content.indexOf('{', classMatch.index) : -1
+  if (openIdx < 0) throw new Error(`Không đọc được class ${controllerName}Controller trong tệp controller.`)
+  /* shortcut: đếm ngoặc đơn giản, không hiểu ngoặc trong chuỗi/comment; nâng cấp nếu controller có chuỗi chứa { }. */
+  let depth = 0
+  let closeIdx = -1
+  for (let i = openIdx; i < content.length; i++) {
+    if (content[i] === '{') depth += 1
+    else if (content[i] === '}' && --depth === 0) {
+      closeIdx = i
+      break
+    }
+  }
+  if (closeIdx < 0) throw new Error(`Không tìm thấy điểm chèn action trong ${controllerName}Controller.cs.`)
+
+  const lineStart = content.lastIndexOf('\n', closeIdx) + 1
+  const indent = content.slice(lineStart, closeIdx).trim() ? '    ' : content.slice(lineStart, closeIdx) || '    '
+  const snippet = `${indent}    [HttpGet("${target.route}")]\n${indent}    public IActionResult ${actionName}() => View("${viewName}");\n`
+  await fs.writeFile(controllerAbs, content.slice(0, lineStart) + snippet + content.slice(lineStart), 'utf8')
+}
+
 export async function scaffoldPageFile(
   target: PageFileTarget,
   title: string,
@@ -637,30 +696,11 @@ export async function scaffoldPageFile(
 
   if (target.kind === 'razor') {
     try {
-      const parts = target.relativePath.replace(/\\/g, '/').split('/')
-      const viewIdx = parts.findIndex((p) => p.toLowerCase() === 'views')
-      if (viewIdx >= 0 && parts.length > viewIdx + 2) {
-        const controllerName = parts[viewIdx + 1]
-        const actionFileName = parts[viewIdx + 2]
-        const actionName = actionFileName.replace(/\.cshtml$/i, '')
-        const controllerRel = [...parts.slice(0, viewIdx), 'Controllers', `${controllerName}Controller.cs`].join('/')
-        const root = resolve(dirname(target.absolutePath), ...Array(parts.length - 1).fill('..'))
-        const controllerAbs = join(root, ...controllerRel.split('/'))
-        if (await fileExists(controllerAbs)) {
-          const content = await fs.readFile(controllerAbs, 'utf8')
-          const regex = new RegExp(`public\\s+(?:IActionResult|ActionResult|Task<IActionResult>)\\s+${actionName}\\s*\\(`, 'i')
-          if (!regex.test(content)) {
-            const lastBraceIdx = content.lastIndexOf('}')
-            if (lastBraceIdx > 0) {
-              const methodSnippet = `\n        public IActionResult ${actionName}() => View();\n`
-              const updatedContent = content.slice(0, lastBraceIdx) + methodSnippet + content.slice(lastBraceIdx)
-              await fs.writeFile(controllerAbs, updatedContent, 'utf8')
-            }
-          }
-        }
-      }
-    } catch {
-      /* Không cản trở nếu không tìm thấy file controller */
+      await wireRazorAction(target)
+    } catch (error) {
+      // Không nối được route thì xoá tệp vừa tạo — thà báo lỗi còn hơn để lại trang trắng 404.
+      await fs.unlink(target.absolutePath).catch(() => {})
+      throw error
     }
   }
 

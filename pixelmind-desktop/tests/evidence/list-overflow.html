@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../src/styles/ai.css" />
+    <style>
+      html, body { height: 100%; margin: 0; }
+      body { display: flex; flex-direction: column; font: 12px sans-serif; }
+    </style>
+  </head>
+  <body>
+    <div class="pm-ai-list" id="list">
+      <div class="pm-ai-list__hd"><span>Thay đổi</span></div>
+      <script>
+        for (let i = 0; i < 20; i++) {
+          const el = document.createElement('div')
+          el.className = 'pm-ai-diff is-accepted'
+          el.innerHTML =
+            '<div class="pm-ai-diff__hd"><span class="pm-ai-diff__file">HomeController.cs</span>' +
+            '<span class="pm-ai-diff__stat"><b class="is-add">+3</b><b class="is-del">−11</b></span>' +
+            '<span class="pm-ai-status is-accepted">Đã áp dụng</span></div>' +
+            '<div class="pm-ai-diff__body"><div class="pm-ai-diff__line"><code>a</code></div>' +
+            '<div class="pm-ai-diff__line is-add"><code>b</code></div>' +
+            '<div class="pm-ai-diff__line is-del"><code>c</code></div></div>' +
+            '<div class="pm-ai-diff__ft"><span class="pm-ai-diff__reason">Sửa lỗi</span></div>'
+          document.getElementById('list').appendChild(el)
+        }
+      </script>
+    </div>
+  </body>
+</html>

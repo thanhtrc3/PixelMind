@@ -4,6 +4,14 @@ import { isAbsolute, relative, resolve, sep } from 'node:path'
 /* Tiện ích an toàn đường dẫn dùng chung cho AI context, apply engine và tool layer.
    Mọi đường dẫn tương đối đều bị ép nằm trong thư mục dự án. */
 
+/** So khớp đường dẫn dự án: Windows không phân biệt hoa/thường, bỏ dấu phân cách cuối. */
+export function isSameProjectPath(a: string, b: string): boolean {
+  const normalize = (value: string) => resolve(value).replace(/[\\/]+$/, '')
+  const left = normalize(a)
+  const right = normalize(b)
+  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
+}
+
 const BLOCKED_DIRS = new Set([
   'node_modules',
   '.git',

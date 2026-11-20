@@ -1,0 +1,21 @@
+{
+  "workspaceId": "8174c691-9d14-45d9-9523-4e465981fa36",
+  "url": "https://pwoqtdfttjdsimfnzlvq.supabase.co",
+  "accounts": [
+    {
+      "role": "owner",
+      "email": "owner@pixelmind.test",
+      "password": "PixelMind@123"
+    },
+    {
+      "role": "editor",
+      "email": "editor@pixelmind.test",
+      "password": "PixelMind@123"
+    },
+    {
+      "role": "viewer",
+      "email": "viewer@pixelmind.test",
+      "password": "PixelMind@123"
+    }
+  ]
+}

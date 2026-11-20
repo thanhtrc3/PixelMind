@@ -120,6 +120,8 @@ interface WorkspaceViewProps {
   onOpenTheme?: () => void
   canvasReloadToken?: number
   onAIApplied?: () => void
+  /** Chạy lại dự án sau khi AI sửa xong để tiến trình cũ không giữ mã lỗi. */
+  onRestart?: () => void
   /** Workspace có đang là màn hình hiển thị không (vẫn mounted khi ẩn để giữ phiên AI). */
   active?: boolean
 }
@@ -198,9 +200,16 @@ const WorkspaceView = ({
   onOpenTheme,
   canvasReloadToken = 0,
   onAIApplied,
+  onRestart,
   active = true,
 }: WorkspaceViewProps) => {
-  const parsedError = useMemo(() => parseRunError(logs, run), [logs, run])
+  const rawParsedError = useMemo(() => parseRunError(logs, run), [logs, run])
+  /* AI đã build kiểm tra vượt qua → ẩn thẻ lỗi cũ; lần chạy mới thì hiện lại. */
+  const [fixVerified, setFixVerified] = useState(false)
+  useEffect(() => {
+    setFixVerified(false)
+  }, [run])
+  const parsedError = fixVerified ? null : rawParsedError
   /* App có thể đã nắn chỉnh route ASP.NET Core; ưu tiên URL đó. */
   const canvasUrl = previewUrl ?? run?.url ?? null
 
@@ -965,6 +974,8 @@ const WorkspaceView = ({
             onOpenTheme={() => onOpenTheme?.()}
             onOpenSettings={onSettings}
             onApplied={onAIApplied}
+            onFixVerified={() => setFixVerified(true)}
+            onRestart={onRestart}
             onShowToast={onShowToast ?? (() => {})}
           />
         </Panel>

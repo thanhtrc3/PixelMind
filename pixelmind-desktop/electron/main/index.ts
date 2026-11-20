@@ -31,7 +31,7 @@ import {
   generateTailwindThemeCss,
   parseVariablesCss,
 } from '../../shared/designTokens'
-import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetSettings, resetStore, storeFilePath } from './store'
+import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetSettings, resetStore, storeFilePath, requireOpenedProject, requireOpenedProjectId } from './store'
 import {
   addDevScriptToPkg,
   createIndexHtmlFile,
@@ -4273,6 +4273,8 @@ ipcMain.handle('ai:test', async (_e, projectPath?: string) => {
 })
 
 ipcMain.handle('ai:chat:start', async (event, request: AiChatStartRequest) => {
+  if (!request.projectPath) throw new Error('Thiếu thư mục dự án để chạy AI.')
+  await requireOpenedProject(request.projectPath)
   return startChat(request, (chatEvent) => {
     if (!event.sender.isDestroyed()) {
       event.sender.send('ai:chat:event', chatEvent)
@@ -4311,24 +4313,30 @@ ipcMain.handle('ai:chats:remove', async (_e, projectId: string, conversationId: 
 )
 
 ipcMain.handle('ai:context', async (_e, request: AiContextRequest) => {
+  if (!request.projectPath) throw new Error('Thiếu thư mục dự án để đọc ngữ cảnh AI.')
+  await requireOpenedProject(request.projectPath)
   return buildContextPack(request)
 })
 
 ipcMain.handle('ai:changes:list', async (_e, projectId: string) => listChanges(projectId))
 
 ipcMain.handle('ai:changes:propose', async (_e, request: AiProposeChangeRequest) => {
+  await requireOpenedProject(request.projectPath)
   return proposeChange(request)
 })
 
 ipcMain.handle('ai:changes:accept', async (_e, projectId: string, changeId: string) => {
+  await requireOpenedProjectId(projectId)
   return acceptChange(projectId, changeId)
 })
 
 ipcMain.handle('ai:changes:reject', async (_e, projectId: string, changeId: string) => {
+  await requireOpenedProjectId(projectId)
   return rejectChange(projectId, changeId)
 })
 
 ipcMain.handle('ai:changes:undo', async (_e, projectId: string, changeId: string) => {
+  await requireOpenedProjectId(projectId)
   return undoChange(projectId, changeId)
 })
 
@@ -4337,6 +4345,7 @@ ipcMain.handle('ai:changes:diff-stats', async (_e, projectPath: string) => {
 })
 
 ipcMain.handle('ai:changes:git-revert', async (_e, projectPath: string, files?: string[]) => {
+  await requireOpenedProject(projectPath)
   return gitRevertFiles(projectPath, files)
 })
 
@@ -4372,6 +4381,7 @@ ipcMain.handle('ai:cost:setBudget', async (_e, projectId: string, budgetTokens: 
 ipcMain.handle('ai:cost:reset', async (_e, projectId?: string) => resetCostStats(projectId))
 
 ipcMain.handle('ai:cli:run', async (event, request: AiCliRunRequest) => {
+  await requireOpenedProject(request.projectPath)
   return runCliAgent(request, (cliEvent) => {
     if (!event.sender.isDestroyed()) {
       event.sender.send('ai:cli:event', cliEvent)

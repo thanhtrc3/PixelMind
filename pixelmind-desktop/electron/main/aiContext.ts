@@ -16,7 +16,6 @@ const DEFAULT_BUDGET = 6000
 const MAX_SOURCE_CHARS = 20_000
 const MAX_HTML_CHARS = 8_000
 const MAX_ERROR_CHARS = 6_000
-const MAX_PROJECT_INDEX = 180
 
 const clamp = (value: string, max: number): { text: string; truncated: boolean } =>
   value.length > max ? { text: `${value.slice(0, max)}\n… (đã cắt bớt)`, truncated: true } : { text: value, truncated: false }
@@ -114,14 +113,13 @@ async function readProjectIndex(root: string): Promise<string[]> {
     const out: string[] = []
     const walk = (nodes: typeof tree) => {
       for (const node of nodes) {
-        if (out.length >= MAX_PROJECT_INDEX) return
         const rel = toPosix(node.path.slice(resolve(root).length + 1))
         if (!rel) continue
         if (node.type === 'dir') {
           if (['node_modules', 'bin', 'obj', 'dist', 'build', '.git', '.pixelmind'].includes(node.name)) continue
           out.push(`${rel}/`)
           if (node.children) walk(node.children)
-        } else if (out.length < MAX_PROJECT_INDEX) {
+        } else {
           out.push(rel)
         }
       }
@@ -214,15 +212,27 @@ export async function buildContextPack(request: AiContextRequest): Promise<AiCon
 
   if (include.has('project')) {
     pack.projectIndex = await readProjectIndex(root)
-    notes.push(`Chỉ mục dự án gồm ${pack.projectIndex.length} mục (đã giới hạn).`)
+    notes.push(`Chỉ mục dự án gồm ${pack.projectIndex.length} mục.`)
   }
 
   const measure = () => estimateTokens(JSON.stringify(pack))
 
-  // Cắt theo ngân sách: bỏ mục ít quan trọng trước, cuối cùng mới cắt nội dung nguồn.
+  // Không có trần số mục; nếu quá ngân sách thì giữ phần đầu chỉ mục, không bỏ toàn bộ.
   if (measure() > budget && pack.projectIndex) {
-    delete pack.projectIndex
-    dropped.push('project')
+    const full = pack.projectIndex
+    let keep = full.length
+    while (keep > 0 && measure() > budget) {
+      keep = Math.floor(keep * 0.8)
+      pack.projectIndex = full.slice(0, keep)
+    }
+    if (keep === 0) {
+      delete pack.projectIndex
+      dropped.push('project')
+    } else if (keep < full.length) {
+      notes.push(
+        `Chỉ mục dự án dài ${full.length} mục, chỉ gửi ${keep} mục đầu để vừa ngân sách ${budget} token.`,
+      )
+    }
   }
   if (measure() > budget && pack.wires) {
     delete pack.wires
