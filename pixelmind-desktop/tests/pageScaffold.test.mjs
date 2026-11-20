@@ -65,3 +65,51 @@ test('scaffoldPageFile writes the template file to disk correctly', async () => 
     await fs.rm(tempDir, { recursive: true, force: true })
   }
 })
+
+test('buildTemplate and scaffoldPageFile support ASP.NET Core Razor', async () => {
+  const code = buildTemplate('razor', 'Trang thử nghiệm', '/Home/Test')
+  assert.ok(code.includes('ViewData["Title"] = "Trang thử nghiệm"'))
+  assert.ok(code.includes('/Home/Test'))
+  assert.ok(code.includes('Khu vực nội dung chính'))
+
+  const tempDir = await fs.mkdtemp(join(tmpdir(), 'pm-razor-test-'))
+  try {
+    const viewsDir = join(tempDir, 'Views', 'Home')
+    const controllersDir = join(tempDir, 'Controllers')
+    await fs.mkdir(viewsDir, { recursive: true })
+    await fs.mkdir(controllersDir, { recursive: true })
+
+    const controllerPath = join(controllersDir, 'HomeController.cs')
+    await fs.writeFile(
+      controllerPath,
+      `using Microsoft.AspNetCore.Mvc;
+namespace App.Controllers {
+    public class HomeController : Controller {
+        public IActionResult Index() => View();
+    }
+}`,
+      'utf8',
+    )
+
+    const target = {
+      supported: true,
+      label: 'ASP.NET Core (Razor)',
+      relativePath: 'Views/Home/Test.cshtml',
+      exists: false,
+      kind: 'razor',
+      absolutePath: join(viewsDir, 'Test.cshtml'),
+      route: '/Home/Test',
+    }
+
+    const result = await scaffoldPageFile(target, 'Test')
+    assert.equal(result.relativePath, 'Views/Home/Test.cshtml')
+
+    const viewContent = await fs.readFile(target.absolutePath, 'utf8')
+    assert.ok(viewContent.includes('ViewData["Title"] = "Test"'))
+
+    const updatedController = await fs.readFile(controllerPath, 'utf8')
+    assert.ok(updatedController.includes('public IActionResult Test() => View();'))
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true })
+  }
+})

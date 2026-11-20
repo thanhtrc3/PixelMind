@@ -155,6 +155,27 @@ describe('createSecretStore', () => {
     }
   })
 
+  it('hoạt động chuẩn xác với async codec (Electron safeStorage API mới)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pm-secret-async-'))
+    const file = join(dir, 'async-token.json')
+    const asyncCodec = {
+      isAsyncEncryptionAvailable: async () => true,
+      encryptStringAsync: async (val) => Buffer.from(`ASYNC:${val}`),
+      decryptStringAsync: async (buf) => ({ result: buf.toString().replace(/^ASYNC:/, '') }),
+    }
+    try {
+      const store = createSecretStore(file, asyncCodec)
+      assert.equal(await store.isAvailable(), true)
+      assert.equal(await store.load(), null)
+      await store.save('async-secret')
+      assert.equal(await store.load(), 'async-secret')
+      await store.save(null)
+      assert.equal(await store.load(), null)
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
+
   it('không ghi và không đọc khi codec không khả dụng', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'pm-secret-'))
     const file = join(dir, 'token.json')

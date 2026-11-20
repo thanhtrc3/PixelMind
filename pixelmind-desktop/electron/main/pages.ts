@@ -9,6 +9,7 @@ export type PageTemplateKind =
   | 'sveltekit'
   | 'astro'
   | 'html'
+  | 'razor'
 
 export interface PageFileTarget extends PageFilePreview {
   kind: PageTemplateKind | 'unsupported'
@@ -175,6 +176,56 @@ export async function resolvePageTarget(
     readPackageDeps(root),
     hasNonJsMarker(root),
   ])
+
+  // Kiểm tra dự án ASP.NET Core MVC hoặc Razor Pages
+  const cshtmlFiles = await collectFiles(root, ['.cshtml'], 4)
+  if (
+    cshtmlFiles.length > 0 ||
+    (await dirExists(join(root, 'Views'))) ||
+    (await dirExists(join(root, 'Pages')))
+  ) {
+    let baseViews = ''
+    if (await dirExists(join(root, 'Views'))) {
+      baseViews = 'Views'
+    } else {
+      const match = cshtmlFiles.find((f) => /(?:^|[\\/])Views[\\/]/i.test(f))
+      if (match) {
+        const norm = match.replace(/\\/g, '/')
+        const idx = norm.search(/(?:^|\/)Views\//i)
+        const prefix = norm.slice(0, idx).replace(/^\/+|\/+$/g, '')
+        baseViews = prefix ? `${prefix}/Views` : 'Views'
+      }
+    }
+
+    if (baseViews) {
+      const segments = routeSegments(route)
+      if (segments) {
+        let relPath = ''
+        if (segments.length === 0) {
+          relPath = `${baseViews}/Home/Index.cshtml`
+        } else if (segments.length === 1) {
+          const cap = segments[0].charAt(0).toUpperCase() + segments[0].slice(1)
+          relPath = `${baseViews}/Home/${cap}.cshtml`
+        } else {
+          const c1 = segments[0].charAt(0).toUpperCase() + segments[0].slice(1)
+          const c2 = segments[1].charAt(0).toUpperCase() + segments[1].slice(1)
+          relPath = `${baseViews}/${c1}/${c2}.cshtml`
+        }
+        const absolutePath = join(root, ...relPath.split('/'))
+        const exists = await fileExists(absolutePath)
+        return {
+          supported: true,
+          label: 'ASP.NET Core (Razor)',
+          relativePath: relPath,
+          exists,
+          reason: exists ? `Tệp ${relPath} đã tồn tại.` : undefined,
+          kind: 'razor',
+          absolutePath,
+          route,
+        }
+      }
+    }
+  }
 
   if (nonJs) {
     return unsupported('Không hỗ trợ', 'Dự án này không dùng quy ước tệp route của web/JS.', route)
@@ -502,6 +553,22 @@ const title = ${jsTitle}
 `
   }
 
+  if (kind === 'razor') {
+    return `@{
+    ViewData["Title"] = ${jsTitle};
+}
+
+<div class="card p-4 shadow-sm border-0" style="background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0 !important;">
+    <h1 class="h3 fw-bold mb-2 text-dark">@ViewData["Title"]</h1>
+    <p class="text-muted mb-4">Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
+    <div class="p-5 text-center rounded" style="border: 2px dashed #cbd5e1; background: #f8fafc;">
+        <p class="m-0 fw-bold text-secondary">Khu vực nội dung chính</p>
+        <p class="small text-muted m-0 mt-1">Kéo thả linh kiện hoặc bắt đầu thiết kế giao diện của bạn tại đây.</p>
+    </div>
+</div>
+`
+  }
+
   return `<!doctype html>
 <html lang="vi">
   <head>
@@ -567,6 +634,36 @@ export async function scaffoldPageFile(
     encoding: 'utf8',
     flag: 'wx',
   })
+
+  if (target.kind === 'razor') {
+    try {
+      const parts = target.relativePath.replace(/\\/g, '/').split('/')
+      const viewIdx = parts.findIndex((p) => p.toLowerCase() === 'views')
+      if (viewIdx >= 0 && parts.length > viewIdx + 2) {
+        const controllerName = parts[viewIdx + 1]
+        const actionFileName = parts[viewIdx + 2]
+        const actionName = actionFileName.replace(/\.cshtml$/i, '')
+        const controllerRel = [...parts.slice(0, viewIdx), 'Controllers', `${controllerName}Controller.cs`].join('/')
+        const root = resolve(dirname(target.absolutePath), ...Array(parts.length - 1).fill('..'))
+        const controllerAbs = join(root, ...controllerRel.split('/'))
+        if (await fileExists(controllerAbs)) {
+          const content = await fs.readFile(controllerAbs, 'utf8')
+          const regex = new RegExp(`public\\s+(?:IActionResult|ActionResult|Task<IActionResult>)\\s+${actionName}\\s*\\(`, 'i')
+          if (!regex.test(content)) {
+            const lastBraceIdx = content.lastIndexOf('}')
+            if (lastBraceIdx > 0) {
+              const methodSnippet = `\n        public IActionResult ${actionName}() => View();\n`
+              const updatedContent = content.slice(0, lastBraceIdx) + methodSnippet + content.slice(lastBraceIdx)
+              await fs.writeFile(controllerAbs, updatedContent, 'utf8')
+            }
+          }
+        }
+      }
+    } catch {
+      /* Không cản trở nếu không tìm thấy file controller */
+    }
+  }
+
   return { relativePath: target.relativePath }
 }
 
