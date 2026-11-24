@@ -583,6 +583,7 @@ const WorkspaceView = ({
                   referenceAssetPath={referenceAsset?.path ?? null}
                   onSelectReference={setReferenceAsset}
                   onClearReference={() => setReferenceAsset(null)}
+                  syncCanvasToTree={settings.syncCanvasToTree !== false}
                 />
               </Panel>
               <Separator className="pm-resize" />
@@ -779,6 +780,7 @@ const WorkspaceView = ({
                       onOpenExternal={onOpenFileExternal}
                       onShowInFolder={onShowInFolder}
                       onShowToast={onShowToast}
+                      fontSize={settings.editorFontSize || 13}
                       onRevealInTree={(path) => {
                         const fileName = path.split(/[\\/]/).pop() || ''
                         const fileExt = fileName.split('.').pop() || ''
@@ -829,6 +831,7 @@ const WorkspaceView = ({
                     }}
                     onClear={onClearLogs}
                     isCollapsed={isLogCollapsed}
+                    fontSize={settings.editorFontSize || 13}
                     onAskAI={() => {
                       setAiInitialTab('errors')
                       if (!aiPanelOpen && onToggleAIPanel) {

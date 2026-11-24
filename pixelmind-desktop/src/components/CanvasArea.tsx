@@ -32,6 +32,7 @@ import {
   Info,
   Layers,
   Maximize2,
+  MessageSquare,
   Monitor,
   MonitorUp,
   MousePointer2,
@@ -41,6 +42,7 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
+  Ruler,
   Scan,
   Smartphone,
   Sparkles,
@@ -138,6 +140,10 @@ interface ToolConfig {
 const TOOLS: ToolConfig[] = [
   { key: 'select', label: 'Chọn (V)', icon: MousePointer2, shortcut: 'V' },
   { key: 'pan', label: 'Kéo (H)', icon: Hand, shortcut: 'H' },
+  { key: 'rect', label: 'Khung chữ nhật (R)', icon: Square, shortcut: 'R' },
+  { key: 'text', label: 'Văn bản (T)', icon: Type, shortcut: 'T' },
+  { key: 'comment', label: 'Ghi chú (C)', icon: MessageSquare, shortcut: 'C' },
+  { key: 'measure', label: 'Thước đo (M)', icon: Ruler, shortcut: 'M' },
 ]
 
 export interface HoverElementInfo {
@@ -1149,6 +1155,12 @@ const CanvasArea = ({
     })
   }, [selectedEl, multiSelection, sourceLoc, onSelectionChange])
 
+  // Đồng bộ phần tử đang chọn trên Canvas sang cây Layers khi bật syncCanvasToTree
+  useEffect(() => {
+    if (canvasSettings.syncCanvasToTree === false) return
+    window.dispatchEvent(new CustomEvent('pm:selected-element-changed', { detail: selectedEl }))
+  }, [selectedEl, canvasSettings.syncCanvasToTree])
+
   // Zoom to Fit (F) — tính theo đúng kích thước sân khấu để khung thiết bị vừa khít.
   const zoomToFit = useCallback(
     (vp: ViewportConfig = currentVp) => {
@@ -1334,14 +1346,101 @@ const CanvasArea = ({
     }
   }
 
-  // Xử lý kéo Pan sân khấu
+  // Xử lý kéo Pan sân khấu & công cụ vẽ trực tiếp (R / T / C / M)
   const isPanActive = tool === 'pan' || spacePressedRef.current
+  const [toolDraw, setToolDraw] = useState<{
+    tool: 'rect' | 'text' | 'measure'
+    startX: number
+    startY: number
+    curX: number
+    curY: number
+  } | null>(null)
+  const [measureLine, setMeasureLine] = useState<{
+    startX: number
+    startY: number
+    endX: number
+    endY: number
+  } | null>(null)
+  const [canvasComments, setCanvasComments] = useState<
+    Array<{ id: string; x: number; y: number; text: string }>
+  >([])
+
+  const insertQuickDomElement = useCallback(
+    (tag: 'div' | 'p', htmlSnippet: string, label: string) => {
+      try {
+        const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+        if (doc?.body) {
+          const temp = doc.createElement('div')
+          temp.innerHTML = htmlSnippet
+          const newEl = temp.firstElementChild as HTMLElement | null
+          if (newEl) {
+            const uid = 'pm_' + Math.random().toString(36).slice(2, 9)
+            newEl.setAttribute('data-pm-uid', uid)
+            const host =
+              (selectedEl?.uid
+                ? (doc.querySelector(`[data-pm-uid="${selectedEl.uid}"]`) as HTMLElement | null)
+                : null) || doc.body
+            host.appendChild(newEl)
+            const parentUid = host.getAttribute('data-pm-uid') || 'body'
+            const index = Array.prototype.indexOf.call(host.children, newEl)
+            editorBuffer.pushAction({
+              type: 'INSERT',
+              description: label,
+              target: {
+                tagName: tag,
+                uid,
+                domPath: `${host.tagName.toLowerCase()} > ${tag}`,
+              },
+              before: { styles: {} },
+              after: { styles: {} },
+              dom: {
+                kind: 'insert',
+                parentUid,
+                index,
+                uids: [uid],
+                html: newEl.outerHTML,
+              },
+              projectPath,
+              docEpoch: docEpochRef.current,
+            })
+            iframeRef.current?.contentWindow?.postMessage({ type: 'PM_SELECT_BY_UID', uid }, '*')
+          }
+        }
+      } catch {}
+    },
+    [projectPath, selectedEl?.uid]
+  )
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (isPanActive || e.button === 1) {
       e.preventDefault()
       setIsPanning(true)
       panStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y }
+      return
+    }
+    if (e.button !== 0 || !stageRef.current) return
+    const rect = stageRef.current.getBoundingClientRect()
+    const x = Math.round(e.clientX - rect.left)
+    const y = Math.round(e.clientY - rect.top)
+    if (tool === 'comment') {
+      e.preventDefault()
+      e.stopPropagation()
+      const nextNum = canvasComments.length + 1
+      setCanvasComments((prev) => [
+        ...prev,
+        { id: `comment-${Date.now()}`, x, y, text: `Ghi chú #${nextNum}` },
+      ])
+      showToast(`Đã ghim Ghi chú #${nextNum} trên Canvas (nhấp vào ghim để xoá)`, 'ok', 'Phím C')
+      setTool('select')
+      return
+    }
+    if (tool === 'rect' || tool === 'text' || tool === 'measure') {
+      e.preventDefault()
+      e.stopPropagation()
+      setToolDraw({ tool, startX: x, startY: y, curX: x, curY: y })
+      if (tool === 'measure') {
+        setMeasureLine({ startX: x, startY: y, endX: x, endY: y })
+      }
     }
   }
 
@@ -1351,11 +1450,50 @@ const CanvasArea = ({
         x: e.clientX - panStartRef.current.x,
         y: e.clientY - panStartRef.current.y,
       })
+      return
+    }
+    if (toolDraw && stageRef.current) {
+      const rect = stageRef.current.getBoundingClientRect()
+      const curX = Math.round(e.clientX - rect.left)
+      const curY = Math.round(e.clientY - rect.top)
+      setToolDraw((prev) => (prev ? { ...prev, curX, curY } : null))
+      if (toolDraw.tool === 'measure') {
+        setMeasureLine({ startX: toolDraw.startX, startY: toolDraw.startY, endX: curX, endY: curY })
+      }
     }
   }
 
   const handleMouseUp = () => {
     if (isPanning) setIsPanning(false)
+    if (!toolDraw) return
+    const current = toolDraw
+    setToolDraw(null)
+    const w = Math.max(80, Math.round(Math.abs(current.curX - current.startX)))
+    const h = Math.max(48, Math.round(Math.abs(current.curY - current.startY)))
+    if (current.tool === 'measure') {
+      const dist = Math.round(Math.hypot(current.curX - current.startX, current.curY - current.startY))
+      showToast(`Khoảng cách đo: ${dist}px (${Math.abs(current.curX - current.startX)} × ${Math.abs(current.curY - current.startY)} px)`, 'info', 'Phím M')
+      return
+    }
+    if (current.tool === 'rect') {
+      insertQuickDomElement(
+        'div',
+        `<div style="width:${w}px;height:${h}px;min-height:48px;border-radius:8px;background:rgba(109,93,245,0.12);border:1.5px solid #6d5df5;padding:12px;box-sizing:border-box;">Khối mới (${w}×${h})</div>`,
+        `Chèn khung chữ nhật (${w}×${h})`
+      )
+      showToast(`Đã tạo khung chữ nhật ${w} × ${h}px trên Canvas`, 'ok', 'Phím R')
+      setTool('select')
+      return
+    }
+    if (current.tool === 'text') {
+      insertQuickDomElement(
+        'p',
+        `<p style="font-size:16px;line-height:1.5;margin:8px 0;">Văn bản mới</p>`,
+        'Chèn khối văn bản mới'
+      )
+      showToast('Đã chèn khối Văn bản mới trên Canvas', 'ok', 'Phím T')
+      setTool('select')
+    }
   }
 
   // ─── LẮNG NGHE POSTMESSAGE TỪ TRÌNH DUYỆT THẬT (IFRAME) ───
@@ -1633,25 +1771,62 @@ const CanvasArea = ({
         }
       } else if (e.data.type === 'PM_KEYBOARD_SHORTCUT') {
         const { key, shiftKey, ctrlKey } = e.data.payload || {}
-        if (key === 'Escape' || key === 'Esc') {
+        const lowerKey = typeof key === 'string' ? key.toLowerCase() : ''
+        if (lowerKey === 'escape' || lowerKey === 'esc') {
           if (isSelectingForPartRef.current) {
             setIsSelectingForPart(false)
             showToast('Đã huỷ khoanh vùng lưu Part', 'info')
+          } else if (tool !== 'select') {
+            setTool('select')
+            setMeasureLine(null)
+          } else if (selectedEl || multiSelectionRef.current.length > 0) {
+            setSelectedEl(null)
+            setMultiSelection([])
+            iframeRef.current?.contentWindow?.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
+          } else if (isInspectMode) {
+            setIsInspectMode(false)
+            setHoverEl(null)
+            showToast('Đã tắt chế độ Soi phần tử', 'info')
           }
-        } else if (key === 's') {
+        } else if (ctrlKey && lowerKey === 's') {
           editorBuffer.saveAllDirtyFiles(showToast)
-        } else if (key === 'z' && !shiftKey) {
+        } else if (ctrlKey && lowerKey === 'z' && !shiftKey) {
           if (editorBuffer.canUndo()) editorBuffer.undo()
-        } else if (key === 'y' || (key === 'z' && shiftKey)) {
+        } else if (ctrlKey && (lowerKey === 'y' || (lowerKey === 'z' && shiftKey))) {
           if (editorBuffer.canRedo()) editorBuffer.redo()
-        } else if (key === 'delete' || key === 'backspace') {
+        } else if (lowerKey === 'delete' || lowerKey === 'backspace') {
           canvasActionsRef.current.deleteSelection()
-        } else if (key === 'd' && ctrlKey) {
+        } else if (lowerKey === 'd' && ctrlKey) {
           void beginToolboxDuplicate()
-        } else if (key === 'c' && ctrlKey) {
+        } else if (lowerKey === 'c' && ctrlKey) {
           canvasActionsRef.current.copy()
-        } else if (key === 'v' && ctrlKey) {
+        } else if (lowerKey === 'v' && ctrlKey) {
           canvasActionsRef.current.paste()
+        } else if (!ctrlKey) {
+          if (lowerKey === 'v') setTool('select')
+          else if (lowerKey === 'h') setTool('pan')
+          else if (lowerKey === 'r') setTool('rect')
+          else if (lowerKey === 't') setTool('text')
+          else if (lowerKey === 'c') setTool('comment')
+          else if (lowerKey === 'm') setTool('measure')
+          else if (lowerKey === 'f') zoomToFit()
+          else if (lowerKey === 'i') {
+            setIsInspectMode((prev) => {
+              const next = !prev
+              if (!next) {
+                setSelectedEl(null)
+                setHoverEl(null)
+                setMultiSelection([])
+                iframeRef.current?.contentWindow?.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
+              }
+              showToast(
+                next ? 'Đã bật chế độ Soi phần tử' : 'Đã tắt chế độ Soi phần tử',
+                next ? 'ok' : 'info',
+                next ? 'Phím I' : undefined
+              )
+              return next
+            })
+          }
         }
       } else if (e.data.type === 'PM_TOOLBOX_DOM_RESULT') {
         const resolver = toolboxRequestsRef.current.get(e.data.requestId)
@@ -1887,9 +2062,12 @@ const CanvasArea = ({
         }
       }
 
-      // QUAN TRỌNG: Chỉ gửi textContent khi hành động là TEXT! Tuyệt đối không gửi textContent khi hành động là MOVE, RESIZE, hoặc STYLE
-      const isTextAction = action.type === 'TEXT'
-      const textToApply = isTextAction ? (isUndo ? action.before.text : action.after.text) : undefined
+      const hasTextChange =
+        action.type === 'TEXT' ||
+        (action.before.text !== undefined &&
+          action.after.text !== undefined &&
+          action.before.text !== action.after.text)
+      const textToApply = hasTextChange ? (isUndo ? action.before.text : action.after.text) : undefined
 
       // 2. Phản chiếu ngược lại iframe DOM cho ĐÚNG phần tử mục tiêu (action.target)
       if (iframeRef.current?.contentWindow) {
@@ -1928,6 +2106,8 @@ const CanvasArea = ({
           if (isUndo) {
             if (action.before.styles[k]) {
               baseStyles[k] = action.before.styles[k]
+            } else if (originalStyles?.styles?.[k]) {
+              baseStyles[k] = originalStyles.styles[k]
             } else {
               delete (baseStyles as any)[k]
             }
@@ -1945,7 +2125,10 @@ const CanvasArea = ({
           id: action.target.id || '',
           className: action.target.className || '',
           domPath: action.target.domPath || prev?.domPath || '',
-          textSnippet: isTextAction && textToApply !== undefined ? textToApply : (action.before.text || prev?.textSnippet || ''),
+          textSnippet:
+            textToApply !== undefined
+              ? textToApply
+              : (isUndo ? action.before.text : action.after.text) ?? prev?.textSnippet ?? '',
           rect: rectToUse ? { ...(prev?.rect || { top: 0, left: 0, width: 0, height: 0 }), ...rectToUse } : (prev?.rect || { top: 0, left: 0, width: 0, height: 0 }),
           computedStyles: baseStyles as any,
           isLeaf: prev?.isLeaf,
@@ -4648,19 +4831,65 @@ const CanvasArea = ({
         />
       )}
 
-      {(isPanActive || isPanning) && (
+      {(isPanActive ||
+        isPanning ||
+        tool === 'rect' ||
+        tool === 'text' ||
+        tool === 'comment' ||
+        tool === 'measure') && (
         <div
           style={{
             position: 'absolute',
             inset: 0,
             zIndex: 50,
-            cursor: isPanning ? 'grabbing' : 'grab',
+            cursor: isPanActive || isPanning
+              ? isPanning
+                ? 'grabbing'
+                : 'grab'
+              : tool === 'text'
+                ? 'text'
+                : 'crosshair',
           }}
         />
       )}
 
+      {/* Đường căn thông minh (Smart Guides) khi bật trong Cài đặt Canvas */}
+      {isInspectMode && canvasSettings.smartGuides !== false && selectedEl && (
+        <>
+          <div
+            className="canvas__smart-guide canvas__smart-guide--h"
+            style={{
+              position: 'absolute',
+              top: selectedEl.rect.top,
+              left: 0,
+              right: 0,
+              height: 0,
+              borderTop: '1px dashed rgba(244, 63, 94, 0.55)',
+              pointerEvents: 'none',
+              zIndex: 37,
+            }}
+          />
+          <div
+            className="canvas__smart-guide canvas__smart-guide--v"
+            style={{
+              position: 'absolute',
+              left: selectedEl.rect.left,
+              top: 0,
+              bottom: 0,
+              width: 0,
+              borderLeft: '1px dashed rgba(244, 63, 94, 0.55)',
+              pointerEvents: 'none',
+              zIndex: 37,
+            }}
+          />
+        </>
+      )}
+
       {/* Khung viền hover phần tử khi soi */}
-      {isInspectMode && hoverEl && (!selectedEl || hoverEl.uid !== selectedEl.uid) && (
+      {isInspectMode &&
+        canvasSettings.hoverOutline !== false &&
+        hoverEl &&
+        (!selectedEl || hoverEl.uid !== selectedEl.uid) && (
         <div
           className="canvas__inspect-hover"
           style={{
@@ -5041,23 +5270,6 @@ const CanvasArea = ({
             }
             try {
               const win = iframeRef.current?.contentWindow
-              if (win && win.localStorage) {
-                try {
-                  if (!win.localStorage.getItem('bancotuong.token')) {
-                    win.localStorage.setItem('bancotuong.token', 'preview-token')
-                    win.localStorage.setItem(
-                      'bancotuong.user',
-                      JSON.stringify({
-                        id: 1,
-                        username: 'Kỳ Thủ',
-                        displayName: 'Kỳ Thủ Mẫu',
-                        email: 'preview@bancotuong.vn',
-                        elo: 1200,
-                      })
-                    )
-                  }
-                } catch { }
-              }
               if (win && win.location) {
                 const href = win.location.href
                 const pathname = win.location.pathname || '/'
@@ -5574,7 +5786,109 @@ const CanvasArea = ({
           </div>
 
           {/* Lớp xem ảnh mẫu phủ kín stage nhưng KHÔNG unmount iframe Live bên dưới. */}
-          {showReference && referenceAsset && renderReferenceView()}
+          {!isPageFlowOpen && showReference && referenceAsset && renderReferenceView()}
+
+          {/* Khung xem trước khi đang kéo vẽ Hình chữ nhật (R) hoặc Văn bản (T) */}
+          {toolDraw && (toolDraw.tool === 'rect' || toolDraw.tool === 'text') && (
+            <div
+              style={{
+                position: 'absolute',
+                left: Math.min(toolDraw.startX, toolDraw.curX),
+                top: Math.min(toolDraw.startY, toolDraw.curY),
+                width: Math.max(12, Math.abs(toolDraw.curX - toolDraw.startX)),
+                height: Math.max(12, Math.abs(toolDraw.curY - toolDraw.startY)),
+                border: '1.5px dashed #6d5df5',
+                background: 'rgba(109, 93, 245, 0.14)',
+                borderRadius: 6,
+                pointerEvents: 'none',
+                zIndex: 75,
+              }}
+            />
+          )}
+
+          {/* Thước đo khoảng cách pixel trên Canvas (M) */}
+          {measureLine && (
+            <svg
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+                zIndex: 76,
+              }}
+            >
+              <line
+                x1={measureLine.startX}
+                y1={measureLine.startY}
+                x2={measureLine.endX}
+                y2={measureLine.endY}
+                stroke="#f43f5e"
+                strokeWidth={2}
+                strokeDasharray="4 3"
+              />
+              <circle cx={measureLine.startX} cy={measureLine.startY} r={4} fill="#f43f5e" />
+              <circle cx={measureLine.endX} cy={measureLine.endY} r={4} fill="#f43f5e" />
+              <g
+                transform={`translate(${Math.round((measureLine.startX + measureLine.endX) / 2)}, ${Math.round((measureLine.startY + measureLine.endY) / 2 - 10)})`}
+              >
+                <rect x={-36} y={-14} width={72} height={20} rx={5} fill="#f43f5e" />
+                <text
+                  x={0}
+                  y={0}
+                  textAnchor="middle"
+                  fill="#ffffff"
+                  fontSize={10.5}
+                  fontWeight={700}
+                  fontFamily="monospace"
+                >
+                  {Math.round(
+                    Math.hypot(
+                      measureLine.endX - measureLine.startX,
+                      measureLine.endY - measureLine.startY
+                    )
+                  )}
+                  px
+                </text>
+              </g>
+            </svg>
+          )}
+
+          {/* Các ghim Ghi chú trên Canvas (C) */}
+          {canvasComments.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setCanvasComments((prev) => prev.filter((c) => c.id !== item.id))
+                showToast(`Đã xoá ${item.text}`, 'info')
+              }}
+              title={`${item.text} (Nhấp để xoá ghim)`}
+              style={{
+                position: 'absolute',
+                left: item.x,
+                top: item.y,
+                transform: 'translate(-50%, -100%)',
+                zIndex: 77,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '3px 8px',
+                borderRadius: '999px 999px 999px 2px',
+                background: '#f59e0b',
+                color: '#0f172a',
+                border: '1.5px solid #ffffff',
+                fontSize: 10.5,
+                fontWeight: 700,
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+              }}
+            >
+              <MessageSquare size={11} />
+              <span>{item.text}</span>
+            </button>
+          ))}
 
           {isInspectMode && multiSelection.length >= 2 && (
             <div

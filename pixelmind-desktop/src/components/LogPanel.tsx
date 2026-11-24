@@ -38,6 +38,7 @@ interface LogPanelProps {
   onToggleCollapse?: () => void
   isCollapsed?: boolean
   onAskAI?: () => void
+  fontSize?: number
 }
 
 type BottomTab = 'logs' | 'terminal'
@@ -133,6 +134,7 @@ const LogPanel = ({
   onToggleCollapse,
   isCollapsed = false,
   onAskAI,
+  fontSize = 13,
 }: LogPanelProps) => {
   const bodyRef = useRef<HTMLDivElement>(null)
   const termStageRef = useRef<HTMLDivElement>(null)
@@ -218,6 +220,16 @@ const LogPanel = ({
     return () => observer.disconnect()
   }, [])
 
+  // Đồng bộ cỡ chữ trình soạn thảo / terminal cho mọi phiên XTerm đang mở
+  useEffect(() => {
+    xtermsRef.current.forEach(({ term, fit }) => {
+      term.options.fontSize = fontSize
+      try {
+        fit.fit()
+      } catch {}
+    })
+  }, [fontSize])
+
   // Dọn dẹp toàn bộ phiên PTY do panel này tạo khi unmount
   useEffect(() => {
     return () => {
@@ -260,7 +272,7 @@ const LogPanel = ({
         const term = new XTerm({
           cursorBlink: true,
           cursorStyle: 'bar',
-          fontSize: 12,
+          fontSize,
           lineHeight: 1.38,
           scrollback: 3000,
           fontFamily: "'JetBrains Mono', 'Cascadia Code', Consolas, monospace",
@@ -692,7 +704,11 @@ const LogPanel = ({
           )}
 
           {(!parsedError || showRawLogs) && (
-            <div className="pm-logs__bd" ref={bodyRef} style={{ flex: 1, minHeight: 0 }}>
+            <div
+              className="pm-logs__bd"
+              ref={bodyRef}
+              style={{ flex: 1, minHeight: 0, fontSize: `${fontSize}px` }}
+            >
               {filteredLogs.length === 0 ? (
                 <div className="pm-logs__empty">
                   {logs.length === 0

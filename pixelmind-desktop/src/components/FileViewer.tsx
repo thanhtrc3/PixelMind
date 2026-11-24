@@ -53,6 +53,7 @@ interface FileViewerProps {
   onShowInFolder: (path: string) => void
   onShowToast?: (kind: 'ok' | 'err' | 'info', text: string) => void
   onRevealInTree?: (path: string) => void
+  fontSize?: number
 }
 
 /** Chuyển đổi đuôi file sang định danh ngôn ngữ chuẩn của Monaco */
@@ -116,6 +117,7 @@ const FileViewer = ({
   onShowInFolder,
   onShowToast,
   onRevealInTree,
+  fontSize = 13,
 }: FileViewerProps) => {
   const [code, setCode] = useState('')
   const [isDirty, setIsDirty] = useState(false)
@@ -434,6 +436,10 @@ const FileViewer = ({
     return file ? getMonacoLanguage(file.ext) : 'plaintext'
   }, [file?.ext])
 
+  useEffect(() => {
+    editorRef.current?.updateOptions({ fontSize })
+  }, [fontSize])
+
   if (loading) {
     return (
       <div className="pm-viewer" style={{ display: 'grid', placeItems: 'center' }}>
@@ -667,7 +673,7 @@ const FileViewer = ({
                 </div>
               }
               options={{
-                fontSize: 13,
+                fontSize,
                 fontFamily: "var(--font-mono, 'Consolas', 'Courier New', monospace)",
                 tabSize: 2,
                 minimap: { enabled: true, maxColumn: 80 },

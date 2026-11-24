@@ -2046,23 +2046,6 @@ export default function MultiPageCanvas({
         const iframeWin = iframe.contentWindow
         const curHref = iframeWin?.location?.href || ''
         if (!curHref || !/^https?:/i.test(curHref)) return
-        if (iframeWin && iframeWin.localStorage) {
-          try {
-            if (!iframeWin.localStorage.getItem('bancotuong.token')) {
-              iframeWin.localStorage.setItem('bancotuong.token', 'preview-token')
-              iframeWin.localStorage.setItem(
-                'bancotuong.user',
-                JSON.stringify({
-                  id: 1,
-                  username: 'Kỳ Thủ',
-                  displayName: 'Kỳ Thủ Mẫu',
-                  email: 'preview@bancotuong.vn',
-                  elo: 1200,
-                })
-              )
-            }
-          } catch {}
-        }
 
         const doc = iframe.contentDocument
         if (!doc) return
@@ -2248,7 +2231,7 @@ export default function MultiPageCanvas({
           const srcClientX = stageRect.left + v.panX + srcWorldX * v.zoom
           const srcClientY = stageRect.top + v.panY + srcWorldY * v.zoom
 
-          setConnectDrag({
+          const dragInit: ConnectDrag = {
             parentId: win.id,
             anchorKey,
             sourceX: relX,
@@ -2266,7 +2249,9 @@ export default function MultiPageCanvas({
             clientX: srcClientX,
             clientY: srcClientY,
             hoverTargetId: null,
-          })
+          }
+          connectDragRef.current = dragInit
+          setConnectDrag(dragInit)
         }
 
         if (docListeners.__pmConnectDown) {
@@ -2348,20 +2333,20 @@ export default function MultiPageCanvas({
               if (lastSegment === 'checkout' && (text.includes('thanh toán') || text.includes('checkout') || text.includes('đặt hàng'))) {
                 score += 85
               }
-              if (childNorm.includes('leaderboard') && (text.includes('xếp hạng') || text.includes('kỳ đài') || text.includes('leaderboard') || text.includes('rank'))) {
+              if (childNorm.includes('leaderboard') && (text.includes('xếp hạng') || text.includes('leaderboard') || text.includes('rank'))) {
                 score += 85
               }
               if (childNorm.includes('lobby') && (text.includes('sảnh') || text.includes('chờ') || text.includes('lobby'))) {
                 score += 85
               }
-              if (childNorm.includes('profile') && (text.includes('hồ sơ') || text.includes('kỳ thủ') || text.includes('profile'))) {
+              if (childNorm.includes('profile') && (text.includes('hồ sơ') || text.includes('profile'))) {
                 score += 85
               }
               if ((childNorm.includes('login') || childNorm.includes('account')) && (text.includes('đăng nhập') || text.includes('tài khoản') || id.includes('auth') || className.includes('auth'))) {
                 score += 85
               }
 
-              if (id.includes('brand') || className.includes('brand') || text.includes('bàn cờ tướng')) {
+              if (id.includes('brand') || className.includes('brand')) {
                 score -= 100
               }
 
@@ -2971,9 +2956,24 @@ export default function MultiPageCanvas({
   )
 
   /** Tìm cửa sổ đích dưới con trỏ khi đang kéo dây. */
-  const resolveDropTarget = (clientX: number, clientY: number, excludeId?: string): CanvasWin | null => {
-    const stageRect = stageRef.current?.getBoundingClientRect()
-    if (!stageRect) return null
+  const resolveDropTarget = useCallback((clientX: number, clientY: number, excludeId?: string): CanvasWin | null => {
+    const stage = stageRef.current
+    if (!stage) return null
+
+    // 1. Ưu tiên kiểm tra bounding rect thực tế của các thẻ .pm-win trên DOM ở mọi mức zoom
+    const winNodes = stage.querySelectorAll<HTMLElement>('.pm-win[data-win-id]')
+    for (const node of Array.from(winNodes)) {
+      const winId = node.getAttribute('data-win-id')
+      if (!winId || winId === excludeId) continue
+      const r = node.getBoundingClientRect()
+      if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+        const found = windowsRef.current.find((w) => w.id === winId)
+        if (found) return found
+      }
+    }
+
+    // 2. Fallback theo toạ độ không gian thế giới (world coordinates)
+    const stageRect = stage.getBoundingClientRect()
     const v = viewRef.current
     const worldX = (clientX - stageRect.left - v.panX) / v.zoom
     const worldY = (clientY - stageRect.top - v.panY) / v.zoom
@@ -2982,95 +2982,180 @@ export default function MultiPageCanvas({
       windowsRef.current.find(
         (w) =>
           w.id !== excludeId &&
-          !w.isHome &&
           Math.abs(worldX - w.x) <= w.w / 2 &&
           Math.abs(worldY - w.y) <= w.h / 2
       ) || null
     )
-  }
+  }, [])
+
+  const connectDragRef = useRef<ConnectDrag | null>(null)
+  connectDragRef.current = connectDrag
+
+  const updateConnectDragAt = useCallback(
+    (clientX: number, clientY: number) => {
+      const current = connectDragRef.current
+      if (!current) return
+      const hover = resolveDropTarget(clientX, clientY, current.parentId)
+      const next: ConnectDrag = {
+        ...current,
+        clientX,
+        clientY,
+        hoverTargetId: hover?.id || null,
+      }
+      connectDragRef.current = next
+      setConnectDrag(next)
+    },
+    [resolveDropTarget]
+  )
+
+  const finishConnectDragAt = useCallback(
+    (clientX: number, clientY: number) => {
+      const drag = connectDragRef.current
+      if (!drag) {
+        setConnectDrag(null)
+        return
+      }
+      connectDragRef.current = null
+
+      const target =
+        resolveDropTarget(clientX, clientY, drag.parentId) ||
+        (drag.hoverTargetId ? windowsRef.current.find((w) => w.id === drag.hoverTargetId && w.id !== drag.parentId) || null : null)
+      if (target) {
+        const parentWin = windowsRef.current.find((w) => w.id === drag.parentId)
+        const parentRoute = parentWin?.route
+        pushHistory([
+          {
+            action: 'unlink',
+            currentPath: parentRoute,
+            targetRoute: target.route,
+            source: drag.source,
+          },
+        ])
+
+        // Xoá đánh dấu unlinked nếu có trên nút này
+        if (drag.anchorKey) {
+          unlinkedButtonsRef.current.delete(`${drag.parentId}:${drag.anchorKey}`)
+          setHiddenWireIds((prev) => {
+            const next = new Set(prev)
+            next.add(`wire-${drag.anchorKey}`)
+            return next
+          })
+        }
+        if (drag.source.text) {
+          unlinkedButtonsRef.current.delete(`${drag.parentId}:${drag.source.text}`)
+        }
+        if (drag.source.elementId) {
+          unlinkedButtonsRef.current.delete(`${drag.parentId}:#${drag.source.elementId}`)
+        }
+
+        const id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+        setManualWires((prev) => [
+          ...prev.filter((mw) => {
+            if (mw.parentId !== drag.parentId) return true
+            if (drag.anchorKey && mw.anchorKey === drag.anchorKey) return false
+            if (drag.source.elementId && mw.source.elementId === drag.source.elementId) return false
+            if (drag.source.text && mw.source.text === drag.source.text) return false
+            return true
+          }),
+          {
+            id,
+            parentId: drag.parentId,
+            targetId: target.id,
+            anchorKey: drag.anchorKey,
+            sourceX: drag.sourceX,
+            sourceY: drag.sourceY,
+            source: drag.source,
+          },
+        ])
+
+        // Cập nhật DOM trực tiếp trong iframe nếu có
+        try {
+          const parentIframe = iframeRefs.current.get(drag.parentId)
+          const doc = parentIframe?.contentDocument
+          if (doc) {
+            const matchedEl = drag.anchorKey ? matchedElementsRef.current.get(drag.anchorKey)?.el : null
+            const candidate =
+              matchedEl || (drag.source.elementId ? doc.getElementById(drag.source.elementId) : null)
+            if (candidate) {
+              candidate.setAttribute('href', target.route)
+              candidate.setAttribute('data-route', target.route)
+            }
+          }
+        } catch {}
+
+        // Thêm logic nối trang vào mã nguồn của nút bấm nguồn
+        void syncWireCode('link', drag.source, target.route, parentRoute)
+      }
+      setConnectDrag(null)
+    },
+    [pushHistory, resolveDropTarget, syncWireCode]
+  )
+
+  useEffect(() => {
+    if (!connectDrag) return
+
+    const onWindowMove = (e: PointerEvent | MouseEvent) => {
+      updateConnectDragAt(e.clientX, e.clientY)
+    }
+    const onWindowUp = (e: PointerEvent | MouseEvent) => {
+      finishConnectDragAt(e.clientX, e.clientY)
+    }
+
+    window.addEventListener('pointermove', onWindowMove, true)
+    window.addEventListener('mousemove', onWindowMove, true)
+    window.addEventListener('pointerup', onWindowUp, true)
+    window.addEventListener('mouseup', onWindowUp, true)
+
+    const iframeCleanups: Array<() => void> = []
+    iframeRefs.current.forEach((iframeEl) => {
+      const iWin = iframeEl.contentWindow
+      if (!iWin) return
+      const toOuter = (e: PointerEvent | MouseEvent) => {
+        const rect = iframeEl.getBoundingClientRect()
+        const scaleX = rect.width / Math.max(1, iframeEl.offsetWidth || 1)
+        const scaleY = rect.height / Math.max(1, iframeEl.offsetHeight || 1)
+        return {
+          clientX: rect.left + e.clientX * scaleX,
+          clientY: rect.top + e.clientY * scaleY,
+        }
+      }
+      const onIframeMove = (e: PointerEvent | MouseEvent) => {
+        const pt = toOuter(e)
+        updateConnectDragAt(pt.clientX, pt.clientY)
+      }
+      const onIframeUp = (e: PointerEvent | MouseEvent) => {
+        const pt = toOuter(e)
+        finishConnectDragAt(pt.clientX, pt.clientY)
+      }
+      iWin.addEventListener('pointermove', onIframeMove, true)
+      iWin.addEventListener('mousemove', onIframeMove, true)
+      iWin.addEventListener('pointerup', onIframeUp, true)
+      iWin.addEventListener('mouseup', onIframeUp, true)
+      iframeCleanups.push(() => {
+        try {
+          iWin.removeEventListener('pointermove', onIframeMove, true)
+          iWin.removeEventListener('mousemove', onIframeMove, true)
+          iWin.removeEventListener('pointerup', onIframeUp, true)
+          iWin.removeEventListener('mouseup', onIframeUp, true)
+        } catch {}
+      })
+    })
+
+    return () => {
+      window.removeEventListener('pointermove', onWindowMove, true)
+      window.removeEventListener('mousemove', onWindowMove, true)
+      window.removeEventListener('pointerup', onWindowUp, true)
+      window.removeEventListener('mouseup', onWindowUp, true)
+      iframeCleanups.forEach((fn) => fn())
+    }
+  }, [Boolean(connectDrag), updateConnectDragAt, finishConnectDragAt])
 
   const handleConnectDragMove = (e: React.PointerEvent) => {
-    const hover = resolveDropTarget(e.clientX, e.clientY, connectDrag?.parentId)
-    setConnectDrag((prev) =>
-      prev ? { ...prev, clientX: e.clientX, clientY: e.clientY, hoverTargetId: hover?.id || null } : prev
-    )
+    updateConnectDragAt(e.clientX, e.clientY)
   }
 
   const handleConnectDragEnd = (e: React.PointerEvent) => {
-    const drag = connectDrag
-    if (!drag) {
-      setConnectDrag(null)
-      return
-    }
-
-    const target = resolveDropTarget(e.clientX, e.clientY, drag.parentId)
-    if (target) {
-      const parentWin = windowsRef.current.find((w) => w.id === drag.parentId)
-      const parentRoute = parentWin?.route
-      pushHistory([
-        {
-          action: 'unlink',
-          currentPath: parentRoute,
-          targetRoute: target.route,
-          source: drag.source,
-        },
-      ])
-
-      // Xoá đánh dấu unlinked nếu có trên nút này
-      if (drag.anchorKey) {
-        unlinkedButtonsRef.current.delete(`${drag.parentId}:${drag.anchorKey}`)
-        setHiddenWireIds((prev) => {
-          const next = new Set(prev)
-          next.add(`wire-${drag.anchorKey}`)
-          return next
-        })
-      }
-      if (drag.source.text) {
-        unlinkedButtonsRef.current.delete(`${drag.parentId}:${drag.source.text}`)
-      }
-      if (drag.source.elementId) {
-        unlinkedButtonsRef.current.delete(`${drag.parentId}:#${drag.source.elementId}`)
-      }
-
-      const id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-      setManualWires((prev) => [
-        ...prev.filter((mw) => {
-          if (mw.parentId !== drag.parentId) return true
-          if (drag.anchorKey && mw.anchorKey === drag.anchorKey) return false
-          if (drag.source.elementId && mw.source.elementId === drag.source.elementId) return false
-          if (drag.source.text && mw.source.text === drag.source.text) return false
-          return true
-        }),
-        {
-          id,
-          parentId: drag.parentId,
-          targetId: target.id,
-          anchorKey: drag.anchorKey,
-          sourceX: drag.sourceX,
-          sourceY: drag.sourceY,
-          source: drag.source,
-        },
-      ])
-
-      // Cập nhật DOM trực tiếp trong iframe nếu có
-      try {
-        const parentIframe = iframeRefs.current.get(drag.parentId)
-        const doc = parentIframe?.contentDocument
-        if (doc) {
-          const matchedEl = drag.anchorKey ? matchedElementsRef.current.get(drag.anchorKey)?.el : null
-          const candidate =
-            matchedEl || (drag.source.elementId ? doc.getElementById(drag.source.elementId) : null)
-          if (candidate) {
-            candidate.setAttribute('href', target.route)
-            candidate.setAttribute('data-route', target.route)
-          }
-        }
-      } catch {}
-
-      // Thêm logic nối trang vào mã nguồn của nút bấm nguồn
-      void syncWireCode('link', drag.source, target.route, parentRoute)
-    }
-    setConnectDrag(null)
+    finishConnectDragAt(e.clientX, e.clientY)
   }
 
   const portSideMap = useMemo(() => {
@@ -3292,13 +3377,14 @@ export default function MultiPageCanvas({
             return (
               <div
                 key={win.id}
+                data-win-id={win.id}
                 className={[
                   'pm-win',
                   win.isHome ? 'is-home' : '',
                   isCurrent ? 'is-current' : '',
                   activeWinId === win.id ? 'is-active' : '',
                   isMatch ? '' : 'is-dimmed',
-                  isConnectMode && !win.isHome && win.id !== connectDrag?.parentId ? 'is-wire-target' : '',
+                  isConnectMode && win.id !== connectDrag?.parentId ? 'is-wire-target' : '',
                   connectDrag?.hoverTargetId === win.id ? 'is-drop-target' : '',
                   flashWinId === win.id ? 'is-flash' : '',
                 ].filter(Boolean).join(' ')}
@@ -3502,7 +3588,41 @@ export default function MultiPageCanvas({
                     ? `Nút bấm mở [${wire.label}] đã cuộn khuất khỏi tầm nhìn (Click chuyển góc nhìn · Chuột phải cấu hình Prototype)`
                     : `Nối từ nút bấm: [${wire.parentWin.title}] -> [${wire.label}] (Click chuyển góc nhìn · Chuột phải cấu hình Prototype)`
                 }
-                onClick={() => flyToWindow(wire.targetWin, undefined, { fromWinId: wire.parentWin.id })}
+                onClick={() => {
+                  if (isConnectMode) return
+                  flyToWindow(wire.targetWin, undefined, { fromWinId: wire.parentWin.id })
+                }}
+                onPointerDown={(e) => {
+                  if (!isConnectMode || e.button !== 0) return
+                  const stageRect = stageRef.current?.getBoundingClientRect()
+                  if (!stageRect) return
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const v = viewRef.current
+                  const srcClientX = stageRect.left + v.panX + wire.srcPoint.x * v.zoom
+                  const srcClientY = stageRect.top + v.panY + wire.srcPoint.y * v.zoom
+                  const dragInit: ConnectDrag = {
+                    parentId: wire.parentWin.id,
+                    anchorKey: wire.anchorKey,
+                    sourceX: Math.round(wire.srcPoint.x - (wire.parentWin.x - wire.parentWin.w / 2)),
+                    sourceY: Math.round(wire.srcPoint.y - (wire.parentWin.y - wire.parentWin.h / 2 + 34)),
+                    source: wire.source || {
+                      text: wire.label || 'Nút bấm',
+                      tagName: 'a',
+                      className: '',
+                      elementId: '',
+                    },
+                    srcWorldX: wire.srcPoint.x,
+                    srcWorldY: wire.srcPoint.y,
+                    srcClientX,
+                    srcClientY,
+                    clientX: e.clientX,
+                    clientY: e.clientY,
+                    hoverTargetId: null,
+                  }
+                  connectDragRef.current = dragInit
+                  setConnectDrag(dragInit)
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   e.stopPropagation()

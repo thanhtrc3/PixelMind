@@ -151,6 +151,8 @@ interface WorkspaceSidebarProps {
   onSelectReference?: (asset: ReferenceAsset) => void
   /** Bỏ ảnh mẫu đang chọn. */
   onClearReference?: () => void
+  /** Tự động chọn nút tương ứng trong cây Layers khi chọn phần tử trên Canvas. */
+  syncCanvasToTree?: boolean
 }
 
 export function isDynamicRoute(page: ProjectPage): boolean {
@@ -377,6 +379,7 @@ export const WorkspaceSidebar = ({
   referenceAssetPath = null,
   onSelectReference,
   onClearReference,
+  syncCanvasToTree = true,
 }: WorkspaceSidebarProps) => {
   const [layersSearch, setLayersSearch] = useState('')
   const [pagesSearch, setPagesSearch] = useState('')
@@ -496,11 +499,15 @@ export const WorkspaceSidebar = ({
   useEffect(() => {
     const handleSelectedChange = (e: Event) => {
       const custom = e as CustomEvent<RealElementInfo | null>
-      setSelectedElement(custom.detail || null)
+      const detail = custom.detail || null
+      setSelectedElement(detail)
+      if (syncCanvasToTree && detail?.uid) {
+        setSelectedLayerId(detail.uid)
+      }
     }
     window.addEventListener('pm:selected-element-changed', handleSelectedChange)
     return () => window.removeEventListener('pm:selected-element-changed', handleSelectedChange)
-  }, [])
+  }, [syncCanvasToTree])
 
   const handleClearSelection = useCallback(() => {
     setSelectedElement(null)
@@ -955,13 +962,16 @@ export const WorkspaceSidebar = ({
         }
       } else if (e.data.type === 'PM_SELECT_ELEMENT') {
         if (e.data.payload) {
-          if (e.data.payload.uid) setSelectedLayerId(e.data.payload.uid)
+          if (syncCanvasToTree && e.data.payload.uid) setSelectedLayerId(e.data.payload.uid)
           setSelectedElement(e.data.payload)
         }
       } else if (e.data.type === 'PM_CLEAR_MULTI_SELECTION') {
         setSelectedElement(null)
       } else if (e.data.type === 'PM_SELECTION_CHANGED') {
         if (e.data.payload?.primary) {
+          if (syncCanvasToTree && e.data.payload.primary.uid) {
+            setSelectedLayerId(e.data.payload.primary.uid)
+          }
           setSelectedElement(e.data.payload.primary)
         } else if (Array.isArray(e.data.payload?.items) && e.data.payload.items.length === 0) {
           setSelectedElement(null)
@@ -970,7 +980,7 @@ export const WorkspaceSidebar = ({
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [])
+  }, [syncCanvasToTree])
 
   const requestDomTree = useCallback(() => {
     setIsLoadingLayers(true)

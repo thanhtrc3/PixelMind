@@ -3512,8 +3512,18 @@ function getInspectorScript(isActive: boolean) {
             shiftKey: e.shiftKey
           }
         }, '*');
-      } else if (e.key === 'Escape' && window.__PM_INSPECT_ACTIVE && multiSelected.length > 0) {
-        setMultiSelected([], false, null);
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && /^(v|h|r|t|c|m|f|i|escape)$/i.test(e.key)) {
+        if (e.key === 'Escape' && window.__PM_INSPECT_ACTIVE && multiSelected.length > 0) {
+          setMultiSelected([], false, null);
+        }
+        window.parent.postMessage({
+          type: 'PM_KEYBOARD_SHORTCUT',
+          payload: {
+            key: e.key.toLowerCase(),
+            ctrlKey: false,
+            shiftKey: e.shiftKey
+          }
+        }, '*');
       }
     });
 

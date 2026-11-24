@@ -314,6 +314,7 @@
 }
 
 .canvas__stage.tool-rect,
+.canvas__stage.tool-comment,
 .canvas__stage.tool-measure {
   cursor: crosshair;
 }
