@@ -681,6 +681,7 @@ const SettingsDialog = ({
                 </div>
                 <div className="pm-setting__ctrl">
                   <select
+                    className="pm-select"
                     value={settings.canvasStyleSync ?? 'auto'}
                     onChange={(event) => onUpdate({ canvasStyleSync: event.target.value as Settings['canvasStyleSync'] })}
                   >
