@@ -554,7 +554,7 @@ const CanvasArea = ({
       return null
     }
   })
-  const [internalOverlayVisible] = useState(true)
+  const [internalOverlayVisible, setInternalOverlayVisible] = useState(true)
   const [internalOverlayOpacity] = useState(50)
 
   const effectiveOverlayImage = propOverlayImage !== undefined ? propOverlayImage : internalOverlayImage
