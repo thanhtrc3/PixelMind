@@ -42,6 +42,7 @@ export interface PartFile {
 import type { PartVariant } from '@shared/toolbox'
 
 export interface Part extends PartMeta {
+  slug?: string;
   preview?: string;
   html: string;
   css: string;
@@ -118,6 +119,7 @@ export const PARTS: Part[] = Object.entries(metas)
 
     return {
       ...meta,
+      slug: id,
       preview: effectivePreview,
       html,
       css,
@@ -155,12 +157,14 @@ export interface InsertedPart {
   at: string;
 }
 
-/** Lọc theo từ khoá: tên, mã part, tags, nhóm, tác giả, nguồn gốc */
+/** Lọc theo từ khoá: tên, mã part, slug thư mục, tags, nhóm, tác giả, nguồn gốc */
 export const matchesQuery = (p: Part, q: string) => {
   const needle = q.trim().toLowerCase();
   if (!needle) return true;
-  return [p.name, p.id, p.author, p.origin, ...p.tags, ...p.groups]
+  const haystack = [p.name, p.id, p.slug ?? '', p.author, p.origin, p.prompt ?? '', ...p.tags, ...p.groups]
     .join(' ')
-    .toLowerCase()
-    .includes(needle);
+    .toLowerCase();
+  if (haystack.includes(needle)) return true;
+  const words = needle.split(/[-_\s]+/).filter(Boolean);
+  return words.length > 1 && words.every((w) => haystack.includes(w));
 };

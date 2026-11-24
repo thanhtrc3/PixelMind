@@ -57,7 +57,6 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthorization();
@@ -1154,13 +1153,34 @@ createApp(App).mount('#app')
       {
         path: 'src/App.vue',
         content: `<script setup>
-import { ref } from 'vue'
+import { ref, computed, defineAsyncComponent } from 'vue'
 
 const count = ref(0)
+const currentPath = ref(typeof window !== 'undefined' ? window.location.pathname : '/')
+const pageModules = {
+  ...import.meta.glob('../pages/**/*.vue'),
+  ...import.meta.glob('./pages/**/*.vue'),
+}
+
+const RoutedPage = computed(() => {
+  const clean = (currentPath.value || '/').replace(/^\\/+|\\/+$/g, '')
+  if (!clean) return null
+  const candidates = [
+    \`../pages/\${clean}.vue\`,
+    \`../pages/\${clean}/index.vue\`,
+    \`./pages/\${clean}.vue\`,
+    \`./pages/\${clean}/index.vue\`,
+  ]
+  for (const key of candidates) {
+    if (pageModules[key]) return defineAsyncComponent(pageModules[key])
+  }
+  return null
+})
 </script>
 
 <template>
-  <div class="vue-container">
+  <component :is="RoutedPage" v-if="RoutedPage" />
+  <div v-else class="vue-container">
     <div class="logo">🟢 Vue 3 + Vite</div>
     <h1>${projectName}</h1>
     <p>Dự án Vue 3 với Script Setup và Vite HMR siêu tốc.</p>
@@ -1402,8 +1422,9 @@ php -S localhost:8000
         path: 'app.py',
         content: `from http.server import SimpleHTTPRequestHandler, HTTPServer
 import os
+import sys
 
-PORT = 8000
+PORT = int(os.environ.get('PORT', sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8000))
 
 class CustomHandler(SimpleHTTPRequestHandler):
     def end_headers(self):
@@ -1411,13 +1432,17 @@ class CustomHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
 if __name__ == '__main__':
-    print(f"🐍 Máy chủ Python đang chạy tại http://localhost:{PORT}")
+    print(f"🐍 Máy chủ Python đang chạy tại http://localhost:{PORT}", flush=True)
     server = HTTPServer(('localhost', PORT), CustomHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\\nĐã dừng máy chủ.")
 `,
+      },
+      {
+        path: 'requirements.txt',
+        content: `# Khai báo các thư viện Python của dự án tại đây\n`,
       },
       {
         path: 'index.html',

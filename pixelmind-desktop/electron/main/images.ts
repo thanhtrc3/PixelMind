@@ -326,7 +326,7 @@ export async function applyOptimizedImage(
   let backupPath: string | undefined
 
   try {
-    if (replace) {
+    if (options.backupDir) {
       await fs.mkdir(options.backupDir, { recursive: true })
       backupPath = await uniqueFilePath(
         options.backupDir,

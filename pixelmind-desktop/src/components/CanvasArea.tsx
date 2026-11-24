@@ -832,12 +832,26 @@ const CanvasArea = ({
         targetHtml = nodes.length === targetItems.length ? enclosingHtml(nodes) : ''
       }
       if (!targetHtml) {
-        targetHtml = targetItems.length > 1
-          ? targetItems
+        if (targetItems.length > 1) {
+          targetHtml = targetItems
             .map((el) => el.outerHTML || '')
             .filter(Boolean)
             .join('\n')
-          : (selectedEl?.outerHTML || (targetItems[0]?.outerHTML) || '')
+        } else {
+          const single = selectedEl || targetItems[0]
+          const liveNode =
+            single?.uid && liveDoc
+              ? liveDoc.querySelector<HTMLElement>(`[data-pm-uid="${single.uid}"]`)
+              : single?.selector && liveDoc
+                ? liveDoc.querySelector<HTMLElement>(single.selector)
+                : null
+          targetHtml =
+            single?.outerHTML ||
+            liveNode?.outerHTML ||
+            (single
+              ? `<${single.tagName.toLowerCase()}${single.id ? ` id="${single.id}"` : ''}${single.className ? ` class="${single.className}"` : ''}>${single.textSnippet || ''}</${single.tagName.toLowerCase()}>`
+              : '')
+        }
       }
     }
     const cleanTarget = targetHtml.replace(/\sdata-pm-(?:uid|multi)(?:="[^"]*")?/g, '').trim()

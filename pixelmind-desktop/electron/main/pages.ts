@@ -10,6 +10,7 @@ export type PageTemplateKind =
   | 'astro'
   | 'html'
   | 'razor'
+  | 'php'
 
 export interface PageFileTarget extends PageFilePreview {
   kind: PageTemplateKind | 'unsupported'
@@ -224,6 +225,34 @@ export async function resolvePageTarget(
           route,
         }
       }
+    }
+  }
+
+  // Kiểm tra dự án PHP
+  const hasPhp =
+    (await fileExists(join(root, 'index.php'))) ||
+    (await collectFiles(root, ['.php'], 2)).length > 0
+  if (hasPhp) {
+    const segments = routeSegments(route)
+    if (!segments) {
+      return unsupported(
+        'PHP',
+        'Route chứa tham số động hoặc ký tự chưa hỗ trợ. Hãy tạo trang ở chế độ chỉ metadata.',
+        route,
+      )
+    }
+    const relPath = segments.length === 0 ? 'index.php' : `${segments.join('/')}/index.php`
+    const absolutePath = join(root, ...relPath.split('/'))
+    const exists = await fileExists(absolutePath)
+    return {
+      supported: true,
+      label: 'PHP',
+      relativePath: relPath,
+      exists,
+      reason: exists ? `Tệp ${relPath} đã tồn tại.` : undefined,
+      kind: 'php',
+      absolutePath,
+      route,
     }
   }
 
@@ -670,6 +699,64 @@ const title = ${jsTitle}
         </div>
     </footer>
 </div>
+`
+  }
+
+  if (kind === 'php') {
+    return `<?php
+$pageTitle = ${jsTitle};
+$pageRoute = ${JSON.stringify(route)};
+?>
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title><?= htmlspecialchars($pageTitle) ?></title>
+  </head>
+  <body style="margin: 0; padding: 0;">
+    <div style="min-height: 100vh; display: flex; flex-direction: column; font-family: system-ui, -apple-system, sans-serif; color: #1e293b; background-color: #f8fafc">
+      <header style="background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 16px 24px">
+        <div style="max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between">
+          <a href="/" style="font-weight: 700; font-size: 18px; color: #0f172a; text-decoration: none; display: flex; align-items: center; gap: 8px">
+            <span>🌐</span> PixelMind
+          </a>
+          <nav style="display: flex; gap: 20px; align-items: center">
+            <a href="/" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Trang chủ</a>
+            <a href="#" style="color: #2563eb; text-decoration: none; font-size: 14px; font-weight: 600">${htmlTitle}</a>
+            <a href="#about" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Giới thiệu</a>
+            <a href="#contact" style="color: #64748b; text-decoration: none; font-size: 14px; font-weight: 500">Liên hệ</a>
+          </nav>
+        </div>
+      </header>
+
+      <main style="flex: 1; max-width: 1200px; width: 100%; margin: 0 auto; padding: 40px 24px">
+        <div style="background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.05)">
+          <h1 style="font-size: 28px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 8px">${htmlTitle}</h1>
+          <p style="color: #64748b; font-size: 15px; margin-bottom: 24px">Trang <code>${htmlRoute}</code> được tạo bởi PixelMind.</p>
+          <section id="features" style="margin-bottom: 32px">
+            <h2 style="font-size: 24px; color: #0f172a">Điểm nổi bật</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+              <article style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px"><h3 style="color: #1e293b; margin-top: 0">Thông tin rõ ràng</h3><p style="color: #64748b; line-height: 1.6">Trình bày những điều người dùng cần biết theo cách dễ đọc và dễ tìm.</p></article>
+            </div>
+          </section>
+          <section id="contact" style="border-radius: 12px; padding: 28px; background: #f1f5f9">
+            <h2 style="color: #0f172a; margin-top: 0">Bạn muốn tìm hiểu thêm?</h2>
+          </section>
+        </div>
+      </main>
+
+      <footer style="background: #ffffff; border-top: 1px solid #e2e8f0; padding: 24px; text-align: center; color: #64748b; font-size: 14px">
+        <div style="max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px">
+          <p style="margin: 0">&copy; 2026 PixelMind. Tất cả quyền được bảo lưu.</p>
+          <div style="display: flex; gap: 16px">
+            <a href="#" style="color: #64748b; text-decoration: none">Chính sách bảo mật</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
 `
   }
 

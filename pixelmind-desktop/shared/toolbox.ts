@@ -66,7 +66,7 @@ export const TOOLBOX_GROUPS: ToolboxGroup[] = [
   { id: 'feedback', label: 'Phản hồi', description: 'Alert, toast, modal, trạng thái rỗng, 404' },
   { id: 'marketing', label: 'Marketing', description: 'Hero, tính năng, CTA, đánh giá, footer' },
   { id: 'utility', label: 'Tiện ích', description: 'Icon, divider, hình ảnh' },
-  { id: 'parts', label: 'Linh kiện mẫu', description: '12 part trong thư mục /toolbox' },
+  { id: 'parts', label: 'Linh kiện mẫu', description: '24 part trong thư mục /toolbox' },
   { id: 'project', label: 'Của dự án', description: 'Component, partial, class CSS tự quét' },
 ]
 

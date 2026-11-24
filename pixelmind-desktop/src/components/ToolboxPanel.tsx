@@ -195,9 +195,14 @@ const ElementCatalogPanel = ({ onShowToast, onNeedPreview }: Pick<ToolboxPanelPr
     const needle = query.trim().toLowerCase()
     return (elements: ToolboxElement[]) => {
       if (!needle) return elements
-      return elements.filter((element) =>
-        [element.name, element.description, ...element.tags].join(' ').toLowerCase().includes(needle),
-      )
+      return elements.filter((element) => {
+        const haystack = [element.id, element.name, element.description, ...element.tags]
+          .join(' ')
+          .toLowerCase()
+        if (haystack.includes(needle)) return true
+        const words = needle.split(/[-_\s]+/).filter(Boolean)
+        return words.length > 1 && words.every((w) => haystack.includes(w))
+      })
     }
   }, [query])
 

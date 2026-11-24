@@ -67,7 +67,7 @@ export default function PageParamDialog({
   return (
     <Modal
       title={`Chọn mục xem trước · ${page.title}`}
-      subtitle={`Đường dẫn: ${page.route} — Trang này cần ID sản phẩm/bản ghi để hiển thị nội dung chi tiết.`}
+      subtitle={`Đường dẫn: ${page.route} — Trang này cần ID hoặc tham số để hiển thị nội dung chi tiết.`}
       icon={<Hash size={16} />}
       width={560}
       onClose={onClose}
@@ -180,7 +180,7 @@ export default function PageParamDialog({
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                       <span style={{ fontSize: 12.5, fontWeight: 650, color: 'var(--accent, #6366f1)' }}>
-                        Sản phẩm #{param}
+                        {page.title || 'Mục'} #{param}
                       </span>
                       <Play size={10} style={{ opacity: 0.6 }} />
                     </div>

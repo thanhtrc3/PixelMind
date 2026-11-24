@@ -933,20 +933,7 @@ const App = () => {
   }
 
   const handleOpenPage = (route: string) => {
-    let cleanRoute = route.startsWith('/') ? route : `/${route}`
-    // Tự động sửa các route ASP.NET Core cũ còn lưu trong giao diện
-    if (project?.packageManager === 'dotnet' || project?.framework?.includes('ASP.NET')) {
-      const lower = cleanRoute.toLowerCase()
-      if (lower === '/shared/error') {
-        cleanRoute = '/Home/Error'
-      } else if (lower === '/account' || lower === '/home/account') {
-        cleanRoute = '/Account'
-      } else if (cleanRoute.startsWith('/account/')) {
-        cleanRoute = `/Identity/Account/${cleanRoute.slice(9)}`
-      } else if (['/leaderboard', '/lobby', '/profile', '/privacy', '/room'].includes(lower)) {
-        cleanRoute = `/Home${cleanRoute}`
-      }
-    }
+    const cleanRoute = route.startsWith('/') ? route : `/${route}`
     setTargetRoute(cleanRoute)
     targetRouteRef.current = cleanRoute
 
