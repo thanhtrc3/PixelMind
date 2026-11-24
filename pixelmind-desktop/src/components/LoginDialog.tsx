@@ -114,7 +114,7 @@ export default function LoginDialog({ onClose, onShowToast }: LoginDialogProps) 
             <div>
               <b>Chưa cấu hình Supabase</b>
               <div style={{ marginTop: 4 }}>
-                Thêm <code>SUPABASE_URL</code> và <code>SUPABASE_ANON_KEY</code> vào file <code>.env</code> ở thư mục gốc của ứng dụng rồi khởi động lại PixelMind.
+                Thêm <code>SUPABASE_URL</code> (hoặc <code>VITE_SUPABASE_URL</code>) và <code>SUPABASE_ANON_KEY</code> (hoặc <code>VITE_SUPABASE_ANON_KEY</code>) vào file <code>.env</code> ở thư mục gốc của ứng dụng rồi khởi động lại PixelMind.
               </div>
             </div>
           </div>

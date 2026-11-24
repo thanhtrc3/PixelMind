@@ -24,6 +24,7 @@ interface TitleBarProps {
   onStop: () => void
   onRefresh: () => void
   onToggleSidebar?: () => void
+  onMenuAction?: (action: string) => void
   autoSave?: boolean
   onToggleAutoSave?: () => void
 }
@@ -45,6 +46,7 @@ const TitleBar = ({
   onStop,
   onRefresh,
   onToggleSidebar,
+  onMenuAction,
   autoSave = true,
   onToggleAutoSave,
 }: TitleBarProps) => {
@@ -75,11 +77,18 @@ const TitleBar = ({
   }, [])
 
   /* Cấu hình menu fallback cho bản Web / khi không dùng native popup */
+  const act = (name: string, fallback?: () => void) => () => {
+    if (onMenuAction) onMenuAction(name)
+    else fallback?.()
+  }
   const MENUS: MenuDef[] = [
     {
       label: 'Tệp',
       items: [
         { label: 'Mở thư mục dự án…', keys: 'Ctrl+O', action: onOpenFolder },
+        { label: 'Nhập dự án từ tệp ZIP…', action: act('import-zip') },
+        { label: 'Xuất dự án ra tệp ZIP…', action: act('export-zip'), divider: true },
+        { label: 'Lưu thay đổi vào tệp', keys: 'Ctrl+S', action: act('save'), divider: true },
         { label: 'Màn hình dự án', keys: 'Ctrl+Shift+O', action: onViewProjects },
         { label: 'Màn hình làm việc', keys: 'Ctrl+Shift+W', action: onViewWorkspace, divider: true },
         { label: 'Cài đặt…', keys: 'Ctrl+,', action: onSettings },
@@ -88,6 +97,8 @@ const TitleBar = ({
     {
       label: 'Chỉnh sửa',
       items: [
+        { label: 'Hoàn tác trên Canvas', keys: 'Ctrl+Z', action: act('undo') },
+        { label: 'Làm lại trên Canvas', keys: 'Ctrl+Y', action: act('redo'), divider: true },
         { label: 'Bảng lệnh…', keys: 'Ctrl+K', action: onPalette },
       ],
     },
@@ -96,28 +107,44 @@ const TitleBar = ({
       items: [
         { label: 'Chạy dự án', keys: 'F5', action: onRun },
         { label: 'Dừng máy chủ', keys: 'Shift+F5', action: onStop, divider: true },
+        { label: 'Cài đặt thư viện (Install)', action: act('install-deps') },
+        { label: 'Kiểm tra sức khỏe dự án', action: act('diagnose'), divider: true },
         { label: 'Tải lại cây tệp', keys: 'Ctrl+R', action: onRefresh },
       ],
     },
     {
       label: 'Xem',
       items: [
-        { label: 'Ẩn / Hiện thanh bên', keys: 'Ctrl+B', action: () => onToggleSidebar?.() },
-        { label: 'Bảng lệnh', keys: 'Ctrl+K', action: onPalette },
+        { label: 'Ẩn / Hiện thanh bên (Sidebar)', keys: 'Ctrl+B', action: () => onToggleSidebar?.(), divider: true },
+        { label: 'Cây tệp (Files)', keys: 'Ctrl+Shift+E', action: act('tab-files') },
+        { label: 'Cây phân cấp (Layers)', keys: 'Ctrl+Shift+L', action: act('tab-layers') },
+        { label: 'Danh sách trang (Pages)', action: act('tab-pages') },
+        { label: 'Tài nguyên (Assets)', action: act('tab-assets') },
+        { label: 'Lịch sử phiên bản (Versions)', action: act('tab-versions') },
+        { label: 'Hệ thống thiết kế (Design Tokens)', action: act('tab-design') },
+        { label: 'Thư viện linh kiện (Parts)', action: act('tab-parts'), divider: true },
+        { label: 'Ẩn / Hiện Nhật ký chạy', keys: 'Ctrl+J', action: act('toggle-logs') },
+        { label: 'Chế độ tập trung Canvas', action: act('focus-canvas') },
       ],
     },
     {
       label: 'Công cụ',
       items: [
-        { label: 'Mở bảng lệnh', keys: 'Ctrl+K', action: onPalette },
-        { label: 'Cài đặt hệ thống', keys: 'Ctrl+,', action: onSettings },
+        { label: 'Soi phần tử trực quan (Inspect)', keys: 'Alt+I', action: act('toggle-inspect') },
+        { label: 'Hệ thống thiết kế (Design Tokens)', action: act('tokens') },
+        { label: 'Kiểm tra trợ năng (Accessibility)', action: act('a11y') },
+        { label: 'Mock API cho dự án…', action: act('mock') },
+        { label: 'Triển khai / Preview URL…', action: act('deploy') },
+        { label: 'Tài khoản Supabase…', action: act('login') },
+        { label: 'Đồng bộ & Chia sẻ Cloud…', action: act('cloud') },
+        { label: 'Mở trang trong trình duyệt ngoài', action: act('open-browser') },
       ],
     },
     {
       label: 'Trợ giúp',
       items: [
         { label: 'Hướng dẫn sử dụng', keys: 'F1', action: onGuide },
-        { label: 'Bảng phím tắt', keys: 'Ctrl+K', action: onPalette },
+        { label: 'Bảng lệnh', keys: 'Ctrl+K', action: onPalette },
       ],
     },
   ]

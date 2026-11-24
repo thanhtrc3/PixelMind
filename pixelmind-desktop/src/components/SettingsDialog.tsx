@@ -831,7 +831,22 @@ const SettingsDialog = ({
                   <select
                     className="pm-select"
                     value={settings.deployProvider || 'vercel'}
-                    onChange={(e) => onUpdate({ deployProvider: e.target.value as 'vercel' | 'netlify' | 'custom' })}
+                    onChange={(e) => {
+                      const nextProvider = e.target.value as 'vercel' | 'netlify' | 'custom'
+                      const curCmd = (settings.deployCommand || '').trim()
+                      const isDefaultCmd =
+                        !curCmd ||
+                        curCmd === 'vercel deploy --prod --yes' ||
+                        curCmd === 'netlify deploy --prod'
+                      const nextCmd = isDefaultCmd
+                        ? nextProvider === 'vercel'
+                          ? 'vercel deploy --prod --yes'
+                          : nextProvider === 'netlify'
+                            ? 'netlify deploy --prod'
+                            : ''
+                        : settings.deployCommand
+                      onUpdate({ deployProvider: nextProvider, deployCommand: nextCmd })
+                    }}
                   >
                     <option value="vercel">Vercel</option>
                     <option value="netlify">Netlify</option>

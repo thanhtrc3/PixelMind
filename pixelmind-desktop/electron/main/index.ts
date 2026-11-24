@@ -459,7 +459,7 @@ function buildMenu() {
       submenu: [
         {
           label: 'Soi phần tử trực quan (Inspect)',
-          accelerator: 'I',
+          accelerator: 'Alt+I',
           click: () => sendMenuAction('toggle-inspect'),
         },
         {
@@ -3982,7 +3982,14 @@ ipcMain.handle('deploy:start', async (_e, projectId: string) => {
     return { status: 'error', url: null, phase: '', error: 'Không tìm thấy dự án.' }
   }
   const settings = storeData.settings
-  const command = (settings.deployCommand || '').trim()
+  const provider = settings.deployProvider || 'vercel'
+  const defaultCommand =
+    provider === 'vercel'
+      ? 'vercel deploy --prod --yes'
+      : provider === 'netlify'
+        ? 'netlify deploy --prod'
+        : ''
+  const command = (settings.deployCommand || '').trim() || defaultCommand
   if (!command) {
     return {
       status: 'error',
@@ -3991,7 +3998,6 @@ ipcMain.handle('deploy:start', async (_e, projectId: string) => {
       error: 'Chưa cấu hình lệnh triển khai (Cài đặt → Triển khai).',
     }
   }
-  const provider = settings.deployProvider || 'vercel'
   const store = getDeployStore(provider)
   const token = await store.load()
   const envName =
@@ -4126,6 +4132,13 @@ ipcMain.handle('cloud:sync', async (_e, projectPath: string): Promise<CloudSyncR
           await fs.mkdir(dir, { recursive: true })
           await fs.copyFile(join(dir, 'tokens.json'), join(dir, `tokens.backup-${Date.now()}.json`)).catch(() => undefined)
           await fs.writeFile(join(dir, 'tokens.json'), JSON.stringify(incoming, null, 2), 'utf8')
+          const cssDir = await findProjectCssDir(projectPath)
+          await fs.mkdir(cssDir, { recursive: true })
+          const cssContent = generateVariablesCss(incoming)
+          await fs.writeFile(join(cssDir, 'variables.css'), cssContent, 'utf8')
+          if (cssDir !== projectPath) {
+            await fs.writeFile(join(projectPath, 'variables.css'), cssContent, 'utf8').catch(() => undefined)
+          }
         }
       }
     },

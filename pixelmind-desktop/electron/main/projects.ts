@@ -1880,8 +1880,23 @@ export async function diagnoseProject(
         level: 'warning',
         title: 'Thư mục trống',
         message: 'Thư mục này hiện chưa có tệp hoặc mã nguồn nào.',
-        recommendation: 'Thêm mã nguồn vào thư mục hoặc khởi tạo dự án mới để bắt đầu.',
+        recommendation: 'Bấm nút bên dưới để PixelMind tự động tạo tệp index.html mẫu và bắt đầu thiết kế ngay.',
+        actionLabel: 'Tạo tệp index.html mẫu',
+        actionKind: 'create_index_html',
       })
+      const hasGitInEmpty = await fs.access(join(dir, '.git')).then(() => true).catch(() => false)
+      if (!hasGitInEmpty) {
+        issues.push({
+          id: 'no_git',
+          type: 'no_git',
+          level: 'info',
+          title: 'Chưa khởi tạo Git (.git)',
+          message: 'Thư mục chưa có kho lưu trữ Git để theo dõi các phiên bản và lịch sử thay đổi.',
+          recommendation: 'Khởi tạo Git giúp PixelMind tự động ghi nhận các phiên bản trên thanh timeline.',
+          actionLabel: 'Khởi tạo Git (git init)',
+          actionKind: 'git_init',
+        })
+      }
       return {
         healthy: false,
         hasIssues: true,
@@ -2101,17 +2116,29 @@ export async function diagnoseProject(
 
     const scriptKeys = Object.keys(pkg.scripts ?? {})
     const hasDevOrStart = scriptKeys.some((s) => /^(dev|start|serve|preview)$/i.test(s))
-    if (!hasDevOrStart && !hasIndexHtml && !hasCustomCommand) {
+    if (!hasDevOrStart && !hasCustomCommand) {
       issues.push({
         id: 'missing_script',
         type: 'missing_script',
         level: 'warning',
-        title: 'Thiếu script dev server và index.html',
-        message: 'Dự án không có script dev/start trong package.json và không có tệp index.html tĩnh để hiển thị giao diện xem trước.',
-        recommendation: 'Bấm nút "Tạo index.html mẫu" bên dưới để PixelMind tự động tạo trang xem trước ngay.',
-        actionLabel: 'Tạo tệp index.html mẫu',
-        actionKind: 'create_index_html',
+        title: 'Thiếu script dev server trong package.json',
+        message: 'Dự án có package.json nhưng chưa khai báo script dev/start/serve để khởi chạy máy chủ phát triển.',
+        recommendation: 'Bấm nút "Thêm script dev" bên dưới để tự động bổ sung script dev vào package.json.',
+        actionLabel: 'Thêm script dev vào package.json',
+        actionKind: 'add_dev_script',
       })
+      if (!hasIndexHtml) {
+        issues.push({
+          id: 'no_index_html',
+          type: 'missing_script',
+          level: 'info',
+          title: 'Chưa có tệp index.html xem trước',
+          message: 'Dự án chưa có tệp index.html tĩnh để hiển thị nhanh trên khung xem trước.',
+          recommendation: 'Bạn có thể tạo tệp index.html mẫu nếu đây là dự án web tĩnh.',
+          actionLabel: 'Tạo tệp index.html mẫu',
+          actionKind: 'create_index_html',
+        })
+      }
     }
 
     const hasElectron = Boolean(

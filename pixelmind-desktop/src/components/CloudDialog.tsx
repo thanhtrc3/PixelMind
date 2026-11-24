@@ -46,12 +46,18 @@ export default function CloudDialog({
   const [userEmail, setUserEmail] = useState<string | null>(null)
 
   useEffect(() => {
-    setWorkspaceId(settings.cloudWorkspaceId || '')
+    const savedId = (settings.cloudWorkspaceId || '').trim()
+    setWorkspaceId(savedId)
     void api.auth.state().then((s) => {
       setUserEmail(s.user?.email ?? null)
+      if (s.status === 'signed-in' && savedId) {
+        void handleLoadMembers()
+      }
     })
   }, [settings.cloudWorkspaceId])
 
+  const savedWorkspaceId = (settings.cloudWorkspaceId || '').trim()
+  const hasUnsavedWorkspaceId = workspaceId.trim() !== savedWorkspaceId
   const myRole = members.find((m) => m.email.toLowerCase() === userEmail?.toLowerCase())?.role ?? null
   const isOwner = myRole === 'owner'
 
@@ -133,7 +139,7 @@ export default function CloudDialog({
       if (res.success) {
         onShowToast('ok', `Đã cập nhật quyền của ${targetEmail} thành ${nextRole}.`)
         setMembers((prev) =>
-          prev.map((m) => (m.email === targetEmail ? { ...m, role: nextRole } : m)),
+          prev.map((m) => (m.email.toLowerCase() === targetEmail.toLowerCase() ? { ...m, role: nextRole } : m)),
         )
       } else {
         onShowToast('err', res.error || 'Cập nhật vai trò thất bại.')
@@ -156,7 +162,8 @@ export default function CloudDialog({
           </button>
           <button
             className="pm-btn pm-btn--primary"
-            disabled={syncing || !workspaceId.trim() || !projectPath}
+            disabled={syncing || !savedWorkspaceId || hasUnsavedWorkspaceId || !projectPath}
+            title={hasUnsavedWorkspaceId ? 'Hãy bấm "Lưu ID" trước khi đồng bộ' : undefined}
             onClick={handleSync}
             style={{ display: 'flex', alignItems: 'center', gap: 6 }}
           >
@@ -246,7 +253,8 @@ export default function CloudDialog({
             </span>
             <button
               className="pm-btn pm-btn--ghost"
-              disabled={loadingMembers || !workspaceId.trim()}
+              disabled={loadingMembers || !savedWorkspaceId || hasUnsavedWorkspaceId}
+              title={hasUnsavedWorkspaceId ? 'Hãy bấm "Lưu ID" trước khi tải thành viên' : undefined}
               onClick={handleLoadMembers}
               style={{ fontSize: 11, padding: '3px 8px' }}
             >
@@ -274,7 +282,10 @@ export default function CloudDialog({
                   {members.map((m) => (
                     <tr key={m.email} style={{ borderBottom: '1px solid var(--line, #1e293b)' }}>
                       <td style={{ padding: '8px 12px', color: 'var(--text, #f8fafc)' }}>
-                        {m.email} {m.email === userEmail && <span style={{ color: 'var(--accent, #6d5df5)', fontSize: 11 }}>(Bạn)</span>}
+                        {m.email}{' '}
+                        {Boolean(userEmail && m.email.toLowerCase() === userEmail.toLowerCase()) && (
+                          <span style={{ color: 'var(--accent, #6d5df5)', fontSize: 11 }}>(Bạn)</span>
+                        )}
                       </td>
                       <td style={{ padding: '8px 12px' }}>
                         <select

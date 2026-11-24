@@ -25,7 +25,13 @@ export default function DeployDialog({ project, settings, onClose, onShowToast }
   const logRef = useRef<HTMLPreElement | null>(null)
 
   const provider = settings.deployProvider || 'vercel'
-  const command = (settings.deployCommand || '').trim()
+  const defaultCommand =
+    provider === 'vercel'
+      ? 'vercel deploy --prod --yes'
+      : provider === 'netlify'
+        ? 'netlify deploy --prod'
+        : ''
+  const command = (settings.deployCommand || '').trim() || defaultCommand
 
   useEffect(() => {
     void api.deploy.state().then(setState)

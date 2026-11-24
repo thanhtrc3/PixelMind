@@ -1180,6 +1180,165 @@ const App = () => {
     setExportZipOpen(true)
   }
 
+  const openDeployDialog = () => {
+    if (!project) {
+      showToast('info', 'Hãy mở một dự án trước khi triển khai.')
+      return
+    }
+    setDialog('deploy')
+  }
+
+  const openDiagnosisDialog = () => {
+    if (!project) {
+      showToast('info', 'Hãy mở một dự án trước khi kiểm tra sức khỏe dự án.')
+      return
+    }
+    setDiagnosisOpen(true)
+  }
+
+  const openBrowserPreview = () => {
+    const targetUrl = previewUrl || run?.url
+    if (!targetUrl) {
+      showToast('info', 'Hãy chạy dự án trước khi mở trong trình duyệt ngoài.')
+      return
+    }
+    void api.system.openExternal(targetUrl)
+  }
+
+  const handleMenuAction = (action: string) => {
+    switch (action) {
+      case 'open-folder':
+        void actionsRef.current.openFolder()
+        break
+      case 'import-zip':
+        actionsRef.current.openImportZip()
+        break
+      case 'export-zip':
+        actionsRef.current.openExportZip()
+        break
+      case 'run':
+        void actionsRef.current.startRun()
+        break
+      case 'stop':
+        void actionsRef.current.stopRun()
+        break
+      case 'refresh':
+        void actionsRef.current.refreshProject()
+        break
+      case 'settings':
+        setDialog('settings')
+        break
+      case 'guide':
+        setDialog('guide')
+        break
+      case 'palette':
+        setDialog('palette')
+        break
+      case 'view-projects':
+        void actionsRef.current.handleExitToProjects()
+        break
+      case 'view-workspace':
+        setView('workspace')
+        break
+      case 'toggle-sidebar':
+        setIsSidebarOpen((v) => !v)
+        break
+      case 'tab-files':
+        setView('workspace')
+        setSidebarTab('files')
+        setIsSidebarOpen(true)
+        break
+      case 'tab-layers':
+        setView('workspace')
+        setSidebarTab('layers')
+        setIsSidebarOpen(true)
+        break
+      case 'tab-pages':
+        setView('workspace')
+        setSidebarTab('pages')
+        setIsSidebarOpen(true)
+        break
+      case 'tab-assets':
+        setView('workspace')
+        setSidebarTab('assets')
+        setIsSidebarOpen(true)
+        break
+      case 'tab-versions':
+        setView('workspace')
+        setSidebarTab('versions')
+        setIsSidebarOpen(true)
+        break
+      case 'tab-design':
+        setView('workspace')
+        setSidebarTab('design')
+        setIsSidebarOpen(true)
+        break
+      case 'tab-toolbox':
+      case 'tab-parts':
+        setView('workspace')
+        setSidebarTab('toolbox')
+        setIsSidebarOpen(true)
+        break
+      case 'toggle-logs':
+        setView('workspace')
+        setIsBottomPanelOpen((v) => !v)
+        break
+      case 'focus-canvas':
+        setView('workspace')
+        setActiveTab('preview')
+        setIsSidebarOpen(false)
+        setIsBottomPanelOpen(false)
+        setIsRightPanelOpen(false)
+        break
+      case 'toggle-inspect':
+        setView('workspace')
+        setActiveTab('preview')
+        window.dispatchEvent(new CustomEvent('pixelmind:toggle-inspect'))
+        break
+      case 'save':
+        window.dispatchEvent(new CustomEvent('pixelmind:save-active-file'))
+        void editorBuffer.saveAllDirtyFiles().then(() => {
+          showToast('ok', 'Đã lưu tất cả thay đổi vào tệp mã nguồn!')
+        })
+        break
+      case 'undo':
+        if (editorBuffer.canUndo()) editorBuffer.undo()
+        break
+      case 'redo':
+        if (editorBuffer.canRedo()) editorBuffer.redo()
+        break
+      case 'tokens':
+        setDialog('tokens')
+        break
+      case 'a11y':
+        setDialog('a11y')
+        break
+      case 'mock':
+        setDialog('mock')
+        break
+      case 'deploy':
+        actionsRef.current.openDeployDialog()
+        break
+      case 'login':
+        setDialog('login')
+        break
+      case 'cloud':
+        setDialog('cloud')
+        break
+      case 'install-deps':
+        void actionsRef.current.handleInstall()
+        break
+      case 'diagnose':
+        actionsRef.current.openDiagnosisDialog()
+        break
+      case 'open-browser':
+        actionsRef.current.openBrowserPreview()
+        break
+      default:
+        break
+    }
+  }
+
   const actionsRef = useRef({
     openFolder,
     startRun,
@@ -1194,6 +1353,10 @@ const App = () => {
     setSidebarTab,
     openImportZip,
     openExportZip,
+    openDeployDialog,
+    openDiagnosisDialog,
+    openBrowserPreview,
+    handleMenuAction,
   })
   actionsRef.current = {
     openFolder,
@@ -1209,6 +1372,10 @@ const App = () => {
     setSidebarTab,
     openImportZip,
     openExportZip,
+    openDeployDialog,
+    openDiagnosisDialog,
+    openBrowserPreview,
+    handleMenuAction,
   }
 
   useEffect(() => {
@@ -1222,6 +1389,9 @@ const App = () => {
       } else if (mod && key === 'b') {
         event.preventDefault()
         setIsSidebarOpen((prev) => !prev)
+      } else if (mod && key === 'j') {
+        event.preventDefault()
+        setIsBottomPanelOpen((prev) => !prev)
       } else if (mod && event.shiftKey && key === 'e') {
         event.preventDefault()
         setView('workspace')
@@ -1261,119 +1431,7 @@ const App = () => {
     window.addEventListener('keydown', onKey)
 
     const offMenu = api.system.onMenuAction((action) => {
-      switch (action) {
-        case 'open-folder':
-          void actionsRef.current.openFolder()
-          break
-        case 'import-zip':
-          actionsRef.current.openImportZip()
-          break
-        case 'export-zip':
-          actionsRef.current.openExportZip()
-          break
-        case 'run':
-          void actionsRef.current.startRun()
-          break
-        case 'stop':
-          void actionsRef.current.stopRun()
-          break
-        case 'refresh':
-          void actionsRef.current.refreshProject()
-          break
-        case 'settings':
-          setDialog('settings')
-          break
-        case 'guide':
-          setDialog('guide')
-          break
-        case 'palette':
-          setDialog('palette')
-          break
-        case 'view-projects':
-          void actionsRef.current.handleExitToProjects()
-          break
-        case 'view-workspace':
-          setView('workspace')
-          break
-        case 'toggle-sidebar':
-          setIsSidebarOpen((v) => !v)
-          break
-        case 'tab-files':
-          setView('workspace')
-          setSidebarTab('files')
-          setIsSidebarOpen(true)
-          break
-        case 'tab-layers':
-          setView('workspace')
-          setSidebarTab('layers')
-          setIsSidebarOpen(true)
-          break
-        case 'tab-pages':
-          setView('workspace')
-          setSidebarTab('pages')
-          setIsSidebarOpen(true)
-          break
-        case 'tab-assets':
-          setView('workspace')
-          setSidebarTab('assets')
-          setIsSidebarOpen(true)
-          break
-        case 'tab-versions':
-          setView('workspace')
-          setSidebarTab('versions')
-          setIsSidebarOpen(true)
-          break
-        case 'tab-design':
-          setView('workspace')
-          setSidebarTab('design')
-          setIsSidebarOpen(true)
-          break
-        case 'tab-toolbox':
-          setView('workspace')
-          setSidebarTab('toolbox')
-          setIsSidebarOpen(true)
-          break
-        case 'save':
-          void editorBuffer.saveAllDirtyFiles().then(() => {
-            showToast('ok', 'Đã lưu tất cả thay đổi vào tệp mã nguồn!')
-          })
-          break
-        case 'undo':
-          if (editorBuffer.canUndo()) editorBuffer.undo()
-          break
-        case 'redo':
-          if (editorBuffer.canRedo()) editorBuffer.redo()
-          break
-        case 'tokens':
-          setDialog('tokens')
-          break
-        case 'a11y':
-          setDialog('a11y')
-          break
-        case 'mock':
-          setDialog('mock')
-          break
-        case 'deploy':
-          setDialog('deploy')
-          break
-        case 'login':
-          setDialog('login')
-          break
-        case 'cloud':
-          setDialog('cloud')
-          break
-        case 'install-deps':
-          void actionsRef.current.handleInstall()
-          break
-        case 'diagnose':
-          setDiagnosisOpen(true)
-          break
-        case 'open-browser':
-          if (run?.url) void api.system.openExternal(run.url)
-          break
-        default:
-          break
-      }
+      actionsRef.current.handleMenuAction(action)
     })
 
     return () => {
@@ -1592,7 +1650,8 @@ const App = () => {
         label: 'Triển khai / Preview URL…',
         hint: 'Vercel · Netlify · CLI tuỳ chỉnh',
         icon: Globe,
-        run: () => setDialog('deploy'),
+        disabled: !project,
+        run: openDeployDialog,
       },
       {
         id: 'login',
@@ -1689,6 +1748,7 @@ const App = () => {
         onStop={() => void stopRun()}
         onRefresh={() => void refreshProject()}
         onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
+        onMenuAction={handleMenuAction}
         autoSave={settings.autoSave !== false}
         onToggleAutoSave={toggleAutoSave}
       />
@@ -2127,6 +2187,7 @@ const App = () => {
       {notifCenterOpen && (
         <div
           className="pm-notif-backdrop"
+          style={{ bottom: 26 }}
           onClick={() => setNotifCenterOpen(false)}
         >
           <NotificationCenter

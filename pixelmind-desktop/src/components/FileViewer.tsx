@@ -252,6 +252,17 @@ const FileViewer = ({
   // Cập nhật ref để phím tắt trong monaco luôn gọi phiên bản mới nhất của handleSave
   handleSaveRef.current = handleSave
 
+  // Lắng nghe lệnh Lưu từ Menu gốc Electron / TitleBar (Ctrl+S toàn cục)
+  useEffect(() => {
+    const onGlobalSave = () => {
+      if (activeFileRef.current && !activeFileRef.current.binary) {
+        void handleSaveRef.current(false)
+      }
+    }
+    window.addEventListener('pixelmind:save-active-file', onGlobalSave)
+    return () => window.removeEventListener('pixelmind:save-active-file', onGlobalSave)
+  }, [])
+
   // Định dạng mã nguồn (Format Document)
   const handleFormat = async () => {
     if (!editorRef.current) return

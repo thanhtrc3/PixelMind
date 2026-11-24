@@ -1709,9 +1709,14 @@ const CanvasArea = ({
         showToast('Cây bút: Hãy kéo chuột khoanh 1 vùng trên Canvas để đính kèm vào AI', 'info')
       }
     }
+    const handleToggleInspect = () => {
+      setIsInspectMode((prev) => !prev)
+    }
     window.addEventListener('pixelmind:enable-inspect', handleInspectRequest)
+    window.addEventListener('pixelmind:toggle-inspect', handleToggleInspect)
     return () => {
       window.removeEventListener('pixelmind:enable-inspect', handleInspectRequest)
+      window.removeEventListener('pixelmind:toggle-inspect', handleToggleInspect)
     }
   }, [showToast])
 
