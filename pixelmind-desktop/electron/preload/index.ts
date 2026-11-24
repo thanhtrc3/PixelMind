@@ -406,8 +406,12 @@ const api: PixelMindApi = {
     models: (projectPath?: string) => ipcRenderer.invoke('ai:models', projectPath),
     test: (projectPath?: string) => ipcRenderer.invoke('ai:test', projectPath),
     chat: (request: AiChatStartRequest) => ipcRenderer.invoke('ai:chat:start', request),
-    complete: (payload: { prompt: string; system?: string; projectPath?: string }) =>
-      ipcRenderer.invoke('ai:complete', payload),
+    complete: (payload: {
+      prompt: string
+      system?: string
+      projectPath?: string
+      images?: Array<{ name: string; dataUrl: string }>
+    }) => ipcRenderer.invoke('ai:complete', payload),
     cancel: (id: string) => ipcRenderer.invoke('ai:cancel', id),
     onChatEvent: (cb: (event: AiChatEvent) => void) => {
       const listener = (_e: IpcRendererEvent, event: AiChatEvent) => cb(event)

@@ -38,7 +38,7 @@ class IdeWebSocketBridge {
   private ws: WebSocket | null = null
   private url: string = DEFAULT_IDE_WS_URL
   private listeners = new Set<(msg: IdeWsMessage) => void>()
-  private isConnecting = false
+  private connectPromise: Promise<boolean> | null = null
 
   setUrl(url: string) {
     this.url = url
@@ -92,73 +92,91 @@ class IdeWebSocketBridge {
 
   async connect(projectPath?: string, projectId?: string): Promise<boolean> {
     if (this.isConnected()) return true
-    if (this.isConnecting) return false
+    if (this.connectPromise) return this.connectPromise
 
-    this.isConnecting = true
-    try {
-      this.ws = new WebSocket(this.url)
-
-      this.ws.onopen = () => {
-        this.isConnecting = false
-        // Gửi handshake 'hello' đúng theo giao thức
-        this.send({
-          type: 'hello',
-          client: 'PixelMind Desktop',
-          version: '1.0.0',
-          projectId,
-          projectPath,
-        })
-        void recordAudit({
-          type: 'bridge',
-          summary: `Đã kết nối IDE WebSocket Bridge: ${this.url}`,
-          ok: true,
-          projectId,
-        })
+    this.connectPromise = new Promise<boolean>((resolve) => {
+      let settled = false
+      const finish = (ok: boolean) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        this.connectPromise = null
+        resolve(ok)
       }
 
-      this.ws.onmessage = async (event) => {
+      const timer = setTimeout(() => {
         try {
-          const raw = typeof event.data === 'string' ? event.data : event.data.toString()
-          const msg = JSON.parse(raw) as IdeWsMessage
-
-          // Xử lý tự động tool_call từ IDE nếu có
-          if (msg.type === 'tool_call' && msg.tool) {
-            const result = await runTool({
-              tool: msg.tool as never,
-              projectId: msg.projectId,
-              projectPath: msg.projectPath || projectPath || '',
-              args: msg.args || {},
-            })
-
-            // Trả về tool_result cho IDE
-            this.send({
-              type: 'tool_result',
-              id: msg.id,
-              toolResult: result,
-            })
-          }
-
-          for (const cb of this.listeners) {
-            cb(msg)
-          }
+          this.ws?.close()
         } catch {}
-      }
-
-      this.ws.onclose = () => {
         this.ws = null
-        this.isConnecting = false
-      }
+        finish(false)
+      }, 3000)
 
-      this.ws.onerror = () => {
-        this.ws = null
-        this.isConnecting = false
-      }
+      try {
+        const ws = new WebSocket(this.url)
+        this.ws = ws
 
-      return true
-    } catch {
-      this.isConnecting = false
-      return false
-    }
+        ws.onopen = () => {
+          // Gửi handshake 'hello' đúng theo giao thức trước khi cho phép gửi context
+          this.send({
+            type: 'hello',
+            client: 'PixelMind Desktop',
+            version: '1.0.0',
+            projectId,
+            projectPath,
+          })
+          void recordAudit({
+            type: 'bridge',
+            summary: `Đã kết nối IDE WebSocket Bridge: ${this.url}`,
+            ok: true,
+            projectId,
+          })
+          finish(true)
+        }
+
+        ws.onmessage = async (event) => {
+          try {
+            const raw = typeof event.data === 'string' ? event.data : event.data.toString()
+            const msg = JSON.parse(raw) as IdeWsMessage
+
+            // Xử lý tự động tool_call từ IDE nếu có
+            if (msg.type === 'tool_call' && msg.tool) {
+              const result = await runTool({
+                tool: msg.tool as never,
+                projectId: msg.projectId,
+                projectPath: msg.projectPath || projectPath || '',
+                args: msg.args || {},
+              })
+
+              // Trả về tool_result cho IDE
+              this.send({
+                type: 'tool_result',
+                id: msg.id,
+                toolResult: result,
+              })
+            }
+
+            for (const cb of this.listeners) {
+              cb(msg)
+            }
+          } catch {}
+        }
+
+        ws.onclose = () => {
+          if (this.ws === ws) this.ws = null
+          finish(false)
+        }
+
+        ws.onerror = () => {
+          if (this.ws === ws) this.ws = null
+          finish(false)
+        }
+      } catch {
+        finish(false)
+      }
+    })
+
+    return this.connectPromise
   }
 
   send(msg: IdeWsMessage): boolean {
@@ -178,7 +196,7 @@ class IdeWebSocketBridge {
       } catch {}
       this.ws = null
     }
-    this.isConnecting = false
+    this.connectPromise = null
   }
 
   onMessage(callback: (msg: IdeWsMessage) => void): () => void {

@@ -1697,7 +1697,11 @@ const CanvasArea = ({
   // Lắng nghe kích hoạt chế độ Soi / Khoanh vùng từ AI Panel
   useEffect(() => {
     const handleInspectRequest = (e: Event) => {
-      const detail = (e as CustomEvent<{ mode: 'single' | 'area' }>).detail
+      const detail = (e as CustomEvent<{ mode: 'single' | 'area' | null; enabled?: boolean }>).detail
+      if (detail?.enabled === false || detail?.mode === null) {
+        setIsInspectMode(false)
+        return
+      }
       setIsInspectMode(true)
       if (detail?.mode === 'single') {
         showToast('Cây bút: Hãy nhấp vào 1 phần tử trên Canvas để đính kèm vào AI', 'info')

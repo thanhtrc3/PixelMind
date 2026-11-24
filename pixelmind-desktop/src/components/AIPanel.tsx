@@ -679,8 +679,9 @@ const AIPanel = ({
     try {
       const updated = await api.ai.cost.setBudget(projectId, val)
       setCostStats(updated)
+      setBudgetInput(String(updated.budgetTokens))
       setIsEditingBudget(false)
-      notifyChat('ok', `Đã cập nhật hạn mức ngân sách: ${val.toLocaleString()} tokens`)
+      notifyChat('ok', `Đã cập nhật hạn mức ngân sách: ${updated.budgetTokens.toLocaleString()} tokens`)
     } catch {
       notifyChat('err', 'Không thể lưu hạn mức ngân sách')
     }
@@ -821,7 +822,7 @@ const AIPanel = ({
       if (kind === 'ollama') {
         await switchProvider('ollama')
       } else if (kind === 'api') {
-        await switchProvider('openai')
+        await restoreCloudProvider()
       }
       const updated = await api.ai.bridges.setActive(kind)
       setBridges((prev) => prev.map((b) => (b.kind === kind ? updated : b)))
@@ -1372,6 +1373,7 @@ const AIPanel = ({
         void loadChanges()
         void loadToolLogs()
         void loadAuditLogs()
+        void loadSecurityData()
         void loadConversations()
       } else if (event.type === 'error') {
         cliMutatedRef.current = false
@@ -1762,16 +1764,77 @@ const AIPanel = ({
     setShowPack(false)
   }
 
-  const switchProvider = async (provider: 'openai' | 'ollama') => {
+  const switchProvider = async (provider: 'openai' | 'ollama' | 'gemini') => {
     const defaults =
       provider === 'ollama'
         ? { aiBaseUrl: 'http://localhost:11434/v1', aiModel: 'qwen2.5-coder' }
-        : { aiBaseUrl: 'https://api.openai.com/v1', aiModel: 'gpt-4o-mini' }
+        : provider === 'gemini'
+          ? {
+              aiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+              aiModel: 'gemini-2.5-flash-lite',
+            }
+          : { aiBaseUrl: 'https://api.openai.com/v1', aiModel: 'gpt-4o-mini' }
     try {
+      if (provider === 'ollama') {
+        const currentStore = await api.store.get().catch(() => null)
+        const s = currentStore?.settings
+        if (s && s.aiProvider && s.aiProvider !== 'ollama') {
+          try {
+            localStorage.setItem(
+              'pixelmind.ai.lastCloudProvider',
+              JSON.stringify({
+                aiProvider: s.aiProvider,
+                aiBaseUrl: s.aiBaseUrl,
+                aiModel: s.aiModel,
+              }),
+            )
+          } catch {}
+        }
+      }
       await api.store.updateSettings({ aiProvider: provider, ...defaults })
       setBridgeOpen(false)
       await refreshStatus()
-      notifyChat('ok', `Đã chuyển sang ${provider === 'ollama' ? 'Ollama (local)' : 'OpenAI-compatible'}.`)
+      notifyChat(
+        'ok',
+        `Đã chuyển sang ${provider === 'ollama' ? 'Ollama (local)' : provider === 'gemini' ? 'Google Gemini' : 'OpenAI-compatible'}.`,
+      )
+    } catch (error) {
+      notifyChat('err', (error as Error).message)
+    }
+  }
+
+  const restoreCloudProvider = async () => {
+    try {
+      const currentStore = await api.store.get().catch(() => null)
+      const currentProvider = currentStore?.settings?.aiProvider
+      if (currentProvider === 'gemini' || currentProvider === 'openai') {
+        return
+      }
+      try {
+        const raw = localStorage.getItem('pixelmind.ai.lastCloudProvider')
+        if (raw) {
+          const saved = JSON.parse(raw) as {
+            aiProvider?: 'openai' | 'gemini'
+            aiBaseUrl?: string
+            aiModel?: string
+          }
+          if (saved.aiProvider === 'gemini' || saved.aiProvider === 'openai') {
+            await api.store.updateSettings({
+              aiProvider: saved.aiProvider,
+              ...(saved.aiBaseUrl ? { aiBaseUrl: saved.aiBaseUrl } : {}),
+              ...(saved.aiModel ? { aiModel: saved.aiModel } : {}),
+            })
+            await refreshStatus()
+            return
+          }
+        }
+      } catch {}
+      const st = await api.ai.status(projectPath).catch(() => null)
+      if (st?.provider === 'gemini') {
+        await switchProvider('gemini')
+      } else {
+        await switchProvider('openai')
+      }
     } catch (error) {
       notifyChat('err', (error as Error).message)
     }
@@ -1883,6 +1946,8 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
           tools: true,
           context: ctxRes?.pack,
           messages: [{ role: 'user', content: promptText }],
+          bridge: activeBridge,
+          cli: activeBridge === 'cli' ? (selectedCli ?? undefined) : undefined,
         })
         activeChatId.current = chat.id
 
@@ -1918,13 +1983,26 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
         const safe = isSafeErrorChange(parsedError, currentProposed)
         addLog(`[2/4 Apply] Đánh giá an toàn: ${safe ? 'Lỗi an toàn (Environment/Format)' : 'Thay đổi logic'}`)
 
-        if (autoApproveSafeErrors && safe) {
-          const audit = `[AUTO-APPROVE] Tự động duyệt an toàn cho ${currentProposed.file}: "${currentProposed.summary}"`
-          setAutoApproveLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${audit}`])
-          addLog(`✓ ${audit}`)
-        } else {
-          addLog(`✓ Áp dụng bản vá vào ${currentProposed.file} (đã ghi snapshot dự phòng trước khi sửa).`)
+        if (!autoApproveSafeErrors || !safe) {
+          const reason = !autoApproveSafeErrors
+            ? 'Đã tắt "Tự động duyệt lỗi an toàn"'
+            : 'Bản vá thay đổi logic nghiệp vụ'
+          addLog(
+            `⏸️ Tạm dừng áp dụng tự động (${reason}). Vui lòng kiểm tra và bấm "Áp dụng" thủ công cho ${currentProposed.file} trong tab Thay đổi.`,
+          )
+          notifyChat(
+            'info',
+            `Bản vá trên ${currentProposed.file} cần duyệt thủ công trong tab Thay đổi.`,
+          )
+          setLoopStage('failed')
+          setLoopActive(false)
+          await loadChanges()
+          return
         }
+
+        const audit = `[AUTO-APPROVE] Tự động duyệt an toàn cho ${currentProposed.file}: "${currentProposed.summary}"`
+        setAutoApproveLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${audit}`])
+        addLog(`✓ ${audit}`)
 
         try {
           await api.ai.changes.accept(projectId, currentProposed.id)
@@ -2013,16 +2091,16 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
    * Dừng khẩn cấp (Kill-switch)
    */
   const handleStopLoop = () => {
+    if (killSwitchRef.current) return
     killSwitchRef.current = true
     if (activeChatId.current) {
       void api.ai.cancel(activeChatId.current).catch(() => {})
       activeChatId.current = null
     }
-    setLoopActive(false)
     setLoopStage('aborted')
     setLoopLogs((prev) => [
       ...prev,
-      `[${new Date().toLocaleTimeString()}] 🛑 Kill-switch: Đã dừng vòng lặp ngay lập tức.`,
+      `[${new Date().toLocaleTimeString()}] 🛑 Kill-switch: Đang dừng vòng lặp tự sửa...`,
     ])
     notifyChat('info', 'Đã kích hoạt Kill-switch dừng vòng lặp.')
   }
@@ -2960,7 +3038,14 @@ YÊU CẦU: Hãy phân tích kỹ và dùng tool apply_patch để đề xuất 
                   <button
                     type="button"
                     className="pm-ai-picking-banner__cancel"
-                    onClick={() => setWaitingPickMode(null)}
+                    onClick={() => {
+                      setWaitingPickMode(null)
+                      window.dispatchEvent(
+                        new CustomEvent('pixelmind:enable-inspect', {
+                          detail: { mode: null, enabled: false },
+                        }),
+                      )
+                    }}
                   >
                     Huỷ
                   </button>

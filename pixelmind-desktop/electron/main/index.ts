@@ -4286,8 +4286,13 @@ ipcMain.handle(
   'ai:complete',
   async (
     _e,
-    payload: { prompt: string; system?: string; projectPath?: string },
-  ) => completeAi(payload.prompt, payload.system, payload.projectPath),
+    payload: {
+      prompt: string
+      system?: string
+      projectPath?: string
+      images?: Array<{ name: string; dataUrl: string }>
+    },
+  ) => completeAi(payload.prompt, payload.system, payload.projectPath, payload.images),
 )
 
 ipcMain.handle('ai:cancel', async (_e, id: string) => cancelChat(id))

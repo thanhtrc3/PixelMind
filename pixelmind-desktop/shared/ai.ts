@@ -373,7 +373,12 @@ export interface AiApi {
   test(projectPath?: string): Promise<AiTestResult>
   saveKey(key: string, provider?: string): Promise<{ ok: boolean; masked: string }>
   chat(request: AiChatStartRequest): Promise<AiChatHandle>
-  complete(request: { prompt: string; system?: string; projectPath?: string }): Promise<{ text: string; error?: string }>
+  complete(request: {
+    prompt: string
+    system?: string
+    projectPath?: string
+    images?: AiImageAttachment[]
+  }): Promise<{ text: string; error?: string }>
   cancel(id: string): Promise<boolean>
   killSwitch(): Promise<{ count: number; ok: boolean }>
   onChatEvent(callback: (event: AiChatEvent) => void): () => void

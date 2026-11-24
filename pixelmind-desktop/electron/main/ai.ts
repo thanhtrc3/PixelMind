@@ -2,23 +2,24 @@ import { app } from 'electron'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type {
-  AiBridgeKind,
-  AiBridgeStatus,
-  AiChatEntry,
-  AiChatEvent,
-  AiChatHandle,
-  AiChatStartRequest,
-  AiConfig,
-  AiContextPack,
-  AiConversationSummary,
-  AiImageAttachment,
-  AiKeyStatus,
-  AiModel,
-  AiPlanStep,
-  AiProvider,
-  AiStatus,
-  AiTestResult,
+import {
+  estimateTokens,
+  type AiBridgeKind,
+  type AiBridgeStatus,
+  type AiChatEntry,
+  type AiChatEvent,
+  type AiChatHandle,
+  type AiChatStartRequest,
+  type AiConfig,
+  type AiContextPack,
+  type AiConversationSummary,
+  type AiImageAttachment,
+  type AiKeyStatus,
+  type AiModel,
+  type AiPlanStep,
+  type AiProvider,
+  type AiStatus,
+  type AiTestResult,
 } from '../../shared/ai'
 import { readStore } from './store'
 import { runTool, TOOL_SCHEMAS } from './aiTools'
@@ -28,7 +29,7 @@ import { prepareAgentIntegration } from './agentIntegrations'
 import { ideWsBridge } from './ideWsBridge'
 import { recordAudit } from './aiAudit'
 import { GUARDRAILS_SYSTEM_INSTRUCTION } from './aiGuardrails'
-import { recordTokenUsage } from './aiCost'
+import { getCostStats, recordTokenUsage } from './aiCost'
 
 /* AI Gateway: OpenAI-compatible Chat Completions + SSE.
    Khoá API chỉ được đọc trong main process từ biến môi trường hoặc tệp .env;
@@ -41,7 +42,7 @@ interface EnvMap {
 
 const DEFAULTS: Record<AiProvider, { baseUrl: string; model: string }> = {
   openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.5-flash-lite' },
+  gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash-lite' },
   ollama: { baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5-coder' },
 }
 
@@ -177,10 +178,9 @@ export async function saveApiKey(
 
   const parsed = parseEnvFile(existingContent)
   parsed['PIXELMIND_AI_KEY'] = cleanKey
-  parsed['OPENAI_API_KEY'] = cleanKey
 
   // Tự động nhận diện Google AI Studio / Gemini API key
-  const isGemini = cleanKey.startsWith('AIza') || cleanKey.startsWith('AQ.')
+  const isGemini = cleanKey.startsWith('AIza') || cleanKey.startsWith('AQ.') || provider === 'gemini'
   if (isGemini) {
     parsed['GEMINI_API_KEY'] = cleanKey
     parsed['PIXELMIND_AI_PROVIDER'] = 'gemini'
@@ -190,8 +190,13 @@ export async function saveApiKey(
     process.env['PIXELMIND_AI_PROVIDER'] = 'gemini'
     process.env['PIXELMIND_AI_BASE_URL'] = 'https://generativelanguage.googleapis.com/v1beta/openai'
     process.env['PIXELMIND_AI_MODEL'] = 'gemini-2.5-flash-lite'
-  } else if (provider) {
-    parsed['PIXELMIND_AI_PROVIDER'] = provider
+  } else {
+    parsed['OPENAI_API_KEY'] = cleanKey
+    process.env['OPENAI_API_KEY'] = cleanKey
+    if (provider) {
+      parsed['PIXELMIND_AI_PROVIDER'] = provider
+      process.env['PIXELMIND_AI_PROVIDER'] = provider
+    }
   }
 
   const lines = Object.entries(parsed).map(([k, v]) => `${k}=${v}`)
@@ -199,7 +204,6 @@ export async function saveApiKey(
 
   // Cập nhật ngay vào process.env runtime
   process.env['PIXELMIND_AI_KEY'] = cleanKey
-  process.env['OPENAI_API_KEY'] = cleanKey
 
   void recordAudit({
     type: 'bridge',
@@ -280,12 +284,7 @@ export async function resolveConfig(projectPath?: string): Promise<{
     }
     // Tự động nâng cấp lên gemini-3.5-flash-lite nếu model để trống, model mặc định OpenAI,
     // hoặc model cũ gemini-2.5-flash-lite đã bị Google khai tử cho tài khoản mới
-    if (
-      !model ||
-      model === 'aistudio' ||
-      model === 'gpt-4o-mini' ||
-      model.includes('2.5-flash')
-    ) {
+    if (!model || model === 'aistudio' || model === 'gpt-4o-mini') {
       model = defaults.model
     }
   }
@@ -655,6 +654,18 @@ async function streamCompletion(
     }
   }
 
+  if (!usage || (!usage.promptTokens && !usage.completionTokens)) {
+    const promptEst = estimateTokens(
+      messages
+        .map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '')))
+        .join('\n'),
+    )
+    const completionEst = estimateTokens(content)
+    if (promptEst > 0 || completionEst > 0) {
+      usage = { promptTokens: promptEst, completionTokens: completionEst }
+    }
+  }
+
   return {
     content,
     toolCalls: [...toolCalls.values()].filter((call) => call.name),
@@ -669,15 +680,32 @@ export async function completeAi(
   prompt: string,
   systemPrompt?: string,
   projectPath?: string,
+  images?: AiImageAttachment[],
 ): Promise<{ text: string; error?: string }> {
   try {
     const { config, key, keyValue } = await resolveConfig(projectPath)
     if (config.provider !== 'ollama' && !key.present) {
       return { text: '', error: 'Chưa có khoá API' }
     }
-    const messages: Array<{ role: string; content: string }> = []
+    const messages: LocalMessage[] = []
     if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
-    messages.push({ role: 'user', content: prompt })
+    const validImages = (images ?? []).filter(
+      (img) => typeof img.dataUrl === 'string' && img.dataUrl.startsWith('data:image/'),
+    )
+    if (validImages.length > 0) {
+      messages.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          ...validImages.slice(0, 6).map((img) => ({
+            type: 'image_url' as const,
+            image_url: { url: img.dataUrl },
+          })),
+        ],
+      })
+    } else {
+      messages.push({ role: 'user', content: prompt })
+    }
 
     const response = await fetch(`${config.baseUrl}/chat/completions`, {
       method: 'POST',
@@ -1040,6 +1068,16 @@ export function startChat(
         await persist({ at: started, role: 'user', text: lastUser.content })
       }
 
+      // Kiểm tra hạn mức ngân sách token trước khi gọi AI
+      if (request.projectId) {
+        const costStats = await getCostStats(request.projectId)
+        if (costStats.isOverBudget) {
+          throw new Error(
+            `Đã chạm hạn mức ngân sách token của dự án (${costStats.totalTokens.toLocaleString()} / ${costStats.budgetTokens.toLocaleString()} tokens). Vui lòng tăng hạn mức hoặc đặt lại bộ đếm trong tab Bảo mật & Chi phí.`,
+          )
+        }
+      }
+
       // Cầu nối người dùng chọn tại thời điểm gửi (ưu tiên hơn activeBridge toàn cục).
       const bridgeKind = request.bridge ?? activeBridgeKind
 
@@ -1054,8 +1092,8 @@ export function startChat(
           )
         }
 
-        // Gửi handshake và context pack
-        ideWsBridge.send({
+        // Gửi context pack sau khi kết nối đã mở hoàn tất
+        const sent = ideWsBridge.send({
           type: 'context',
           id,
           projectId: request.projectId,
@@ -1063,23 +1101,46 @@ export function startChat(
           pack: request.context,
           message: userText,
         })
+        if (!sent) {
+          throw new Error('Không thể gửi gói ngữ cảnh tới IDE WebSocket Bridge.')
+        }
 
-        const unsub = ideWsBridge.onMessage((msg) => {
-          if (msg.type === 'plan' && msg.steps) {
-            currentPlan = msg.steps
-            emit({ type: 'plan', id, steps: currentPlan })
-          } else if (msg.type === 'tool_call' && msg.tool) {
-            emit({ type: 'tool', id, name: msg.tool, status: 'running' })
-          } else if (msg.type === 'done') {
-            finalText = msg.summary || 'Tác vụ đã hoàn thành qua IDE WebSocket Bridge.'
-            emit({ type: 'delta', id, text: finalText })
-            emit({ type: 'done', id, at: Date.now() })
+        await new Promise<void>((resolve, reject) => {
+          const onAbort = () => {
             unsub()
-          } else if (msg.type === 'error') {
-            emit({ type: 'error', id, message: msg.message || 'Lỗi IDE WebSocket Bridge' })
-            unsub()
+            resolve()
           }
+          const unsub = ideWsBridge.onMessage((msg) => {
+            if (msg.id && msg.id !== id) return
+            if (msg.type === 'plan' && msg.steps) {
+              currentPlan = msg.steps
+              emit({ type: 'plan', id, steps: currentPlan })
+            } else if (msg.type === 'tool_call' && msg.tool) {
+              emit({ type: 'tool', id, name: msg.tool, status: 'running' })
+            } else if (msg.type === 'done') {
+              finalText = msg.summary || 'Tác vụ đã hoàn thành qua IDE WebSocket Bridge.'
+              emit({ type: 'delta', id, text: finalText })
+              controller.signal.removeEventListener('abort', onAbort)
+              unsub()
+              resolve()
+            } else if (msg.type === 'error') {
+              controller.signal.removeEventListener('abort', onAbort)
+              unsub()
+              reject(new Error(msg.message || 'Lỗi IDE WebSocket Bridge'))
+            }
+          })
+          controller.signal.addEventListener('abort', onAbort, { once: true })
         })
+
+        if (finalText) {
+          await persist({
+            at: Date.now(),
+            role: 'assistant',
+            text: finalText,
+            plan: currentPlan.length > 0 ? currentPlan : undefined,
+          })
+        }
+        emit({ type: 'done', id, at: Date.now() })
         return
       }
 
@@ -1146,16 +1207,24 @@ export function startChat(
           let stderrText = ''
           let lastStatusAt = 0
           let sawToolSinceLastText = false
-          const { keyValue: resolvedApiKey } = await resolveConfig(projectPath)
+          const { config: resolvedCfg, keyValue: resolvedApiKey } = await resolveConfig(projectPath)
+          const isGeminiKey =
+            resolvedCfg.provider === 'gemini' ||
+            Boolean(resolvedApiKey && (resolvedApiKey.startsWith('AIza') || resolvedApiKey.startsWith('AQ.')))
+          const isAnthropicKey = Boolean(resolvedApiKey && resolvedApiKey.startsWith('sk-ant-'))
+          const providerEnv: Record<string, string> = {}
+          if (resolvedApiKey) {
+            if (isGeminiKey) {
+              providerEnv.GEMINI_API_KEY = resolvedApiKey
+            } else if (isAnthropicKey) {
+              providerEnv.ANTHROPIC_API_KEY = resolvedApiKey
+            } else {
+              providerEnv.OPENAI_API_KEY = resolvedApiKey
+            }
+          }
           const mergedCliEnv: Record<string, string> = {
             ...integration.env,
-            ...(resolvedApiKey
-              ? {
-                  GEMINI_API_KEY: resolvedApiKey,
-                  OPENAI_API_KEY: resolvedApiKey,
-                  ANTHROPIC_API_KEY: resolvedApiKey,
-                }
-              : {}),
+            ...providerEnv,
           }
           const handle = runAgent(
             {
@@ -1281,88 +1350,9 @@ export function startChat(
       // 3. ROUTE CHO API BRIDGE (HOẶC OLLAMA)
       const { config, key, keyValue } = await resolveConfig(request.projectPath)
       if (config.provider !== 'ollama' && !key.present) {
-        const isGreeting = /^(chào|hello|hi|hey|test|alo|ơi|bạn là ai|giới thiệu)/i.test(userText)
-        if (isGreeting || !userText) {
-          finalText = `Xin chào! Tôi là Trợ lý AI tích hợp trong PixelMind Desktop.
-
-Hệ thống hiện đang ở cầu nối **API Bridge** nhưng chưa tìm thấy khóa API (\`PIXELMIND_AI_KEY\`).
-
-🛠️ **Các cách kết nối Trợ lý AI:**
-1. **OpenAI Cloud:** Thêm \`PIXELMIND_AI_KEY=sk-...\` vào tệp \`.env\` của dự án hoặc tệp \`pixelmind.env\` trong thư mục cấu hình userData.
-2. **Ollama Local (Offline Miễn phí):** Chuyển sang cầu nối **Ollama Local** trên thanh tiêu đề (chạy mô hình cục bộ không cần mạng).
-3. **IDE WebSocket Bridge:** Chọn **IDE WebSocket** để kết nối trực tiếp với Anti Gravity hoặc VS Code (cổng \`ws://127.0.0.1:45678\`).
-4. **CLI Bridge:** Chọn **CLI Bridge** để chạy agent qua dòng lệnh đã cài trên máy (\`opencode\`, \`codex\`, \`claude\`, \`gemini\`…).
-
-👉 *Bạn có thể thử nhập: "Sửa navbar tối giản hơn", "Đổi màu nút theo theme" hoặc "Thêm thông tin" để xem trước vòng lặp Agent (Plan → Tool Call → Diff) hoạt động trực tiếp!*`
-          emit({ type: 'delta', id, text: finalText })
-          await persist({
-            at: Date.now(),
-            role: 'assistant',
-            text: finalText,
-          })
-          emit({ type: 'done', id, at: Date.now() })
-          return
-        }
-
-        // Người dùng yêu cầu thao tác code: Kích hoạt Agent Loop đầy đủ (Plan -> Tools -> Diffs)
-        currentPlan = [
-          { id: 'step-1', label: 'Quét và phân tích cấu trúc tệp nguồn trong dự án', status: 'pending' },
-          { id: 'step-2', label: 'Tạo đề xuất thay đổi (Diff) cho giao diện', status: 'pending' },
-          { id: 'step-3', label: 'Kiểm tra và chuẩn bị bản vá chờ duyệt', status: 'pending' },
-        ]
-        emit({ type: 'plan', id, steps: currentPlan })
-
-        // Bước 1
-        emit({ type: 'step_update', id, stepId: 'step-1', status: 'running' })
-        emit({ type: 'tool', id, name: 'search_project', status: 'running' })
-        await new Promise((r) => setTimeout(r, 600))
-        emit({ type: 'tool', id, name: 'search_project', status: 'ok', detail: 'Đã định vị thành phần giao diện' })
-        emit({ type: 'step_update', id, stepId: 'step-1', status: 'done' })
-
-        // Bước 2
-        emit({ type: 'step_update', id, stepId: 'step-2', status: 'running' })
-        emit({ type: 'tool', id, name: 'apply_patch', status: 'running' })
-        await new Promise((r) => setTimeout(r, 700))
-
-        const targetFile = request.context?.source?.filePath || request.scopedFile || 'Views/Home/Index.cshtml'
-        if (request.projectId && request.projectPath) {
-          try {
-            await runTool({
-              tool: 'apply_patch',
-              projectId: request.projectId,
-              projectPath: request.projectPath,
-              args: {
-                file: targetFile,
-                summary: `Cập nhật giao diện: "${userText.slice(0, 50)}"`,
-                edits: [],
-              },
-            }).catch(() => null)
-          } catch {}
-        }
-        emit({ type: 'tool', id, name: 'apply_patch', status: 'ok', detail: `Đã tạo đề xuất diff cho ${targetFile}` })
-        emit({ type: 'step_update', id, stepId: 'step-2', status: 'done' })
-
-        // Bước 3
-        emit({ type: 'step_update', id, stepId: 'step-3', status: 'running' })
-        await new Promise((r) => setTimeout(r, 400))
-        emit({ type: 'step_update', id, stepId: 'step-3', status: 'done' })
-
-        finalText = `Tôi đã hoàn thành phân tích và tạo kế hoạch sửa đổi cho yêu cầu: **"${userText}"**.
-
-📋 **Tiến độ đã thực hiện:**
-- ✓ Đã quét và phân tích tệp nguồn mục tiêu (\`${targetFile}\`).
-- ✓ Đã tạo đề xuất thay đổi (Diff). Bạn có thể mở tab **Thay đổi** ở trên để xem chi tiết trước/sau và bấm **Duyệt**.
-
-💡 *Lưu ý: Để kết nối LLM đám mây trực tiếp, hãy cấu hình khóa API trong Cài đặt hoặc chọn Ollama Local / IDE WebSocket Bridge.*`
-        emit({ type: 'delta', id, text: finalText })
-        await persist({
-          at: Date.now(),
-          role: 'assistant',
-          text: finalText,
-          plan: currentPlan,
-        })
-        emit({ type: 'done', id, at: Date.now() })
-        return
+        throw new Error(
+          'Chưa cấu hình khoá API cho API Bridge. Vui lòng nhập khoá API (OpenAI / Gemini) trong bảng Trợ lý AI / Cài đặt (tệp pixelmind.env), hoặc chuyển sang cầu nối CLI Bridge / IDE WebSocket / Ollama Local.',
+        )
       }
 
       const messages: LocalMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }]

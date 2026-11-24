@@ -91,7 +91,7 @@ export async function setTokenBudget(
   budgetTokens: number,
 ): Promise<AiCostStats> {
   const stored = await readStoredBudget(projectId)
-  stored.budgetTokens = Math.max(10_000, Math.min(10_000_000, budgetTokens))
+  stored.budgetTokens = Math.max(1_000, Math.min(10_000_000, Math.round(budgetTokens)))
   stored.lastUpdated = Date.now()
   await writeStoredBudget(projectId, stored)
   return computeStats(projectId, stored)

@@ -22,8 +22,9 @@ const activeCliProcesses = new Map<string, { proc: ChildProcess; timer?: NodeJS.
 /** Quote một tham số cho cmd.exe (dùng khi phải chạy shim .cmd/.bat trên Windows). */
 function quoteForCmd(value: string): string {
   if (value === '') return '""'
-  if (!/[\s"&|<>^()%!]/.test(value)) return value
-  return `"${value.replace(/"/g, '\\"')}"`
+  const clean = value.replace(/\r?\n/g, ' ')
+  if (!/[\s"&|<>^()%!]/.test(clean)) return clean
+  return `"${clean.replace(/"/g, '""').replace(/%/g, '%%')}"`
 }
 
 /**

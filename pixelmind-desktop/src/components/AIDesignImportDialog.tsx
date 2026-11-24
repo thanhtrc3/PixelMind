@@ -40,12 +40,12 @@ const DEFAULT_SNIPPETS: Record<FrameworkId, { html: string; css: string }> = {
   html: {
     html: `<section class="hero">
   <div class="hero__inner">
-    <p class="hero__eyebrow">Bàn Cờ Tướng</p>
-    <h1 class="hero__title">Khai cuộc cùng Bàn Cờ Tướng</h1>
-    <p class="hero__desc">Học cờ tướng, đấu trực tuyến và theo dõi tiến bộ.</p>
+    <p class="hero__eyebrow">PixelMind Studio</p>
+    <h1 class="hero__title">Xây dựng giao diện web trực quan & hiện đại</h1>
+    <p class="hero__desc">Thiết kế, chỉnh sửa trực tiếp trên Canvas và đồng bộ mã nguồn theo thời gian thực.</p>
     <div class="hero__actions">
-      <a class="btn btn--primary" href="/Lobby">Chơi ngay</a>
-      <a class="btn btn--ghost" href="/Learn">Học luật</a>
+      <a class="btn btn--primary" href="#start">Bắt đầu ngay</a>
+      <a class="btn btn--ghost" href="#features">Tìm hiểu thêm</a>
     </div>
   </div>
 </section>`,
@@ -67,12 +67,12 @@ const DEFAULT_SNIPPETS: Record<FrameworkId, { html: string; css: string }> = {
   return (
     <section className="hero">
       <div className="hero__inner">
-        <p className="hero__eyebrow">Bàn Cờ Tướng</p>
-        <h1 className="hero__title">Khai cuộc cùng Bàn Cờ Tướng</h1>
-        <p className="hero__desc">Học cờ tướng, đấu trực tuyến và theo dõi tiến bộ.</p>
+        <p className="hero__eyebrow">PixelMind Studio</p>
+        <h1 className="hero__title">Xây dựng giao diện web trực quan & hiện đại</h1>
+        <p className="hero__desc">Thiết kế, chỉnh sửa trực tiếp trên Canvas và đồng bộ mã nguồn theo thời gian thực.</p>
         <div className="hero__actions">
-          <a className="btn btn--primary" href="/Lobby">Chơi ngay</a>
-          <a className="btn btn--ghost" href="/Learn">Học luật</a>
+          <a className="btn btn--primary" href="#start">Bắt đầu ngay</a>
+          <a className="btn btn--ghost" href="#features">Tìm hiểu thêm</a>
         </div>
       </div>
     </section>
@@ -86,12 +86,12 @@ const DEFAULT_SNIPPETS: Record<FrameworkId, { html: string; css: string }> = {
   razor: {
     html: `<section class="hero">
   <div class="hero__inner">
-    <p class="hero__eyebrow">Bàn Cờ Tướng</p>
+    <p class="hero__eyebrow">PixelMind Studio</p>
     <h1 class="hero__title">@Model.Title</h1>
     <p class="hero__desc">@Model.Description</p>
     <div class="hero__actions">
-      <a class="btn btn--primary" asp-controller="Home" asp-action="Lobby">Chơi ngay</a>
-      <a class="btn btn--ghost" asp-controller="Home" asp-action="Learn">Học luật</a>
+      <a class="btn btn--primary" asp-controller="Home" asp-action="Index">Bắt đầu ngay</a>
+      <a class="btn btn--ghost" asp-controller="Home" asp-action="About">Tìm hiểu thêm</a>
     </div>
   </div>
 </section>`,
@@ -103,12 +103,12 @@ const DEFAULT_SNIPPETS: Record<FrameworkId, { html: string; css: string }> = {
     html: `<template>
   <section class="hero">
     <div class="hero__inner">
-      <p class="hero__eyebrow">Bàn Cờ Tướng</p>
+      <p class="hero__eyebrow">PixelMind Studio</p>
       <h1 class="hero__title">{{ title }}</h1>
       <p class="hero__desc">{{ description }}</p>
       <div class="hero__actions">
-        <a class="btn btn--primary" href="/Lobby">Chơi ngay</a>
-        <a class="btn btn--ghost" href="/Learn">Học luật</a>
+        <a class="btn btn--primary" href="#start">Bắt đầu ngay</a>
+        <a class="btn btn--ghost" href="#features">Tìm hiểu thêm</a>
       </div>
     </div>
   </section>
@@ -132,7 +132,7 @@ const AIDesignImportDialog = ({
   const [imageData, setImageData] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [framework, setFramework] = useState<FrameworkId>('html')
-  const [page, setPage] = useState(pageRoutes[0] ?? '/Home/Index')
+  const [page, setPage] = useState(pageRoutes[0] ?? 'index.html')
   const [phase, setPhase] = useState<Phase>('idle')
   const [sections, setSections] = useState<AiDesignSection[]>(
     AI_DESIGN_SECTIONS.map((item) => ({ ...item })),
@@ -187,7 +187,14 @@ Trả về DUY NHẤT một mảng JSON các đối tượng (không kèm bất 
         prompt: promptText,
         system: 'Bạn là chuyên gia thị giác máy tính và phân tích cấu trúc giao diện UI/UX từ hình ảnh.',
         projectPath,
+        images: imageData ? [{ name: fileName || 'design.png', dataUrl: imageData }] : undefined,
       })
+
+      if (res.error) {
+        onShowToast('err', `Không thể gọi AI phân tích ảnh: ${res.error}`)
+        setPhase('idle')
+        return
+      }
 
       if (res.text) {
         try {
@@ -202,7 +209,7 @@ Trả về DUY NHẤT một mảng JSON các đối tượng (không kèm bất 
         } catch {}
       }
 
-      // Fallback thông minh có cấu trúc phân tích 4 khối chuẩn
+      // Fallback thông minh có cấu trúc phân tích 5 khối chuẩn khi model không trả về đúng JSON
       const smartFallback: AiDesignSection[] = [
         { id: 'sec-header', name: 'Header / Navigation Bar', role: 'Logo thương hiệu + Menu điều hướng + Nút đăng nhập', confidence: 96, checked: true },
         { id: 'sec-hero', name: 'Hero Showcase Section', role: 'Tiêu đề chính lớn + Đoạn phụ đề + 2 Nút kêu gọi hành động', confidence: 94, checked: true },
@@ -212,7 +219,7 @@ Trả về DUY NHẤT một mảng JSON các đối tượng (không kèm bất 
       ]
       setSections(smartFallback)
       setPhase('analyzed')
-      onShowToast('ok', `✨ Đã phân tích và trích xuất ${smartFallback.length} khối bố cục!`)
+      onShowToast('info', `Đã dùng bố cục mẫu ${smartFallback.length} khối (phản hồi AI không phải JSON chuẩn).`)
     } catch (err) {
       onShowToast('err', `Lỗi phân tích: ${(err as Error).message}`)
       setPhase('idle')
@@ -252,7 +259,14 @@ Không kèm markdown giải thích.`
         prompt: promptText,
         system: 'Bạn là Senior Frontend Engineer chuyên chuyển đổi bản thiết kế thành mã nguồn sạch.',
         projectPath,
+        images: imageData ? [{ name: fileName || 'design.png', dataUrl: imageData }] : undefined,
       })
+
+      if (res.error) {
+        onShowToast('err', `Không thể sinh mã qua AI: ${res.error}`)
+        setPhase('analyzed')
+        return
+      }
 
       if (res.text) {
         try {
@@ -271,7 +285,7 @@ Không kèm markdown giải thích.`
       }
 
       setPhase('generated')
-      onShowToast('ok', `✨ Đã sinh mã ${framework.toUpperCase()} cho ${checked} khối!`)
+      onShowToast('info', `Đang hiển thị mã mẫu ${framework.toUpperCase()} (phản hồi AI không phải JSON chuẩn).`)
     } catch (err) {
       onShowToast('err', `Lỗi sinh mã: ${(err as Error).message}`)
       setPhase('analyzed')
@@ -452,7 +466,7 @@ Không kèm markdown giải thích.`
           <div className="pm-ai-design__group">
             <span className="pm-ai-label">Trang đích chèn code</span>
             <select className="pm-select" value={page} onChange={(event) => setPage(event.target.value)}>
-              {(pageRoutes.length ? pageRoutes : ['/Home/Index', '/Home/Lobby', '/Home/Profile']).map(
+              {(pageRoutes.length ? pageRoutes : ['index.html', 'src/App.tsx', 'Views/Home/Index.cshtml']).map(
                 (route) => (
                   <option key={route} value={route}>
                     {route}

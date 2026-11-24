@@ -59,31 +59,31 @@ const DEFAULT_SECTION_FIELDS: Record<SectionId, ContentField[]> = {
     {
       id: 'hero-title',
       label: 'Tiêu đề chính (Headline)',
-      value: 'Khai cuộc cùng Bàn Cờ Tướng',
-      original: 'Khai cuộc cùng Bàn Cờ Tướng',
+      value: 'Xây dựng sản phẩm số hiện đại & trực quan',
+      original: 'Xây dựng sản phẩm số hiện đại & trực quan',
       maxLength: 60,
     },
     {
       id: 'hero-sub',
       label: 'Đoạn giới thiệu phụ (Subtitle)',
       value:
-        'Học cờ tướng bài bản, đấu trực tuyến theo thời gian thực và theo dõi tiến bộ trong một nền tảng duy nhất.',
+        'Thiết kế giao diện, chỉnh sửa trực tiếp trên Canvas và đồng bộ mã nguồn nhanh chóng trong một nền tảng duy nhất.',
       original:
-        'Học cờ tướng bài bản, đấu trực tuyến theo thời gian thực và theo dõi tiến bộ trong một nền tảng duy nhất.',
+        'Thiết kế giao diện, chỉnh sửa trực tiếp trên Canvas và đồng bộ mã nguồn nhanh chóng trong một nền tảng duy nhất.',
       maxLength: 160,
     },
     {
       id: 'hero-cta-1',
       label: 'Nút hành động chính (Primary CTA)',
-      value: 'Chơi ngay miễn phí',
-      original: 'Chơi ngay miễn phí',
+      value: 'Bắt đầu miễn phí',
+      original: 'Bắt đầu miễn phí',
       maxLength: 25,
     },
     {
       id: 'hero-cta-2',
       label: 'Nút phụ (Secondary CTA)',
-      value: 'Khám phá thế cờ',
-      original: 'Khám phá thế cờ',
+      value: 'Khám phá tính năng',
+      original: 'Khám phá tính năng',
       maxLength: 25,
     },
   ],
@@ -91,22 +91,22 @@ const DEFAULT_SECTION_FIELDS: Record<SectionId, ContentField[]> = {
     {
       id: 'feat-1',
       label: 'Tính năng 1',
-      value: 'Đấu trực tuyến theo thời gian thực với đối thủ cùng trình độ',
-      original: 'Đấu trực tuyến theo thời gian thực với đối thủ cùng trình độ',
+      value: 'Chỉnh sửa giao diện trực quan theo thời gian thực với Live Inspector',
+      original: 'Chỉnh sửa giao diện trực quan theo thời gian thực với Live Inspector',
       maxLength: 80,
     },
     {
       id: 'feat-2',
       label: 'Tính năng 2',
-      value: 'Bài tập khai cuộc thông minh được cá nhân hoá theo trình độ',
-      original: 'Bài tập khai cuộc thông minh được cá nhân hoá theo trình độ',
+      value: 'Hệ thống Design Tokens đồng bộ tự động chuẩn tương phản WCAG',
+      original: 'Hệ thống Design Tokens đồng bộ tự động chuẩn tương phản WCAG',
       maxLength: 80,
     },
     {
       id: 'feat-3',
       label: 'Tính năng 3',
-      value: 'Bảng xếp hạng Elo công bằng, minh bạch và vinh danh kỳ thủ',
-      original: 'Bảng xếp hạng Elo công bằng, minh bạch và vinh danh kỳ thủ',
+      value: 'Tích hợp trợ lý AI hỗ trợ phân tích bố cục và đề xuất bản vá an toàn',
+      original: 'Tích hợp trợ lý AI hỗ trợ phân tích bố cục và đề xuất bản vá an toàn',
       maxLength: 80,
     },
   ],
@@ -114,22 +114,22 @@ const DEFAULT_SECTION_FIELDS: Record<SectionId, ContentField[]> = {
     {
       id: 'cta-title',
       label: 'Tiêu đề khối kêu gọi',
-      value: 'Sẵn sàng nâng cao trình độ cờ tướng của bạn?',
-      original: 'Sẵn sàng nâng cao trình độ cờ tướng của bạn?',
+      value: 'Sẵn sàng tăng tốc quy trình phát triển giao diện của bạn?',
+      original: 'Sẵn sàng tăng tốc quy trình phát triển giao diện của bạn?',
       maxLength: 70,
     },
     {
       id: 'cta-desc',
       label: 'Lời kêu gọi',
-      value: 'Tham gia cùng hàng nghìn kỳ thủ ngay hôm nay. Hoàn toàn miễn phí!',
-      original: 'Tham gia cùng hàng nghìn kỳ thủ ngay hôm nay. Hoàn toàn miễn phí!',
+      value: 'Khởi tạo dự án đầu tiên và trải nghiệm luồng thiết kế đồng bộ mã nguồn ngay hôm nay.',
+      original: 'Khởi tạo dự án đầu tiên và trải nghiệm luồng thiết kế đồng bộ mã nguồn ngay hôm nay.',
       maxLength: 120,
     },
     {
       id: 'cta-btn',
       label: 'Nút đăng ký / bắt đầu',
-      value: 'Tạo tài khoản ngay',
-      original: 'Tạo tài khoản ngay',
+      value: 'Tạo dự án ngay',
+      original: 'Tạo dự án ngay',
       maxLength: 25,
     },
   ],
@@ -137,15 +137,15 @@ const DEFAULT_SECTION_FIELDS: Record<SectionId, ContentField[]> = {
     {
       id: 'foot-tagline',
       label: 'Khẩu hiệu chân trang',
-      value: 'Nền tảng cờ tướng trực tuyến hiện đại cho người Việt.',
-      original: 'Nền tảng cờ tướng trực tuyến hiện đại cho người Việt.',
+      value: 'Nền tảng thiết kế và phát triển giao diện trực quan hiện đại.',
+      original: 'Nền tảng thiết kế và phát triển giao diện trực quan hiện đại.',
       maxLength: 90,
     },
     {
       id: 'foot-copy',
       label: 'Dòng bản quyền',
-      value: '© 2026 PixelMind & BanCoTuong. Giữ toàn quyền bảo lưu.',
-      original: '© 2026 PixelMind & BanCoTuong. Giữ toàn quyền bảo lưu.',
+      value: '© 2026 PixelMind Studio. Giữ toàn quyền bảo lưu.',
+      original: '© 2026 PixelMind Studio. Giữ toàn quyền bảo lưu.',
       maxLength: 70,
     },
   ],
@@ -190,12 +190,12 @@ const ThemePreview = ({ theme }: { theme: AiThemeOption }) => (
       <i style={{ background: theme.muted }} />
     </div>
     <div className="pm-ai-theme-preview__body">
-      <b style={{ color: theme.text }}>Khai cuộc</b>
+      <b style={{ color: theme.text }}>Tiêu đề</b>
       <span style={{ background: theme.muted }} />
       <span style={{ background: theme.muted, width: '62%' }} />
       <div className="pm-ai-theme-preview__row">
         <em style={{ background: theme.accent, color: '#fff', borderRadius: theme.radius / 2 }}>
-          Chơi ngay
+          Bắt đầu
         </em>
         <em
           style={{
@@ -204,7 +204,7 @@ const ThemePreview = ({ theme }: { theme: AiThemeOption }) => (
             borderRadius: theme.radius / 2,
           }}
         >
-          Học luật
+          Chi tiết
         </em>
       </div>
       <div className="pm-ai-theme-preview__swatches">
@@ -228,9 +228,9 @@ const AIThemeDialog = ({
 }: AIThemeDialogProps) => {
   const [tab, setTab] = useState<TabId>('theme')
   const [prompt, setPrompt] = useState(
-    'Theme cờ tướng hiện đại, nền tối sang trọng, màu nhấn đỏ son hoàng gia, chữ sắc nét dễ đọc.',
+    'Giao diện web hiện đại, nền tối sang trọng, màu nhấn nổi bật, chữ sắc nét đạt chuẩn tương phản WCAG.',
   )
-  const [mood, setMood] = useState('Cổ điển')
+  const [mood, setMood] = useState('Hiện đại')
   const [themes, setThemes] = useState<AiThemeOption[]>(AI_THEMES)
   const [selected, setSelected] = useState(AI_THEMES[0].id)
   const [generating, setGenerating] = useState(false)
@@ -353,6 +353,7 @@ Trả về DUY NHẤT một mảng JSON 3 đối tượng (không giải thích,
       })
 
       let generated: AiThemeOption[] = []
+      let usedFallback = false
       if (res.text) {
         try {
           const cleaned = res.text.replace(/^```json/i, '').replace(/```$/i, '').trim()
@@ -365,6 +366,7 @@ Trả về DUY NHẤT một mảng JSON 3 đối tượng (không giải thích,
 
       // Fallback thông minh nếu Gateway chưa cấu hình hoặc model không trả về JSON
       if (!generated.length) {
+        usedFallback = true
         const moodPalettes: Record<string, AiThemeOption[]> = {
           'Cổ điển': [
             { id: 'do-son-ai', name: 'Đỏ son · Cung đình', mood: 'Cổ điển · hoàng gia', accent: '#b91c1c', accent2: '#d97706', bg: '#0c0a09', surface: '#1c1917', text: '#fafaf9', muted: '#a8a29e', font: 'Be Vietnam Pro', radius: 8 },
@@ -398,7 +400,16 @@ Trả về DUY NHẤT một mảng JSON 3 đối tượng (không giải thích,
 
       setThemes(preserved)
       setSelected(preserved[0].id)
-      onShowToast('ok', `✨ Đã sinh 3 phương án theme thành công!`)
+      if (usedFallback) {
+        onShowToast(
+          'info',
+          res.error
+            ? `Chưa kết nối AI (${res.error}) — đã nạp 3 bảng màu mẫu theo phong cách "${mood}".`
+            : `Phản hồi AI không đúng chuẩn JSON — đã nạp 3 bảng màu mẫu theo phong cách "${mood}".`,
+        )
+      } else {
+        onShowToast('ok', `✨ Đã sinh 3 phương án theme thành công!`)
+      }
     } catch (err) {
       onShowToast('err', `Lỗi khi sinh theme: ${(err as Error).message}`)
     } finally {
@@ -503,24 +514,33 @@ YÊU CẦU QUAN TRỌNG:
         projectPath,
       })
 
+      if (res.error) {
+        onShowToast('err', `Không thể sinh nội dung qua AI: ${res.error}`)
+        return
+      }
+
       if (res.text) {
         try {
           const cleaned = res.text.replace(/^```json/i, '').replace(/```$/i, '').trim()
           const parsed = JSON.parse(cleaned) as Array<{ id: string; value: string }>
-          if (Array.isArray(parsed)) {
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            let matchedCount = 0
             setFields((prev) =>
               prev.map((f) => {
-                const match = parsed.find((p) => p.id === f.id)
+                const match = parsed.find((p) => p.id === f.id && typeof p.value === 'string')
+                if (match) matchedCount += 1
                 return match ? { ...f, value: match.value } : f
               }),
             )
-            onShowToast('ok', `✨ Đã sinh nội dung mới theo giọng "${toneLabel}"!`)
-            return
+            if (matchedCount > 0) {
+              onShowToast('ok', `✨ Đã sinh nội dung mới theo giọng "${toneLabel}"!`)
+              return
+            }
           }
         } catch {}
       }
 
-      onShowToast('ok', `Đã cập nhật nội dung theo giọng "${toneLabel}".`)
+      onShowToast('err', 'Phản hồi từ AI không đúng định dạng JSON nội dung.')
     } catch (err) {
       onShowToast('err', `Lỗi sinh nội dung: ${(err as Error).message}`)
     } finally {
