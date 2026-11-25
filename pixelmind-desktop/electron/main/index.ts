@@ -2889,9 +2889,17 @@ function getInspectorScript(isActive: boolean) {
           for (var k in styles) {
             var val = styles[k];
             if (val === '' || val === null || val === undefined) {
-              targetEl.style.removeProperty(k.replace(/([A-Z])/g, '-$1').toLowerCase());
+              if (k.startsWith('--')) {
+                targetEl.style.removeProperty(k);
+              } else {
+                targetEl.style.removeProperty(k.replace(/([A-Z])/g, '-$1').toLowerCase());
+              }
             } else {
-              targetEl.style[k] = val;
+              if (k.startsWith('--')) {
+                targetEl.style.setProperty(k, String(val));
+              } else {
+                targetEl.style[k] = val;
+              }
             }
           }
         }

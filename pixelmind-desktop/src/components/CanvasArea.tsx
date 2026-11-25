@@ -94,6 +94,8 @@ import {
 } from '../lib/pseudoStates'
 import AISidecar from './AISidecar'
 import SavePartModal from './ide/SavePartModal'
+import CssVariablesCard from './canvas/CssVariablesCard'
+import { extractElementCssVariables } from '../lib/cssVariables'
 import type { DesignTokens, ProjectPage, ColorToken } from '@shared/types'
 import type {
   ElementMutationTarget,
@@ -2307,6 +2309,78 @@ const CanvasArea = ({
     window.addEventListener('pm:apply-token-style', handleApplyTokenStyle)
     return () => window.removeEventListener('pm:apply-token-style', handleApplyTokenStyle)
   }, [selectedEl, handleApplyLiveChange])
+
+  // D2-14 — Trích xuất danh sách biến CSS (--*) áp dụng lên phần tử đang chọn
+  const elementCssVariables = useMemo(() => {
+    if (!selectedEl) return []
+    try {
+      const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+      if (!doc) return []
+      const target = selectedEl.uid
+        ? doc.querySelector(`[data-pm-uid="${selectedEl.uid}"]`)
+        : (selectedEl.selector ? doc.querySelector(selectedEl.selector) : null)
+      return extractElementCssVariables(target as HTMLElement, doc)
+    } catch {
+      return []
+    }
+  }, [selectedEl, selectedEl?.computedStyles, iframeKey])
+
+  // D2-14 — Gán / Chỉnh sửa / Xóa biến CSS của phần tử
+  const handleApplyVariableChange = useCallback(
+    (varName: string, value: string, isDelete?: boolean) => {
+      if (!selectedEl) return
+      try {
+        const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+        const target = selectedEl.uid
+          ? doc?.querySelector(`[data-pm-uid="${selectedEl.uid}"]`)
+          : (selectedEl.selector ? doc?.querySelector(selectedEl.selector) : null)
+
+        if (target instanceof HTMLElement) {
+          if (isDelete) {
+            target.style.removeProperty(varName)
+          } else {
+            target.style.setProperty(varName, value)
+          }
+        }
+      } catch {}
+
+      handleApplyLiveChange(
+        { [varName]: isDelete ? '' : value },
+        undefined,
+        {
+          description: isDelete ? `Xóa biến CSS ${varName}` : `Gán biến CSS: ${varName} = ${value}`,
+          actionType: 'STYLE',
+        }
+      )
+      showToast(
+        isDelete ? `Đã xóa biến ${varName}` : `Đã gán biến ${varName}: ${value}`,
+        'ok',
+        sourceLoc ? `${sourceLoc.filePath}:${sourceLoc.lineNumber}` : undefined
+      )
+    },
+    [selectedEl, handleApplyLiveChange, showToast, sourceLoc]
+  )
+
+  // D2-14 — Gán Token / Biến CSS thay thế giá trị viết cứng
+  const handleApplyPropertyToken = useCallback(
+    (propertyName: string, tokenVarReference: string) => {
+      if (!selectedEl) return
+      handleApplyLiveChange(
+        { [propertyName]: tokenVarReference },
+        undefined,
+        {
+          description: `Gán token cho ${propertyName}: ${tokenVarReference}`,
+          actionType: 'STYLE',
+        }
+      )
+      showToast(
+        `Đã gán ${tokenVarReference} vào ${propertyName}`,
+        'ok',
+        sourceLoc ? `${sourceLoc.filePath}:${sourceLoc.lineNumber}` : undefined
+      )
+    },
+    [selectedEl, handleApplyLiveChange, showToast, sourceLoc]
+  )
 
   // ─── KÉO CO GIÃN 8 ĐIỂM NEO PHẦN TỬ THẬT ───
   const handleStartElementResize = (e: React.MouseEvent, handle: HandleDirection) => {
@@ -8337,6 +8411,16 @@ const CanvasArea = ({
                           ))}
                         </div>
                       </div>
+
+                      {/* D2-14: Biến CSS theo phần tử trong Inspector */}
+                      <CssVariablesCard
+                        variables={elementCssVariables}
+                        designTokens={projectTokens}
+                        computedStyles={selectedEl.computedStyles}
+                        onApplyVariable={handleApplyVariableChange}
+                        onApplyPropertyToken={handleApplyPropertyToken}
+                        onOpenDesignTokensDialog={() => setIsTokensDialogOpen(true)}
+                      />
                     </>
                   ) : inspectorTab === 'code' ? (
                     /* TAB 2: ĐỒNG BỘ MÃ NGUỒN THẬT (TWO-WAY CODE SYNC) */

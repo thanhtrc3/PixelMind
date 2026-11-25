@@ -2769,6 +2769,319 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* ─── D2-14: CSS Variables & Token Assignment in Inspector ─── */
+.pm-css-vars-card {
+  margin-top: 4px;
+}
+
+.pm-css-vars-count {
+  font-size: 10px;
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.pm-css-vars-body {
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pm-css-vars-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.pm-css-vars-search-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--text-3, #64748b);
+  pointer-events: none;
+}
+
+.pm-css-vars-search-input {
+  width: 100%;
+  padding: 4px 24px 4px 26px;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  color: var(--text-1, #f8fafc);
+  outline: none;
+  transition: border-color 140ms ease;
+}
+
+.pm-css-vars-search-input:focus {
+  border-color: var(--accent, #6366f1);
+}
+
+.pm-css-vars-clear-search {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  color: var(--text-3, #94a3b8);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.pm-css-vars-add-form {
+  padding: 8px;
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+}
+
+.pm-css-var-input {
+  background: rgba(15, 23, 42, 0.8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+.pm-css-vars-empty {
+  font-size: 11.5px;
+  color: var(--text-3, #94a3b8);
+  text-align: center;
+  padding: 12px 6px;
+}
+
+.pm-css-vars-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.pm-css-var-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 7px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 5px;
+  transition: all 120ms ease;
+}
+
+.pm-css-var-row:hover {
+  background: rgba(255, 255, 255, 0.045);
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.pm-css-var-row.is-inline {
+  border-left: 2px solid #10b981;
+}
+
+.pm-css-var-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.pm-css-var-name {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: #38bdf8;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-css-var-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.badge-inline {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.badge-root {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+}
+
+.badge-rule {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+}
+
+.pm-css-var-val-col {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 50%;
+  justify-content: flex-end;
+}
+
+.pm-css-var-value-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  max-width: 130px;
+  transition: all 120ms ease;
+}
+
+.pm-css-var-value-display:hover {
+  border-color: var(--accent, #6366f1);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.pm-css-var-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.pm-css-var-value-text {
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+  color: #f1f5f9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-css-var-del-btn {
+  background: none;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  opacity: 0.7;
+  transition: opacity 120ms ease;
+}
+
+.pm-css-var-del-btn:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.pm-css-vars-footer {
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.07);
+}
+
+.pm-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  color: var(--accent, #818cf8);
+  font-size: 11px;
+  font-weight: 550;
+  cursor: pointer;
+  padding: 0;
+  transition: color 120ms ease;
+}
+
+.pm-link-btn:hover {
+  color: #a5b4fc;
+  text-decoration: underline;
+}
+
+/* Modal gán Token */
+.pm-token-assign-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+}
+
+.pm-token-assign-dialog {
+  width: 420px;
+  max-width: 90vw;
+  background: #181d2a;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pm-token-assign-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pm-token-assign-body {
+  padding: 14px;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+
+.pm-token-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: #0f1219;
+  padding: 4px;
+}
+
+.pm-token-select-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.pm-token-select-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.pm-token-select-item.selected {
+  background: rgba(99, 102, 241, 0.22);
+  border: 1px solid rgba(99, 102, 241, 0.5);
+}
+
+.pm-token-assign-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+}
+
 
 
 

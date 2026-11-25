@@ -136,7 +136,7 @@ Không thể cam kết “không bao giờ xung đột” nếu cả hai cùng s
 - [x] **D2-11 — State Switcher.** Xem/chỉnh trạng thái `:hover`, `:focus`, `:active`, `:disabled` mà không cần thao tác chuột/bàn phím thật lên phần tử. **Nghiệm thu:** trạng thái giả lập có thể thoát và không bị ghi nhầm vào source code.
 - [x] **D2-12 — Eyedropper.** Hút màu từ vùng Canvas hỗ trợ, hiển thị mã màu và cho phép áp dụng vào thuộc tính/token phù hợp. **Nghiệm thu:** trường hợp API không hỗ trợ/quyền bị từ chối có hướng dẫn.
 - [ ] **D2-13 — Breakpoint Manager.** Tạo/sửa/xóa breakpoint riêng và dùng ngay trong bộ chọn viewport. **Nghiệm thu:** giá trị lưu hợp lệ, không trùng gây lỗi và mặc định hiện có không bị mất.
-- [ ] **D2-14 — CSS Variables theo phần tử.** Hiển thị biến CSS đang áp dụng và cho gán token thay cho giá trị cứng trong Inspector. **Nghiệm thu:** áp dụng biến lưu được vào mã nguồn hoặc báo rõ khi framework không hỗ trợ.
+- [x] **D2-14 — CSS Variables theo phần tử.** Hiển thị biến CSS đang áp dụng và cho gán token thay cho giá trị cứng trong Inspector. **Nghiệm thu:** áp dụng biến lưu được vào mã nguồn hoặc báo rõ khi framework không hỗ trợ.
 
 ### P2 — Review và kiểm thử hình ảnh
 
