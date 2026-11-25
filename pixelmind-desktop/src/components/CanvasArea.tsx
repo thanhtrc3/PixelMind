@@ -62,11 +62,14 @@ import {
   Pipette,
   MessageSquarePlus,
   Camera,
+  FileText,
 } from 'lucide-react'
 import { AnnotationOverlay } from './canvas/AnnotationOverlay'
 import { ExportPngModal } from './canvas/ExportPngModal'
+import { ExportPdfModal } from './canvas/ExportPdfModal'
 import type { AnnotationPin } from '../../shared/annotation'
 import { calculateCaptureRect, type CaptureScope } from '../../shared/capture'
+import type { PdfMarginType, PdfPageSize, PdfExportResult } from '../../shared/pdf'
 import type { ParsedError } from '../lib/errorParser'
 import type { CanvasSettings } from '../lib/canvasSettings'
 import { formatBytes } from '../lib/format'
@@ -1099,6 +1102,34 @@ const CanvasArea = ({
       return { success: false, error: 'Chức năng chép ảnh không khả dụng' }
     },
     []
+  )
+
+  // ─── D2-17: XUẤT TRANG RA PDF (EXPORT PDF) ───
+  const [isExportPdfModalOpen, setIsExportPdfModalOpen] = useState(false)
+
+  const handleExportPdf = useCallback(
+    async (options: {
+      pageSize: PdfPageSize
+      landscape: boolean
+      printBackground: boolean
+      marginType: PdfMarginType
+    }): Promise<PdfExportResult> => {
+      if (!api.pdf?.exportPdf) {
+        return { canceled: false, error: 'Chức năng xuất PDF không khả dụng' }
+      }
+
+      const liveDoc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+      const html = liveDoc?.documentElement?.outerHTML
+
+      return await api.pdf.exportPdf({
+        url: currentLiveUrl || url || undefined,
+        html,
+        projectName,
+        route: currentRoute || '/',
+        options,
+      })
+    },
+    [currentLiveUrl, url, projectName, currentRoute]
   )
 
   const handleStartPartLasso = useCallback(() => {
@@ -6350,6 +6381,15 @@ const CanvasArea = ({
             >
               <Camera size={13} />
             </button>
+
+            {/* D2-17: Nút Xuất PDF */}
+            <button
+              className={`canvas__seg-btn icon-only ${isExportPdfModalOpen ? 'active' : ''}`}
+              onClick={() => setIsExportPdfModalOpen(true)}
+              title="Xuất giao diện ra file PDF (Khổ giấy A4, A3, Letter)"
+            >
+              <FileText size={13} />
+            </button>
           </div>
 
           <div className="canvas__tools-spacer" />
@@ -9387,6 +9427,16 @@ const CanvasArea = ({
         onCapture={handleCapturePng}
         onSavePng={handleSaveCapturedPng}
         onCopyPng={handleCopyCapturedPng}
+        showToast={showToast}
+      />
+
+      {/* D2-17: Hộp thoại Xuất file PDF */}
+      <ExportPdfModal
+        isOpen={isExportPdfModalOpen}
+        onClose={() => setIsExportPdfModalOpen(false)}
+        projectName={projectName}
+        currentRoute={currentRoute ?? undefined}
+        onExportPdf={handleExportPdf}
         showToast={showToast}
       />
 

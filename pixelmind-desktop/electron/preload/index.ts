@@ -27,6 +27,7 @@ import type { DeployProvider, DeployState, DeployLog } from '../../shared/deploy
 import type { AuthState, SignInResult } from '../../shared/auth'
 import type { CloudRole, CloudSyncReport } from '../../shared/cloud'
 import type { AnnotationInput, AnnotationPin } from '../../shared/annotation'
+import type { PdfExportParams, PdfExportResult } from '../../shared/pdf'
 import type {
   ArchiveProgress,
   ZipExportOptions,
@@ -417,6 +418,10 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('capture:savePng', dataUrl, defaultFilename),
     copyPng: (dataUrl: string) =>
       ipcRenderer.invoke('capture:copyPng', dataUrl),
+  },
+  pdf: {
+    exportPdf: (params: PdfExportParams): Promise<PdfExportResult> =>
+      ipcRenderer.invoke('pdf:export', params),
   },
   ai: {
     status: (projectPath?: string) => ipcRenderer.invoke('ai:status', projectPath),

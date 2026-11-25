@@ -25,6 +25,13 @@ import type {
 } from '../../shared/archive'
 import type { ImageApplyOptions, ImageOptimizeOptions } from '../../shared/imageOptimize'
 import {
+  formatPdfFilename,
+  getMarginsForPrint,
+  normalizePdfOptions,
+  type PdfExportParams,
+  type PdfExportResult,
+} from '../../shared/pdf'
+import {
   DEFAULT_DESIGN_TOKENS,
   generateVariablesCss,
   generateTailwindTokensConfig,
@@ -2139,6 +2146,80 @@ ipcMain.handle('capture:copyPng', async (_event, dataUrl: string) => {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('Failed to copyPng', msg)
     return { success: false, error: msg }
+  }
+})
+
+/* ───────────────────────── IPC: PDF Export (D2-17) ───────────────────────── */
+
+ipcMain.handle('pdf:export', async (_event, params: PdfExportParams): Promise<PdfExportResult> => {
+  if (!mainWindow) return { canceled: true, error: 'Không tìm thấy cửa sổ chính' }
+  const { url, html, projectName, route, options } = params
+  if (!url && !html) {
+    return { canceled: false, error: 'Thiếu đường dẫn hoặc nội dung HTML để xuất PDF' }
+  }
+
+  const norm = normalizePdfOptions(options)
+  const defaultFilename = formatPdfFilename(projectName, route, norm.pageSize, norm.landscape)
+
+  const saveRes = await dialog.showSaveDialog(mainWindow, {
+    title: 'Xuất giao diện ra tệp PDF',
+    defaultPath: defaultFilename,
+    filters: [{ name: 'Tài liệu PDF', extensions: ['pdf'] }],
+  })
+
+  if (saveRes.canceled || !saveRes.filePath) {
+    return { canceled: true }
+  }
+
+  let printWindow: BrowserWindow | null = null
+  try {
+    printWindow = new BrowserWindow({
+      show: false,
+      width: norm.landscape ? 1440 : 1024,
+      height: norm.landscape ? 1024 : 1440,
+      webPreferences: {
+        offscreen: true,
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    })
+
+    if (url) {
+      await printWindow.loadURL(url)
+    } else if (html) {
+      await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    }
+
+    // Đợi 500ms để CSS, fonts và layout render hoàn tất
+    await new Promise((r) => setTimeout(r, 500))
+
+    const margins = getMarginsForPrint(norm.marginType)
+    const pdfBuffer = await printWindow.webContents.printToPDF({
+      pageSize: norm.pageSize,
+      landscape: norm.landscape,
+      printBackground: norm.printBackground,
+      margins,
+      scale: norm.scale,
+      preferCSSPageSize: false,
+    })
+
+    await fs.writeFile(saveRes.filePath, pdfBuffer)
+    return {
+      canceled: false,
+      filePath: saveRes.filePath,
+      bytes: pdfBuffer.byteLength,
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('Failed to export PDF:', msg)
+    return {
+      canceled: false,
+      error: `Không thể ghi tệp PDF: ${msg}`,
+    }
+  } finally {
+    if (printWindow) {
+      printWindow.destroy()
+    }
   }
 })
 

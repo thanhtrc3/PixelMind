@@ -40,6 +40,7 @@ import type { A11yScanResult } from './a11y'
 import type { MockApiConfig, MockApiState } from './mockApi'
 import type { DeployProvider, DeployState, DeployLog } from './deploy'
 import type { AnnotationInput, AnnotationPin } from './annotation'
+import type { PdfExportParams, PdfExportResult } from './pdf'
 import type { AuthState, SignInResult } from './auth'
 import type { CloudRole, CloudSyncReport } from './cloud'
 import type {
@@ -385,6 +386,9 @@ export interface PixelMindApi {
   capture?: {
     savePng(dataUrl: string, defaultFilename?: string): Promise<{ canceled: boolean; filePath?: string; error?: string }>
     copyPng(dataUrl: string): Promise<{ success: boolean; error?: string }>
+  }
+  pdf?: {
+    exportPdf(params: PdfExportParams): Promise<PdfExportResult>
   }
   ai: AiApi
   window?: {
