@@ -141,7 +141,7 @@ Không thể cam kết “không bao giờ xung đột” nếu cả hai cùng s
 ### P2 — Review và kiểm thử hình ảnh
 
 - [x] **D2-15 — Annotation pins.** Đặt pin theo tọa độ tương đối của Canvas, thêm/sửa/resolve/xóa ghi chú và lưu theo dự án. **Nghiệm thu:** pin giữ đúng vị trí khi đổi kích thước viewport và mở lại dự án.
-- [ ] **D2-16 — Xuất ảnh PNG.** Chụp trang/viewport hoặc phần tử được chọn với kích thước đầu ra đã chọn. **Nghiệm thu:** ảnh có đủ nội dung mong muốn, không chụp UI của PixelMind nếu chỉ chọn trang.
+- [x] **D2-16 — Xuất ảnh PNG.** Chụp trang/viewport hoặc phần tử được chọn với kích thước đầu ra đã chọn. **Nghiệm thu:** ảnh có đủ nội dung mong muốn, không chụp UI của PixelMind nếu chỉ chọn trang.
 - [ ] **D2-17 — Xuất PDF.** Xuất trang hiện tại ra PDF có lựa chọn khổ/kích thước phù hợp. **Nghiệm thu:** nội dung không bị cắt bất ngờ và lỗi lưu file được báo.
 - [ ] **D2-18 — Visual regression.** Lưu baseline theo route/viewport và so sánh lần chạy mới, hiển thị ảnh sai khác và tỷ lệ pixel. **Nghiệm thu:** baseline và lần chụp giống nhau không báo sai lệch lớn; kích thước ảnh khác được báo riêng.
 

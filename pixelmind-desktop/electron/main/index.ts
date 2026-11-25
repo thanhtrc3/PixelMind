@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell, safeStorage } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell, safeStorage, clipboard, nativeImage } from 'electron'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -2088,6 +2088,59 @@ ipcMain.handle(
     }
   },
 )
+
+/* ───────────────────────── IPC: PNG Export (D2-16) ───────────────────────── */
+
+ipcMain.handle('capture:savePng', async (_event, dataUrl: string, defaultFilename?: string) => {
+  if (!mainWindow) return { canceled: true, error: 'Không tìm thấy cửa sổ chính' }
+  try {
+    const filename = defaultFilename || `pixelmind-capture-${Date.now()}.png`
+    const saveRes = await dialog.showSaveDialog(mainWindow, {
+      title: 'Lưu ảnh PNG',
+      defaultPath: filename,
+      filters: [{ name: 'Hình ảnh PNG', extensions: ['png'] }],
+    })
+
+    if (saveRes.canceled || !saveRes.filePath) {
+      return { canceled: true }
+    }
+
+    const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '')
+    const buffer = Buffer.from(base64Data, 'base64')
+    await fs.writeFile(saveRes.filePath, buffer)
+    return { canceled: false, filePath: saveRes.filePath }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('Failed to savePng', msg)
+    return { canceled: false, error: msg }
+  }
+})
+
+ipcMain.handle('capture:copyPng', async (_event, dataUrl: string) => {
+  try {
+    const cb = clipboard as unknown as {
+      writeImage?: (image: unknown) => void
+      write?: (items: unknown[]) => Promise<void>
+    }
+    if (typeof cb.writeImage === 'function') {
+      const img = nativeImage.createFromDataURL(dataUrl)
+      cb.writeImage(img)
+    } else {
+      const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '')
+      const buffer = Buffer.from(base64Data, 'base64')
+      const ItemClass = (globalThis as unknown as { ClipboardItem?: new (items: Record<string, unknown>) => unknown }).ClipboardItem
+      if (ItemClass && typeof cb.write === 'function') {
+        const blob = new Blob([buffer], { type: 'image/png' })
+        await cb.write([new ItemClass({ 'image/png': blob })])
+      }
+    }
+    return { success: true }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('Failed to copyPng', msg)
+    return { success: false, error: msg }
+  }
+})
 
 /* ───────────────────────── IPC: Inspector & Live DOM Bridge ───────────────────────── */
 

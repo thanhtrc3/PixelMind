@@ -382,6 +382,10 @@ export interface PixelMindApi {
     update(projectPath: string, pinId: string, changes: Partial<Pick<AnnotationPin, 'content' | 'resolved' | 'color'>>): Promise<{ ok: boolean; annotation?: AnnotationPin; error?: string }>
     delete(projectPath: string, pinId: string): Promise<{ ok: boolean; error?: string }>
   }
+  capture?: {
+    savePng(dataUrl: string, defaultFilename?: string): Promise<{ canceled: boolean; filePath?: string; error?: string }>
+    copyPng(dataUrl: string): Promise<{ success: boolean; error?: string }>
+  }
   ai: AiApi
   window?: {
     minimize: () => Promise<void>

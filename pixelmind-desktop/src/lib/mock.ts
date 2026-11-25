@@ -1024,6 +1024,14 @@ export function createBrowserMock(): PixelMindApi {
         return { ok: true }
       },
     },
+    capture: {
+      async savePng(_dataUrl, _defaultFilename) {
+        return { canceled: false, filePath: 'mock/screenshot.png' }
+      },
+      async copyPng(_dataUrl) {
+        return { success: true }
+      },
+    },
     deploy: {
       async setToken(_provider, _token) {
         return { success: true }

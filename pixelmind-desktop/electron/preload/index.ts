@@ -412,6 +412,12 @@ const api: PixelMindApi = {
     delete: (projectPath: string, pinId: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('annotation:delete', projectPath, pinId),
   },
+  capture: {
+    savePng: (dataUrl: string, defaultFilename?: string) =>
+      ipcRenderer.invoke('capture:savePng', dataUrl, defaultFilename),
+    copyPng: (dataUrl: string) =>
+      ipcRenderer.invoke('capture:copyPng', dataUrl),
+  },
   ai: {
     status: (projectPath?: string) => ipcRenderer.invoke('ai:status', projectPath),
     models: (projectPath?: string) => ipcRenderer.invoke('ai:models', projectPath),

@@ -61,9 +61,12 @@ import {
   Strikethrough as StrikethroughIcon,
   Pipette,
   MessageSquarePlus,
+  Camera,
 } from 'lucide-react'
 import { AnnotationOverlay } from './canvas/AnnotationOverlay'
+import { ExportPngModal } from './canvas/ExportPngModal'
 import type { AnnotationPin } from '../../shared/annotation'
+import { calculateCaptureRect, type CaptureScope } from '../../shared/capture'
 import type { ParsedError } from '../lib/errorParser'
 import type { CanvasSettings } from '../lib/canvasSettings'
 import { formatBytes } from '../lib/format'
@@ -1043,6 +1046,59 @@ const CanvasArea = ({
       }
     },
     [projectPath, activeAnnotationPinId, showToast]
+  )
+
+  // ─── D2-16: XUẤT ẢNH PNG (CAPTURE PNG) ───
+  const [isExportPngModalOpen, setIsExportPngModalOpen] = useState(false)
+
+  const handleCapturePng = useCallback(
+    async (scope: CaptureScope): Promise<string | null> => {
+      if (!api.window?.captureRect || !iframeRef.current) return null
+      const iframeEl = iframeRef.current
+      const iframeBounds = iframeEl.getBoundingClientRect()
+      const doc = iframeEl.contentDocument || iframeEl.contentWindow?.document
+
+      let fullPageSize: { width: number; height: number } | undefined
+      if (scope === 'fullPage' && doc) {
+        const scrollW = Math.max(doc.documentElement.scrollWidth, doc.body?.scrollWidth || 0, iframeEl.clientWidth)
+        const scrollH = Math.max(doc.documentElement.scrollHeight, doc.body?.scrollHeight || 0, iframeEl.clientHeight)
+        fullPageSize = { width: scrollW, height: scrollH }
+      }
+
+      const targetRect = calculateCaptureRect({
+        scope,
+        iframeBounds,
+        elementRect: selectedEl?.rect,
+        iframeClientSize: {
+          width: iframeEl.clientWidth || iframeEl.offsetWidth,
+          height: iframeEl.clientHeight || iframeEl.offsetHeight,
+        },
+        fullPageSize,
+      })
+
+      return await api.window.captureRect(targetRect)
+    },
+    [selectedEl]
+  )
+
+  const handleSaveCapturedPng = useCallback(
+    async (dataUrl: string, filename: string) => {
+      if (api.capture?.savePng) {
+        return await api.capture.savePng(dataUrl, filename)
+      }
+      return { canceled: true, error: 'Chức năng lưu file không khả dụng' }
+    },
+    []
+  )
+
+  const handleCopyCapturedPng = useCallback(
+    async (dataUrl: string) => {
+      if (api.capture?.copyPng) {
+        return await api.capture.copyPng(dataUrl)
+      }
+      return { success: false, error: 'Chức năng chép ảnh không khả dụng' }
+    },
+    []
   )
 
   const handleStartPartLasso = useCallback(() => {
@@ -6285,6 +6341,15 @@ const CanvasArea = ({
             >
               <Network size={13} />
             </button>
+
+            {/* D2-16: Nút Xuất ảnh PNG */}
+            <button
+              className={`canvas__seg-btn icon-only ${isExportPngModalOpen ? 'active' : ''}`}
+              onClick={() => setIsExportPngModalOpen(true)}
+              title="Xuất ảnh PNG sắc nét (Chụp Viewport, Toàn bộ trang hoặc Phần tử)"
+            >
+              <Camera size={13} />
+            </button>
           </div>
 
           <div className="canvas__tools-spacer" />
@@ -9306,6 +9371,23 @@ const CanvasArea = ({
           window.dispatchEvent(new CustomEvent('pm:custom-parts-changed'))
         }}
         onShowToast={(kind, text) => showToast(text, kind)}
+      />
+
+      {/* D2-16: Hộp thoại Xuất ảnh PNG */}
+      <ExportPngModal
+        isOpen={isExportPngModalOpen}
+        onClose={() => setIsExportPngModalOpen(false)}
+        projectName={projectName}
+        hasSelectedElement={Boolean(selectedEl)}
+        selectedElementName={
+          selectedEl
+            ? `${selectedEl.tagName.toLowerCase()}${selectedEl.className ? '.' + selectedEl.className.split(/\s+/)[0] : ''}`
+            : undefined
+        }
+        onCapture={handleCapturePng}
+        onSavePng={handleSaveCapturedPng}
+        onCopyPng={handleCopyCapturedPng}
+        showToast={showToast}
       />
 
     </div>
