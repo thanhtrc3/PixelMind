@@ -90,6 +90,8 @@ import {
 import { runToolboxMutation, scanProjectToolbox, writeToolboxFile } from './toolbox'
 import { deleteCustomPart, listCustomParts, saveCustomPart } from './customParts'
 import { listAnnotations, addAnnotation, updateAnnotation, deleteAnnotation } from './annotations'
+import { listPrototypeInteractions, savePrototypeInteractions } from './prototype'
+import type { PrototypeInteraction } from '../../shared/prototype'
 import type { AnnotationInput, AnnotationPin } from '../../shared/annotation'
 import { MockApiServer, readMockConfig, writeMockConfig } from './mockApi'
 import { emptyMockState, normalizeMockConfig } from '../../shared/mockApi'
@@ -4086,6 +4088,19 @@ ipcMain.handle(
 ipcMain.handle('annotation:delete', async (_e, projectPath: string, pinId: string) => {
   return await deleteAnnotation(projectPath, pinId)
 })
+
+/* ───────────────────────── IPC: Prototype Interactions (D2-20) ───────────────────────── */
+
+ipcMain.handle('prototype:list', async (_e, projectPath: string) => {
+  return await listPrototypeInteractions(projectPath)
+})
+
+ipcMain.handle(
+  'prototype:save',
+  async (_e, projectPath: string, interactions: PrototypeInteraction[]) => {
+    return await savePrototypeInteractions(projectPath, interactions)
+  }
+)
 
 /* ───────────────────────── IPC: Mock API ───────────────────────── */
 

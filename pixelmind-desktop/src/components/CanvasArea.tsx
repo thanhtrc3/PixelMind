@@ -63,11 +63,18 @@ import {
   MessageSquarePlus,
   Camera,
   FileText,
+  Workflow,
 } from 'lucide-react'
 import { AnnotationOverlay } from './canvas/AnnotationOverlay'
 import { ExportPngModal } from './canvas/ExportPngModal'
 import { ExportPdfModal } from './canvas/ExportPdfModal'
+import { PrototypeInspectorCard } from './canvas/PrototypeInspectorCard'
 import type { AnnotationPin } from '../../shared/annotation'
+import {
+  type PrototypeInteraction,
+  validateInteraction,
+  getInteractionsForElement,
+} from '../../shared/prototype'
 import { calculateCaptureRect, type CaptureScope } from '../../shared/capture'
 import type { PdfMarginType, PdfPageSize, PdfExportResult } from '../../shared/pdf'
 import type { ParsedError } from '../lib/errorParser'
@@ -666,7 +673,7 @@ const CanvasArea = ({
   const sidebarDragRef = useRef({ startX: 0, startWidth: 380 })
 
   // Phân hệ 2: Tabs & Two-Way Code Sync & Modified Styles
-  const [inspectorTab, setInspectorTab] = useState<'design' | 'code' | 'attrs'>('design')
+  const [inspectorTab, setInspectorTab] = useState<'design' | 'code' | 'attrs' | 'proto'>('design')
   const [modifiedStyles, setModifiedStyles] = useState<Record<string, string>>({})
   const [isMovingEl, setIsMovingEl] = useState(false)
   // D2-07 — Smart guides & snapping khi kéo Move / Resize
@@ -1131,6 +1138,187 @@ const CanvasArea = ({
     },
     [currentLiveUrl, url, projectName, currentRoute]
   )
+
+  // ─── D2-20: PROTOTYPE INTERACTION STATE MACHINE ───
+  const [prototypeInteractions, setPrototypeInteractions] = useState<PrototypeInteraction[]>([])
+  const [isPrototypeMode, setIsPrototypeMode] = useState(false)
+  const isPrototypeModeRef = useRef(false)
+  isPrototypeModeRef.current = isPrototypeMode
+  const prototypeInteractionsRef = useRef<PrototypeInteraction[]>([])
+  prototypeInteractionsRef.current = prototypeInteractions
+  const initialRouteRef = useRef<string>('/')
+  const prototypeHistoryRef = useRef<Array<{ element: HTMLElement; prevDisplay: string; prevClass: string }>>([])
+
+  // Tải danh sách tương tác Prototype khi đổi dự án
+  useEffect(() => {
+    if (!projectPath || !api.prototype?.list) {
+      setPrototypeInteractions([])
+      return
+    }
+    let active = true
+    api.prototype
+      .list(projectPath)
+      .then((res) => {
+        if (active && Array.isArray(res)) {
+          setPrototypeInteractions(res)
+        }
+      })
+      .catch((err) => {
+        console.warn('Lỗi tải danh sách prototype:', err)
+      })
+    return () => {
+      active = false
+    }
+  }, [projectPath])
+
+  // Lưu tương tác Prototype
+  const handleSavePrototypeInteractions = useCallback(
+    (nextInteractions: PrototypeInteraction[]) => {
+      setPrototypeInteractions(nextInteractions)
+      if (projectPath && api.prototype?.save) {
+        api.prototype
+          .save(projectPath, nextInteractions)
+          .then((res) => {
+            if (res && !res.ok) {
+              showToast(res.error || 'Lỗi lưu tương tác Prototype', 'err')
+            }
+          })
+          .catch((err) => {
+            showToast(`Lỗi lưu tương tác Prototype: ${err?.message || err}`, 'err')
+          })
+      }
+    },
+    [projectPath, showToast]
+  )
+
+  // Thực thi tương tác Prototype
+  const executeInteraction = useCallback(
+    (interaction: PrototypeInteraction) => {
+      const availableRoutes = pages?.map((p) => p.route).filter(Boolean) || []
+      if (!availableRoutes.includes('/')) availableRoutes.unshift('/')
+
+      const val = validateInteraction(interaction, availableRoutes)
+      if (!val.isValid && val.error) {
+        showToast(`Target lỗi: ${val.error.message}`, 'err')
+        return
+      }
+
+      switch (interaction.action) {
+        case 'route': {
+          if (interaction.target) {
+            showToast(`Prototype: Điều hướng sang route "${interaction.target}"`, 'info')
+            onOpenPage?.(interaction.target)
+          }
+          break
+        }
+        case 'modal': {
+          if (!interaction.target) break
+          try {
+            const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+            if (!doc) {
+              showToast('Không thể truy cập tài liệu Canvas để hiển thị Modal', 'err')
+              return
+            }
+            const targetEl = doc.querySelector(interaction.target) as HTMLElement | null
+            if (!targetEl) {
+              showToast(`Target lỗi: Không tìm thấy selector "${interaction.target}" trên DOM`, 'err')
+              return
+            }
+            prototypeHistoryRef.current.push({
+              element: targetEl,
+              prevDisplay: targetEl.style.display,
+              prevClass: targetEl.className,
+            })
+            if (targetEl.classList.contains('hidden')) {
+              targetEl.classList.remove('hidden')
+            }
+            targetEl.classList.add('is-open', 'active', 'show')
+            if (window.getComputedStyle(targetEl).display === 'none') {
+              targetEl.style.display = 'block'
+            }
+            showToast(`Prototype: Đã mở Modal "${interaction.target}"`, 'ok')
+          } catch (err: any) {
+            showToast(`Target lỗi: ${err?.message || err}`, 'err')
+          }
+          break
+        }
+        case 'toggle_state': {
+          if (!interaction.target) break
+          try {
+            const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+            if (!doc) return
+            const targetEl = doc.querySelector(interaction.target) as HTMLElement | null
+            if (!targetEl) {
+              showToast(`Target lỗi: Không tìm thấy selector "${interaction.target}" trên DOM`, 'err')
+              return
+            }
+            const stateClass = interaction.stateClass || 'is-active'
+            prototypeHistoryRef.current.push({
+              element: targetEl,
+              prevDisplay: targetEl.style.display,
+              prevClass: targetEl.className,
+            })
+            targetEl.classList.toggle(stateClass)
+            showToast(`Prototype: Đã toggle class "${stateClass}" trên "${interaction.target}"`, 'ok')
+          } catch (err: any) {
+            showToast(`Target lỗi: ${err?.message || err}`, 'err')
+          }
+          break
+        }
+        case 'toast': {
+          showToast(interaction.toastText || 'Prototype: Đã kích hoạt phản hồi tương tác!', 'ok')
+          break
+        }
+        case 'back': {
+          if (initialRouteRef.current && currentRouteRef.current !== initialRouteRef.current) {
+            onOpenPage?.(initialRouteRef.current)
+            showToast(`Prototype: Quay lại trang ban đầu (${initialRouteRef.current})`, 'info')
+          } else {
+            showToast('Prototype: Đang ở trang gốc', 'info')
+          }
+          break
+        }
+      }
+    },
+    [pages, showToast, onOpenPage]
+  )
+
+  // Reset trạng thái Prototype
+  const handleResetPrototypeState = useCallback(() => {
+    // 1. Khôi phục các phần tử DOM đã bị thay đổi trong quá trình mô phỏng
+    for (const item of prototypeHistoryRef.current) {
+      try {
+        if (item.element) {
+          item.element.style.display = item.prevDisplay
+          item.element.className = item.prevClass
+        }
+      } catch {
+        // bỏ qua phần tử đã detach
+      }
+    }
+    prototypeHistoryRef.current = []
+
+    // 2. Quay về route ban đầu
+    if (initialRouteRef.current && onOpenPage && currentRouteRef.current !== initialRouteRef.current) {
+      onOpenPage(initialRouteRef.current)
+    }
+
+    showToast('Đã reset trạng thái mô phỏng Prototype về ban đầu', 'ok')
+  }, [onOpenPage, showToast])
+
+  // Bật/tắt chế độ mô phỏng Prototype
+  const togglePrototypeMode = useCallback(() => {
+    setIsPrototypeMode((prev) => {
+      const next = !prev
+      if (next) {
+        initialRouteRef.current = currentRoute || '/'
+        showToast('Đã BẬT chế độ Mô phỏng Prototype (Click vào phần tử để chạy tương tác)', 'info')
+      } else {
+        showToast('Đã TẮT chế độ Mô phỏng Prototype', 'info')
+      }
+      return next
+    })
+  }, [currentRoute, showToast])
 
   const handleStartPartLasso = useCallback(() => {
     setIsSelectingForPart(true)
@@ -1953,6 +2141,20 @@ const CanvasArea = ({
           }
           if (payload.currentPath) {
             currentRouteRef.current = payload.currentPath
+          }
+          // D2-20: Nếu đang ở chế độ mô phỏng Prototype và phần tử có trigger click
+          if (isPrototypeModeRef.current) {
+            const matched = getInteractionsForElement(
+              prototypeInteractionsRef.current,
+              payload.uid,
+              payload.domPath
+            ).filter((item) => item.trigger === 'click')
+
+            if (matched.length > 0) {
+              for (const it of matched) {
+                executeInteraction(it)
+              }
+            }
           }
           if (!e.data.isReset && !originalStyles) {
             setOriginalStyles({
@@ -6176,6 +6378,25 @@ const CanvasArea = ({
         onDeletePin={handleDeleteAnnotation}
         containerRef={frameContentRef}
       />
+
+      {/* D2-20: Floating indicator khi ở chế độ Mô phỏng Prototype */}
+      {isPrototypeMode && (
+        <div className="pm-proto-active-indicator">
+          <div className="pm-proto-active-pill">
+            <Play size={11} fill="currentColor" />
+            <span>Chế độ Prototype (Click vào phần tử để chạy thử tương tác)</span>
+          </div>
+          <button
+            type="button"
+            className="pm-proto-active-reset-btn"
+            onClick={handleResetPrototypeState}
+            title="Reset trạng thái về ban đầu"
+          >
+            <RotateCcw size={11} />
+            <span>Reset trạng thái</span>
+          </button>
+        </div>
+      )}
     </>
   )
 
@@ -6389,6 +6610,37 @@ const CanvasArea = ({
               title="Xuất giao diện ra file PDF (Khổ giấy A4, A3, Letter)"
             >
               <FileText size={13} />
+            </button>
+
+            {/* D2-20: Nút Mô phỏng Prototype */}
+            <button
+              className={`canvas__seg-btn icon-only ${isPrototypeMode ? 'active' : ''}`}
+              style={
+                isPrototypeMode
+                  ? {
+                      background: 'rgba(168, 85, 247, 0.25)',
+                      borderColor: '#a855f7',
+                      color: '#d8b4fe',
+                    }
+                  : undefined
+              }
+              onClick={togglePrototypeMode}
+              title={
+                isPrototypeMode
+                  ? 'Đang bật Mô phỏng Prototype (Bấm để tắt)'
+                  : 'Bật chế độ Mô phỏng Prototype (Test luồng tương tác)'
+              }
+            >
+              <Workflow size={13} />
+            </button>
+
+            {/* D2-20: Nút Reset trạng thái Prototype */}
+            <button
+              className="canvas__seg-btn icon-only"
+              onClick={handleResetPrototypeState}
+              title="Reset trạng thái mô phỏng Prototype về ban đầu"
+            >
+              <RotateCcw size={13} />
             </button>
           </div>
 
@@ -6928,6 +7180,16 @@ const CanvasArea = ({
               >
                 <SlidersHorizontal size={12} />
                 <span>Thuộc tính</span>
+              </button>
+              <button
+                className={`canvas__inspector-tab-btn ${inspectorTab === 'proto' ? 'active' : ''}`}
+                onClick={() => setInspectorTab('proto')}
+              >
+                <Workflow size={12} />
+                <span>
+                  Prototype
+                  {prototypeInteractions.length > 0 ? ` (${prototypeInteractions.length})` : ''}
+                </span>
               </button>
             </div>
 
@@ -8706,6 +8968,17 @@ const CanvasArea = ({
                         onApplyPropertyToken={handleApplyPropertyToken}
                         onOpenDesignTokensDialog={() => setIsTokensDialogOpen(true)}
                       />
+
+                      {/* D2-20: Tương tác Prototype theo phần tử */}
+                      <PrototypeInspectorCard
+                        selectedEl={selectedEl}
+                        projectPath={projectPath}
+                        pages={pages}
+                        interactions={prototypeInteractions}
+                        onSaveInteractions={handleSavePrototypeInteractions}
+                        onTestTrigger={executeInteraction}
+                        showToast={showToast}
+                      />
                     </>
                   ) : inspectorTab === 'code' ? (
                     /* TAB 2: ĐỒNG BỘ MÃ NGUỒN THẬT (TWO-WAY CODE SYNC) */
@@ -8793,6 +9066,19 @@ const CanvasArea = ({
                           Khi bạn bấm nút <b>Lưu thay đổi vào mã nguồn thật</b>, PixelMind sẽ ghi trực tiếp vào tệp mã nguồn (.cshtml, .tsx, .jsx, .html, .vue, .svelte, .py, .php...) trên máy tính. Máy chủ phát triển sẽ lập tức nhận diện tệp thay đổi và cập nhật giao diện vĩnh viễn!
                         </p>
                       </div>
+                    </div>
+                  ) : inspectorTab === 'proto' ? (
+                    /* TAB 4: TƯƠNG TÁC PROTOTYPE (D2-20) */
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <PrototypeInspectorCard
+                        selectedEl={selectedEl}
+                        projectPath={projectPath}
+                        pages={pages}
+                        interactions={prototypeInteractions}
+                        onSaveInteractions={handleSavePrototypeInteractions}
+                        onTestTrigger={executeInteraction}
+                        showToast={showToast}
+                      />
                     </div>
                   ) : (
                     /* TAB 3: THUỘC TÍNH PHẦN TỬ (HỘP CÔNG CỤ) */
@@ -9045,6 +9331,18 @@ const CanvasArea = ({
 
                 </div>
               </>
+            ) : inspectorTab === 'proto' ? (
+              <div style={{ padding: '12px' }}>
+                <PrototypeInspectorCard
+                  selectedEl={null}
+                  projectPath={projectPath}
+                  pages={pages}
+                  interactions={prototypeInteractions}
+                  onSaveInteractions={handleSavePrototypeInteractions}
+                  onTestTrigger={executeInteraction}
+                  showToast={showToast}
+                />
+              </div>
             ) : (
               <div className="canvas__inspector-empty-wrap">
                 <div className="canvas__inspector-empty-hero">

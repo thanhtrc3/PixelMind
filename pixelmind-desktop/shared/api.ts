@@ -41,6 +41,7 @@ import type { MockApiConfig, MockApiState } from './mockApi'
 import type { DeployProvider, DeployState, DeployLog } from './deploy'
 import type { AnnotationInput, AnnotationPin } from './annotation'
 import type { PdfExportParams, PdfExportResult } from './pdf'
+import type { PrototypeInteraction } from './prototype'
 import type { AuthState, SignInResult } from './auth'
 import type { CloudRole, CloudSyncReport } from './cloud'
 import type {
@@ -389,6 +390,10 @@ export interface PixelMindApi {
   }
   pdf?: {
     exportPdf(params: PdfExportParams): Promise<PdfExportResult>
+  }
+  prototype?: {
+    list(projectPath: string): Promise<PrototypeInteraction[]>
+    save(projectPath: string, interactions: PrototypeInteraction[]): Promise<{ ok: boolean; count: number; error?: string }>
   }
   ai: AiApi
   window?: {

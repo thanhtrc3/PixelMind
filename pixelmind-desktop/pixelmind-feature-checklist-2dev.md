@@ -148,7 +148,7 @@ Không thể cam kết “không bao giờ xung đột” nếu cả hai cùng s
 ### P3 — Prototype và chuyển động
 
 - [ ] **D2-19 — Animation editor.** Tạo/xem trước transition và preset keyframes từ Canvas; giới hạn thuộc tính/đầu ra được hỗ trợ. **Nghiệm thu:** preview, dừng và hoàn tác; mã sinh ra chạy được trên trang.
-- [ ] **D2-20 — Prototype interaction state machine.** Gán trigger và action cho liên kết prototype (ví dụ click → route/modal/state), tách khỏi việc sửa source nếu chỉ ở chế độ mô phỏng. **Nghiệm thu:** chạy thử luồng, phát hiện route/target không hợp lệ và reset được trạng thái.
+- [x] **D2-20 — Prototype interaction state machine.** Gán trigger và action cho liên kết prototype (ví dụ click → route/modal/state), tách khỏi việc sửa source nếu chỉ ở chế độ mô phỏng. **Nghiệm thu:** chạy thử luồng, phát hiện route/target không hợp lệ và reset được trạng thái.
 
 ## 6. Các hạng mục cần xác nhận phạm vi sản phẩm
 

@@ -1037,6 +1037,14 @@ export function createBrowserMock(): PixelMindApi {
         return { canceled: false, filePath: 'mock/document.pdf', bytes: 1024 }
       },
     },
+    prototype: {
+      async list(_projectPath) {
+        return []
+      },
+      async save(_projectPath, interactions) {
+        return { ok: true, count: interactions.length }
+      },
+    },
     deploy: {
       async setToken(_provider, _token) {
         return { success: true }

@@ -28,6 +28,7 @@ import type { AuthState, SignInResult } from '../../shared/auth'
 import type { CloudRole, CloudSyncReport } from '../../shared/cloud'
 import type { AnnotationInput, AnnotationPin } from '../../shared/annotation'
 import type { PdfExportParams, PdfExportResult } from '../../shared/pdf'
+import type { PrototypeInteraction } from '../../shared/prototype'
 import type {
   ArchiveProgress,
   ZipExportOptions,
@@ -422,6 +423,12 @@ const api: PixelMindApi = {
   pdf: {
     exportPdf: (params: PdfExportParams): Promise<PdfExportResult> =>
       ipcRenderer.invoke('pdf:export', params),
+  },
+  prototype: {
+    list: (projectPath: string): Promise<PrototypeInteraction[]> =>
+      ipcRenderer.invoke('prototype:list', projectPath),
+    save: (projectPath: string, interactions: PrototypeInteraction[]): Promise<{ ok: boolean; count: number; error?: string }> =>
+      ipcRenderer.invoke('prototype:save', projectPath, interactions),
   },
   ai: {
     status: (projectPath?: string) => ipcRenderer.invoke('ai:status', projectPath),
