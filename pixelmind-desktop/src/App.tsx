@@ -606,6 +606,9 @@ const App = () => {
           ? `Đã thêm trang ${page.route} và tạo tệp ${created.filePath}.`
           : `Đã thêm trang ${page.route}.`,
       )
+      if (created?.filePath && project.packageManager === 'dotnet' && run && (run.status === 'running' || run.status === 'starting')) {
+        window.setTimeout(() => setCanvasReloadToken((t) => t + 1), 2200)
+      }
     } catch (error) {
       showToast('err', `Không thêm được trang: ${errorMessage(error)}`)
     } finally {

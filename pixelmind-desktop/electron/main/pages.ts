@@ -825,6 +825,371 @@ $pageRoute = ${JSON.stringify(route)};
 `
 }
 
+/** Tên action C# hợp lệ từ tên tệp view: "22" → "Page22", "my-page" → "PageMyPage". */
+function toActionName(viewName: string): string {
+  const pascal = viewName
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('')
+  return `Page${pascal || 'Index'}`
+}
+
+function projectRootOf(target: PageFileTarget): string {
+  const parts = target.relativePath.replace(/\\/g, '/').split('/').filter(Boolean)
+  return resolve(dirname(target.absolutePath), ...Array(Math.max(0, parts.length - 1)).fill('..'))
+}
+
+/** Tìm vị trí dấu `}` đóng của một class C# (bỏ qua ngoặc nằm trong chuỗi và comment dòng). */
+function findCSharpBlockClose(content: string, openIdx: number): number {
+  let depth = 0
+  let inString: '"' | "'" | null = null
+  let inLineComment = false
+  let inBlockComment = false
+  for (let i = openIdx; i < content.length; i++) {
+    const ch = content[i]
+    const next = content[i + 1]
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false
+      continue
+    }
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false
+        i++
+      }
+      continue
+    }
+    if (inString) {
+      if (ch === '\\') {
+        i++
+        continue
+      }
+      if (ch === inString) inString = null
+      continue
+    }
+    if (ch === '/' && next === '/') {
+      inLineComment = true
+      i++
+      continue
+    }
+    if (ch === '/' && next === '*') {
+      inBlockComment = true
+      i++
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      inString = ch
+      continue
+    }
+    if (ch === '{') depth += 1
+    else if (ch === '}' && --depth === 0) return i
+  }
+  return -1
+}
+
+/** Nối route MVC vào controller: chèn `[HttpGet("<route>")] public IActionResult PageX() => View("X");`. */
+async function wireRazorAction(target: PageFileTarget): Promise<void> {
+  const parts = target.relativePath.replace(/\\/g, '/').split('/').filter(Boolean)
+  const viewIdx = parts.findIndex((part) => part.toLowerCase() === 'views')
+  if (viewIdx < 0 || parts.length !== viewIdx + 3) return
+
+  const controllerName = parts[viewIdx + 1]
+  const viewName = parts[viewIdx + 2].replace(/\.cshtml$/i, '')
+  const root = projectRootOf(target)
+  const controllersDir = join(root, ...parts.slice(0, viewIdx), 'Controllers')
+  if (!(await dirExists(controllersDir))) return
+
+  const controllerAbs = join(controllersDir, `${controllerName}Controller.cs`)
+  const actionName = toActionName(viewName)
+
+  if (!(await fileExists(controllerAbs))) {
+    // Dò namespace từ các controller hiện có trong thư mục Controllers
+    let ns = 'App.Controllers'
+    try {
+      const existing = (await fs.readdir(controllersDir)).filter((f) => f.endsWith('Controller.cs'))
+      for (const file of existing) {
+        const raw = await fs.readFile(join(controllersDir, file), 'utf8')
+        const m = raw.match(/^\s*namespace\s+([A-Za-z0-9_.]+)/m)
+        if (m) {
+          ns = m[1]
+          break
+        }
+      }
+    } catch {}
+    const createdController = `using Microsoft.AspNetCore.Mvc;
+
+namespace ${ns};
+
+public class ${controllerName}Controller : Controller
+{
+    [HttpGet("${target.route}")]
+    public IActionResult ${actionName}() => View("${viewName}");
+}
+`
+    await fs.writeFile(controllerAbs, createdController, 'utf8')
+    return
+  }
+
+  const content = await fs.readFile(controllerAbs, 'utf8')
+  const routeLiteral = target.route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (
+    new RegExp(`\\[HttpGet\\(\\s*"${routeLiteral}"\\s*\\)\\]`, 'i').test(content) ||
+    new RegExp(`\\b(?:${actionName}|${viewName})\\s*\\(\\s*\\)`, 'i').test(content)
+  ) {
+    return
+  }
+
+  const classMatch = new RegExp(`class\\s+${controllerName}Controller\\b`).exec(content)
+  const openIdx = classMatch ? content.indexOf('{', classMatch.index) : -1
+  if (openIdx < 0) return
+
+  const closeIdx = findCSharpBlockClose(content, openIdx)
+  if (closeIdx < 0) return
+
+  const lineStart = content.lastIndexOf('\n', closeIdx) + 1
+  const classIndent = content.slice(lineStart, closeIdx).match(/^[ \t]*/)?.[0] ?? ''
+  const memberIndent = `${classIndent}    `
+  const eol = content.includes('\r\n') ? '\r\n' : '\n'
+  const snippet = `${eol}${memberIndent}[HttpGet("${target.route}")]${eol}${memberIndent}public IActionResult ${actionName}() => View("${viewName}");${eol}`
+  await fs.writeFile(controllerAbs, content.slice(0, lineStart) + snippet + content.slice(lineStart), 'utf8')
+}
+
+/** Gỡ action tự tạo trong Controller khi xoá trang Razor. */
+async function unwireRazorAction(projectPath: string, relativePath: string): Promise<void> {
+  const parts = relativePath.replace(/\\/g, '/').split('/').filter(Boolean)
+  const viewIdx = parts.findIndex((part) => part.toLowerCase() === 'views')
+  if (viewIdx < 0 || parts.length !== viewIdx + 3) return
+
+  const controllerName = parts[viewIdx + 1]
+  const viewName = parts[viewIdx + 2].replace(/\.cshtml$/i, '')
+  const controllerAbs = join(
+    rootOf(projectPath),
+    ...parts.slice(0, viewIdx),
+    'Controllers',
+    `${controllerName}Controller.cs`,
+  )
+  if (!(await fileExists(controllerAbs))) return
+
+  try {
+    const content = await fs.readFile(controllerAbs, 'utf8')
+    const actionName = toActionName(viewName)
+    const escapedView = viewName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const pattern = new RegExp(
+      `\\r?\\n?[ \\t]*\\[HttpGet\\("[^"]*"\\)\\]\\r?\\n[ \\t]*public\\s+IActionResult\\s+${actionName}\\(\\)\\s*=>\\s*View\\("${escapedView}"\\);\\r?\\n?`,
+      'g',
+    )
+    if (!pattern.test(content)) return
+    const cleaned = content.replace(pattern, '\n')
+    await fs.writeFile(controllerAbs, cleaned, 'utf8')
+  } catch {}
+}
+
+/** Điều chỉnh các đường dẫn tương đối trong `<head>` (link/script) khi trang mới nằm sâu hơn gốc. */
+function adjustRelativeHeadUrls(headInner: string, depth: number): string {
+  if (depth <= 0) return headInner
+  const prefix = '../'.repeat(depth)
+  return headInner.replace(
+    /\b(href|src)\s*=\s*(["'])(?!https?:|\/\/|\/|#|data:|mailto:|tel:|~\/|\.\.\/)([^"']+)\2/gi,
+    (_m, attr, quote, url) => `${attr}=${quote}${prefix}${url.replace(/^\.\//, '')}${quote}`,
+  )
+}
+
+/** Tự động đồng bộ Header, Footer, CSS và khung trang từ trang/layout hiện có trong dự án. */
+async function buildSyncedTemplate(target: PageFileTarget, title: string): Promise<string | null> {
+  const safeTitle = title.trim() || 'Trang mới'
+  const htmlTitle = escapeHtml(safeTitle)
+  const htmlRoute = escapeHtml(target.route)
+  const jsTitle = JSON.stringify(safeTitle)
+  const root = projectRootOf(target)
+
+  // 1. ASP.NET Core MVC (Razor): dùng _Layout.cshtml chung của dự án thay vì chèn header/footer PixelMind giả
+  if (target.kind === 'razor') {
+    const parts = target.relativePath.replace(/\\/g, '/').split('/').filter(Boolean)
+    const viewIdx = parts.findIndex((part) => part.toLowerCase() === 'views')
+    if (viewIdx < 0) return null
+    const viewsRoot = join(root, ...parts.slice(0, viewIdx + 1))
+    const layoutPath = join(viewsRoot, 'Shared', '_Layout.cshtml')
+    if (!(await fileExists(layoutPath))) return null
+
+    const layoutText = await fs.readFile(layoutPath, 'utf8').catch(() => '')
+    const isBootstrap = /\bbootstrap\b|\bnavbar\b|\bcontainer\b/i.test(layoutText)
+
+    // Đọc trang anh em hoặc Views/Home/Index.cshtml để kế thừa phong cách class (vd: hero, grid, card, btn)
+    let siblingText = ''
+    const candidateViews = [
+      join(dirname(target.absolutePath), 'Index.cshtml'),
+      join(viewsRoot, 'Home', 'Index.cshtml'),
+    ]
+    for (const candidate of candidateViews) {
+      if (candidate !== target.absolutePath && (await fileExists(candidate))) {
+        siblingText = await fs.readFile(candidate, 'utf8').catch(() => '')
+        if (siblingText) break
+      }
+    }
+    const usesSimpleGrid = /\bclass="[^"]*\bgrid\b/i.test(siblingText) && /\bclass="[^"]*\bcard\b/i.test(siblingText)
+
+    if (isBootstrap) {
+      return `@{
+    ViewData["Title"] = ${jsTitle};
+}
+
+<div class="container py-4">
+    <section class="p-4 p-md-5 mb-4 rounded-3 border bg-body-tertiary">
+        <h1 class="display-6 fw-bold mb-2">@ViewData["Title"]</h1>
+        <p class="text-muted mb-3">Trang <code>${htmlRoute}</code> sử dụng chung khung giao diện (Header &amp; Footer) của dự án.</p>
+        <a class="btn btn-primary" href="/">Về trang chủ</a>
+    </section>
+
+    <div class="row g-3">
+        <div class="col-md-4">
+            <div class="card h-100 p-3">
+                <h3 class="h5">Nội dung chính</h3>
+                <p class="text-muted mb-0">Bắt đầu chỉnh sửa hoặc kéo thả linh kiện từ Hộp công cụ vào khu vực này.</p>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 p-3">
+                <h3 class="h5">Đồng bộ giao diện</h3>
+                <p class="text-muted mb-0">Tự động kế thừa thanh điều hướng, chân trang và bộ CSS chung từ _Layout.cshtml.</p>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 p-3">
+                <h3 class="h5">Sẵn sàng mở rộng</h3>
+                <p class="text-muted mb-0">Bạn có thể chỉnh sửa trực tiếp bằng Visual Inspector hoặc Trợ lý AI.</p>
+            </div>
+        </div>
+    </div>
+</div>
+`
+    }
+
+    if (usesSimpleGrid) {
+      return `@{
+    ViewData["Title"] = ${jsTitle};
+}
+
+<section class="hero">
+    <h1>@ViewData["Title"]</h1>
+    <p>Trang <code>${htmlRoute}</code> đã đồng bộ Header, Footer và phong cách chung của dự án.</p>
+    <a class="btn" href="/">Về trang chủ</a>
+</section>
+
+<h2 class="section-title">Nội dung nổi bật</h2>
+<div class="grid">
+    <div class="card">
+        <h3>Nội dung chính</h3>
+        <p>Chỉnh sửa trực tiếp hoặc kéo thả linh kiện từ Hộp công cụ vào đây.</p>
+    </div>
+    <div class="card">
+        <h3>Đồng bộ khung trang</h3>
+        <p>Tự động dùng chung thanh điều hướng, chân trang và stylesheet của dự án.</p>
+    </div>
+    <div class="card">
+        <h3>Sẵn sàng mở rộng</h3>
+        <p>Tùy biến bố cục, màu sắc và văn bản bằng chế độ Soi phần tử (I).</p>
+    </div>
+</div>
+`
+    }
+
+    return `@{
+    ViewData["Title"] = ${jsTitle};
+}
+
+<section style="max-width: 1100px; margin: 0 auto; padding: 24px 0;">
+    <h1>@ViewData["Title"]</h1>
+    <p>Trang <code>${htmlRoute}</code> đã đồng bộ Header, Footer và CSS chung từ <code>_Layout.cshtml</code>.</p>
+</section>
+`
+  }
+
+  // 2. HTML tĩnh & PHP: trích xuất <head>, <header>/<nav>, <footer> và thuộc tính <body>/<main> từ trang hiện có
+  if (target.kind === 'html' || target.kind === 'php') {
+    const ext = target.kind === 'php' ? '.php' : '.html'
+    const candidates: string[] = []
+    try {
+      const siblingDir = dirname(target.absolutePath)
+      if (await dirExists(siblingDir)) {
+        const entries = await fs.readdir(siblingDir)
+        for (const name of entries) {
+          if (name.toLowerCase().endsWith(ext)) {
+            const full = join(siblingDir, name)
+            if (full !== target.absolutePath) candidates.push(full)
+          }
+        }
+      }
+    } catch {}
+    const rootIndex = join(root, target.kind === 'php' ? 'index.php' : 'index.html')
+    if (rootIndex !== target.absolutePath) candidates.push(rootIndex)
+
+    let refHtml = ''
+    let refDepth = 0
+    for (const candidate of candidates) {
+      if (await fileExists(candidate)) {
+        const text = await fs.readFile(candidate, 'utf8').catch(() => '')
+        if (text && /<body\b/i.test(text)) {
+          refHtml = text
+          refDepth = candidate === rootIndex ? 0 : target.relativePath.replace(/\\/g, '/').split('/').length - 1
+          break
+        }
+      }
+    }
+    if (!refHtml) return null
+
+    const targetDepth = Math.max(0, target.relativePath.replace(/\\/g, '/').split('/').length - 1)
+    const relativeDepthDelta = Math.max(0, targetDepth - refDepth)
+
+    const headMatch = refHtml.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)
+    let headInner = headMatch ? headMatch[1] : `<meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <title>${htmlTitle}</title>`
+    if (/<title\b[^>]*>[\s\S]*?<\/title>/i.test(headInner)) {
+      headInner = headInner.replace(/<title\b[^>]*>[\s\S]*?<\/title>/i, `<title>${htmlTitle}</title>`)
+    } else {
+      headInner = `${headInner.trimEnd()}\n    <title>${htmlTitle}</title>\n`
+    }
+    headInner = adjustRelativeHeadUrls(headInner, relativeDepthDelta)
+
+    const bodyOpenMatch = refHtml.match(/<body\b[^>]*>/i)
+    const bodyOpen = bodyOpenMatch ? bodyOpenMatch[0] : '<body>'
+    const headerMatch =
+      refHtml.match(/<header\b[^>]*>[\s\S]*?<\/header>/i) ||
+      refHtml.match(/<nav\b[^>]*>[\s\S]*?<\/nav>/i)
+    const footerMatch = refHtml.match(/<footer\b[^>]*>[\s\S]*?<\/footer>/i)
+    const mainOpenMatch = refHtml.match(/<main\b[^>]*>/i)
+    const mainOpen = mainOpenMatch ? mainOpenMatch[0] : '<main style="max-width: 1100px; margin: 0 auto; padding: 32px 20px;">'
+
+    if (!headerMatch && !footerMatch && !/<link\b[^>]*rel=["']stylesheet["']/i.test(headInner)) {
+      return null
+    }
+
+    const phpPreamble =
+      target.kind === 'php'
+        ? `<?php\n$pageTitle = ${jsTitle};\n$pageRoute = ${JSON.stringify(target.route)};\n?>\n`
+        : ''
+
+    return `${phpPreamble}<!doctype html>
+<html lang="vi">
+  <head>${headInner}</head>
+  ${bodyOpen}
+    ${headerMatch ? headerMatch[0] : ''}
+
+    ${mainOpen}
+      <section style="padding: 32px 0;">
+        <h1>${htmlTitle}</h1>
+        <p>Trang <code>${htmlRoute}</code> đã tự động đồng bộ Header, Footer và CSS từ trang gốc của dự án.</p>
+      </section>
+    </main>
+
+    ${footerMatch ? footerMatch[0] : ''}
+  </body>
+</html>
+`
+  }
+
+  return null
+}
+
 export async function scaffoldPageFile(
   target: PageFileTarget,
   title: string,
@@ -836,10 +1201,21 @@ export async function scaffoldPageFile(
     throw new Error(`Tệp ${target.relativePath} đã tồn tại.`)
   }
   await fs.mkdir(dirname(target.absolutePath), { recursive: true })
-  await fs.writeFile(target.absolutePath, buildTemplate(target.kind, title, target.route), {
+  const syncedContent = await buildSyncedTemplate(target, title)
+  const content = syncedContent ?? buildTemplate(target.kind, title, target.route)
+  await fs.writeFile(target.absolutePath, content, {
     encoding: 'utf8',
     flag: 'wx',
   })
+
+  if (target.kind === 'razor') {
+    try {
+      await wireRazorAction(target)
+    } catch (error) {
+      await fs.unlink(target.absolutePath).catch(() => {})
+      throw error
+    }
+  }
 
   return { relativePath: target.relativePath }
 }
@@ -870,6 +1246,14 @@ export async function copyPageFile(
   }
   await fs.mkdir(dirname(target.absolutePath), { recursive: true })
   await fs.copyFile(source, target.absolutePath, fsConstants.COPYFILE_EXCL)
+  if (target.kind === 'razor') {
+    try {
+      await wireRazorAction(target)
+    } catch (error) {
+      await fs.unlink(target.absolutePath).catch(() => {})
+      throw error
+    }
+  }
   return { relativePath: target.relativePath }
 }
 
@@ -919,6 +1303,9 @@ export async function trashPageFile(projectPath: string, relativePath: string): 
     await shell.trashItem(absolute)
   } else {
     await fs.unlink(absolute)
+  }
+  if (/\.cshtml$/i.test(relativePath)) {
+    await unwireRazorAction(projectPath, relativePath)
   }
   await cleanupEmptyParents(projectPath, relativePath)
   return true
