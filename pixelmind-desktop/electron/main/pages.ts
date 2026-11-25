@@ -1015,6 +1015,36 @@ async function buildSyncedTemplate(target: PageFileTarget, title: string): Promi
     const layoutText = await fs.readFile(layoutPath, 'utf8').catch(() => '')
     const isBootstrap = /\bbootstrap\b|\bnavbar\b|\bcontainer\b/i.test(layoutText)
 
+    // Nếu _Layout.cshtml bị thiếu @RenderBody(), ASP.NET Core sẽ ném lỗi InvalidOperationException.
+    // Khi đó tự động tách <head>, <header>, <footer> từ _Layout.cshtml và đặt Layout = null để trang vẫn đồng bộ và không crash.
+    if (!/@RenderBody\s*\(\s*\)/i.test(layoutText)) {
+      const headMatch = layoutText.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)
+      const headerMatch =
+        layoutText.match(/<header\b[^>]*>[\s\S]*?<\/header>/i) ||
+        layoutText.match(/<nav\b[^>]*>[\s\S]*?<\/nav>/i)
+      const footerMatch = layoutText.match(/<footer\b[^>]*>[\s\S]*?<\/footer>/i)
+      const headInner = headMatch
+        ? headMatch[1]
+        : `<meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>@ViewData["Title"]</title>`
+      return `@{
+    Layout = null;
+    ViewData["Title"] = ${jsTitle};
+}
+<!DOCTYPE html>
+<html lang="vi">
+<head>${headInner}</head>
+<body>
+    ${headerMatch ? headerMatch[0] : ''}
+    <main class="${isBootstrap ? 'container py-4' : ''}" style="${isBootstrap ? '' : 'max-width: 1100px; margin: 0 auto; padding: 32px 20px;'}">
+        <h1>@ViewData["Title"]</h1>
+        <p>Trang <code>${htmlRoute}</code> đã đồng bộ Header, Footer và CSS từ <code>_Layout.cshtml</code>.</p>
+    </main>
+    ${footerMatch ? footerMatch[0] : ''}
+</body>
+</html>
+`
+    }
+
     // Đọc trang anh em hoặc Views/Home/Index.cshtml để kế thừa phong cách class (vd: hero, grid, card, btn)
     let siblingText = ''
     const candidateViews = [

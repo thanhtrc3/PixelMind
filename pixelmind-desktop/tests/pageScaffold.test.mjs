@@ -151,6 +151,38 @@ test('scaffoldPageFile syncs Razor view with _Layout.cshtml and wires MVC contro
   }
 })
 
+test('scaffoldPageFile avoids RenderBody crash when _Layout.cshtml is missing @RenderBody()', async () => {
+  const tempDir = await fs.mkdtemp(join(tmpdir(), 'pm-razor-nobody-'))
+  try {
+    await fs.mkdir(join(tempDir, 'Views', 'Shared'), { recursive: true })
+    await fs.mkdir(join(tempDir, 'Views', 'Home'), { recursive: true })
+    await fs.writeFile(
+      join(tempDir, 'Views', 'Shared', '_Layout.cshtml'),
+      '<!doctype html><html><head><link rel="stylesheet" href="~/css/site.css" /></head><body><header>ChessHeader</header><div class="app-shell"></div><footer>ChessFooter</footer></body></html>',
+      'utf8',
+    )
+
+    const target = {
+      supported: true,
+      label: 'ASP.NET Core (Razor)',
+      relativePath: 'Views/Home/Test.cshtml',
+      exists: false,
+      kind: 'razor',
+      absolutePath: join(tempDir, 'Views', 'Home', 'Test.cshtml'),
+      route: '/Home/test',
+    }
+
+    await scaffoldPageFile(target, 'test')
+    const content = await fs.readFile(target.absolutePath, 'utf8')
+    assert.ok(content.includes('Layout = null;'))
+    assert.ok(content.includes('<header>ChessHeader</header>'))
+    assert.ok(content.includes('<footer>ChessFooter</footer>'))
+    assert.ok(content.includes('~/css/site.css'))
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true })
+  }
+})
+
 test('scaffoldPageFile syncs HTML page head, header, and footer from index.html', async () => {
   const tempDir = await fs.mkdtemp(join(tmpdir(), 'pm-html-sync-'))
   try {
