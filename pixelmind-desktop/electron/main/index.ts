@@ -82,6 +82,8 @@ import {
 } from './pages'
 import { runToolboxMutation, scanProjectToolbox, writeToolboxFile } from './toolbox'
 import { deleteCustomPart, listCustomParts, saveCustomPart } from './customParts'
+import { listAnnotations, addAnnotation, updateAnnotation, deleteAnnotation } from './annotations'
+import type { AnnotationInput, AnnotationPin } from '../../shared/annotation'
 import { MockApiServer, readMockConfig, writeMockConfig } from './mockApi'
 import { emptyMockState, normalizeMockConfig } from '../../shared/mockApi'
 import type { MockApiConfig } from '../../shared/mockApi'
@@ -3923,6 +3925,32 @@ ipcMain.handle('toolbox:parts-save', async (_e, input: CustomPartInput) => {
 
 ipcMain.handle('toolbox:parts-delete', async (_e, id: string, projectPath?: string) => {
   return await deleteCustomPart(app.getPath('userData'), id, projectPath)
+})
+
+/* ───────────────────────── IPC: Annotation Pins (D2-15) ───────────────────────── */
+
+ipcMain.handle('annotation:list', async (_e, projectPath: string) => {
+  return await listAnnotations(projectPath)
+})
+
+ipcMain.handle('annotation:add', async (_e, projectPath: string, input: AnnotationInput) => {
+  return await addAnnotation(projectPath, input)
+})
+
+ipcMain.handle(
+  'annotation:update',
+  async (
+    _e,
+    projectPath: string,
+    pinId: string,
+    changes: Partial<Pick<AnnotationPin, 'content' | 'resolved' | 'color'>>
+  ) => {
+    return await updateAnnotation(projectPath, pinId, changes)
+  }
+)
+
+ipcMain.handle('annotation:delete', async (_e, projectPath: string, pinId: string) => {
+  return await deleteAnnotation(projectPath, pinId)
 })
 
 /* ───────────────────────── IPC: Mock API ───────────────────────── */

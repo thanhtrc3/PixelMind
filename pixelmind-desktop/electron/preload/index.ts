@@ -26,6 +26,7 @@ import type { MockApiConfig, MockApiState } from '../../shared/mockApi'
 import type { DeployProvider, DeployState, DeployLog } from '../../shared/deploy'
 import type { AuthState, SignInResult } from '../../shared/auth'
 import type { CloudRole, CloudSyncReport } from '../../shared/cloud'
+import type { AnnotationInput, AnnotationPin } from '../../shared/annotation'
 import type {
   ArchiveProgress,
   ZipExportOptions,
@@ -400,6 +401,16 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('cloud:invite', email, role),
     setRole: (email: string, role: CloudRole): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('cloud:set-role', email, role),
+  },
+  annotations: {
+    list: (projectPath: string): Promise<AnnotationPin[]> =>
+      ipcRenderer.invoke('annotation:list', projectPath),
+    add: (projectPath: string, input: AnnotationInput): Promise<{ ok: boolean; annotation?: AnnotationPin; error?: string }> =>
+      ipcRenderer.invoke('annotation:add', projectPath, input),
+    update: (projectPath: string, pinId: string, changes: Partial<Pick<AnnotationPin, 'content' | 'resolved' | 'color'>>): Promise<{ ok: boolean; annotation?: AnnotationPin; error?: string }> =>
+      ipcRenderer.invoke('annotation:update', projectPath, pinId, changes),
+    delete: (projectPath: string, pinId: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('annotation:delete', projectPath, pinId),
   },
   ai: {
     status: (projectPath?: string) => ipcRenderer.invoke('ai:status', projectPath),

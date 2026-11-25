@@ -3089,3 +3089,340 @@
 
 
 
+
+/* ══════════════════════════════════════════════════════════════
+   D2-15: ANNOTATION PINS & OVERLAY
+   ══════════════════════════════════════════════════════════════ */
+
+.pm-annotation-overlay.annotate-active {
+  cursor: crosshair;
+}
+
+.pm-annotation-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  z-index: 52;
+  transition: transform 120ms ease;
+  user-select: none;
+}
+
+.pm-annotation-pin:hover {
+  transform: translate(-50%, -50%) scale(1.15);
+  z-index: 55;
+}
+
+.pm-annotation-pin.active {
+  transform: translate(-50%, -50%) scale(1.2);
+  z-index: 60;
+}
+
+.pm-annotation-pin-bubble {
+  width: 26px;
+  height: 26px;
+  border-radius: 50% 50% 50% 4px;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.45), 0 0 0 2px rgba(255, 255, 255, 0.9);
+  transition: all 150ms ease;
+}
+
+.pm-annotation-pin.resolved .pm-annotation-pin-bubble {
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 3px 10px rgba(16, 185, 129, 0.35), 0 0 0 2px rgba(255, 255, 255, 0.8);
+}
+
+.pm-annotation-pin-pulse {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid #8b5cf6;
+  animation: pm-pin-pulse 1.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+  pointer-events: none;
+}
+
+@keyframes pm-pin-pulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+.pm-annotation-popover {
+  position: absolute;
+  transform: translate(16px, 16px);
+  width: 290px;
+  background: var(--panel, #181920);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+  z-index: 65;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: pm-popover-in 140ms ease-out;
+}
+
+@keyframes pm-popover-in {
+  from {
+    opacity: 0;
+    transform: translate(16px, 8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(16px, 16px) scale(1);
+  }
+}
+
+.pm-annotation-popover-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.pm-annotation-author-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pm-annotation-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pm-annotation-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.pm-annotation-author-name {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--text, #fff);
+  line-height: 1.2;
+}
+
+.pm-annotation-time {
+  font-size: 10px;
+  color: var(--text-3, #8e90a6);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.pm-annotation-actions-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pm-annotation-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.pm-annotation-badge.open {
+  background: rgba(139, 92, 246, 0.18);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+.pm-annotation-badge.resolved {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.pm-annotation-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-3, #8e90a6);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pm-annotation-close-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text, #fff);
+}
+
+.pm-annotation-popover-body {
+  padding: 10px 12px;
+}
+
+.pm-annotation-content-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pm-annotation-text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text, #e2e8f0);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+.pm-annotation-edit-btn {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  color: #818cf8;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.pm-annotation-edit-btn:hover {
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.pm-annotation-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pm-annotation-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: var(--text, #fff);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+}
+
+.pm-annotation-textarea:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+.pm-annotation-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.pm-annotation-btn {
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+}
+
+.pm-annotation-btn.primary {
+  background: #6366f1;
+  color: #fff;
+}
+
+.pm-annotation-btn.primary:hover:not(:disabled) {
+  background: #4f46e5;
+}
+
+.pm-annotation-btn.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pm-annotation-btn.secondary {
+  background: transparent;
+  color: var(--text-2, #cbd5e1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pm-annotation-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.pm-annotation-popover-ft {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.pm-annotation-btn-text {
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: all 120ms ease;
+}
+
+.pm-annotation-btn-text.resolve {
+  color: #10b981;
+}
+
+.pm-annotation-btn-text.resolve:hover {
+  background: rgba(16, 185, 129, 0.14);
+}
+
+.pm-annotation-btn-text.reopen {
+  color: #a78bfa;
+}
+
+.pm-annotation-btn-text.reopen:hover {
+  background: rgba(139, 92, 246, 0.14);
+}
+
+.pm-annotation-btn-text.delete {
+  color: #f87171;
+}
+
+.pm-annotation-btn-text.delete:hover {
+  background: rgba(239, 68, 68, 0.14);
+}

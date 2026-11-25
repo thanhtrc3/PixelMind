@@ -60,7 +60,10 @@ import {
   Underline as UnderlineIcon,
   Strikethrough as StrikethroughIcon,
   Pipette,
+  MessageSquarePlus,
 } from 'lucide-react'
+import { AnnotationOverlay } from './canvas/AnnotationOverlay'
+import type { AnnotationPin } from '../../shared/annotation'
 import type { ParsedError } from '../lib/errorParser'
 import type { CanvasSettings } from '../lib/canvasSettings'
 import { formatBytes } from '../lib/format'
@@ -672,6 +675,28 @@ const CanvasArea = ({
   const [eyedropperError, setEyedropperError] = useState<string | null>(null)
   const [isPickingColor, setIsPickingColor] = useState(false)
   const handlePickColorRef = useRef<(targetProperty?: 'color' | 'backgroundColor' | 'borderColor') => Promise<void>>(() => Promise.resolve())
+
+  // ─── D2-15: ANNOTATION PINS (GHIM PHẢN HỒI / GHI CHÚ TRÊN CANVAS) ───
+  const [annotations, setAnnotations] = useState<AnnotationPin[]>([])
+  const [isAnnotateMode, setIsAnnotateMode] = useState(false)
+  const [showResolvedAnnotations, setShowResolvedAnnotations] = useState(true)
+  const [activeAnnotationPinId, setActiveAnnotationPinId] = useState<string | null>(null)
+  const frameContentRef = useRef<HTMLDivElement>(null)
+
+  const loadAnnotations = useCallback(async () => {
+    if (!projectPath || !api.annotations?.list) return
+    try {
+      const list = await api.annotations.list(projectPath)
+      setAnnotations(list)
+    } catch (err) {
+      console.error('[Annotation] Lỗi nạp ghi chú:', err)
+    }
+  }, [projectPath])
+
+  useEffect(() => {
+    void loadAnnotations()
+  }, [loadAnnotations])
+
   const [dropTargetHover, setDropTargetHover] = useState<{
     uid: string
     tagName: string
@@ -951,6 +976,73 @@ const CanvasArea = ({
       }, 2400)
     },
     [],
+  )
+
+  // ─── D2-15: CÁC THAO TÁC ANNOTATION PINS (THÊM / SỬA / RESOLVE / XÓA) ───
+  const handleCreateAnnotation = useCallback(
+    async (coords: { xPercent: number; yPercent: number }) => {
+      if (!projectPath || !api.annotations?.add) {
+        showToast('Cần mở dự án để tạo ghi chú', 'err')
+        return
+      }
+      const res = await api.annotations.add(projectPath, {
+        xPercent: coords.xPercent,
+        yPercent: coords.yPercent,
+        route: currentRoute || '/',
+        content: '',
+      })
+      if (res.ok && res.annotation) {
+        setAnnotations((prev) => [res.annotation!, ...prev])
+        setActiveAnnotationPinId(res.annotation.id)
+        showToast('Đã tạo ghim ghi chú mới', 'ok')
+      } else {
+        showToast(res.error || 'Không thể tạo ghi chú', 'err')
+      }
+    },
+    [projectPath, currentRoute, showToast]
+  )
+
+  const handleUpdateAnnotation = useCallback(
+    async (pinId: string, content: string) => {
+      if (!projectPath || !api.annotations?.update) return
+      const res = await api.annotations.update(projectPath, pinId, { content })
+      if (res.ok && res.annotation) {
+        setAnnotations((prev) =>
+          prev.map((p) => (p.id === pinId ? res.annotation! : p))
+        )
+        showToast('Đã lưu nội dung ghi chú', 'ok')
+      }
+    },
+    [projectPath, showToast]
+  )
+
+  const handleToggleResolveAnnotation = useCallback(
+    async (pinId: string, resolved: boolean) => {
+      if (!projectPath || !api.annotations?.update) return
+      const res = await api.annotations.update(projectPath, pinId, { resolved })
+      if (res.ok && res.annotation) {
+        setAnnotations((prev) =>
+          prev.map((p) => (p.id === pinId ? res.annotation! : p))
+        )
+        showToast(resolved ? 'Đã đánh dấu xử lý ghi chú' : 'Đã mở lại ghi chú', 'ok')
+      }
+    },
+    [projectPath, showToast]
+  )
+
+  const handleDeleteAnnotation = useCallback(
+    async (pinId: string) => {
+      if (!projectPath || !api.annotations?.delete) return
+      const res = await api.annotations.delete(projectPath, pinId)
+      if (res.ok) {
+        setAnnotations((prev) => prev.filter((p) => p.id !== pinId))
+        if (activeAnnotationPinId === pinId) {
+          setActiveAnnotationPinId(null)
+        }
+        showToast('Đã xóa ghi chú', 'ok')
+      }
+    },
+    [projectPath, activeAnnotationPinId, showToast]
   )
 
   const handleStartPartLasso = useCallback(() => {
@@ -1421,7 +1513,16 @@ const CanvasArea = ({
       else if (key === 'H') setTool('pan')
       else if (key === 'R') setTool('rect')
       else if (key === 'T') setTool('text')
-      else if (key === 'C') setTool('comment')
+      else if (key === 'C') {
+        const next = !isAnnotateMode
+        setIsAnnotateMode(next)
+        if (next) setIsInspectMode(false)
+        showToast(
+          next ? 'Đã bật chế độ Ghim ghi chú (Click Canvas để đặt ghim)' : 'Đã tắt chế độ Ghim ghi chú',
+          next ? 'ok' : 'info',
+          'Phím C'
+        )
+      }
       else if (key === 'M') setTool('measure')
       else if (key === 'F') zoomToFit()
       else if (key === 'E') {
@@ -1442,6 +1543,15 @@ const CanvasArea = ({
           next ? 'Phím I' : undefined,
         )
       } else if (e.key === 'Escape') {
+        if (activeAnnotationPinId) {
+          setActiveAnnotationPinId(null)
+          return
+        }
+        if (isAnnotateMode) {
+          setIsAnnotateMode(false)
+          showToast('Đã tắt chế độ Ghim ghi chú', 'info')
+          return
+        }
         if (eyedropperResult || eyedropperError) {
           setEyedropperResult(null)
           setEyedropperError(null)
@@ -1481,7 +1591,7 @@ const CanvasArea = ({
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [isInspectMode, isSidecarOpen, selectedEl, multiSelection.length, zoomToFit, showToast, sourceLoc?.fullPath, projectPath, pendingMutation, isPageFlowOpen, eyedropperResult, eyedropperError])
+  }, [isInspectMode, isSidecarOpen, selectedEl, multiSelection.length, zoomToFit, showToast, sourceLoc?.fullPath, projectPath, pendingMutation, isPageFlowOpen, eyedropperResult, eyedropperError, isAnnotateMode, activeAnnotationPinId])
 
   // Xử lý zoom bằng bánh lăn chuột (Ctrl + Wheel)
   const handleWheel = (e: React.WheelEvent) => {
@@ -5966,6 +6076,19 @@ const CanvasArea = ({
                   </div>
                 )}
 
+      {/* D2-15: Lớp hiển thị Ghim phản hồi / Ghi chú (Annotation Pins) */}
+      <AnnotationOverlay
+        annotations={annotations}
+        isAnnotateMode={isAnnotateMode}
+        showResolved={showResolvedAnnotations}
+        activePinId={activeAnnotationPinId}
+        onSelectPin={setActiveAnnotationPinId}
+        onCreatePin={handleCreateAnnotation}
+        onUpdatePin={handleUpdateAnnotation}
+        onToggleResolve={handleToggleResolveAnnotation}
+        onDeletePin={handleDeleteAnnotation}
+        containerRef={frameContentRef}
+      />
     </>
   )
 
@@ -6098,6 +6221,62 @@ const CanvasArea = ({
             >
               <Pipette size={13} />
             </button>
+
+            {/* D2-15: Nút Ghim phản hồi / Ghi chú (Annotation pins) */}
+            <button
+              className={`canvas__seg-btn ${isAnnotateMode ? 'active accent' : ''}`}
+              onClick={() => {
+                const next = !isAnnotateMode
+                setIsAnnotateMode(next)
+                if (next) {
+                  setIsInspectMode(false)
+                }
+                showToast(
+                  next ? 'Đã bật chế độ Ghim ghi chú (Click Canvas để đặt ghim)' : 'Đã tắt chế độ Ghim ghi chú',
+                  next ? 'ok' : 'info',
+                  'Phím C'
+                )
+              }}
+              title="Ghim phản hồi / Ghi chú trên Canvas (Phím tắt: C)"
+              style={{
+                height: 24,
+                padding: '0 8px',
+                gap: 5,
+                borderRadius: 6,
+                fontWeight: 650,
+                background: isAnnotateMode ? '#8b5cf6' : 'var(--panel-2)',
+                color: isAnnotateMode ? '#ffffff' : 'var(--text)',
+                border: '1px solid var(--line)',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              <MessageSquarePlus size={13} />
+              {annotations.length > 0 && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    background: isAnnotateMode ? '#ffffff' : '#8b5cf6',
+                    color: isAnnotateMode ? '#8b5cf6' : '#ffffff',
+                    borderRadius: 8,
+                    padding: '0 5px',
+                    fontWeight: 700,
+                  }}
+                >
+                  {annotations.filter((p) => !p.resolved).length}
+                </span>
+              )}
+            </button>
+
+            {annotations.length > 0 && (
+              <button
+                className={`canvas__seg-btn icon-only ${showResolvedAnnotations ? 'active' : ''}`}
+                onClick={() => setShowResolvedAnnotations((v) => !v)}
+                title={showResolvedAnnotations ? 'Đang hiện cả ghi chú đã xử lý (Bấm để ẩn)' : 'Đang ẩn ghi chú đã xử lý (Bấm để hiện)'}
+              >
+                <CheckCircle2 size={12} />
+              </button>
+            )}
 
             <button
               className={`canvas__seg-btn icon-only ${isPageFlowOpen ? 'active' : ''}`}
@@ -6297,6 +6476,7 @@ const CanvasArea = ({
                 ) : null}
 
                 <div
+                  ref={frameContentRef}
                   key="canvas-frame-content"
                   className={
                     viewport === 'responsive'

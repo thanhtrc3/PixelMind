@@ -39,6 +39,7 @@ import type { AiApi } from './ai'
 import type { A11yScanResult } from './a11y'
 import type { MockApiConfig, MockApiState } from './mockApi'
 import type { DeployProvider, DeployState, DeployLog } from './deploy'
+import type { AnnotationInput, AnnotationPin } from './annotation'
 import type { AuthState, SignInResult } from './auth'
 import type { CloudRole, CloudSyncReport } from './cloud'
 import type {
@@ -374,6 +375,12 @@ export interface PixelMindApi {
     members(): Promise<{ success: boolean; members?: Array<{ email: string; role: CloudRole }>; error?: string }>
     invite(email: string, role: CloudRole): Promise<{ success: boolean; error?: string }>
     setRole(email: string, role: CloudRole): Promise<{ success: boolean; error?: string }>
+  }
+  annotations: {
+    list(projectPath: string): Promise<AnnotationPin[]>
+    add(projectPath: string, input: AnnotationInput): Promise<{ ok: boolean; annotation?: AnnotationPin; error?: string }>
+    update(projectPath: string, pinId: string, changes: Partial<Pick<AnnotationPin, 'content' | 'resolved' | 'color'>>): Promise<{ ok: boolean; annotation?: AnnotationPin; error?: string }>
+    delete(projectPath: string, pinId: string): Promise<{ ok: boolean; error?: string }>
   }
   ai: AiApi
   window?: {

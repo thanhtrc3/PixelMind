@@ -997,6 +997,33 @@ export function createBrowserMock(): PixelMindApi {
         return { success: false, error: 'Bản giả lập không hỗ trợ phân quyền.' }
       },
     },
+    annotations: {
+      async list(_projectPath) {
+        return []
+      },
+      async add(_projectPath, input) {
+        return {
+          ok: true,
+          annotation: {
+            id: `pin_${Date.now()}`,
+            projectPath: _projectPath,
+            route: input.route || '/',
+            xPercent: input.xPercent,
+            yPercent: input.yPercent,
+            author: input.author || 'Bạn',
+            content: input.content,
+            resolved: false,
+            createdAt: new Date().toISOString(),
+          },
+        }
+      },
+      async update(_projectPath, _pinId, _changes) {
+        return { ok: true }
+      },
+      async delete(_projectPath, _pinId) {
+        return { ok: true }
+      },
+    },
     deploy: {
       async setToken(_provider, _token) {
         return { success: true }
