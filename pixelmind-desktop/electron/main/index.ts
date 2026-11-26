@@ -2958,7 +2958,7 @@ function getInspectorScript(isActive: boolean) {
           targetToReset.style.removeProperty('right');
           targetToReset.style.removeProperty('bottom');
           var curPos = targetToReset.style.position;
-          if (curPos === 'relative') {
+          if (curPos === 'relative' || curPos === 'absolute') {
             targetToReset.style.removeProperty('position');
           }
           sendDomTree();

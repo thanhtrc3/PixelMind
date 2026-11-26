@@ -2472,15 +2472,20 @@ const CanvasArea = ({
     }
   }, [resizingEl, zoom, handleApplyLiveChange, selectedEl, sourceLoc])
 
-  // ─── KÉO DI CHUYỂN VỊ TRÍ PHẦN TỬ THẬT (LIVE MOVE) ───
+  // ─── KÉO DI CHUYỂN VỊ TRÍ PHẦN TỬ THẬT (LIVE FREE MOVE + SHIFT REPARENT) ───
+  const selectedElRef = useRef<RealElementInfo | null>(null)
+  selectedElRef.current = selectedEl
+  const lastFreeMoveRef = useRef<{ left: number; top: number; position: string } | null>(null)
+
   const handleStartElementMove = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     if (!selectedEl) return
 
     setIsMovingEl(true)
-    const curLeft = parseInt(selectedEl.computedStyles.left || '0') || 0
-    const curTop = parseInt(selectedEl.computedStyles.top || '0') || 0
+    lastFreeMoveRef.current = null
+    const curLeft = parseInt(selectedEl.computedStyles.left || '0', 10) || 0
+    const curTop = parseInt(selectedEl.computedStyles.top || '0', 10) || 0
 
     let domOldParentUid = selectedEl.parent?.uid || ''
     let domOldIndex = -1
@@ -2516,122 +2521,166 @@ const CanvasArea = ({
 
     const handleMouseMove = (e: MouseEvent) => {
       e.preventDefault()
+      const currentEl = selectedElRef.current
+      if (!currentEl) return
       const scale = zoom / 100
       const dx = (e.clientX - moveStartRef.current.startX) / scale
       const dy = (e.clientY - moveStartRef.current.startY) / scale
 
-      const curPos = selectedEl?.computedStyles?.position
-      const isAbsolute = curPos === 'absolute' || curPos === 'fixed'
-
-      // Chỉ cập nhật toạ độ left/top đối với phần tử định vị tuyệt đối (absolute/fixed).
-      // Với phần tử trong luồng tự nhiên (form, flex, grid), không ép position: relative và toạ độ âm
-      // để tránh phá vỡ bố cục gốc của trang.
-      if (isAbsolute) {
-        const nextLeft = Math.round(moveStartRef.current.initialLeft + dx)
-        const nextTop = Math.round(moveStartRef.current.initialTop + dy)
-        handleApplyLiveChange(
-          {
-            position: curPos,
-            left: `${nextLeft}px`,
-            top: `${nextTop}px`,
-          },
-          undefined,
-          { skipHistory: true }
-        )
+      // Giữ Shift khi kéo: chế độ đổi khung cha / đổi thứ tự DOM (Reparent / Reorder)
+      if (e.shiftKey) {
+        const iframe = iframeRef.current
+        if (iframe?.contentWindow) {
+          const iframeRect = iframe.getBoundingClientRect()
+          const x = (e.clientX - iframeRect.left) / scale
+          const y = (e.clientY - iframeRect.top) / scale
+          iframe.contentWindow.postMessage(
+            {
+              type: 'PM_DRAG_OVER',
+              dragUid: currentEl.uid,
+              x,
+              y,
+            },
+            '*'
+          )
+        }
+        return
       }
 
-      // Gửi tọa độ tới iframe để dò tìm vùng chứa đích (Drop Target Zone / Reorder)
-      const iframe = iframeRef.current
-      if (iframe?.contentWindow) {
-        const iframeRect = iframe.getBoundingClientRect()
-        const x = (e.clientX - iframeRect.left) / scale
-        const y = (e.clientY - iframeRect.top) / scale
-        iframe.contentWindow.postMessage(
+      setDropTargetHover(null)
+
+      // Mặc định: kéo thả tự do tới bất kỳ toạ độ (x, y) nào trên trang.
+      // Giữ nguyên position absolute/fixed nếu phần tử đang dùng; ngược lại chuyển sang position: relative
+      // để di chuyển tự do mượt mà mà không làm sập bố cục các phần tử xung quanh.
+      const curPos = currentEl.computedStyles?.position
+      const nextPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
+      const nextLeft = Math.round(moveStartRef.current.initialLeft + dx)
+      const nextTop = Math.round(moveStartRef.current.initialTop + dy)
+      lastFreeMoveRef.current = { left: nextLeft, top: nextTop, position: nextPos }
+
+      const stylesPatch = {
+        position: nextPos,
+        left: `${nextLeft}px`,
+        top: `${nextTop}px`,
+      }
+
+      if (iframeRef.current?.contentWindow) {
+        iframeRef.current.contentWindow.postMessage(
           {
-            type: 'PM_DRAG_OVER',
-            dragUid: selectedEl?.uid,
-            x,
-            y,
+            type: 'PM_APPLY_STYLE',
+            payload: {
+              target: {
+                tagName: currentEl.tagName,
+                id: currentEl.id,
+                className: currentEl.className,
+                domPath: currentEl.domPath,
+                uid: currentEl.uid,
+                selector: currentEl.selector,
+                textSnippet: currentEl.textSnippet,
+              },
+              styles: stylesPatch,
+            },
           },
           '*'
         )
       }
+
+      const beforeRect = moveStartRef.current.beforeRect
+      setModifiedStyles((prev) => ({ ...prev, ...stylesPatch }))
+      setSelectedEl((prev) => {
+        if (!prev) return null
+        return {
+          ...prev,
+          rect: beforeRect
+            ? {
+                ...prev.rect,
+                left: Math.round(beforeRect.left + dx),
+                top: Math.round(beforeRect.top + dy),
+              }
+            : prev.rect,
+          computedStyles: {
+            ...prev.computedStyles,
+            ...stylesPatch,
+          },
+        }
+      })
     }
 
     const handleMouseUp = (e: MouseEvent) => {
       setIsMovingEl(false)
       setDropTargetHover(null)
       const initial = moveStartRef.current
-      if (!selectedEl) return
+      const currentEl = selectedElRef.current
+      if (!currentEl) return
 
-      const curPos = selectedEl.computedStyles?.position
-      const isAbsolute = curPos === 'absolute' || curPos === 'fixed'
-
-      // Thả chuột: Thực hiện di chuyển cấu trúc DOM (Reparenting / Reorder vào vị trí mới) cho phần tử trong luồng tự nhiên
-      const iframe = iframeRef.current
-      if (iframe?.contentWindow && !isAbsolute) {
-        const iframeRect = iframe.getBoundingClientRect()
-        const scale = zoom / 100
-        const x = (e.clientX - iframeRect.left) / scale
-        const y = (e.clientY - iframeRect.top) / scale
-        iframe.contentWindow.postMessage(
-          {
-            type: 'PM_DROP_REPARENT',
-            uid: selectedEl.uid,
-            x,
-            y,
-          },
-          '*'
-        )
+      // Nếu đang giữ Shift khi thả chuột: thực hiện Reparent / Reorder trong cây DOM
+      if (e.shiftKey) {
+        const curPos = currentEl.computedStyles?.position
+        const isAbsolute = curPos === 'absolute' || curPos === 'fixed'
+        const iframe = iframeRef.current
+        if (iframe?.contentWindow && !isAbsolute) {
+          const iframeRect = iframe.getBoundingClientRect()
+          const scale = zoom / 100
+          const x = (e.clientX - iframeRect.left) / scale
+          const y = (e.clientY - iframeRect.top) / scale
+          iframe.contentWindow.postMessage(
+            {
+              type: 'PM_DROP_REPARENT',
+              uid: currentEl.uid,
+              x,
+              y,
+            },
+            '*'
+          )
+        }
+        return
       }
 
-      // Chỉ ghi toạ độ di chuyển vào mã nguồn khi phần tử vốn là định vị tuyệt đối.
-      if (isAbsolute) {
-        const curLeft = parseInt(selectedEl.computedStyles.left || '0') || 0
-        const curTop = parseInt(selectedEl.computedStyles.top || '0') || 0
+      const moved = lastFreeMoveRef.current
+      lastFreeMoveRef.current = null
+      if (!moved) return
 
-        if (curLeft !== initial.initialLeft || curTop !== initial.initialTop) {
-          editorBuffer.pushAction({
-            type: 'MOVE',
-            description: `Di chuyển <${selectedEl.tagName.toLowerCase()}>`,
-            target: {
-              tagName: selectedEl.tagName,
-              id: selectedEl.id,
-              className: selectedEl.className,
-              domPath: selectedEl.domPath,
-              uid: selectedEl.uid,
-              selector: selectedEl.selector,
-              textSnippet: selectedEl.textSnippet,
-            },
-            sourceLoc: sourceLoc
-              ? {
+      if (moved.left !== initial.initialLeft || moved.top !== initial.initialTop) {
+        const deltaStyles = {
+          position: moved.position,
+          left: `${moved.left}px`,
+          top: `${moved.top}px`,
+        }
+        api.inspect.applyStyle({ styles: deltaStyles }).catch(() => {})
+        editorBuffer.pushAction({
+          type: 'MOVE',
+          description: `Di chuyển tự do <${currentEl.tagName.toLowerCase()}> (${moved.left}px, ${moved.top}px)`,
+          target: {
+            tagName: currentEl.tagName,
+            id: currentEl.id,
+            className: currentEl.className,
+            domPath: currentEl.domPath,
+            uid: currentEl.uid,
+            selector: currentEl.selector,
+            textSnippet: currentEl.textSnippet,
+          },
+          sourceLoc: sourceLoc
+            ? {
                 filePath: sourceLoc.filePath,
                 fullPath: sourceLoc.fullPath,
                 lineNumber: sourceLoc.lineNumber,
               }
-              : undefined,
-            before: {
-              styles: initial.beforeStyles,
-              text: initial.beforeText,
-              rect: initial.beforeRect,
+            : undefined,
+          before: {
+            styles: initial.beforeStyles,
+            text: initial.beforeText,
+            rect: initial.beforeRect,
+          },
+          after: {
+            styles: {
+              ...currentEl.computedStyles,
+              ...deltaStyles,
             },
-            after: {
-              styles: {
-                ...selectedEl.computedStyles,
-                left: `${curLeft}px`,
-                top: `${curTop}px`,
-                position: curPos,
-              },
-              text: selectedEl.textSnippet,
-              rect: { ...selectedEl.rect },
-            },
-            deltaStyles: {
-              left: `${curLeft}px`,
-              top: `${curTop}px`,
-              position: curPos,
-            },
-          })
-        }
+            text: currentEl.textSnippet,
+            rect: { ...currentEl.rect },
+          },
+          deltaStyles,
+        })
       }
     }
 
@@ -2641,7 +2690,7 @@ const CanvasArea = ({
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isMovingEl, zoom, handleApplyLiveChange, selectedEl, sourceLoc])
+  }, [isMovingEl, zoom, sourceLoc])
 
   // ─── ĐẶT LẠI VỊ TRÍ PHẦN TỬ VỀ TỰ NHIÊN (RESET RELATIVE/TOP/LEFT) ───
   const handleResetElementPosition = () => {
@@ -5120,7 +5169,7 @@ const CanvasArea = ({
               className="canvas__inspect-move-bar"
               style={selectedEl.rect.top < 26 ? { top: 2, right: 2 } : undefined}
               onMouseDown={handleStartElementMove}
-              title="Bấm giữ và kéo để di chuyển vị trí phần tử"
+              title="Kéo tự do đến mọi vị trí trên trang · Giữ Shift khi kéo để đổi khung cha (Reparent)"
             >
               <Move size={12} strokeWidth={2.4} />
             </div>
