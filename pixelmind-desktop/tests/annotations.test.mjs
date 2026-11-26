@@ -95,7 +95,19 @@ test('D2-15: Quản lý lưu trữ tệp .pixelmind/annotations.json (CRUD)', as
     const initialList = await listAnnotations(testDir)
     assert.deepEqual(initialList, [])
 
-    // 2. Thêm ghi chú mới
+    // 2. Thêm ghi chú mới (cho phép tạo draft rỗng khi click lên Canvas)
+    const emptyDraftRes = await addAnnotation(testDir, {
+      xPercent: 10,
+      yPercent: 20,
+      route: '/',
+      content: '',
+    })
+    assert.equal(emptyDraftRes.ok, true)
+    assert.ok(emptyDraftRes.annotation?.id)
+    assert.equal(emptyDraftRes.annotation.content, '')
+    await deleteAnnotation(testDir, emptyDraftRes.annotation.id)
+
+    // Thêm ghi chú có nội dung
     const addRes = await addAnnotation(testDir, {
       xPercent: 33.5,
       yPercent: 66.8,

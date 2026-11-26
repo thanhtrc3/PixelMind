@@ -82,7 +82,6 @@ export async function addAnnotation(
   input: AnnotationInput
 ): Promise<{ ok: boolean; annotation?: AnnotationPin; error?: string }> {
   if (!projectPath) return { ok: false, error: 'Thiếu đường dẫn dự án' }
-  if (!input.content.trim()) return { ok: false, error: 'Nội dung ghi chú không được để trống' }
 
   const current = await listAnnotations(projectPath)
   const now = new Date().toISOString()
@@ -93,7 +92,7 @@ export async function addAnnotation(
     xPercent: Math.min(100, Math.max(0, input.xPercent)),
     yPercent: Math.min(100, Math.max(0, input.yPercent)),
     author: input.author?.trim() || 'Bạn',
-    content: input.content.trim(),
+    content: (input.content || '').trim(),
     resolved: false,
     createdAt: now,
     color: input.color || '#8b5cf6',
