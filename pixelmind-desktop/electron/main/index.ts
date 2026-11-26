@@ -2506,6 +2506,36 @@ function getInspectorScript(isActive: boolean) {
             }
           };
         })(),
+        siblingContainers: (function() {
+          var p = el.parentElement;
+          if (!p) return [];
+          var containerTags = {
+            DIV: 1, NAV: 1, HEADER: 1, FOOTER: 1, MAIN: 1, SECTION: 1,
+            ASIDE: 1, ARTICLE: 1, UL: 1, OL: 1, FORM: 1, FIGURE: 1,
+            FIELDSET: 1, DIALOG: 1, TD: 1, TH: 1
+          };
+          var out = [];
+          for (var si = 0; si < p.children.length; si++) {
+            var sib = p.children[si];
+            if (sib === el) continue;
+            if (!containerTags[sib.tagName]) continue;
+            var sr = sib.getBoundingClientRect();
+            if (sr.width <= 0 || sr.height <= 0) continue;
+            out.push({ top: sr.top, left: sr.left, width: sr.width, height: sr.height });
+          }
+          return out;
+        })(),
+      };
+    }
+
+    function describeNodeForReparent(node) {
+      if (!node || node.nodeType !== 1) return null;
+      return {
+        tagName: node.tagName.toLowerCase(),
+        id: node.id || '',
+        className: typeof node.className === 'string' ? node.className.trim() : '',
+        uid: ensureUid(node),
+        textSnippet: (node.innerText || node.textContent || '').trim().slice(0, 80),
       };
     }
 
@@ -3022,7 +3052,11 @@ function getInspectorScript(isActive: boolean) {
             oldParentUid: oldParentUid,
             oldIndex: oldIndex,
             newParentUid: finalNewParentUid,
-            newIndex: finalNewIndex
+            newIndex: finalNewIndex,
+            elementInfo: describeNodeForReparent(targetToMove),
+            newParentInfo: describeNodeForReparent(finalParent),
+            prevSiblingInfo: describeNodeForReparent(targetToMove.previousElementSibling),
+            nextSiblingInfo: describeNodeForReparent(targetToMove.nextElementSibling),
           }, '*');
         }
       } else if (e.data.type === 'PM_DRAG_OVER') {
@@ -3156,7 +3190,11 @@ function getInspectorScript(isActive: boolean) {
             oldParentUid: oldParentUid,
             oldIndex: oldIndex,
             newParentUid: finalNewParentUid,
-            newIndex: finalNewIndex
+            newIndex: finalNewIndex,
+            elementInfo: describeNodeForReparent(dragEl),
+            newParentInfo: describeNodeForReparent(finalParent),
+            prevSiblingInfo: describeNodeForReparent(dragEl.previousElementSibling),
+            nextSiblingInfo: describeNodeForReparent(dragEl.nextElementSibling),
           }, '*');
         }
       } else if (e.data.type === 'PM_TOOLBOX_INSERT') {

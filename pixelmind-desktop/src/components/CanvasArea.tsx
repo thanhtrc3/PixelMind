@@ -237,6 +237,7 @@ export interface RealElementInfo {
   }
   domPath: string
   textSnippet: string
+  siblingContainers?: Array<{ top: number; left: number; width: number; height: number }>
 }
 
 interface CanvasAreaProps {
@@ -756,6 +757,7 @@ const CanvasArea = ({
     beforeStyles: Record<string, string>
     beforeRect?: { top: number; left: number; width: number; height: number }
     parentRect?: { top: number; left: number; width: number; height: number } | null
+    siblingContainerRects?: Array<{ top: number; left: number; width: number; height: number }>
     beforeText?: string
     oldParentUid?: string
     oldIndex?: number
@@ -1582,52 +1584,91 @@ const CanvasArea = ({
 
           if (!targetUid || !projectPath) return
 
-          const tagName = (el?.tagName || payload.tagName || selectedEl?.tagName || 'div').toLowerCase()
+          const elemInfo = payload.elementInfo as
+            | { tagName?: string; id?: string; className?: string; uid?: string; textSnippet?: string }
+            | null
+            | undefined
+          const newParentInfo = payload.newParentInfo as
+            | { tagName?: string; id?: string; className?: string; uid?: string; textSnippet?: string }
+            | null
+            | undefined
+          const prevSibInfo = payload.prevSiblingInfo as
+            | { tagName?: string; id?: string; className?: string; uid?: string; textSnippet?: string }
+            | null
+            | undefined
+          const nextSibInfo = payload.nextSiblingInfo as
+            | { tagName?: string; id?: string; className?: string; uid?: string; textSnippet?: string }
+            | null
+            | undefined
+
+          const tagName = (elemInfo?.tagName || el?.tagName || payload.tagName || selectedEl?.tagName || 'div').toLowerCase()
+
+          let resolvedFullPath = sourceLoc?.fullPath
+          let resolvedLineNumber = sourceLoc?.lineNumber
+          if (!resolvedFullPath && api?.inspect?.locateSource) {
+            try {
+              const loc = await api.inspect.locateSource({
+                projectPath,
+                textSnippet: elemInfo?.textSnippet || el?.textContent?.trim().slice(0, 80) || selectedEl?.textSnippet || '',
+                tagName,
+                className: elemInfo?.className || el?.className || selectedEl?.className || '',
+                currentPath: currentRouteRef.current,
+                id: elemInfo?.id || el?.id || selectedEl?.id || '',
+                selector: selectedEl?.selector || '',
+                domPath: selectedEl?.domPath || '',
+              })
+              if (loc?.fullPath) {
+                resolvedFullPath = loc.fullPath
+                resolvedLineNumber = loc.lineNumber
+              }
+            } catch { }
+          }
 
           const targetMutation: ElementMutationTarget = {
             tagName,
-            id: el?.id || selectedEl?.id,
-            className: el?.className || selectedEl?.className,
+            id: elemInfo?.id || el?.id || selectedEl?.id,
+            className: elemInfo?.className || el?.className || selectedEl?.className,
             domPath: selectedEl?.domPath,
             uid: targetUid,
             selector: selectedEl?.selector,
-            textSnippet: el?.textContent?.trim().slice(0, 80) || selectedEl?.textSnippet,
+            textSnippet: elemInfo?.textSnippet || el?.textContent?.trim().slice(0, 80) || selectedEl?.textSnippet,
             currentPath: currentRouteRef.current,
-            fullPath: sourceLoc?.fullPath,
-            lineNumber: sourceLoc?.lineNumber,
+            fullPath: resolvedFullPath,
+            lineNumber: resolvedLineNumber,
           }
 
           let targetParent: ElementMutationTarget | undefined
-          if (parentEl && parentEl.tagName.toLowerCase() !== 'body') {
+          const pTag = (newParentInfo?.tagName || parentEl?.tagName || '').toLowerCase()
+          if (pTag && pTag !== 'body' && pTag !== 'html') {
             targetParent = {
-              tagName: parentEl.tagName.toLowerCase(),
-              id: parentEl.id,
-              className: parentEl.className,
-              uid: newParentUid,
-              textSnippet: parentEl.textContent?.trim().slice(0, 80),
+              tagName: pTag,
+              id: newParentInfo?.id || parentEl?.id,
+              className: newParentInfo?.className || parentEl?.className,
+              uid: newParentInfo?.uid || newParentUid,
+              textSnippet: newParentInfo?.textSnippet || parentEl?.textContent?.trim().slice(0, 80),
               currentPath: currentRouteRef.current,
             }
           }
 
           let targetSibling: ElementMutationTarget | undefined
           let placement: InsertPlacement = 'inside'
-          if (nextSibling) {
+          if (nextSibInfo?.tagName || nextSibling) {
             targetSibling = {
-              tagName: nextSibling.tagName.toLowerCase(),
-              id: nextSibling.id,
-              className: nextSibling.className,
-              uid: nextSibling.getAttribute('data-pm-uid') || undefined,
-              textSnippet: nextSibling.textContent?.trim().slice(0, 80),
+              tagName: (nextSibInfo?.tagName || nextSibling!.tagName).toLowerCase(),
+              id: nextSibInfo?.id || nextSibling?.id,
+              className: nextSibInfo?.className || nextSibling?.className,
+              uid: nextSibInfo?.uid || nextSibling?.getAttribute('data-pm-uid') || undefined,
+              textSnippet: nextSibInfo?.textSnippet || nextSibling?.textContent?.trim().slice(0, 80),
               currentPath: currentRouteRef.current,
             }
             placement = 'before'
-          } else if (prevSibling) {
+          } else if (prevSibInfo?.tagName || prevSibling) {
             targetSibling = {
-              tagName: prevSibling.tagName.toLowerCase(),
-              id: prevSibling.id,
-              className: prevSibling.className,
-              uid: prevSibling.getAttribute('data-pm-uid') || undefined,
-              textSnippet: prevSibling.textContent?.trim().slice(0, 80),
+              tagName: (prevSibInfo?.tagName || prevSibling!.tagName).toLowerCase(),
+              id: prevSibInfo?.id || prevSibling?.id,
+              className: prevSibInfo?.className || prevSibling?.className,
+              uid: prevSibInfo?.uid || prevSibling?.getAttribute('data-pm-uid') || undefined,
+              textSnippet: prevSibInfo?.textSnippet || prevSibling?.textContent?.trim().slice(0, 80),
               currentPath: currentRouteRef.current,
             }
             placement = 'after'
@@ -1660,6 +1701,7 @@ const CanvasArea = ({
                   lineNumber: mutateRes.startLine || 1,
                   lineContent: '',
                 }
+                setSourceLoc(reparentSourceLoc)
               }
               showToast(
                 `Đã chuyển <${tagName}> và ghi cấu trúc vào mã nguồn thành công!`
@@ -2519,6 +2561,7 @@ const CanvasArea = ({
       beforeStyles: { ...selectedEl.computedStyles },
       beforeRect: { ...selectedEl.rect },
       parentRect: liveParentRect,
+      siblingContainerRects: selectedEl.siblingContainers || [],
       beforeText: selectedEl.textSnippet,
       oldParentUid: domOldParentUid,
       oldIndex: domOldIndex,
@@ -2552,9 +2595,19 @@ const CanvasArea = ({
             pointerY < pRect.top ||
             pointerY > pRect.top + pRect.height)
       )
+      const isOverSiblingContainer = Boolean(
+        iframeRect &&
+          moveStartRef.current.siblingContainerRects?.some(
+            (r) =>
+              pointerX >= r.left &&
+              pointerX <= r.left + r.width &&
+              pointerY >= r.top &&
+              pointerY <= r.top + r.height
+          )
+      )
 
-      // Cách A (tự động): Kéo chuột ra khỏi khung cha (hoặc giữ Shift) → chuyển sang chế độ đổi khung cha / đổi thứ tự DOM
-      if (e.shiftKey || (!isAbsolute && isOutsideParent)) {
+      // Cách A (tự động): Kéo chuột ra khỏi khung cha hoặc đi vào một khung chứa anh em (vd: <nav>, <div>) → chế độ đổi khung cha
+      if (e.shiftKey || (!isAbsolute && (isOutsideParent || isOverSiblingContainer))) {
         dragModeRef.current = 'reparent'
         // Khôi phục vị trí tạm thời trước khi thả vào khung mới để tránh dính offset cũ
         if (lastFreeMoveRef.current) {
