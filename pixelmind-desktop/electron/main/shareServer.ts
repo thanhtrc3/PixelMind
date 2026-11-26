@@ -539,8 +539,10 @@ function handleShareRequest(req: http.IncomingMessage, res: http.ServerResponse)
       delete outHeaders['content-security-policy-report-only']
       delete outHeaders['x-frame-options']
 
-      // Nếu là trang HTML: chèn client Chỉ xem & Ghi chú
+      // Nếu là trang HTML: chèn client Chỉ xem & Ghi chú (xoá transfer-encoding vì ta gửi trọn buffer với content-length)
       if (contentType.includes('text/html')) {
+        delete outHeaders['transfer-encoding']
+        delete outHeaders['content-encoding']
         const chunks: Buffer[] = []
         proxyRes.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
         proxyRes.on('end', () => {
