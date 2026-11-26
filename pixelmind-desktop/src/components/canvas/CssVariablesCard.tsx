@@ -61,6 +61,7 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
   const [showTokenAssignModal, setShowTokenAssignModal] = useState(false)
   const [selectedPropKey, setSelectedPropKey] = useState<string>('color')
   const [selectedTokenRef, setSelectedTokenRef] = useState<string>('')
+  const [showAllTokens, setShowAllTokens] = useState(false)
 
   // Trạng thái chỉnh sửa trực tiếp giá trị biến
   const [editingVarName, setEditingVarName] = useState<string | null>(null)
@@ -174,6 +175,56 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
   const isColorVal = (val: string) => {
     return /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(val.trim()) || /^rgba?\(|^hsla?\(/i.test(val.trim())
   }
+
+  // Thuộc tính đang chọn trong Modal
+  const selectedPropMeta = useMemo(() => {
+    return COMMON_ASSIGNABLE_PROPERTIES.find((p) => p.key === selectedPropKey) || COMMON_ASSIGNABLE_PROPERTIES[0]
+  }, [selectedPropKey])
+
+  // Lọc Design Tokens theo loại thuộc tính đang chọn (Màu chữ -> chỉ hiện màu)
+  const filteredTokenList = useMemo(() => {
+    if (showAllTokens) return tokenList
+    if (!selectedPropMeta) return tokenList
+    const cat = selectedPropMeta.category
+    if (cat === 'other') return tokenList
+    return tokenList.filter((tok) => tok.category === cat || tok.category === 'custom')
+  }, [tokenList, selectedPropMeta, showAllTokens])
+
+  // Lọc biến CSS có sẵn trên trang theo loại thuộc tính đang chọn
+  const filteredVariablesList = useMemo(() => {
+    if (showAllTokens) return variables
+    if (!selectedPropMeta) return variables
+    const cat = selectedPropMeta.category
+    if (cat === 'color') {
+      return variables.filter((v) => {
+        const val = v.value.toLowerCase().trim()
+        const name = v.name.toLowerCase()
+        return (
+          isColorVal(v.value) ||
+          (v.computedValue && isColorVal(v.computedValue)) ||
+          /color|bg|red|blue|green|yellow|gray|grey|border|text|white|black|primary|secondary|accent|dark|light|danger|warning|info|success|brand/i.test(name) ||
+          /^#(?:[0-9a-f]{3,8})$/i.test(val) ||
+          /^rgba?\(/i.test(val) ||
+          /^hsla?\(/i.test(val)
+        )
+      })
+    }
+    if (cat === 'spacing') {
+      return variables.filter((v) => {
+        const val = v.value.toLowerCase().trim()
+        const name = v.name.toLowerCase()
+        return /px|rem|em|%|vw|vh/i.test(val) || /space|gap|pad|margin|size|width|height/i.test(name)
+      })
+    }
+    if (cat === 'radius') {
+      return variables.filter((v) => {
+        const val = v.value.toLowerCase().trim()
+        const name = v.name.toLowerCase()
+        return /px|rem|%/i.test(val) || /radius|rounded|corner/i.test(name)
+      })
+    }
+    return variables
+  }, [variables, selectedPropMeta, showAllTokens])
 
   return (
     <div className="canvas__inspector-card pm-css-vars-card">
@@ -329,9 +380,8 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
                         {v.name}
                       </span>
                       <span
-                        className={`pm-css-var-badge ${
-                          v.isInline ? 'badge-inline' : v.isInherited ? 'badge-root' : 'badge-rule'
-                        }`}
+                        className={`pm-css-var-badge ${v.isInline ? 'badge-inline' : v.isInherited ? 'badge-root' : 'badge-rule'
+                          }`}
                       >
                         {v.isInline ? 'inline' : v.sourceSelector || 'rule'}
                       </span>
@@ -437,9 +487,11 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
                 </label>
                 <select
                   value={selectedPropKey}
-                  onChange={(e) => setSelectedPropKey(e.target.value)}
-                  className="canvas__input"
-                  style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
+                  onChange={(e) => {
+                    setSelectedPropKey(e.target.value)
+                    setSelectedTokenRef('')
+                  }}
+                  className="pm-token-prop-select"
                 >
                   {COMMON_ASSIGNABLE_PROPERTIES.map((p) => {
                     const currentVal = computedStyles[p.key] || 'chưa gán'
@@ -455,18 +507,51 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
 
               {/* Chọn Token thay thế */}
               <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
-                  Chọn Design Token hoặc Biến CSS:
-                </label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', margin: 0 }}>
+                    Chọn Design Token hoặc Biến CSS:
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllTokens((prev) => !prev)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#38bdf8',
+                      fontSize: 10.5,
+                      cursor: 'pointer',
+                      padding: 0,
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    {showAllTokens ? 'Chỉ hiện mục phù hợp' : 'Hiện tất cả'}
+                  </button>
+                </div>
 
-                {tokenList.length === 0 && variables.length === 0 ? (
-                  <div style={{ fontSize: 11.5, color: 'var(--text-3)', padding: '10px 0' }}>
-                    Chưa có Design Token nào trong dự án. Bạn có thể tự nhập cú pháp <code>var(--tên-biến)</code> bên dưới.
+                {filteredTokenList.length === 0 && filteredVariablesList.length === 0 ? (
+                  <div style={{ fontSize: 11.5, color: 'var(--text-3)', padding: '12px 6px', textAlign: 'center', background: '#0f1219', borderRadius: 6 }}>
+                    Không có token hoặc biến nào thuộc loại {selectedPropMeta.category === 'color' ? 'màu sắc' : selectedPropMeta.label.split(' ')[0]}.
+                    <button
+                      type="button"
+                      onClick={() => setShowAllTokens(true)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#38bdf8',
+                        fontSize: 11,
+                        cursor: 'pointer',
+                        display: 'block',
+                        margin: '6px auto 0',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      Bấm vào đây để hiện tất cả biến
+                    </button>
                   </div>
                 ) : (
                   <div className="pm-token-select-list">
                     {/* Danh sách Token có sẵn */}
-                    {tokenList.map((tok) => {
+                    {filteredTokenList.map((tok) => {
                       const refStr = formatVarReference(tok.cssVarName, tok.value)
                       const isSelected = selectedTokenRef === refStr
 
@@ -504,7 +589,7 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
                     })}
 
                     {/* Danh sách biến CSS trên element */}
-                    {variables.map((v) => {
+                    {filteredVariablesList.map((v) => {
                       const refStr = formatVarReference(v.name)
                       const isSelected = selectedTokenRef === refStr
 
@@ -515,6 +600,12 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
                           onClick={() => setSelectedTokenRef(refStr)}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                            {isColorVal(v.value) && (
+                              <span
+                                className="pm-css-var-swatch"
+                                style={{ backgroundColor: v.value }}
+                              />
+                            )}
                             <span style={{ fontWeight: 600, fontSize: 11.5, fontFamily: 'monospace' }}>
                               {v.name}
                             </span>

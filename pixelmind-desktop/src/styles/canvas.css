@@ -3041,6 +3041,29 @@
   max-height: 60vh;
 }
 
+.pm-token-prop-select {
+  width: 100%;
+  font-size: 12px;
+  padding: 8px 10px;
+  background: #141722 !important;
+  color: #f1f5f9 !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+}
+
+.pm-token-prop-select:focus {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+.pm-token-prop-select option {
+  background: #1a1e2b !important;
+  color: #ffffff !important;
+  padding: 8px 12px;
+}
+
 .pm-token-select-list {
   display: flex;
   flex-direction: column;
