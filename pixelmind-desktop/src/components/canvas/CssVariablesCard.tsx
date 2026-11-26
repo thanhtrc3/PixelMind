@@ -59,7 +59,7 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
 
   // Trạng thái gán token vào thuộc tính viết cứng
   const [showTokenAssignModal, setShowTokenAssignModal] = useState(false)
-  const [selectedPropKey, setSelectedPropKey] = useState<string>('backgroundColor')
+  const [selectedPropKey, setSelectedPropKey] = useState<string>('color')
   const [selectedTokenRef, setSelectedTokenRef] = useState<string>('')
 
   // Trạng thái chỉnh sửa trực tiếp giá trị biến
@@ -81,10 +81,11 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
     const res: SuggestedToken[] = []
     if (Array.isArray(designTokens.colors)) {
       for (const c of designTokens.colors) {
+        const slug = c.name.toLowerCase().replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '')
         res.push({
           id: c.id,
           name: c.name,
-          cssVarName: `--color-${c.name.toLowerCase().replace(/\s+/g, '-')}`,
+          cssVarName: `--color-${slug}`,
           value: c.value,
           category: 'color',
         })
@@ -92,10 +93,11 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
     }
     if (Array.isArray(designTokens.spacing)) {
       for (const s of designTokens.spacing) {
+        const slug = s.name.toLowerCase().replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '')
         res.push({
           id: s.id,
           name: s.name,
-          cssVarName: `--space-${s.name.toLowerCase().replace(/\s+/g, '-')}`,
+          cssVarName: `--space-${slug}`,
           value: s.value,
           category: 'spacing',
         })
@@ -103,10 +105,11 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
     }
     if (Array.isArray(designTokens.radius)) {
       for (const r of designTokens.radius) {
+        const slug = r.name.toLowerCase().replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '')
         res.push({
           id: r.id,
           name: r.name,
-          cssVarName: `--radius-${r.name.toLowerCase().replace(/\s+/g, '-')}`,
+          cssVarName: `--radius-${slug}`,
           value: r.value,
           category: 'radius',
         })
