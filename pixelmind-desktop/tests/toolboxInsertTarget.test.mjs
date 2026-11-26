@@ -281,3 +281,37 @@ test('reparent khớp đúng thẻ anh em trong <nav> (không bắt nhầm <a> �
   assert.ok(navMatch[1].indexOf('Trang chủ') < navMatch[1].indexOf('Kho hàng'), 'Trang chủ phải đứng trước Kho hàng trong <nav>')
   assert.ok(!navMatch[1].includes('left: 48px'), 'phải gỡ tọa độ kéo tự do cũ khi đổi khung cha')
 })
+
+test('delete và delete-batch tuyệt đối không được xoá vùng <main>@RenderBody()</main> trong _Layout.cshtml', async () => {
+  const dir = await fs.mkdtemp(join(tmpdir(), 'pm-protect-renderbody-'))
+  await fs.mkdir(join(dir, 'Views', 'Shared'), { recursive: true })
+  const layout = join(dir, 'Views', 'Shared', '_Layout.cshtml')
+  const original = [
+    '<body>',
+    '  <header>Header</header>',
+    '  <main>',
+    '    @RenderBody()',
+    '  </main>',
+    '  <footer>Footer</footer>',
+    '</body>',
+    '',
+  ].join('\n')
+  await fs.writeFile(layout, original, 'utf8')
+
+  const resSingle = await runToolboxMutation({
+    kind: 'delete',
+    projectPath: dir,
+    target: { tagName: 'main', fullPath: layout, lineNumber: 3 },
+    dryRun: false,
+  })
+  assert.equal(resSingle.success, false)
+
+  const resBatch = await runToolboxMutation({
+    kind: 'delete-batch',
+    projectPath: dir,
+    targets: [{ tagName: 'main', fullPath: layout, lineNumber: 3 }],
+    dryRun: false,
+  })
+  assert.equal(resBatch.success, false)
+  assert.equal(await fs.readFile(layout, 'utf8'), original, 'phải giữ nguyên @RenderBody()')
+})

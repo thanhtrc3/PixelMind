@@ -202,10 +202,20 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+const LAYOUT_OUTLET_RE = /@RenderBody\s*\(\s*\)|<router-view\b|<NuxtPage\b|<router-outlet\b|@yield\s*\(/i
+
 function scoreCandidate(content: string, candidate: Candidate, target: ElementMutationTarget): number {
   const { tag } = candidate
   const tagName = (target.tagName || '').toLowerCase()
   if (tagName && tag.name.toLowerCase() !== tagName) return -1
+
+  // Tuyệt đối không khớp vùng khung chứa @RenderBody() / <router-view> của Layout làm phần tử mục tiêu
+  if (
+    !candidate.range.selfClosing &&
+    LAYOUT_OUTLET_RE.test(content.slice(candidate.range.contentStart, candidate.range.contentEnd))
+  ) {
+    return -1
+  }
 
   let score = tagName ? 8 : 0
   const open = content.slice(tag.start, tag.openEnd)
@@ -721,6 +731,12 @@ function mutateDelete(
   content: string,
   range: ElementRangeInfo,
 ): MutationPreview {
+  if (LAYOUT_OUTLET_RE.test(content.slice(range.startOffset, range.endOffset))) {
+    return {
+      success: false,
+      error: 'Không thể xoá khung chứa nội dung chính (@RenderBody / router-view) của Layout dùng chung.',
+    }
+  }
   const start = lineStartAt(content, range.startOffset)
   const endLine = lineEndAt(content, Math.max(range.startOffset, range.endOffset - 1))
   const end = endLine < content.length ? endLine + 1 : endLine
@@ -1000,6 +1016,7 @@ async function runToolboxDeleteBatch(payload: ToolboxMutationPayload): Promise<M
     if (!best) continue
     const minScore = target.tagName ? 8 : 1
     if (best.score < minScore) continue
+    if (LAYOUT_OUTLET_RE.test(content.slice(best.range.startOffset, best.range.endOffset))) continue
     usedOffsets.add(best.range.startOffset)
     ranges.push(best.range)
   }

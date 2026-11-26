@@ -779,8 +779,50 @@ ipcMain.handle(
   },
 )
 
+/**
+ * Tự động khôi phục @RenderBody() cho _Layout.cshtml của dự án ASP.NET Core nếu bị mất
+ * (tránh lỗi HTTP 500 trang trắng toàn dự án do thiếu RenderBody).
+ */
+async function ensureRazorLayoutRenderBody(rootDir: string): Promise<void> {
+  if (!rootDir) return
+  const candidateRelPaths = [
+    'Views/Shared/_Layout.cshtml',
+    'Pages/Shared/_Layout.cshtml',
+  ]
+  try {
+    const entries = await fs.readdir(rootDir, { withFileTypes: true })
+    for (const e of entries) {
+      if (e.isDirectory() && !['node_modules', '.git', 'bin', 'obj', 'wwwroot'].includes(e.name)) {
+        candidateRelPaths.push(`${e.name}/Views/Shared/_Layout.cshtml`, `${e.name}/Pages/Shared/_Layout.cshtml`)
+      }
+    }
+  } catch { }
+
+  for (const rel of candidateRelPaths) {
+    const full = join(rootDir, rel)
+    try {
+      const content = await fs.readFile(full, 'utf8')
+      if (/@RenderBody\s*\(\s*\)/i.test(content) || /IgnoreBody\s*\(\s*\)/i.test(content)) continue
+      let healed = content
+      if (/<main\b[^>]*>[\s\S]*?<\/main>/i.test(content)) {
+        healed = content.replace(/(<main\b[^>]*>)/i, '$1\n        @RenderBody()')
+      } else if (/<footer\b/i.test(content)) {
+        healed = content.replace(/(^[ \t]*<footer\b)/im, '    <main>\n        @RenderBody()\n    </main>\n\n$1')
+      } else if (/<\/body>/i.test(content)) {
+        healed = content.replace(/(<\/body>)/i, '    <main>\n        @RenderBody()\n    </main>\n$1')
+      } else {
+        healed = `${content}\n<main>\n    @RenderBody()\n</main>\n`
+      }
+      if (healed !== content) {
+        await fs.writeFile(full, healed, 'utf8')
+      }
+    } catch { }
+  }
+}
+
 /** Ghép kết quả dò mới vào bản ghi cũ, giữ dữ liệu người dùng đã tạo. */
 async function mergeDetected(project: ProjectRecord, fresh: ProjectRecord): Promise<ProjectRecord> {
+  await ensureRazorLayoutRenderBody(project.path)
   const merged: ProjectRecord = {
     ...fresh,
     id: project.id,
@@ -1897,6 +1939,7 @@ ipcMain.handle('run:start', async (_e, projectId: string, script: string) => {
   const store = await readStore()
   const project = store.projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Không tìm thấy dự án trong danh sách.')
+  await ensureRazorLayoutRenderBody(project.path)
   const entry = project.scripts.find((item) => item.name === script)
   const portOptions = { preferredPort: store.settings.preferredPort }
   const state =
@@ -1930,6 +1973,7 @@ ipcMain.handle('run:start-command', async (_e, projectId: string, command: strin
   const store = await readStore()
   const project = store.projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Không tìm thấy dự án trong danh sách.')
+  await ensureRazorLayoutRenderBody(project.path)
   const clean = command.trim()
   if (!clean) throw new Error('Hãy nhập lệnh chạy trước khi bấm Chạy.')
   /* Lưu lại để lần sau mở dự án vẫn còn lệnh */
