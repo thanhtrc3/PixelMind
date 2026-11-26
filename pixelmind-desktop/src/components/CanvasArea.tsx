@@ -755,6 +755,7 @@ const CanvasArea = ({
     initialTop: number
     beforeStyles: Record<string, string>
     beforeRect?: { top: number; left: number; width: number; height: number }
+    parentRect?: { top: number; left: number; width: number; height: number } | null
     beforeText?: string
     oldParentUid?: string
     oldIndex?: number
@@ -2472,10 +2473,11 @@ const CanvasArea = ({
     }
   }, [resizingEl, zoom, handleApplyLiveChange, selectedEl, sourceLoc])
 
-  // ─── KÉO DI CHUYỂN VỊ TRÍ PHẦN TỬ THẬT (LIVE FREE MOVE + SHIFT REPARENT) ───
+  // ─── KÉO DI CHUYỂN TRONG KHUNG CHA + TỰ ĐỘNG ĐỔI KHUNG KHI KÉO RA NGOÀI ───
   const selectedElRef = useRef<RealElementInfo | null>(null)
   selectedElRef.current = selectedEl
   const lastFreeMoveRef = useRef<{ left: number; top: number; position: string } | null>(null)
+  const dragModeRef = useRef<'move' | 'reparent'>('move')
 
   const handleStartElementMove = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -2484,11 +2486,13 @@ const CanvasArea = ({
 
     setIsMovingEl(true)
     lastFreeMoveRef.current = null
+    dragModeRef.current = 'move'
     const curLeft = parseInt(selectedEl.computedStyles.left || '0', 10) || 0
     const curTop = parseInt(selectedEl.computedStyles.top || '0', 10) || 0
 
     let domOldParentUid = selectedEl.parent?.uid || ''
     let domOldIndex = -1
+    let liveParentRect = selectedEl.parent?.rect ? { ...selectedEl.parent.rect } : null
     try {
       const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
       if (doc && selectedEl.uid) {
@@ -2499,6 +2503,10 @@ const CanvasArea = ({
           }
           domOldParentUid = el.parentElement.getAttribute('data-pm-uid') || domOldParentUid
           domOldIndex = Array.prototype.indexOf.call(el.parentElement.childNodes, el)
+          const pr = el.parentElement.getBoundingClientRect()
+          if (pr.width > 0 && pr.height > 0) {
+            liveParentRect = { top: pr.top, left: pr.left, width: pr.width, height: pr.height }
+          }
         }
       }
     } catch { }
@@ -2510,6 +2518,7 @@ const CanvasArea = ({
       initialTop: curTop,
       beforeStyles: { ...selectedEl.computedStyles },
       beforeRect: { ...selectedEl.rect },
+      parentRect: liveParentRect,
       beforeText: selectedEl.textSnippet,
       oldParentUid: domOldParentUid,
       oldIndex: domOldIndex,
@@ -2527,19 +2536,69 @@ const CanvasArea = ({
       const dx = (e.clientX - moveStartRef.current.startX) / scale
       const dy = (e.clientY - moveStartRef.current.startY) / scale
 
-      // Giữ Shift khi kéo: chế độ đổi khung cha / đổi thứ tự DOM (Reparent / Reorder)
-      if (e.shiftKey) {
-        const iframe = iframeRef.current
+      const iframe = iframeRef.current
+      const iframeRect = iframe?.getBoundingClientRect()
+      const pointerX = iframeRect ? (e.clientX - iframeRect.left) / scale : 0
+      const pointerY = iframeRect ? (e.clientY - iframeRect.top) / scale : 0
+
+      const curPos = currentEl.computedStyles?.position
+      const isAbsolute = curPos === 'absolute' || curPos === 'fixed'
+      const pRect = moveStartRef.current.parentRect
+      const isOutsideParent = Boolean(
+        pRect &&
+          iframeRect &&
+          (pointerX < pRect.left ||
+            pointerX > pRect.left + pRect.width ||
+            pointerY < pRect.top ||
+            pointerY > pRect.top + pRect.height)
+      )
+
+      // Cách A (tự động): Kéo chuột ra khỏi khung cha (hoặc giữ Shift) → chuyển sang chế độ đổi khung cha / đổi thứ tự DOM
+      if (e.shiftKey || (!isAbsolute && isOutsideParent)) {
+        dragModeRef.current = 'reparent'
+        // Khôi phục vị trí tạm thời trước khi thả vào khung mới để tránh dính offset cũ
+        if (lastFreeMoveRef.current) {
+          lastFreeMoveRef.current = null
+          const initial = moveStartRef.current
+          const restorePatch = {
+            position: initial.beforeStyles.position || '',
+            left: initial.beforeStyles.left || '',
+            top: initial.beforeStyles.top || '',
+          }
+          if (iframe?.contentWindow) {
+            iframe.contentWindow.postMessage(
+              {
+                type: 'PM_APPLY_STYLE',
+                payload: {
+                  target: {
+                    tagName: currentEl.tagName,
+                    id: currentEl.id,
+                    className: currentEl.className,
+                    domPath: currentEl.domPath,
+                    uid: currentEl.uid,
+                    selector: currentEl.selector,
+                    textSnippet: currentEl.textSnippet,
+                  },
+                  styles: restorePatch,
+                },
+              },
+              '*'
+            )
+          }
+          if (initial.beforeRect) {
+            setSelectedEl((prev) =>
+              prev ? { ...prev, rect: { ...initial.beforeRect! }, computedStyles: { ...prev.computedStyles, ...restorePatch } } : null
+            )
+          }
+        }
+
         if (iframe?.contentWindow) {
-          const iframeRect = iframe.getBoundingClientRect()
-          const x = (e.clientX - iframeRect.left) / scale
-          const y = (e.clientY - iframeRect.top) / scale
           iframe.contentWindow.postMessage(
             {
               type: 'PM_DRAG_OVER',
               dragUid: currentEl.uid,
-              x,
-              y,
+              x: pointerX,
+              y: pointerY,
             },
             '*'
           )
@@ -2547,15 +2606,25 @@ const CanvasArea = ({
         return
       }
 
+      // Kéo trong khung cha: di chuyển tự do nhưng bị giới hạn (clamp) nằm gọn trong viền khung cha
+      dragModeRef.current = 'move'
       setDropTargetHover(null)
 
-      // Mặc định: kéo thả tự do tới bất kỳ toạ độ (x, y) nào trên trang.
-      // Giữ nguyên position absolute/fixed nếu phần tử đang dùng; ngược lại chuyển sang position: relative
-      // để di chuyển tự do mượt mà mà không làm sập bố cục các phần tử xung quanh.
-      const curPos = currentEl.computedStyles?.position
-      const nextPos = curPos === 'absolute' || curPos === 'fixed' ? curPos : 'relative'
-      const nextLeft = Math.round(moveStartRef.current.initialLeft + dx)
-      const nextTop = Math.round(moveStartRef.current.initialTop + dy)
+      const beforeRect = moveStartRef.current.beforeRect
+      let clampedDx = dx
+      let clampedDy = dy
+      if (pRect && beforeRect) {
+        const minDx = Math.min(0, pRect.left - beforeRect.left)
+        const maxDx = Math.max(0, pRect.left + pRect.width - (beforeRect.left + beforeRect.width))
+        const minDy = Math.min(0, pRect.top - beforeRect.top)
+        const maxDy = Math.max(0, pRect.top + pRect.height - (beforeRect.top + beforeRect.height))
+        clampedDx = Math.max(minDx, Math.min(maxDx, dx))
+        clampedDy = Math.max(minDy, Math.min(maxDy, dy))
+      }
+
+      const nextPos = isAbsolute ? curPos : 'relative'
+      const nextLeft = Math.round(moveStartRef.current.initialLeft + clampedDx)
+      const nextTop = Math.round(moveStartRef.current.initialTop + clampedDy)
       lastFreeMoveRef.current = { left: nextLeft, top: nextTop, position: nextPos }
 
       const stylesPatch = {
@@ -2564,8 +2633,8 @@ const CanvasArea = ({
         top: `${nextTop}px`,
       }
 
-      if (iframeRef.current?.contentWindow) {
-        iframeRef.current.contentWindow.postMessage(
+      if (iframe?.contentWindow) {
+        iframe.contentWindow.postMessage(
           {
             type: 'PM_APPLY_STYLE',
             payload: {
@@ -2585,7 +2654,6 @@ const CanvasArea = ({
         )
       }
 
-      const beforeRect = moveStartRef.current.beforeRect
       setModifiedStyles((prev) => ({ ...prev, ...stylesPatch }))
       setSelectedEl((prev) => {
         if (!prev) return null
@@ -2594,8 +2662,8 @@ const CanvasArea = ({
           rect: beforeRect
             ? {
                 ...prev.rect,
-                left: Math.round(beforeRect.left + dx),
-                top: Math.round(beforeRect.top + dy),
+                left: Math.round(beforeRect.left + clampedDx),
+                top: Math.round(beforeRect.top + clampedDy),
               }
             : prev.rect,
           computedStyles: {
@@ -2611,10 +2679,13 @@ const CanvasArea = ({
       setDropTargetHover(null)
       const initial = moveStartRef.current
       const currentEl = selectedElRef.current
+      const mode = dragModeRef.current
+      dragModeRef.current = 'move'
       if (!currentEl) return
 
-      // Nếu đang giữ Shift khi thả chuột: thực hiện Reparent / Reorder trong cây DOM
-      if (e.shiftKey) {
+      // Nếu kéo ra ngoài khung cha (hoặc giữ Shift) khi thả chuột: thực hiện Reparent / Reorder sang khung mới
+      if (e.shiftKey || mode === 'reparent') {
+        lastFreeMoveRef.current = null
         const curPos = currentEl.computedStyles?.position
         const isAbsolute = curPos === 'absolute' || curPos === 'fixed'
         const iframe = iframeRef.current
