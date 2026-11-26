@@ -2735,6 +2735,7 @@ const CanvasArea = ({
     }
 
     let isMounted = true
+    setSourceLoc(null)
     setIsLocatingSource(true)
 
     if (api?.inspect?.locateSource) {
@@ -2797,6 +2798,7 @@ const CanvasArea = ({
                 currentPath: item.currentPath || currentRouteRef.current,
                 id: item.id,
                 selector: item.selector,
+                domPath: item.domPath,
               })
               fullPath = loc?.fullPath
               lineNumber = loc?.lineNumber
@@ -2956,6 +2958,7 @@ const CanvasArea = ({
               currentPath: info.currentPath || currentRouteRef.current,
               id: info.id,
               selector: info.selector,
+              domPath: info.domPath,
             })
             if (loc?.fullPath) {
               resolvedFullPath = loc.fullPath
@@ -3874,6 +3877,7 @@ const CanvasArea = ({
             currentPath: info.currentPath || currentRouteRef.current,
             id: info.id,
             selector: info.selector,
+            domPath: info.domPath,
           })
           if (loc?.fullPath) {
             resolvedFullPath = loc.fullPath
@@ -4051,6 +4055,7 @@ const CanvasArea = ({
                 currentPath: info.currentPath || currentRouteRef.current,
                 id: info.id,
                 selector: info.selector,
+                domPath: info.domPath,
               })
               if (loc?.fullPath) {
                 fullPath = loc.fullPath

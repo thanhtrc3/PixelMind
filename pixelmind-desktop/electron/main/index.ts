@@ -3746,7 +3746,39 @@ async function scanProjectForSource(
   const lowerDomPath = (domPath || '').toLowerCase()
   const domInHeader = /\bheader\b/.test(lowerDomPath) && !/\bmain\b/.test(lowerDomPath)
   const domInFooter = /\bfooter\b/.test(lowerDomPath) && !/\bmain\b/.test(lowerDomPath)
-  const domInLayoutShell = domInHeader || domInFooter
+  const domInNav = /\bnav\b/.test(lowerDomPath) && !/\bmain\b/.test(lowerDomPath)
+  const domInLayoutShell = domInHeader || domInFooter || domInNav
+
+  // Chuẩn bị ngữ cảnh thẻ mở / thẻ cha / nội dung con cho thẻ trần không có id/class (vd: <nav>, <header>, <footer>, <main>, <section>, <div>)
+  const escapedTag = (tagName || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const openTagPattern = escapedTag ? new RegExp(`<${escapedTag}(?:\\s|>|$)`, 'i') : null
+  const isLandmarkTag = /^(nav|header|footer|main|aside|form)$/i.test((tagName || '').trim())
+  const domSegments = (domPath || '')
+    .split('>')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const parentSegment = domSegments.length >= 2 ? domSegments[domSegments.length - 2] : ''
+  const parentIdMatch = parentSegment.match(/#([a-zA-Z0-9_-]+)/)
+  const parentId = parentIdMatch ? parentIdMatch[1] : ''
+  const parentClasses = Array.from(parentSegment.matchAll(/\.([a-zA-Z0-9_-]+)/g))
+    .map((m) => m[1])
+    .filter((c) => c.length > 2 && !GENERIC_CSS_CLASSES[c.toLowerCase()])
+  const parentTagMatch = parentSegment.match(/^([a-zA-Z][a-zA-Z0-9_-]*)/)
+  const parentTag = parentTagMatch ? parentTagMatch[1].toLowerCase() : ''
+  const parentLandmarkPattern =
+    parentTag && /^(header|footer|nav|main|aside|section|form)$/i.test(parentTag)
+      ? new RegExp(`<${parentTag}(?:\\s|>|$)`, 'i')
+      : null
+  const childTextChunks = (textSnippet || '')
+    .trim()
+    .split(/\s{2,}|\n+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 2)
+  const childTextWords = (textSnippet || '')
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length >= 3)
+  const firstChildPhrase = childTextWords.slice(0, 2).join(' ')
 
   const candidates: Array<{
     filePath: string
@@ -3793,7 +3825,8 @@ async function scanProjectForSource(
             lowerRel.includes('components') ||
             lowerRel.includes('layout') ||
             lowerRel.includes('header') ||
-            lowerRel.includes('footer')
+            lowerRel.includes('footer') ||
+            lowerRel.includes('nav')
           let routeScore = 0
           if (domInLayoutShell && isLayoutFile) {
             routeScore += 110
@@ -3865,10 +3898,46 @@ async function scanProjectForSource(
               }
             }
 
+            // 6. Khớp thẻ trần / container không có id/class (vd: <nav>, <header>, <footer>, <main>, <section>, <div>)
+            if (
+              !matched &&
+              openTagPattern &&
+              !/\.(css|scss|sass|less)$/.test(lowerRel) &&
+              openTagPattern.test(line)
+            ) {
+              const lookahead = lines.slice(i, Math.min(lines.length, i + 12)).join(' ')
+              const lookbehind = lines.slice(Math.max(0, i - 12), i).join('\n')
+              let containerBoost = 0
+
+              if (firstChildPhrase.length >= 3 && lookahead.includes(firstChildPhrase)) {
+                containerBoost += 65
+              } else if (childTextChunks.some((chunk) => lookahead.includes(chunk))) {
+                containerBoost += 55
+              }
+
+              if (parentId && (lookbehind.includes(`id="${parentId}"`) || lookbehind.includes(`id='${parentId}'`))) {
+                containerBoost += 65
+              } else if (parentClasses.length > 0 && parentClasses.some((pc) => lookbehind.includes(pc))) {
+                containerBoost += 55
+              } else if (parentLandmarkPattern && parentLandmarkPattern.test(lookbehind)) {
+                containerBoost += 40
+              }
+
+              if (containerBoost === 0 && isLandmarkTag && routeScore >= 0) {
+                containerBoost += 45
+              }
+
+              if (containerBoost > 0) {
+                lineScore += containerBoost
+                matched = true
+              }
+            }
+
             if (matched && domInLayoutShell) {
               const ctxWindow = lines.slice(Math.max(0, actualLineNumber - 25), actualLineNumber).join('\n').toLowerCase()
               if (domInHeader && /<header\b/.test(ctxWindow)) lineScore += 90
               else if (domInFooter && /<footer\b/.test(ctxWindow)) lineScore += 90
+              else if (domInNav && /<nav\b/.test(ctxWindow)) lineScore += 90
             }
 
             if (matched && lineScore >= 40) {
