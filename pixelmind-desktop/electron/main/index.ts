@@ -3786,6 +3786,7 @@ async function scanProjectForSource(
   const domInFooter = /\bfooter\b/.test(lowerDomPath) && !/\bmain\b/.test(lowerDomPath)
   const domInNav = /\bnav\b/.test(lowerDomPath) && !/\bmain\b/.test(lowerDomPath)
   const domInLayoutShell = domInHeader || domInFooter || domInNav
+  const domInMain = /\bmain\b/.test(lowerDomPath) && (tagName || '').toLowerCase() !== 'main'
 
   // Chuẩn bị ngữ cảnh thẻ mở / thẻ cha / nội dung con cho thẻ trần không có id/class (vd: <nav>, <header>, <footer>, <main>, <section>, <div>)
   const escapedTag = (tagName || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -3846,8 +3847,10 @@ async function scanProjectForSource(
           const relPath = full.replace(rootDir, '').replace(/^[\\/]/, '').replace(/\\/g, '/')
           const lowerRel = relPath.toLowerCase()
 
-          // Bỏ qua các tệp import / directive / layout wrapper hệ thống
+          // Bỏ qua các tệp import / directive / layout wrapper hệ thống và tệp stylesheet khi đang dò phần tử HTML/JSX
+          const isStylesheet = /\.(css|scss|sass|less)$/.test(lowerRel)
           if (
+            (isStylesheet && Boolean(tagName)) ||
             lowerRel.includes('_viewimports') ||
             lowerRel.includes('_viewstart') ||
             lowerRel.includes('_validationscriptspartial') ||
@@ -3865,6 +3868,7 @@ async function scanProjectForSource(
             lowerRel.includes('header') ||
             lowerRel.includes('footer') ||
             lowerRel.includes('nav')
+          const isHomeIndexFile = /(?:^|\/)(?:index|home|page)\.[a-z]+$/i.test(lowerRel)
           let routeScore = 0
           if (domInLayoutShell && isLayoutFile) {
             routeScore += 110
@@ -3873,17 +3877,28 @@ async function scanProjectForSource(
             if (matchesRoute) {
               routeScore += 80
             } else if (isLayoutFile) {
-              routeScore += 25
+              routeScore += domInMain ? -40 : 25
             } else {
               routeScore -= 40 // Trừ điểm nặng đối với view thuộc trang khác
             }
-          } else if (isLayoutFile && domInLayoutShell) {
-            routeScore += 110
+          } else if (domInMain) {
+            // Phần tử nằm trong <main> ở trang chủ (/): ưu tiên tệp trang nội dung, tránh bắt nhầm _Layout
+            if (isLayoutFile) {
+              routeScore -= 50
+            } else {
+              routeScore += isHomeIndexFile ? 105 : 80
+            }
           }
 
           const lines = content.split(/\r?\n/)
+          let inStyleBlock = false
           for (let i = 0; i < lines.length; i++) {
             const line = lines[i]
+            if (/<style\b/i.test(line)) inStyleBlock = true
+            if (inStyleBlock) {
+              if (/<\/style>/i.test(line)) inStyleBlock = false
+              if (tagName && tagName.toLowerCase() !== 'style') continue
+            }
             let lineScore = routeScore
             let matched = false
             let actualLineNumber = i + 1
@@ -3923,6 +3938,9 @@ async function scanProjectForSource(
               }
               if (matchedSpecific > 0) {
                 lineScore += 40 + (matchedSpecific - 1) * 20
+                if (openTagPattern && openTagPattern.test(line)) {
+                  lineScore += 40
+                }
                 matched = true
               }
             }
