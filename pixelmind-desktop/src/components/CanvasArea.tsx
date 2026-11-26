@@ -1370,6 +1370,7 @@ const CanvasArea = ({
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingCommentText, setEditingCommentText] = useState('')
   const [hoveredCommentId, setHoveredCommentId] = useState<string | null>(null)
+  const [iframeScroll, setIframeScroll] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [commentContextMenu, setCommentContextMenu] = useState<{
     id: string
     x: number
@@ -1436,12 +1437,16 @@ const CanvasArea = ({
     if (tool === 'comment') {
       e.preventDefault()
       e.stopPropagation()
+      const frameRect = iframeRef.current?.getBoundingClientRect() || rect
+      const scale = zoom / 100
+      const pageX = Math.round((e.clientX - frameRect.left) / scale + iframeScroll.x)
+      const pageY = Math.round((e.clientY - frameRect.top) / scale + iframeScroll.y)
       const nextNum = canvasComments.length + 1
       const newId = `comment-${Date.now()}`
       const defaultText = `Ghi chú #${nextNum}`
       setCanvasComments((prev) => [
         ...prev,
-        { id: newId, x, y, text: defaultText },
+        { id: newId, x: pageX, y: pageY, text: defaultText },
       ])
       showToast(`Đã tạo ${defaultText} (Chuột trái vào thẻ để ghi chú, chuột phải để mở menu)`, 'ok', 'Phím C')
       setTool('select')
@@ -1524,7 +1529,16 @@ const CanvasArea = ({
     const handleWindowMessage = (e: MessageEvent) => {
       if (!e.data || typeof e.data !== 'object') return
 
+      if (e.data.type === 'PM_SCROLL') {
+        setIframeScroll({
+          x: Number(e.data.scrollX) || 0,
+          y: Number(e.data.scrollY) || 0,
+        })
+        return
+      }
+
       if (e.data.type === 'PM_LOCATION_CHANGE') {
+        setIframeScroll({ x: 0, y: 0 })
         const { pathname, href, docId } = e.data.payload || {}
         // Phát hiện iframe được tải lại (hot-reload của dev server hoặc điều hướng cứng).
         // Khi tài liệu đổi, mọi uid cũ không còn giá trị → tăng epoch để vô hiệu
@@ -5595,6 +5609,111 @@ const CanvasArea = ({
         </div>
       )}
 
+      {/* Các thẻ Ghi chú gắn trực tiếp lên toạ độ trang web (cuộn/zoom/pan theo trang web) */}
+      {canvasComments.map((item) => {
+        const isEditing = editingCommentId === item.id
+        const isExpanded = isEditing || hoveredCommentId === item.id
+        return (
+          <div
+            key={item.id}
+            onMouseEnter={() => setHoveredCommentId(item.id)}
+            onMouseLeave={() => setHoveredCommentId((prev) => (prev === item.id ? null : prev))}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation()
+              setCommentContextMenu(null)
+              if (!isEditing) {
+                setEditingCommentId(item.id)
+                setEditingCommentText(item.text)
+              }
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setCommentContextMenu({ id: item.id, x: e.clientX, y: e.clientY })
+            }}
+            title="Rê chuột để xem • Chuột trái: Nhập/sửa ghi chú • Chuột phải: Tùy chọn"
+            style={{
+              position: 'absolute',
+              left: item.x - iframeScroll.x,
+              top: item.y - iframeScroll.y,
+              transform: 'translate(0, -100%)',
+              zIndex: isExpanded ? 85 : 77,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: isExpanded ? 6 : 0,
+              minWidth: 24,
+              height: isEditing ? 28 : 24,
+              padding: isEditing ? '3px 6px' : isExpanded ? '3px 10px' : '0 6px',
+              borderRadius: '12px 12px 12px 2px',
+              background: item.resolved ? '#22c55e' : '#f59e0b',
+              color: '#0f172a',
+              border: '1.5px solid #ffffff',
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: isEditing ? 'text' : 'pointer',
+              boxShadow: '0 3px 10px rgba(0,0,0,0.32)',
+              maxWidth: isExpanded ? 280 : 26,
+              transition: 'max-width 140ms ease, padding 140ms ease',
+            }}
+          >
+            <MessageSquare size={12} style={{ flexShrink: 0 }} />
+            {isEditing ? (
+              <input
+                type="text"
+                autoFocus
+                value={editingCommentText}
+                onChange={(e) => setEditingCommentText(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Enter') {
+                    const clean = editingCommentText.trim() || item.text
+                    setCanvasComments((prev) =>
+                      prev.map((c) => (c.id === item.id ? { ...c, text: clean } : c))
+                    )
+                    setEditingCommentId(null)
+                    showToast('Đã lưu nội dung ghi chú', 'ok')
+                  } else if (e.key === 'Escape') {
+                    setEditingCommentId(null)
+                  }
+                }}
+                onBlur={() => {
+                  const clean = editingCommentText.trim() || item.text
+                  setCanvasComments((prev) =>
+                    prev.map((c) => (c.id === item.id ? { ...c, text: clean } : c))
+                  )
+                  setEditingCommentId(null)
+                }}
+                placeholder="Nhập ghi chú..."
+                style={{
+                  width: 170,
+                  padding: '2px 6px',
+                  borderRadius: 6,
+                  border: '1px solid rgba(15,23,42,0.25)',
+                  background: '#ffffff',
+                  color: '#0f172a',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  outline: 'none',
+                }}
+              />
+            ) : isExpanded ? (
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  textDecoration: item.resolved ? 'line-through' : 'none',
+                }}
+              >
+                {item.text}
+              </span>
+            ) : null}
+          </div>
+        )
+      })}
     </>
   )
 
@@ -6118,112 +6237,6 @@ const CanvasArea = ({
               </g>
             </svg>
           )}
-
-          {/* Các thẻ Ghi chú trên Canvas (C): Mặc định thu gọn thành 1 ô icon nhỏ; rê chuột vào mới hiện nội dung, chuột trái để sửa, chuột phải mở menu */}
-          {canvasComments.map((item) => {
-            const isEditing = editingCommentId === item.id
-            const isExpanded = isEditing || hoveredCommentId === item.id
-            return (
-              <div
-                key={item.id}
-                onMouseEnter={() => setHoveredCommentId(item.id)}
-                onMouseLeave={() => setHoveredCommentId((prev) => (prev === item.id ? null : prev))}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setCommentContextMenu(null)
-                  if (!isEditing) {
-                    setEditingCommentId(item.id)
-                    setEditingCommentText(item.text)
-                  }
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setCommentContextMenu({ id: item.id, x: e.clientX, y: e.clientY })
-                }}
-                title="Rê chuột để xem • Chuột trái: Nhập/sửa ghi chú • Chuột phải: Tùy chọn"
-                style={{
-                  position: 'absolute',
-                  left: item.x,
-                  top: item.y,
-                  transform: 'translate(0, -100%)',
-                  zIndex: isExpanded ? 85 : 77,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: isExpanded ? 6 : 0,
-                  minWidth: 24,
-                  height: isEditing ? 28 : 24,
-                  padding: isEditing ? '3px 6px' : isExpanded ? '3px 10px' : '0 6px',
-                  borderRadius: '12px 12px 12px 2px',
-                  background: item.resolved ? '#22c55e' : '#f59e0b',
-                  color: '#0f172a',
-                  border: '1.5px solid #ffffff',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: isEditing ? 'text' : 'pointer',
-                  boxShadow: '0 3px 10px rgba(0,0,0,0.32)',
-                  maxWidth: isExpanded ? 280 : 26,
-                  transition: 'max-width 140ms ease, padding 140ms ease',
-                }}
-              >
-                <MessageSquare size={12} style={{ flexShrink: 0 }} />
-                {isEditing ? (
-                  <input
-                    type="text"
-                    autoFocus
-                    value={editingCommentText}
-                    onChange={(e) => setEditingCommentText(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => {
-                      e.stopPropagation()
-                      if (e.key === 'Enter') {
-                        const clean = editingCommentText.trim() || item.text
-                        setCanvasComments((prev) =>
-                          prev.map((c) => (c.id === item.id ? { ...c, text: clean } : c))
-                        )
-                        setEditingCommentId(null)
-                        showToast('Đã lưu nội dung ghi chú', 'ok')
-                      } else if (e.key === 'Escape') {
-                        setEditingCommentId(null)
-                      }
-                    }}
-                    onBlur={() => {
-                      const clean = editingCommentText.trim() || item.text
-                      setCanvasComments((prev) =>
-                        prev.map((c) => (c.id === item.id ? { ...c, text: clean } : c))
-                      )
-                      setEditingCommentId(null)
-                    }}
-                    placeholder="Nhập ghi chú..."
-                    style={{
-                      width: 170,
-                      padding: '2px 6px',
-                      borderRadius: 6,
-                      border: '1px solid rgba(15,23,42,0.25)',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      outline: 'none',
-                    }}
-                  />
-                ) : isExpanded ? (
-                  <span
-                    style={{
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      textDecoration: item.resolved ? 'line-through' : 'none',
-                    }}
-                  >
-                    {item.text}
-                  </span>
-                ) : null}
-              </div>
-            )
-          })}
 
           {/* Menu chuột phải cho thẻ Ghi chú */}
           {commentContextMenu && (() => {

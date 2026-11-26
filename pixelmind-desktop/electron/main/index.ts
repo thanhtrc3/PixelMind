@@ -3385,6 +3385,14 @@ function getInspectorScript(isActive: boolean) {
       }
     });
 
+    window.addEventListener('scroll', function() {
+      window.parent.postMessage({
+        type: 'PM_SCROLL',
+        scrollX: window.scrollX || window.pageXOffset || 0,
+        scrollY: window.scrollY || window.pageYOffset || 0,
+      }, '*');
+    }, { passive: true });
+
     function getReadableLabel(el) {
       if (!el) return '';
       var tag = el.tagName ? el.tagName.toLowerCase() : '';
