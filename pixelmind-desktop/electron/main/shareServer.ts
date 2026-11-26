@@ -682,12 +682,15 @@ export async function startShareTunnel(): Promise<ShareServerStatus> {
       }
     }
 
-    // Sử dụng SSH reverse tunnel tới localhost.run (có sẵn trên Windows 10/11, macOS, Linux, không cần cài đặt)
+    // Sử dụng SSH reverse tunnel miễn phí (Forever-Free tier, tắt PubkeyAuthentication để không dính tài khoản trả phí)
     const proc = spawn(
       'ssh',
       [
+        '-T',
         '-o',
         'StrictHostKeyChecking=no',
+        '-o',
+        'PubkeyAuthentication=no',
         '-o',
         'ServerAliveInterval=30',
         '-o',
@@ -702,7 +705,7 @@ export async function startShareTunnel(): Promise<ShareServerStatus> {
 
     const onOutput = (chunk: Buffer) => {
       const text = chunk.toString('utf8')
-      const match = text.match(/https:\/\/[a-zA-Z0-9.-]+\.(?:lhr\.life|localhost\.run)/)
+      const match = text.match(/https:\/\/[a-zA-Z0-9.-]+\.lhr\.life/)
       if (match) {
         publicUrl = match[0]
         tunnelStatus = 'ready'
