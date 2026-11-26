@@ -106,6 +106,7 @@ class EditorBufferManager {
   private undoStack: HistoryAction[] = []
   private redoStack: HistoryAction[] = []
   private dirtyFiles = new Map<string, DirtyFileInfo>()
+  private savedActionIds = new Set<string>()
   private listeners: Set<BufferListener> = new Set()
   private undoRedoHandlers: Set<UndoRedoHandler> = new Set()
   /** Thế hệ tài liệu hiện tại của canvas (tăng mỗi khi iframe tải lại). */
@@ -197,15 +198,19 @@ class EditorBufferManager {
     this.dirtyFiles.clear()
     for (const act of this.undoStack) {
       if (!act.sourceLoc) continue
+      if (this.savedActionIds.has(act.id)) continue
       // Thao tác của Hộp công cụ ghi thẳng xuống tệp ngay khi áp dụng,
       // không đi qua cơ chế gom style rồi syncCode.
       if (act.dom) continue
-      const existing = this.dirtyFiles.get(act.sourceLoc.filePath) || {
+
+      // Khoá theo từng phần tử (tệp + dòng + uid/tag) để sửa/kéo 2 phần tử khác nhau trong cùng 1 tệp
+      // không bao giờ ghi đè chữ hoặc style của phần tử này sang phần tử kia.
+      const entryKey = `${act.sourceLoc.filePath}::${act.sourceLoc.lineNumber}::${act.target.uid || act.target.tagName}`
+      const existing = this.dirtyFiles.get(entryKey) || {
         filePath: act.sourceLoc.filePath,
         fullPath: act.sourceLoc.fullPath,
         lineNumber: act.sourceLoc.lineNumber,
         tagName: act.target.tagName,
-        oldText: act.before.text,
         styles: {},
         projectPath: act.projectPath,
       }
@@ -219,9 +224,14 @@ class EditorBufferManager {
         }
       }
 
-      this.dirtyFiles.set(act.sourceLoc.filePath, {
+      const textChanged =
+        act.type === 'TEXT' ||
+        (act.before.text !== undefined && act.after.text !== undefined && act.before.text !== act.after.text)
+
+      this.dirtyFiles.set(entryKey, {
         ...existing,
-        newText: act.after.text ?? existing.newText,
+        oldText: textChanged ? (existing.oldText ?? act.before.text) : existing.oldText,
+        newText: textChanged ? act.after.text : existing.newText,
         projectPath: existing.projectPath ?? act.projectPath,
         styles: {
           ...existing.styles,
@@ -276,6 +286,7 @@ class EditorBufferManager {
     if (!action) return null
 
     this.redoStack.push(action)
+    this.savedActionIds.delete(action.id)
 
     // Ghi lại toàn bộ tệp trước thay đổi (thao tác Hộp công cụ)
     if (action.dom && action.fileEdits && action.fileEdits.length > 0) {
@@ -316,6 +327,7 @@ class EditorBufferManager {
     if (!action) return null
 
     this.undoStack.push(action)
+    this.savedActionIds.delete(action.id)
 
     // Ghi lại toàn bộ tệp sau thay đổi (thao tác Hộp công cụ)
     if (action.dom && action.fileEdits && action.fileEdits.length > 0) {
@@ -352,7 +364,10 @@ class EditorBufferManager {
 
   isDirty(filePath?: string): boolean {
     if (filePath) {
-      return this.dirtyFiles.has(filePath)
+      for (const info of this.dirtyFiles.values()) {
+        if (info.filePath === filePath || info.fullPath === filePath) return true
+      }
+      return false
     }
     return this.dirtyFiles.size > 0
   }
@@ -421,10 +436,10 @@ class EditorBufferManager {
     this.notify()
 
     let allOk = true
-    const files = Array.from(this.dirtyFiles.values())
+    const entries = Array.from(this.dirtyFiles.entries())
 
     try {
-      for (const info of files) {
+      for (const [entryKey, info] of entries) {
         try {
           const res = await api.inspect.syncCode({
             fullPath: info.fullPath,
@@ -437,7 +452,16 @@ class EditorBufferManager {
           })
 
           if (res?.success) {
-            this.dirtyFiles.delete(info.filePath)
+            this.dirtyFiles.delete(entryKey)
+            for (const act of this.undoStack) {
+              if (
+                act.sourceLoc &&
+                `${act.sourceLoc.filePath}::${act.sourceLoc.lineNumber}::${act.target.uid || act.target.tagName}` ===
+                  entryKey
+              ) {
+                this.savedActionIds.add(act.id)
+              }
+            }
             showToast?.(`💾 Đã lưu vào ${info.filePath}`)
           } else {
             allOk = false
@@ -464,6 +488,7 @@ class EditorBufferManager {
     this.undoStack = []
     this.redoStack = []
     this.dirtyFiles.clear()
+    this.savedActionIds.clear()
     this.notify()
   }
 }
