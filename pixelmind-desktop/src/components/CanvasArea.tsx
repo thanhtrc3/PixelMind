@@ -1377,7 +1377,7 @@ const CanvasArea = ({
     }
   }, [currentRoute, normalizeCommentRoute])
   const [canvasComments, setCanvasComments] = useState<
-    Array<{ id: string; x: number; y: number; text: string; route: string; resolved?: boolean }>
+    Array<{ id: string; x: number; y: number; text: string; route: string; author?: string; resolved?: boolean }>
   >([])
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingCommentText, setEditingCommentText] = useState('')
@@ -1388,6 +1388,105 @@ const CanvasArea = ({
     x: number
     y: number
   } | null>(null)
+  const [isShareOpen, setIsShareOpen] = useState(false)
+  const [shareState, setShareState] = useState<{
+    active: boolean
+    port: number
+    localUrl: string
+    lanUrls: string[]
+    publicUrl: string | null
+    tunnelStatus: 'idle' | 'starting' | 'ready' | 'error'
+    tunnelError?: string
+  }>({
+    active: false,
+    port: 0,
+    localUrl: '',
+    lanUrls: [],
+    publicUrl: null,
+    tunnelStatus: 'idle',
+  })
+
+  const updateAndSyncComments = useCallback(
+    (
+      updater: (
+        prev: Array<{ id: string; x: number; y: number; text: string; route: string; author?: string; resolved?: boolean }>
+      ) => Array<{ id: string; x: number; y: number; text: string; route: string; author?: string; resolved?: boolean }>
+    ) => {
+      setCanvasComments((prev) => {
+        const next = updater(prev)
+        if (projectPath && api.share?.syncComments) {
+          void api.share
+            .syncComments({
+              projectPath,
+              projectName,
+              targetUrl: currentLiveUrl || url,
+              comments: next,
+            })
+            .catch(() => {})
+        }
+        return next
+      })
+    },
+    [projectPath, projectName, currentLiveUrl, url]
+  )
+
+  useEffect(() => {
+    if (!projectPath || !api.share?.syncComments) return
+    void api.share
+      .syncComments({
+        projectPath,
+        projectName,
+        targetUrl: currentLiveUrl || url,
+      })
+      .then((res) => {
+        if (res) {
+          setShareState({
+            active: res.active,
+            port: res.port,
+            localUrl: res.localUrl,
+            lanUrls: res.lanUrls || [],
+            publicUrl: res.publicUrl,
+            tunnelStatus: res.tunnelStatus,
+            tunnelError: res.tunnelError,
+          })
+          if (Array.isArray(res.comments)) {
+            setCanvasComments(res.comments)
+          }
+        }
+      })
+      .catch(() => {})
+  }, [projectPath, projectName, currentLiveUrl, url])
+
+  useEffect(() => {
+    if (!shareState.active || !projectPath || !api.share?.syncComments) return
+    const timer = window.setInterval(() => {
+      if (editingCommentId) return
+      void api.share
+        .syncComments({
+          projectPath,
+          projectName,
+          targetUrl: currentLiveUrl || url,
+        })
+        .then((res) => {
+          if (res) {
+            setShareState({
+              active: res.active,
+              port: res.port,
+              localUrl: res.localUrl,
+              lanUrls: res.lanUrls || [],
+              publicUrl: res.publicUrl,
+              tunnelStatus: res.tunnelStatus,
+              tunnelError: res.tunnelError,
+            })
+            if (Array.isArray(res.comments)) {
+              setCanvasComments(res.comments)
+            }
+          }
+        })
+        .catch(() => {})
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [shareState.active, projectPath, projectName, currentLiveUrl, url, editingCommentId])
 
   const insertQuickDomElement = useCallback(
     (tag: 'div' | 'p', htmlSnippet: string, label: string) => {
@@ -1458,7 +1557,7 @@ const CanvasArea = ({
       const nextNum = pageCount + 1
       const newId = `comment-${Date.now()}`
       const defaultText = `Ghi chú #${nextNum}`
-      setCanvasComments((prev) => [
+      updateAndSyncComments((prev) => [
         ...prev,
         { id: newId, x: pageX, y: pageY, text: defaultText, route: pageRoute },
       ])
@@ -5690,7 +5789,7 @@ const CanvasArea = ({
                   e.stopPropagation()
                   if (e.key === 'Enter') {
                     const clean = editingCommentText.trim() || item.text
-                    setCanvasComments((prev) =>
+                    updateAndSyncComments((prev) =>
                       prev.map((c) => (c.id === item.id ? { ...c, text: clean } : c))
                     )
                     setEditingCommentId(null)
@@ -5701,7 +5800,7 @@ const CanvasArea = ({
                 }}
                 onBlur={() => {
                   const clean = editingCommentText.trim() || item.text
-                  setCanvasComments((prev) =>
+                  updateAndSyncComments((prev) =>
                     prev.map((c) => (c.id === item.id ? { ...c, text: clean } : c))
                   )
                   setEditingCommentId(null)
@@ -5728,7 +5827,7 @@ const CanvasArea = ({
                   textDecoration: item.resolved ? 'line-through' : 'none',
                 }}
               >
-                {item.text}
+                {item.author ? `[${item.author}] ` : ''}{item.text}
               </span>
             ) : null}
           </div>
@@ -5864,6 +5963,53 @@ const CanvasArea = ({
               title={isPageFlowOpen ? 'Đóng không gian Đa màn hình liên kết' : 'Không gian Đa màn hình liên kết (Multi-Page Canvas)'}
             >
               <Network size={13} />
+            </button>
+
+            <button
+              className={`canvas__seg-btn ${shareState.active || isShareOpen ? 'active' : ''}`}
+              onClick={async () => {
+                const nextOpen = !isShareOpen
+                setIsShareOpen(nextOpen)
+                if (nextOpen && !shareState.active && projectPath && api.share?.start) {
+                  try {
+                    const res = await api.share.start({
+                      projectPath,
+                      projectName,
+                      targetUrl: currentLiveUrl || url,
+                      comments: canvasComments,
+                    })
+                    setShareState({
+                      active: res.active,
+                      port: res.port,
+                      localUrl: res.localUrl,
+                      lanUrls: res.lanUrls || [],
+                      publicUrl: res.publicUrl,
+                      tunnelStatus: res.tunnelStatus,
+                      tunnelError: res.tunnelError,
+                    })
+                    if (Array.isArray(res.comments)) setCanvasComments(res.comments)
+                    showToast('Đã bật link chia sẻ Web (Chế độ Chỉ xem & Ghi chú)', 'ok')
+                  } catch {
+                    showToast('Không thể khởi tạo máy chủ chia sẻ', 'err')
+                  }
+                }
+              }}
+              title="Chia sẻ dự án qua trình duyệt Web (Cùng mạng LAN hoặc Khác mạng Internet — Chỉ xem & Ghi chú)"
+              style={{
+                height: 24,
+                padding: '0 9px',
+                gap: 5,
+                borderRadius: 6,
+                fontWeight: 650,
+                background: shareState.active ? '#0ea5e9' : 'var(--panel-2)',
+                color: shareState.active ? '#ffffff' : 'var(--text)',
+                border: '1px solid var(--line)',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              <ExternalLink size={12} />
+              <span style={{ fontSize: 11 }}>Chia sẻ{shareState.active ? ' ●' : ''}</span>
             </button>
           </div>
 
@@ -6307,7 +6453,7 @@ const CanvasArea = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setCanvasComments((prev) =>
+                    updateAndSyncComments((prev) =>
                       prev.map((c) => (c.id === targetComment.id ? { ...c, resolved: !c.resolved } : c))
                     )
                     setCommentContextMenu(null)
@@ -6352,7 +6498,7 @@ const CanvasArea = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setCanvasComments((prev) => [
+                    updateAndSyncComments((prev) => [
                       ...prev,
                       {
                         ...targetComment,
@@ -6381,7 +6527,7 @@ const CanvasArea = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setCanvasComments((prev) => prev.filter((c) => c.id !== targetComment.id))
+                    updateAndSyncComments((prev) => prev.filter((c) => c.id !== targetComment.id))
                     setCommentContextMenu(null)
                     showToast(`Đã xoá "${targetComment.text}"`, 'info')
                   }}
@@ -6408,7 +6554,7 @@ const CanvasArea = ({
                       type="button"
                       onClick={() => {
                         const curRoute = normalizeCommentRoute(activeCommentRoute)
-                        setCanvasComments((prev) => prev.filter((c) => normalizeCommentRoute(c.route) !== curRoute))
+                        updateAndSyncComments((prev) => prev.filter((c) => normalizeCommentRoute(c.route) !== curRoute))
                         setCommentContextMenu(null)
                         showToast('Đã xoá toàn bộ ghi chú trên trang này', 'info')
                       }}
@@ -6430,6 +6576,308 @@ const CanvasArea = ({
               </div>
             )
           })()}
+
+          {/* Hộp thoại Chia sẻ dự án qua trình duyệt Web (Chỉ xem & Ghi chú) */}
+          {isShareOpen && (
+            <div
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'absolute',
+                top: 12,
+                left: 16,
+                zIndex: 9998,
+                width: 420,
+                padding: 16,
+                borderRadius: 14,
+                background: 'rgba(15, 23, 42, 0.97)',
+                border: '1px solid rgba(56, 189, 248, 0.35)',
+                boxShadow: '0 16px 40px rgba(0, 0, 0, 0.55)',
+                color: '#f8fafc',
+                fontSize: 12.5,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 13.5 }}>
+                  <span>🌐 Chia sẻ dự án trên Trình duyệt Web</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsShareOpen(false)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    padding: 4,
+                  }}
+                >
+                  <X size={15} />
+                </button>
+              </div>
+
+              <div
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  background: 'rgba(56, 189, 248, 0.12)',
+                  border: '1px solid rgba(56, 189, 248, 0.25)',
+                  color: '#bae6fd',
+                  fontSize: 11.5,
+                  lineHeight: 1.5,
+                }}
+              >
+                🔒 <b>Chế độ Chỉ xem & Ghi chú:</b> Người nhận mở link trên trình duyệt web sẽ dùng được dự án như web/app thật và ghim được bình luận (đồng bộ trực tiếp về máy bạn), nhưng <b>không thể sửa giao diện hay mã nguồn</b>.
+              </div>
+
+              {/* Bật / Tắt máy chủ chia sẻ */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ color: '#cbd5e1', fontSize: 12 }}>
+                  Trạng thái:{' '}
+                  <b style={{ color: shareState.active ? '#4ade80' : '#f87171' }}>
+                    {shareState.active ? `Đang chia sẻ (Cổng ${shareState.port})` : 'Đang tắt'}
+                  </b>
+                </span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (shareState.active) {
+                      const res = await api.share.stop()
+                      setShareState({
+                        active: res.active,
+                        port: res.port,
+                        localUrl: res.localUrl,
+                        lanUrls: res.lanUrls || [],
+                        publicUrl: res.publicUrl,
+                        tunnelStatus: res.tunnelStatus,
+                        tunnelError: res.tunnelError,
+                      })
+                      showToast('Đã tắt chia sẻ dự án', 'info')
+                    } else if (projectPath) {
+                      const res = await api.share.start({
+                        projectPath,
+                        projectName,
+                        targetUrl: currentLiveUrl || url,
+                        comments: canvasComments,
+                      })
+                      setShareState({
+                        active: res.active,
+                        port: res.port,
+                        localUrl: res.localUrl,
+                        lanUrls: res.lanUrls || [],
+                        publicUrl: res.publicUrl,
+                        tunnelStatus: res.tunnelStatus,
+                        tunnelError: res.tunnelError,
+                      })
+                      showToast('Đã bật chia sẻ dự án qua Web', 'ok')
+                    }
+                  }}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 7,
+                    border: 'none',
+                    background: shareState.active ? '#ef4444' : '#0ea5e9',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    fontSize: 11.5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {shareState.active ? 'Tắt chia sẻ' : 'Bật chia sẻ'}
+                </button>
+              </div>
+
+              {shareState.active && (
+                <>
+                  {/* 1. Link Cùng mạng (LAN / Wi-Fi) */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <span style={{ fontWeight: 700, fontSize: 11.5, color: '#94a3b8' }}>
+                      1. CÙNG MẠNG (WI-FI / LAN / MÁY HIỆN TẠI)
+                    </span>
+                    {[...(shareState.lanUrls || []), shareState.localUrl]
+                      .filter(Boolean)
+                      .map((link) => (
+                        <div
+                          key={link}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '6px 8px',
+                            borderRadius: 8,
+                            background: 'rgba(30, 41, 59, 0.9)',
+                            border: '1px solid rgba(148, 163, 184, 0.2)',
+                          }}
+                        >
+                          <input
+                            type="text"
+                            readOnly
+                            value={link}
+                            style={{
+                              flex: 1,
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#38bdf8',
+                              fontSize: 12,
+                              fontFamily: 'monospace',
+                              outline: 'none',
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard?.writeText(link).catch(() => {})
+                              showToast(`Đã sao chép link: ${link}`, 'ok')
+                            }}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 6,
+                              border: 'none',
+                              background: '#334155',
+                              color: '#f8fafc',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            📋 Copy
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onOpenExternal?.(link)}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 6,
+                              border: 'none',
+                              background: '#0ea5e9',
+                              color: '#ffffff',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            ↗ Mở Web
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+
+                  {/* 2. Link Khác mạng (Internet Public Tunnel) */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <span style={{ fontWeight: 700, fontSize: 11.5, color: '#94a3b8' }}>
+                      2. KHÁC MẠNG (INTERNET — MỌI MÁY Ở BẤT KỲ ĐÂU)
+                    </span>
+                    {shareState.publicUrl ? (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 8px',
+                          borderRadius: 8,
+                          background: 'rgba(22, 101, 52, 0.25)',
+                          border: '1px solid rgba(74, 222, 128, 0.35)',
+                        }}
+                      >
+                        <input
+                          type="text"
+                          readOnly
+                          value={shareState.publicUrl}
+                          style={{
+                            flex: 1,
+                            border: 'none',
+                            background: 'transparent',
+                            color: '#4ade80',
+                            fontSize: 12,
+                            fontFamily: 'monospace',
+                            outline: 'none',
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard?.writeText(shareState.publicUrl!).catch(() => {})
+                            showToast(`Đã sao chép link Internet: ${shareState.publicUrl}`, 'ok')
+                          }}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: 6,
+                            border: 'none',
+                            background: '#16a34a',
+                            color: '#ffffff',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          📋 Copy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenExternal?.(shareState.publicUrl!)}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: 6,
+                            border: 'none',
+                            background: '#0ea5e9',
+                            color: '#ffffff',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ↗ Mở Web
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={shareState.tunnelStatus === 'starting'}
+                        onClick={async () => {
+                          setShareState((prev) => ({ ...prev, tunnelStatus: 'starting', tunnelError: undefined }))
+                          const res = await api.share.startTunnel()
+                          setShareState({
+                            active: res.active,
+                            port: res.port,
+                            localUrl: res.localUrl,
+                            lanUrls: res.lanUrls || [],
+                            publicUrl: res.publicUrl,
+                            tunnelStatus: res.tunnelStatus,
+                            tunnelError: res.tunnelError,
+                          })
+                          if (res.publicUrl) {
+                            navigator.clipboard?.writeText(res.publicUrl).catch(() => {})
+                            showToast(`Đã tạo và copy link Internet: ${res.publicUrl}`, 'ok')
+                          }
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: 8,
+                          border: '1px dashed rgba(56, 189, 248, 0.45)',
+                          background: 'rgba(14, 165, 233, 0.14)',
+                          color: '#38bdf8',
+                          fontWeight: 700,
+                          fontSize: 12,
+                          cursor: shareState.tunnelStatus === 'starting' ? 'wait' : 'pointer',
+                          textAlign: 'center',
+                        }}
+                      >
+                        {shareState.tunnelStatus === 'starting'
+                          ? '⏳ Đang khởi tạo đường hầm Internet công khai...'
+                          : '🌍 Tạo link Internet công khai (Cho máy khác mạng)'}
+                      </button>
+                    )}
+                    {shareState.tunnelError && (
+                      <span style={{ color: '#f87171', fontSize: 11 }}>{shareState.tunnelError}</span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {isInspectMode && multiSelection.length >= 2 && (
             <div

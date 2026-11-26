@@ -321,6 +321,40 @@ const api: PixelMindApi = {
       id?: string
     }) => ipcRenderer.invoke('inspect:sync-nav', payload),
   },
+  share: {
+    start: (payload: {
+      projectPath: string
+      projectName?: string
+      targetUrl?: string | null
+      comments?: Array<{
+        id: string
+        x: number
+        y: number
+        text: string
+        route: string
+        author?: string
+        resolved?: boolean
+        createdAt?: number
+      }>
+    }) => ipcRenderer.invoke('share:start', payload),
+    stop: () => ipcRenderer.invoke('share:stop'),
+    startTunnel: () => ipcRenderer.invoke('share:start-tunnel'),
+    syncComments: (payload: {
+      projectPath: string
+      targetUrl?: string | null
+      projectName?: string
+      comments?: Array<{
+        id: string
+        x: number
+        y: number
+        text: string
+        route: string
+        author?: string
+        resolved?: boolean
+        createdAt?: number
+      }>
+    }) => ipcRenderer.invoke('share:sync-comments', payload),
+  },
   a11y: {
     scan: (payload: { axeSource: string; previewUrl?: string | null }): Promise<A11yScanResult> =>
       ipcRenderer.invoke('a11y:scan', payload),

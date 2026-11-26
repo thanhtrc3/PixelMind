@@ -318,6 +318,112 @@ export interface PixelMindApi {
       newLine?: string
     }>
   }
+  share: {
+    start(payload: {
+      projectPath: string
+      projectName?: string
+      targetUrl?: string | null
+      comments?: Array<{
+        id: string
+        x: number
+        y: number
+        text: string
+        route: string
+        author?: string
+        resolved?: boolean
+        createdAt?: number
+      }>
+    }): Promise<{
+      active: boolean
+      port: number
+      localUrl: string
+      lanUrls: string[]
+      publicUrl: string | null
+      tunnelStatus: 'idle' | 'starting' | 'ready' | 'error'
+      tunnelError?: string
+      comments: Array<{
+        id: string
+        x: number
+        y: number
+        text: string
+        route: string
+        author?: string
+        resolved?: boolean
+        createdAt?: number
+      }>
+    }>
+    stop(): Promise<{
+      active: boolean
+      port: number
+      localUrl: string
+      lanUrls: string[]
+      publicUrl: string | null
+      tunnelStatus: 'idle' | 'starting' | 'ready' | 'error'
+      tunnelError?: string
+      comments: Array<{
+        id: string
+        x: number
+        y: number
+        text: string
+        route: string
+        author?: string
+        resolved?: boolean
+        createdAt?: number
+      }>
+    }>
+    startTunnel(): Promise<{
+      active: boolean
+      port: number
+      localUrl: string
+      lanUrls: string[]
+      publicUrl: string | null
+      tunnelStatus: 'idle' | 'starting' | 'ready' | 'error'
+      tunnelError?: string
+      comments: Array<{
+        id: string
+        x: number
+        y: number
+        text: string
+        route: string
+        author?: string
+        resolved?: boolean
+        createdAt?: number
+      }>
+    }>
+    syncComments(payload: {
+      projectPath: string
+      targetUrl?: string | null
+      projectName?: string
+      comments?: Array<{
+        id: string
+        x: number
+        y: number
+        text: string
+        route: string
+        author?: string
+        resolved?: boolean
+        createdAt?: number
+      }>
+    }): Promise<{
+      active: boolean
+      port: number
+      localUrl: string
+      lanUrls: string[]
+      publicUrl: string | null
+      tunnelStatus: 'idle' | 'starting' | 'ready' | 'error'
+      tunnelError?: string
+      comments: Array<{
+        id: string
+        x: number
+        y: number
+        text: string
+        route: string
+        author?: string
+        resolved?: boolean
+        createdAt?: number
+      }>
+    }>
+  }
   a11y: {
     /** Quét accessibility trang preview đang mở bằng axe-core. */
     scan(payload: { axeSource: string; previewUrl?: string | null }): Promise<A11yScanResult>

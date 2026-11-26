@@ -32,6 +32,7 @@ import {
   parseVariablesCss,
 } from '../../shared/designTokens'
 import { readStore, patchStore, patchProject, appendActivity, updateSettings, resetSettings, resetStore, storeFilePath, requireOpenedProject, requireOpenedProjectId } from './store'
+import { startShareServer, stopShareServer, startShareTunnel, syncShareComments } from './shareServer'
 import {
   addDevScriptToPkg,
   createIndexHtmlFile,
@@ -4101,6 +4102,24 @@ ipcMain.handle(
     return await scanProjectForSource(projectPath, textSnippet, tagName, className, currentPath, id, selector, domPath)
   }
 )
+
+/* ───────────────────────── IPC: Chia sẻ Web (Chỉ xem & Ghi chú) ───────────────────────── */
+
+ipcMain.handle('share:start', async (_e, payload) => {
+  return await startShareServer(payload || {})
+})
+
+ipcMain.handle('share:stop', async () => {
+  return await stopShareServer()
+})
+
+ipcMain.handle('share:start-tunnel', async () => {
+  return await startShareTunnel()
+})
+
+ipcMain.handle('share:sync-comments', async (_e, payload) => {
+  return await syncShareComments(payload || {})
+})
 
 /* ───────────────────────── IPC: Toolbox (Hộp công cụ) ───────────────────────── */
 

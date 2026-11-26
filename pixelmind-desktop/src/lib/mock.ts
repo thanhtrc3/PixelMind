@@ -863,6 +863,52 @@ export function createBrowserMock(): PixelMindApi {
         return { success: true, filePath: 'src/App.tsx', lineNumber: 1 }
       },
     },
+    share: {
+      async start(payload) {
+        return {
+          active: true,
+          port: 54321,
+          localUrl: 'http://localhost:54321',
+          lanUrls: ['http://192.168.1.10:54321'],
+          publicUrl: null,
+          tunnelStatus: 'idle',
+          comments: payload.comments || [],
+        }
+      },
+      async stop() {
+        return {
+          active: false,
+          port: 0,
+          localUrl: '',
+          lanUrls: [],
+          publicUrl: null,
+          tunnelStatus: 'idle',
+          comments: [],
+        }
+      },
+      async startTunnel() {
+        return {
+          active: true,
+          port: 54321,
+          localUrl: 'http://localhost:54321',
+          lanUrls: ['http://192.168.1.10:54321'],
+          publicUrl: 'https://demo.lhr.life',
+          tunnelStatus: 'ready',
+          comments: [],
+        }
+      },
+      async syncComments(payload) {
+        return {
+          active: false,
+          port: 0,
+          localUrl: '',
+          lanUrls: [],
+          publicUrl: null,
+          tunnelStatus: 'idle',
+          comments: payload.comments || [],
+        }
+      },
+    },
     a11y: {
       async scan() {
         return {
