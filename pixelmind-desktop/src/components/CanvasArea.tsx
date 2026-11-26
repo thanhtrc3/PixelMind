@@ -2647,40 +2647,67 @@ const CanvasArea = ({
           top: `${moved.top}px`,
         }
         api.inspect.applyStyle({ styles: deltaStyles }).catch(() => {})
-        editorBuffer.pushAction({
-          type: 'MOVE',
-          description: `Di chuyển tự do <${currentEl.tagName.toLowerCase()}> (${moved.left}px, ${moved.top}px)`,
-          target: {
-            tagName: currentEl.tagName,
-            id: currentEl.id,
-            className: currentEl.className,
-            domPath: currentEl.domPath,
-            uid: currentEl.uid,
-            selector: currentEl.selector,
-            textSnippet: currentEl.textSnippet,
-          },
-          sourceLoc: sourceLoc
-            ? {
-                filePath: sourceLoc.filePath,
-                fullPath: sourceLoc.fullPath,
-                lineNumber: sourceLoc.lineNumber,
-              }
-            : undefined,
-          before: {
-            styles: initial.beforeStyles,
-            text: initial.beforeText,
-            rect: initial.beforeRect,
-          },
-          after: {
-            styles: {
-              ...currentEl.computedStyles,
-              ...deltaStyles,
+
+        const pushMoveAction = (loc: typeof sourceLoc) => {
+          editorBuffer.pushAction({
+            type: 'MOVE',
+            description: `Di chuyển tự do <${currentEl.tagName.toLowerCase()}> (${moved.left}px, ${moved.top}px)`,
+            target: {
+              tagName: currentEl.tagName,
+              id: currentEl.id,
+              className: currentEl.className,
+              domPath: currentEl.domPath,
+              uid: currentEl.uid,
+              selector: currentEl.selector,
+              textSnippet: currentEl.textSnippet,
             },
-            text: currentEl.textSnippet,
-            rect: { ...currentEl.rect },
-          },
-          deltaStyles,
-        })
+            sourceLoc: loc
+              ? {
+                  filePath: loc.filePath,
+                  fullPath: loc.fullPath,
+                  lineNumber: loc.lineNumber,
+                }
+              : undefined,
+            before: {
+              styles: initial.beforeStyles,
+              text: initial.beforeText,
+              rect: initial.beforeRect,
+            },
+            after: {
+              styles: {
+                ...currentEl.computedStyles,
+                ...deltaStyles,
+              },
+              text: currentEl.textSnippet,
+              rect: { ...currentEl.rect },
+            },
+            deltaStyles,
+            projectPath,
+          })
+        }
+
+        if (sourceLoc) {
+          pushMoveAction(sourceLoc)
+        } else if (projectPath && api?.inspect?.locateSource) {
+          void api.inspect
+            .locateSource({
+              projectPath,
+              textSnippet: currentEl.textSnippet,
+              tagName: currentEl.tagName,
+              className: currentEl.className,
+              currentPath: currentEl.currentPath || currentRouteRef.current,
+              id: currentEl.id,
+              selector: currentEl.selector,
+              domPath: currentEl.domPath,
+            })
+            .then((resolved) => {
+              if (resolved) setSourceLoc(resolved as any)
+              pushMoveAction((resolved as any) || null)
+            })
+            .catch(() => pushMoveAction(null))
+        } else {
+          pushMoveAction(null)
+        }
       }
     }
 
@@ -2720,6 +2747,7 @@ const CanvasArea = ({
           currentPath: selectedEl.currentPath || currentRouteRef.current,
           id: selectedEl.id,
           selector: selectedEl.selector,
+          domPath: selectedEl.domPath,
         })
         .then((loc) => {
           if (isMounted) {

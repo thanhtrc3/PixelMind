@@ -278,6 +278,7 @@ export interface PixelMindApi {
       currentPath?: string
       id?: string
       selector?: string
+      domPath?: string
     }): Promise<{ filePath: string; fullPath: string; lineNumber: number; lineContent: string } | null>
     syncCode(payload: {
       fullPath: string

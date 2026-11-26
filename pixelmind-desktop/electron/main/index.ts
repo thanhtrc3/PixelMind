@@ -3716,7 +3716,8 @@ async function scanProjectForSource(
   className?: string,
   currentPath?: string,
   id?: string,
-  _selector?: string
+  _selector?: string,
+  domPath?: string
 ): Promise<{ filePath: string; fullPath: string; lineNumber: number; lineContent: string } | null> {
   const exts = [
     '.cshtml', '.razor',
@@ -3742,6 +3743,10 @@ async function scanProjectForSource(
 
   const rawClasses = (className || '').trim().split(/\s+/).filter(Boolean)
   const specificClasses = rawClasses.filter((c) => !GENERIC_CSS_CLASSES[c.toLowerCase()] && c.length > 2)
+  const lowerDomPath = (domPath || '').toLowerCase()
+  const domInHeader = /\bheader\b/.test(lowerDomPath) && !/\bmain\b/.test(lowerDomPath)
+  const domInFooter = /\bfooter\b/.test(lowerDomPath) && !/\bmain\b/.test(lowerDomPath)
+  const domInLayoutShell = domInHeader || domInFooter
 
   const candidates: Array<{
     filePath: string
@@ -3782,16 +3787,27 @@ async function scanProjectForSource(
           }
 
           // 1. Điểm tương thích Route / Đường dẫn tệp
+          const isLayoutFile =
+            lowerRel.includes('_layout') ||
+            lowerRel.includes('shared') ||
+            lowerRel.includes('components') ||
+            lowerRel.includes('layout') ||
+            lowerRel.includes('header') ||
+            lowerRel.includes('footer')
           let routeScore = 0
-          if (routeTokens.length > 0) {
+          if (domInLayoutShell && isLayoutFile) {
+            routeScore += 110
+          } else if (routeTokens.length > 0) {
             const matchesRoute = routeTokens.some((t) => lowerRel.includes(t))
             if (matchesRoute) {
               routeScore += 80
-            } else if (lowerRel.includes('shared') || lowerRel.includes('_layout') || lowerRel.includes('components')) {
+            } else if (isLayoutFile) {
               routeScore += 25
             } else {
               routeScore -= 40 // Trừ điểm nặng đối với view thuộc trang khác
             }
+          } else if (isLayoutFile && domInLayoutShell) {
+            routeScore += 110
           }
 
           const lines = content.split(/\r?\n/)
@@ -3849,6 +3865,12 @@ async function scanProjectForSource(
               }
             }
 
+            if (matched && domInLayoutShell) {
+              const ctxWindow = lines.slice(Math.max(0, actualLineNumber - 25), actualLineNumber).join('\n').toLowerCase()
+              if (domInHeader && /<header\b/.test(ctxWindow)) lineScore += 90
+              else if (domInFooter && /<footer\b/.test(ctxWindow)) lineScore += 90
+            }
+
             if (matched && lineScore >= 40) {
               candidates.push({
                 filePath: relPath,
@@ -3875,9 +3897,9 @@ async function scanProjectForSource(
 
 ipcMain.handle(
   'inspect:locate-source',
-  async (_e, { projectPath, textSnippet, tagName, className, currentPath, id, selector }) => {
+  async (_e, { projectPath, textSnippet, tagName, className, currentPath, id, selector, domPath }) => {
     if (!projectPath) return null
-    return await scanProjectForSource(projectPath, textSnippet, tagName, className, currentPath, id, selector)
+    return await scanProjectForSource(projectPath, textSnippet, tagName, className, currentPath, id, selector, domPath)
   }
 )
 

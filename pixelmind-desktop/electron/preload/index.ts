@@ -298,6 +298,7 @@ const api: PixelMindApi = {
       currentPath?: string
       id?: string
       selector?: string
+      domPath?: string
     }) => ipcRenderer.invoke('inspect:locate-source', payload),
     syncCode: (payload: {
       fullPath: string
