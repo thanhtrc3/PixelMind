@@ -78,10 +78,20 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
   // Lấy các token gợi ý từ DesignTokens
   const tokenList: SuggestedToken[] = useMemo(() => {
     if (!designTokens) return []
+    const toSafeVarSlug = (name: string): string => {
+      const base = name.split(/[\(\[\{]/)[0].trim().toLowerCase()
+      const slug = base
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/^-|-$/g, '')
+      return slug || 'custom'
+    }
+
     const res: SuggestedToken[] = []
     if (Array.isArray(designTokens.colors)) {
       for (const c of designTokens.colors) {
-        const slug = c.name.toLowerCase().replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '')
+        const slug = toSafeVarSlug(c.name)
         res.push({
           id: c.id,
           name: c.name,
@@ -93,7 +103,7 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
     }
     if (Array.isArray(designTokens.spacing)) {
       for (const s of designTokens.spacing) {
-        const slug = s.name.toLowerCase().replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '')
+        const slug = toSafeVarSlug(s.name)
         res.push({
           id: s.id,
           name: s.name,
@@ -105,7 +115,7 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
     }
     if (Array.isArray(designTokens.radius)) {
       for (const r of designTokens.radius) {
-        const slug = r.name.toLowerCase().replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '')
+        const slug = toSafeVarSlug(r.name)
         res.push({
           id: r.id,
           name: r.name,
@@ -457,7 +467,7 @@ export const CssVariablesCard: React.FC<CssVariablesCardProps> = ({
                   <div className="pm-token-select-list">
                     {/* Danh sách Token có sẵn */}
                     {tokenList.map((tok) => {
-                      const refStr = formatVarReference(tok.cssVarName)
+                      const refStr = formatVarReference(tok.cssVarName, tok.value)
                       const isSelected = selectedTokenRef === refStr
 
                       return (

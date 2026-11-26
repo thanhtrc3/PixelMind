@@ -2610,6 +2610,25 @@ const CanvasArea = ({
         return
       }
 
+      // Cập nhật trực tiếp DOM của phần tử đang chọn để thay đổi hiển thị ngay lập tức
+      if (styles) {
+        const toCssProperty = (key: string) =>
+          key.startsWith('--') ? key : key.replace(/([A-Z])/g, '-$1').toLowerCase()
+        const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document
+        const el = selectedEl.uid
+          ? (doc?.querySelector(`[data-pm-uid="${selectedEl.uid}"]`) as HTMLElement | null)
+          : selectedEl.domPath
+          ? (doc?.querySelector(selectedEl.domPath) as HTMLElement | null)
+          : null
+        if (el) {
+          for (const [key, value] of Object.entries(styles)) {
+            const property = toCssProperty(key)
+            if (!value) el.style.removeProperty(property)
+            else el.style.setProperty(property, value)
+          }
+        }
+      }
+
       if (iframeRef.current?.contentWindow) {
         iframeRef.current.contentWindow.postMessage(
           {
