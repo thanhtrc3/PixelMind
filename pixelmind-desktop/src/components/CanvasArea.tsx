@@ -1488,6 +1488,46 @@ const CanvasArea = ({
     return () => window.clearInterval(timer)
   }, [shareState.active, projectPath, projectName, currentLiveUrl, url, editingCommentId])
 
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('pixelmind:share-state', { detail: { active: shareState.active } }))
+  }, [shareState.active])
+
+  useEffect(() => {
+    const handleToggleShare = async () => {
+      setIsShareOpen((prev) => {
+        const nextOpen = !prev
+        if (nextOpen && !shareState.active && projectPath && api.share?.start) {
+          void api.share
+            .start({
+              projectPath,
+              projectName,
+              targetUrl: currentLiveUrl || url,
+              comments: canvasComments,
+            })
+            .then((res) => {
+              setShareState({
+                active: res.active,
+                port: res.port,
+                localUrl: res.localUrl,
+                lanUrls: res.lanUrls || [],
+                publicUrl: res.publicUrl,
+                tunnelStatus: res.tunnelStatus,
+                tunnelError: res.tunnelError,
+              })
+              if (Array.isArray(res.comments)) setCanvasComments(res.comments)
+              showToast('Đã bật link chia sẻ Web (Chế độ Chỉ xem & Ghi chú)', 'ok')
+            })
+            .catch(() => {
+              showToast('Không thể khởi tạo máy chủ chia sẻ', 'err')
+            })
+        }
+        return nextOpen
+      })
+    }
+    window.addEventListener('pixelmind:toggle-share', handleToggleShare)
+    return () => window.removeEventListener('pixelmind:toggle-share', handleToggleShare)
+  }, [shareState.active, projectPath, projectName, currentLiveUrl, url, canvasComments, showToast])
+
   const insertQuickDomElement = useCallback(
     (tag: 'div' | 'p', htmlSnippet: string, label: string) => {
       try {
@@ -5964,53 +6004,6 @@ const CanvasArea = ({
             >
               <Network size={13} />
             </button>
-
-            <button
-              className={`canvas__seg-btn ${shareState.active || isShareOpen ? 'active' : ''}`}
-              onClick={async () => {
-                const nextOpen = !isShareOpen
-                setIsShareOpen(nextOpen)
-                if (nextOpen && !shareState.active && projectPath && api.share?.start) {
-                  try {
-                    const res = await api.share.start({
-                      projectPath,
-                      projectName,
-                      targetUrl: currentLiveUrl || url,
-                      comments: canvasComments,
-                    })
-                    setShareState({
-                      active: res.active,
-                      port: res.port,
-                      localUrl: res.localUrl,
-                      lanUrls: res.lanUrls || [],
-                      publicUrl: res.publicUrl,
-                      tunnelStatus: res.tunnelStatus,
-                      tunnelError: res.tunnelError,
-                    })
-                    if (Array.isArray(res.comments)) setCanvasComments(res.comments)
-                    showToast('Đã bật link chia sẻ Web (Chế độ Chỉ xem & Ghi chú)', 'ok')
-                  } catch {
-                    showToast('Không thể khởi tạo máy chủ chia sẻ', 'err')
-                  }
-                }
-              }}
-              title="Chia sẻ dự án qua trình duyệt Web (Cùng mạng LAN hoặc Khác mạng Internet — Chỉ xem & Ghi chú)"
-              style={{
-                height: 24,
-                padding: '0 9px',
-                gap: 5,
-                borderRadius: 6,
-                fontWeight: 650,
-                background: shareState.active ? '#0ea5e9' : 'var(--panel-2)',
-                color: shareState.active ? '#ffffff' : 'var(--text)',
-                border: '1px solid var(--line)',
-                display: 'inline-flex',
-                alignItems: 'center',
-              }}
-            >
-              <ExternalLink size={12} />
-              <span style={{ fontSize: 11 }}>Chia sẻ{shareState.active ? ' ●' : ''}</span>
-            </button>
           </div>
 
           <div className="canvas__tools-spacer" />
@@ -6583,9 +6576,9 @@ const CanvasArea = ({
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
               style={{
-                position: 'absolute',
-                top: 12,
-                left: 16,
+                position: 'fixed',
+                top: 38,
+                right: 110,
                 zIndex: 9998,
                 width: 420,
                 padding: 16,

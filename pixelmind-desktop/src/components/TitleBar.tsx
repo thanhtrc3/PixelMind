@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Check, Loader2, Minus, Save, Square, X } from 'lucide-react'
+import { Check, Loader2, Minus, Save, Share2, Square, X } from 'lucide-react'
 import { api, isDesktop } from '../lib/bridge'
 import { editorBuffer } from '../lib/editorBuffer'
 import type { ProjectRecord } from '@shared/types'
@@ -55,7 +55,17 @@ const TitleBar = ({
   const [isSavingBuffer, setIsSavingBuffer] = useState(editorBuffer.isSaving())
   const [dirtyCount, setDirtyCount] = useState(editorBuffer.getDirtyFileCount())
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(editorBuffer.getLastSavedAt())
+  const [isSharingWeb, setIsSharingWeb] = useState(false)
   const menuButtonsRef = useRef<(HTMLButtonElement | null)[]>([])
+
+  useEffect(() => {
+    const onShareState = (e: Event) => {
+      const detail = (e as CustomEvent<{ active?: boolean }>).detail
+      setIsSharingWeb(Boolean(detail?.active))
+    }
+    window.addEventListener('pixelmind:share-state', onShareState)
+    return () => window.removeEventListener('pixelmind:share-state', onShareState)
+  }, [])
 
   useEffect(() => {
     return editorBuffer.subscribe(() => {
@@ -257,8 +267,22 @@ const TitleBar = ({
         {project ? <span>{project.name}</span> : null}
       </div>
 
-      {/* ── 4. Nút bật/tắt Auto-Save ngay trên TitleBar & điều khiển cửa sổ ── */}
+      {/* ── 4. Nút Chia sẻ Web & bật/tắt Auto-Save ngay trên TitleBar & điều khiển cửa sổ ── */}
       <div className="pm-titlebar__right">
+        {project && (
+          <button
+            type="button"
+            className={`pm-titlebar__autosave ${isSharingWeb ? 'on' : 'off'}`}
+            onClick={() => window.dispatchEvent(new CustomEvent('pixelmind:toggle-share'))}
+            title="Chia sẻ dự án qua Trình duyệt Web (Cùng mạng LAN hoặc Khác mạng Internet — Chế độ Chỉ xem & Ghi chú)"
+            aria-pressed={isSharingWeb}
+            aria-label="Chia sẻ dự án qua trình duyệt Web"
+          >
+            <Share2 size={11} />
+            <span>Share</span>
+            <span className="pm-titlebar__autosave-state">{isSharingWeb ? 'Bật' : 'Tắt'}</span>
+          </button>
+        )}
         {onToggleAutoSave && (
           <button
             type="button"
