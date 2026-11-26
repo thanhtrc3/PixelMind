@@ -1369,6 +1369,7 @@ const CanvasArea = ({
   >([])
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingCommentText, setEditingCommentText] = useState('')
+  const [hoveredCommentId, setHoveredCommentId] = useState<string | null>(null)
   const [commentContextMenu, setCommentContextMenu] = useState<{
     id: string
     x: number
@@ -6118,12 +6119,15 @@ const CanvasArea = ({
             </svg>
           )}
 
-          {/* Các thẻ Ghi chú trên Canvas (C): Chuột trái để nhập ghi chú, chuột phải để mở menu thao tác */}
+          {/* Các thẻ Ghi chú trên Canvas (C): Mặc định thu gọn thành 1 ô icon nhỏ; rê chuột vào mới hiện nội dung, chuột trái để sửa, chuột phải mở menu */}
           {canvasComments.map((item) => {
             const isEditing = editingCommentId === item.id
+            const isExpanded = isEditing || hoveredCommentId === item.id
             return (
               <div
                 key={item.id}
+                onMouseEnter={() => setHoveredCommentId(item.id)}
+                onMouseLeave={() => setHoveredCommentId((prev) => (prev === item.id ? null : prev))}
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -6138,17 +6142,20 @@ const CanvasArea = ({
                   e.stopPropagation()
                   setCommentContextMenu({ id: item.id, x: e.clientX, y: e.clientY })
                 }}
-                title="Chuột trái: Nhập/sửa ghi chú • Chuột phải: Tùy chọn thẻ ghi chú"
+                title="Rê chuột để xem • Chuột trái: Nhập/sửa ghi chú • Chuột phải: Tùy chọn"
                 style={{
                   position: 'absolute',
                   left: item.x,
                   top: item.y,
-                  transform: 'translate(-50%, -100%)',
-                  zIndex: isEditing ? 85 : 77,
+                  transform: 'translate(0, -100%)',
+                  zIndex: isExpanded ? 85 : 77,
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 6,
-                  padding: isEditing ? '4px 6px' : '4px 10px',
+                  justifyContent: 'center',
+                  gap: isExpanded ? 6 : 0,
+                  minWidth: 24,
+                  height: isEditing ? 28 : 24,
+                  padding: isEditing ? '3px 6px' : isExpanded ? '3px 10px' : '0 6px',
                   borderRadius: '12px 12px 12px 2px',
                   background: item.resolved ? '#22c55e' : '#f59e0b',
                   color: '#0f172a',
@@ -6156,8 +6163,9 @@ const CanvasArea = ({
                   fontSize: 11,
                   fontWeight: 700,
                   cursor: isEditing ? 'text' : 'pointer',
-                  boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
-                  maxWidth: 280,
+                  boxShadow: '0 3px 10px rgba(0,0,0,0.32)',
+                  maxWidth: isExpanded ? 280 : 26,
+                  transition: 'max-width 140ms ease, padding 140ms ease',
                 }}
               >
                 <MessageSquare size={12} style={{ flexShrink: 0 }} />
@@ -6201,7 +6209,7 @@ const CanvasArea = ({
                       outline: 'none',
                     }}
                   />
-                ) : (
+                ) : isExpanded ? (
                   <span
                     style={{
                       overflow: 'hidden',
@@ -6212,7 +6220,7 @@ const CanvasArea = ({
                   >
                     {item.text}
                   </span>
-                )}
+                ) : null}
               </div>
             )
           })}
