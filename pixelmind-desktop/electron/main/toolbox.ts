@@ -228,7 +228,10 @@ function scoreCandidate(content: string, candidate: Candidate, target: ElementMu
   if (target.textSnippet) {
     const snippet = target.textSnippet.trim().slice(0, 60)
     if (snippet) {
-      const body = content.slice(tag.openEnd, Math.min(content.length, tag.openEnd + 6000))
+      const bodyEnd = candidate.range.selfClosing
+        ? tag.openEnd
+        : Math.min(candidate.range.contentEnd, tag.openEnd + 6000)
+      const body = content.slice(tag.openEnd, bodyEnd)
       if (body.includes(snippet)) score += 30
       else {
         const firstWord = snippet.split(/\s+/)[0]
@@ -821,7 +824,7 @@ function mutateReparent(
   // 1. Thử tìm thẻ anh em đích (targetSibling) nếu có
   if (payload.targetSibling) {
     const cand = findBestCandidate(content, payload.targetSibling)
-    if (cand) {
+    if (cand && cand.candidate.range.startOffset !== sourceRange.startOffset) {
       destRange = cand.candidate.range
       placement = payload.placement || 'before'
     }
@@ -830,7 +833,7 @@ function mutateReparent(
   // 2. Thử tìm thẻ cha đích (targetParent) nếu chưa tìm thấy sibling
   if (!destRange && payload.targetParent) {
     const cand = findBestCandidate(content, payload.targetParent)
-    if (cand) {
+    if (cand && cand.candidate.range.startOffset !== sourceRange.startOffset) {
       destRange = cand.candidate.range
       placement = 'inside'
     }
@@ -859,7 +862,27 @@ function mutateReparent(
     targetIndent = destRange.indent
   }
 
-  const reindentedBlock = reindentBlock(rawSourceBlock, sourceRange.indent, targetIndent)
+  // Khi đổi khung cha, gỡ các thuộc tính tọa độ kéo tự do (position: relative, top/left/right/bottom)
+  // khỏi thẻ mở để khớp với live DOM và không bị lệch vị trí trong khung mới.
+  const cleanedSourceBlock = rawSourceBlock.replace(
+    /^(\s*<[a-zA-Z0-9_:-]+[^>]*?)\s+style=(["'])([^"']*)\2/,
+    (_full, prefix: string, quote: string, styleVal: string) => {
+      const kept = styleVal
+        .split(';')
+        .map((s) => s.trim())
+        .filter((decl) => {
+          if (!decl) return false
+          const prop = decl.split(':')[0]?.trim().toLowerCase()
+          const val = decl.split(':').slice(1).join(':').trim().toLowerCase()
+          if (prop === 'top' || prop === 'left' || prop === 'right' || prop === 'bottom') return false
+          if (prop === 'position' && val === 'relative') return false
+          return true
+        })
+      return kept.length > 0 ? `${prefix} style=${quote}${kept.join('; ')};${quote}` : prefix
+    },
+  )
+
+  const reindentedBlock = reindentBlock(cleanedSourceBlock, sourceRange.indent, targetIndent)
 
   // 4. Ghép nối nội dung tệp mới
   let newText: string

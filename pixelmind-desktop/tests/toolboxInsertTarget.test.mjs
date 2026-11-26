@@ -241,3 +241,43 @@ test('enclosingHtml giữ tổ tiên chung để CSS phụ thuộc ancestor còn
   doc.body.appendChild(outside)
   assert.equal(enclosingHtml([title, outside]), '', 'tổ tiên chung là body thì không bọc')
 })
+
+test('reparent khớp đúng thẻ anh em trong <nav> (không bắt nhầm <a> đứng trước nó) và gỡ offset kéo tự do', async () => {
+  const dir = await fs.mkdtemp(join(tmpdir(), 'pm-reparent-nav-'))
+  await fs.mkdir(join(dir, 'Views', 'Shared'), { recursive: true })
+  const layout = join(dir, 'Views', 'Shared', '_Layout.cshtml')
+  await fs.writeFile(
+    layout,
+    [
+      '<header class="topbar">',
+      '  <div class="topbar-in">',
+      '    <a class="logo" href="/">PixelShop</a>',
+      '    <a style="position: relative; left: 48px; top: 2px;" href="/">Trang chủ</a>',
+      '    <nav>',
+      '      <a href="/Product">Kho hàng</a>',
+      '    </nav>',
+      '  </div>',
+      '</header>',
+      '',
+    ].join('\n'),
+    'utf8',
+  )
+
+  const result = await runToolboxMutation({
+    kind: 'reparent',
+    projectPath: dir,
+    target: { tagName: 'a', textSnippet: 'Trang chủ', fullPath: layout },
+    targetParent: { tagName: 'nav', textSnippet: 'Trang chủ Kho hàng' },
+    targetSibling: { tagName: 'a', textSnippet: 'Kho hàng' },
+    placement: 'before',
+    dryRun: false,
+  })
+
+  assert.equal(result.success, true)
+  const updated = await fs.readFile(layout, 'utf8')
+  const navMatch = updated.match(/<nav>([\s\S]*?)<\/nav>/)
+  assert.ok(navMatch, 'phải giữ thẻ <nav>')
+  assert.ok(navMatch[1].includes('Trang chủ'), 'Trang chủ phải nằm bên trong <nav>')
+  assert.ok(navMatch[1].indexOf('Trang chủ') < navMatch[1].indexOf('Kho hàng'), 'Trang chủ phải đứng trước Kho hàng trong <nav>')
+  assert.ok(!navMatch[1].includes('left: 48px'), 'phải gỡ tọa độ kéo tự do cũ khi đổi khung cha')
+})
