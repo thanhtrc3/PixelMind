@@ -3130,6 +3130,11 @@
   user-select: none;
 }
 
+.pm-annotation-pin.is-offscreen {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 .pm-annotation-pin:hover {
   transform: translate(-50%, -50%) scale(1.15);
   z-index: 55;

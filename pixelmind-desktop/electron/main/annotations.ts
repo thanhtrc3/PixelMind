@@ -96,6 +96,12 @@ export async function addAnnotation(
     resolved: false,
     createdAt: now,
     color: input.color || '#8b5cf6',
+    targetUid: input.targetUid,
+    targetSelector: input.targetSelector,
+    elementOffsetX: input.elementOffsetX,
+    elementOffsetY: input.elementOffsetY,
+    documentX: input.documentX,
+    documentY: input.documentY,
   }
 
   const updated = [newPin, ...current]

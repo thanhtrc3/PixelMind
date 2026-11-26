@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   CheckCircle2,
   Clock,
@@ -9,23 +9,35 @@ import {
   RotateCcw,
 } from 'lucide-react'
 import type { AnnotationPin } from '../../../shared/annotation'
-import { calculateRelativePosition } from '../../../shared/annotation'
+import { calculateRelativePosition, filterAnnotations } from '../../../shared/annotation'
 
 export interface AnnotationOverlayProps {
   annotations: AnnotationPin[]
+  currentRoute?: string
   isAnnotateMode: boolean
   showResolved: boolean
   activePinId: string | null
   onSelectPin: (id: string | null) => void
-  onCreatePin: (coords: { xPercent: number; yPercent: number }) => void
+  onCreatePin: (data: {
+    xPercent: number
+    yPercent: number
+    targetUid?: string
+    targetSelector?: string
+    elementOffsetX?: number
+    elementOffsetY?: number
+    documentX?: number
+    documentY?: number
+  }) => void
   onUpdatePin: (id: string, content: string) => void
   onToggleResolve: (id: string, resolved: boolean) => void
   onDeletePin: (id: string) => void
   containerRef: React.RefObject<HTMLDivElement | null>
+  iframeRef?: React.RefObject<HTMLIFrameElement | null>
 }
 
 export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
   annotations,
+  currentRoute,
   isAnnotateMode,
   showResolved,
   activePinId,
@@ -35,12 +47,26 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
   onToggleResolve,
   onDeletePin,
   containerRef,
+  iframeRef,
 }) => {
   const [editingContent, setEditingContent] = useState('')
   const [isEditing, setIsEditing] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
 
-  const activePin = annotations.find((p) => p.id === activePinId)
+  // Lưu tọa độ hiển thị thực tế trên màn hình của từng ghim
+  const [pinPositions, setPinPositions] = useState<
+    Record<string, { left: number; top: number; isVisible: boolean }>
+  >({})
+
+  // Lọc danh sách ghim theo route hiện tại và trạng thái đã xử lý
+  const visiblePins = useMemo(() => {
+    return filterAnnotations(annotations, {
+      route: currentRoute,
+      showResolved,
+    })
+  }, [annotations, currentRoute, showResolved])
+
+  const activePin = visiblePins.find((p) => p.id === activePinId)
 
   // Đồng bộ nội dung khi đổi activePin
   useEffect(() => {
@@ -53,8 +79,106 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
     }
   }, [activePinId, activePin?.content])
 
-  // Lọc danh sách ghim cần hiển thị
-  const visiblePins = annotations.filter((p) => (showResolved ? true : !p.resolved))
+  // Cập nhật vị trí ghim bám dính theo phần tử trong iframe hoặc độ cuộn trang
+  const updatePinPositions = useCallback(() => {
+    const iframe = iframeRef?.current
+    const container = containerRef.current
+    if (!container) return
+
+    const containerRect = container.getBoundingClientRect()
+    const iframeRect = iframe ? iframe.getBoundingClientRect() : containerRect
+    const doc = iframe?.contentDocument || iframe?.contentWindow?.document
+    const win = iframe?.contentWindow
+
+    const newPositions: Record<string, { left: number; top: number; isVisible: boolean }> = {}
+
+    for (const pin of visiblePins) {
+      let targetEl: HTMLElement | null = null
+      if (doc && pin.targetUid) {
+        targetEl = doc.querySelector(`[data-pm-uid="${pin.targetUid}"]`) as HTMLElement | null
+      }
+      if (!targetEl && doc && pin.targetSelector) {
+        try {
+          targetEl = doc.querySelector(pin.targetSelector) as HTMLElement | null
+        } catch {}
+      }
+
+      if (targetEl) {
+        const r = targetEl.getBoundingClientRect()
+        // Tọa độ tính tương đối với container overlay
+        const posX = iframeRect.left - containerRect.left + r.left + (r.width * (pin.elementOffsetX ?? 50)) / 100
+        const posY = iframeRect.top - containerRect.top + r.top + (r.height * (pin.elementOffsetY ?? 50)) / 100
+
+        // Kiểm tra xem phần tử có nằm trong khung nhìn hiển thị của iframe không
+        const isVisible =
+          r.bottom > 0 &&
+          r.top < iframeRect.height &&
+          r.right > 0 &&
+          r.left < iframeRect.width
+
+        newPositions[pin.id] = {
+          left: posX,
+          top: posY,
+          isVisible,
+        }
+      } else if (win && typeof pin.documentX === 'number' && typeof pin.documentY === 'number') {
+        // Fallback theo tọa độ document trừ đi scroll của iframe
+        const posX = iframeRect.left - containerRect.left + (pin.documentX - win.scrollX)
+        const posY = iframeRect.top - containerRect.top + (pin.documentY - win.scrollY)
+        const isVisible = posY > -40 && posY < containerRect.height + 40
+        newPositions[pin.id] = {
+          left: posX,
+          top: posY,
+          isVisible,
+        }
+      } else {
+        // Fallback cho ghim cũ theo % viewport
+        newPositions[pin.id] = {
+          left: (pin.xPercent / 100) * containerRect.width,
+          top: (pin.yPercent / 100) * containerRect.height,
+          isVisible: true,
+        }
+      }
+    }
+
+    setPinPositions(newPositions)
+  }, [visiblePins, iframeRef, containerRef])
+
+  // Lắng nghe scroll & resize của iframe để ghim di chuyển theo phần tử mượt mà
+  useEffect(() => {
+    updatePinPositions()
+
+    const iframe = iframeRef?.current
+    const win = iframe?.contentWindow
+
+    const handleScrollOrResize = () => {
+      updatePinPositions()
+    }
+
+    if (win) {
+      win.addEventListener('scroll', handleScrollOrResize, { passive: true })
+      win.addEventListener('resize', handleScrollOrResize, { passive: true })
+    }
+
+    const container = containerRef.current
+    if (container) {
+      container.addEventListener('scroll', handleScrollOrResize, { passive: true })
+    }
+
+    // Interval nhẹ theo dõi layout shift hoặc animation
+    const interval = setInterval(updatePinPositions, 150)
+
+    return () => {
+      clearInterval(interval)
+      if (win) {
+        win.removeEventListener('scroll', handleScrollOrResize)
+        win.removeEventListener('resize', handleScrollOrResize)
+      }
+      if (container) {
+        container.removeEventListener('scroll', handleScrollOrResize)
+      }
+    }
+  }, [updatePinPositions, iframeRef, containerRef])
 
   // Xử lý click tạo ghim mới khi đang bật chế độ Annotate
   const handleOverlayClick = (e: React.MouseEvent) => {
@@ -69,14 +193,70 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
     if (!containerRef.current) return
     const rect = containerRef.current.getBoundingClientRect()
     const coords = calculateRelativePosition(e.clientX, e.clientY, rect)
-    onCreatePin(coords)
+
+    // Xác định phần tử thật trong iframe (để ghim dính chặt vào phần tử)
+    let targetUid: string | undefined
+    let targetSelector: string | undefined
+    let elementOffsetX: number | undefined
+    let elementOffsetY: number | undefined
+    let documentX: number | undefined
+    let documentY: number | undefined
+
+    const iframe = iframeRef?.current
+    if (iframe) {
+      const iframeRect = iframe.getBoundingClientRect()
+      const iframeX = e.clientX - iframeRect.left
+      const iframeY = e.clientY - iframeRect.top
+      const doc = iframe.contentDocument || iframe.contentWindow?.document
+      const win = iframe.contentWindow
+
+      if (doc) {
+        const clickedEl = doc.elementFromPoint(iframeX, iframeY) as HTMLElement | null
+        if (clickedEl && clickedEl !== doc.body && clickedEl !== doc.documentElement) {
+          let uid = clickedEl.getAttribute('data-pm-uid')
+          if (!uid) {
+            uid = 'pm_' + Math.random().toString(36).slice(2, 9)
+            clickedEl.setAttribute('data-pm-uid', uid)
+          }
+          targetUid = uid
+          targetSelector = clickedEl.id
+            ? `#${clickedEl.id}`
+            : clickedEl.className && typeof clickedEl.className === 'string'
+            ? `.${clickedEl.className.trim().split(/\s+/)[0]}`
+            : clickedEl.tagName.toLowerCase()
+
+          const elRect = clickedEl.getBoundingClientRect()
+          if (elRect.width > 0 && elRect.height > 0) {
+            elementOffsetX =
+              Math.round((Math.max(0, Math.min(elRect.width, iframeX - elRect.left)) / elRect.width) * 1000) / 10
+            elementOffsetY =
+              Math.round((Math.max(0, Math.min(elRect.height, iframeY - elRect.top)) / elRect.height) * 1000) / 10
+          }
+        }
+
+        if (win) {
+          documentX = Math.round(iframeX + win.scrollX)
+          documentY = Math.round(iframeY + win.scrollY)
+        }
+      }
+    }
+
+    onCreatePin({
+      xPercent: coords.xPercent,
+      yPercent: coords.yPercent,
+      targetUid,
+      targetSelector,
+      elementOffsetX,
+      elementOffsetY,
+      documentX,
+      documentY,
+    })
   }
 
   const handleSaveContent = () => {
     if (!activePin) return
     const trimmed = editingContent.trim()
     if (!trimmed) {
-      // Nếu xóa rỗng nội dung thì có thể xóa ghim hoặc giữ nguyên
       return
     }
     onUpdatePin(activePin.id, trimmed)
@@ -86,7 +266,11 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
   const formatTime = (isoString: string) => {
     try {
       const d = new Date(isoString)
-      return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' ' + d.toLocaleDateString('vi-VN')
+      return (
+        d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) +
+        ' ' +
+        d.toLocaleDateString('vi-VN')
+      )
     } catch {
       return isoString
     }
@@ -107,16 +291,28 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
       {visiblePins.map((pin, idx) => {
         const isActive = pin.id === activePinId
         const isResolved = pin.resolved
+        const pos = pinPositions[pin.id]
+
+        const stylePos: React.CSSProperties = pos
+          ? {
+              left: `${pos.left}px`,
+              top: `${pos.top}px`,
+              opacity: pos.isVisible ? 1 : 0,
+              pointerEvents: pos.isVisible ? 'auto' : 'none',
+              transition: 'opacity 150ms ease',
+            }
+          : {
+              left: `${pin.xPercent}%`,
+              top: `${pin.yPercent}%`,
+            }
 
         return (
           <div
             key={pin.id}
-            className={`pm-annotation-pin ${isActive ? 'active' : ''} ${isResolved ? 'resolved' : ''}`}
-            style={{
-              left: `${pin.xPercent}%`,
-              top: `${pin.yPercent}%`,
-              pointerEvents: 'auto',
-            }}
+            className={`pm-annotation-pin ${isActive ? 'active' : ''} ${isResolved ? 'resolved' : ''} ${
+              pos && !pos.isVisible ? 'is-offscreen' : ''
+            }`}
+            style={stylePos}
             title={`Ghi chú #${idx + 1}: ${pin.content.slice(0, 40) || '(Trống)'}`}
             onClick={(e) => {
               e.stopPropagation()
@@ -143,8 +339,12 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
           ref={popoverRef}
           className="pm-annotation-popover"
           style={{
-            left: `${activePin.xPercent}%`,
-            top: `${activePin.yPercent}%`,
+            left: pinPositions[activePin.id]
+              ? `${pinPositions[activePin.id].left}px`
+              : `${activePin.xPercent}%`,
+            top: pinPositions[activePin.id]
+              ? `${pinPositions[activePin.id].top + 8}px`
+              : `${activePin.yPercent}%`,
             pointerEvents: 'auto',
           }}
           onClick={(e) => e.stopPropagation()}

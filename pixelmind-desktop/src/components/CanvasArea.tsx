@@ -761,6 +761,15 @@ const CanvasArea = ({
   const [isDirtyBuffer, setIsDirtyBuffer] = useState(editorBuffer.isDirty())
   const initialTextRef = useRef<string>('')
   const currentRouteRef = useRef<string>('/')
+  const [livePathname, setLivePathname] = useState<string>(currentRoute || '/')
+
+  useEffect(() => {
+    if (currentRoute) {
+      setLivePathname(currentRoute)
+      currentRouteRef.current = currentRoute
+    }
+  }, [currentRoute])
+
   const [isTokensDialogOpen, setIsTokensDialogOpen] = useState(false)
   const [isPageFlowOpen, setIsPageFlowOpen] = useState(false)
   const [projectTokens, setProjectTokens] = useState<DesignTokens | null>(null)
@@ -993,16 +1002,32 @@ const CanvasArea = ({
 
   // ─── D2-15: CÁC THAO TÁC ANNOTATION PINS (THÊM / SỬA / RESOLVE / XÓA) ───
   const handleCreateAnnotation = useCallback(
-    async (coords: { xPercent: number; yPercent: number }) => {
+    async (input: {
+      xPercent: number
+      yPercent: number
+      targetUid?: string
+      targetSelector?: string
+      elementOffsetX?: number
+      elementOffsetY?: number
+      documentX?: number
+      documentY?: number
+    }) => {
       if (!projectPath || !api.annotations?.add) {
         showToast('Cần mở dự án để tạo ghi chú', 'err')
         return
       }
+      const activeRoute = livePathname || currentRoute || '/'
       const res = await api.annotations.add(projectPath, {
-        xPercent: coords.xPercent,
-        yPercent: coords.yPercent,
-        route: currentRoute || '/',
+        xPercent: input.xPercent,
+        yPercent: input.yPercent,
+        route: activeRoute,
         content: '',
+        targetUid: input.targetUid,
+        targetSelector: input.targetSelector,
+        elementOffsetX: input.elementOffsetX,
+        elementOffsetY: input.elementOffsetY,
+        documentX: input.documentX,
+        documentY: input.documentY,
       })
       if (res.ok && res.annotation) {
         setAnnotations((prev) => [res.annotation!, ...prev])
@@ -1012,7 +1037,7 @@ const CanvasArea = ({
         showToast(res.error || 'Không thể tạo ghi chú', 'err')
       }
     },
-    [projectPath, currentRoute, showToast]
+    [projectPath, livePathname, currentRoute, showToast]
   )
 
   const handleUpdateAnnotation = useCallback(
@@ -1929,6 +1954,7 @@ const CanvasArea = ({
         const previousRoute = currentRouteRef.current
         if (pathname) {
           currentRouteRef.current = pathname
+          setLivePathname(pathname)
         }
         // Chuyển trang: vùng chọn của trang cũ không còn ý nghĩa
         if (pathname && pathname !== previousRoute) {
@@ -2141,6 +2167,7 @@ const CanvasArea = ({
           }
           if (payload.currentPath) {
             currentRouteRef.current = payload.currentPath
+            setLivePathname(payload.currentPath)
           }
           // D2-20: Nếu đang ở chế độ mô phỏng Prototype và phần tử có trigger click
           if (isPrototypeModeRef.current) {
@@ -2182,6 +2209,7 @@ const CanvasArea = ({
           setSelectedEl(primary)
           if (primary.currentPath) {
             currentRouteRef.current = primary.currentPath
+            setLivePathname(primary.currentPath)
           }
           if (!originalStyles) {
             setOriginalStyles({
@@ -6387,6 +6415,7 @@ const CanvasArea = ({
       {/* D2-15: Lớp hiển thị Ghim phản hồi / Ghi chú (Annotation Pins) */}
       <AnnotationOverlay
         annotations={annotations}
+        currentRoute={livePathname || currentRoute || '/'}
         isAnnotateMode={isAnnotateMode}
         showResolved={showResolvedAnnotations}
         activePinId={activeAnnotationPinId}
@@ -6396,6 +6425,7 @@ const CanvasArea = ({
         onToggleResolve={handleToggleResolveAnnotation}
         onDeletePin={handleDeleteAnnotation}
         containerRef={frameContentRef}
+        iframeRef={iframeRef}
       />
 
       {/* D2-20: Floating indicator khi ở chế độ Mô phỏng Prototype */}

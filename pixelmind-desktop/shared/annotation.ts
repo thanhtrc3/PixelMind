@@ -16,6 +16,13 @@ export interface AnnotationPin {
   createdAt: string
   updatedAt?: string
   color?: string // Tuỳ chọn màu đánh dấu ghim (mặc định tím/xanh)
+  // Dính vào phần tử thật trên trang (Sticky Element Attachment)
+  targetUid?: string
+  targetSelector?: string
+  elementOffsetX?: number // % offset trong phần tử mục tiêu (0 - 100%)
+  elementOffsetY?: number // % offset trong phần tử mục tiêu (0 - 100%)
+  documentX?: number // Tọa độ tuyệt đối trong tài liệu (bao gồm cả scroll)
+  documentY?: number // Tọa độ tuyệt đối trong tài liệu (bao gồm cả scroll)
 }
 
 export interface AnnotationInput {
@@ -25,6 +32,12 @@ export interface AnnotationInput {
   author?: string
   content: string
   color?: string
+  targetUid?: string
+  targetSelector?: string
+  elementOffsetX?: number
+  elementOffsetY?: number
+  documentX?: number
+  documentY?: number
 }
 
 export interface AnnotationStoreData {
@@ -74,6 +87,17 @@ export function calculateAbsolutePosition(
 }
 
 /**
+ * Chuẩn hoá đường dẫn route để so sánh chính xác (/about vs /About/)
+ */
+export function normalizeRoute(r?: string | null): string {
+  if (!r) return '/'
+  let clean = r.trim().toLowerCase()
+  if (!clean.startsWith('/')) clean = '/' + clean
+  if (clean.length > 1 && clean.endsWith('/')) clean = clean.slice(0, -1)
+  return clean
+}
+
+/**
  * Lọc danh sách annotations theo điều kiện (route, resolved)
  */
 export function filterAnnotations(
@@ -84,9 +108,10 @@ export function filterAnnotations(
   } = {}
 ): AnnotationPin[] {
   const { route, showResolved = true } = options
+  const targetRoute = route ? normalizeRoute(route) : undefined
 
   return annotations.filter((ann) => {
-    if (route && ann.route && ann.route !== route) {
+    if (targetRoute && normalizeRoute(ann.route) !== targetRoute) {
       return false
     }
     if (!showResolved && ann.resolved) {
