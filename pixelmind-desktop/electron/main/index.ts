@@ -3788,6 +3788,21 @@ async function scanProjectForSource(
   const domInLayoutShell = domInHeader || domInFooter || domInNav
   const domInMain = /\bmain\b/.test(lowerDomPath) && (tagName || '').toLowerCase() !== 'main'
 
+  // Nhận diện loại dự án (ASP.NET, React/Vue/Svelte, PHP...) để ưu tiên đúng tệp view thật
+  // thay vì bắt nhầm tệp index.html tĩnh/shell nằm ở thư mục gốc.
+  let preferredViewExts: string[] = []
+  try {
+    const rootEntries = await fs.readdir(rootDir)
+    const lowerRoot = rootEntries.map((e) => e.toLowerCase())
+    if (lowerRoot.some((e) => e.endsWith('.csproj') || e.endsWith('.sln')) || lowerRoot.includes('views') || lowerRoot.includes('pages')) {
+      preferredViewExts = ['.cshtml', '.razor']
+    } else if (lowerRoot.includes('artisan') || lowerRoot.includes('composer.json') || lowerRoot.includes('index.php')) {
+      preferredViewExts = ['.blade.php', '.php']
+    } else if (lowerRoot.includes('package.json')) {
+      preferredViewExts = ['.tsx', '.jsx', '.vue', '.svelte']
+    }
+  } catch { }
+
   // Chuẩn bị ngữ cảnh thẻ mở / thẻ cha / nội dung con cho thẻ trần không có id/class (vd: <nav>, <header>, <footer>, <main>, <section>, <div>)
   const escapedTag = (tagName || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const openTagPattern = escapedTag ? new RegExp(`<${escapedTag}(?:\\s|>|$)`, 'i') : null
@@ -3870,6 +3885,13 @@ async function scanProjectForSource(
             lowerRel.includes('nav')
           const isHomeIndexFile = /(?:^|\/)(?:index|home|page)\.[a-z]+$/i.test(lowerRel)
           let routeScore = 0
+          if (preferredViewExts.length > 0) {
+            if (preferredViewExts.some((ext) => lowerRel.endsWith(ext))) {
+              routeScore += 60
+            } else if (lowerRel.endsWith('.html') || lowerRel.endsWith('.htm')) {
+              routeScore -= 40
+            }
+          }
           if (domInLayoutShell && isLayoutFile) {
             routeScore += 110
           } else if (routeTokens.length > 0) {

@@ -475,8 +475,29 @@ async function resolveSourceFile(
     return { fullPath: firstExistingRouteFile.fullPath, content: firstExistingRouteFile.content, range: null }
   }
 
-  // 2. Thử các điểm vào chuẩn (Entry Candidates)
-  for (const rel of ENTRY_CANDIDATES) {
+  // 2. Thử các điểm vào chuẩn (Entry Candidates), ưu tiên đúng phần mở rộng của framework dự án
+  let orderedEntries = ENTRY_CANDIDATES
+  try {
+    const rootEntries = (await fs.readdir(projectPath)).map((e) => e.toLowerCase())
+    if (rootEntries.some((e) => e.endsWith('.csproj') || e.endsWith('.sln')) || rootEntries.includes('views')) {
+      orderedEntries = [
+        ...ENTRY_CANDIDATES.filter((p) => p.endsWith('.cshtml')),
+        ...ENTRY_CANDIDATES.filter((p) => !p.endsWith('.cshtml')),
+      ]
+    } else if (rootEntries.includes('artisan') || rootEntries.includes('composer.json') || rootEntries.includes('index.php')) {
+      orderedEntries = [
+        ...ENTRY_CANDIDATES.filter((p) => p.endsWith('.php')),
+        ...ENTRY_CANDIDATES.filter((p) => !p.endsWith('.php')),
+      ]
+    } else if (rootEntries.includes('package.json')) {
+      orderedEntries = [
+        ...ENTRY_CANDIDATES.filter((p) => /\.(tsx|jsx|vue|svelte)$/.test(p)),
+        ...ENTRY_CANDIDATES.filter((p) => !/\.(tsx|jsx|vue|svelte)$/.test(p)),
+      ]
+    }
+  } catch { }
+
+  for (const rel of orderedEntries) {
     const fullPath = join(projectPath, rel)
     try {
       const content = await fs.readFile(fullPath, 'utf8')
