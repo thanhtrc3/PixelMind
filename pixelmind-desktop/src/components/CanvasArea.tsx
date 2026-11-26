@@ -1365,8 +1365,15 @@ const CanvasArea = ({
     endY: number
   } | null>(null)
   const [canvasComments, setCanvasComments] = useState<
-    Array<{ id: string; x: number; y: number; text: string }>
+    Array<{ id: string; x: number; y: number; text: string; resolved?: boolean }>
   >([])
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
+  const [editingCommentText, setEditingCommentText] = useState('')
+  const [commentContextMenu, setCommentContextMenu] = useState<{
+    id: string
+    x: number
+    y: number
+  } | null>(null)
 
   const insertQuickDomElement = useCallback(
     (tag: 'div' | 'p', htmlSnippet: string, label: string) => {
@@ -1429,11 +1436,13 @@ const CanvasArea = ({
       e.preventDefault()
       e.stopPropagation()
       const nextNum = canvasComments.length + 1
+      const newId = `comment-${Date.now()}`
+      const defaultText = `Ghi chú #${nextNum}`
       setCanvasComments((prev) => [
         ...prev,
-        { id: `comment-${Date.now()}`, x, y, text: `Ghi chú #${nextNum}` },
+        { id: newId, x, y, text: defaultText },
       ])
-      showToast(`Đã ghim Ghi chú #${nextNum} trên Canvas (nhấp vào ghim để xoá)`, 'ok', 'Phím C')
+      showToast(`Đã tạo ${defaultText} (Chuột trái vào thẻ để ghi chú, chuột phải để mở menu)`, 'ok', 'Phím C')
       setTool('select')
       return
     }
@@ -1475,7 +1484,17 @@ const CanvasArea = ({
     const h = Math.max(48, Math.round(Math.abs(current.curY - current.startY)))
     if (current.tool === 'measure') {
       const dist = Math.round(Math.hypot(current.curX - current.startX, current.curY - current.startY))
-      showToast(`Khoảng cách đo: ${dist}px (${Math.abs(current.curX - current.startX)} × ${Math.abs(current.curY - current.startY)} px)`, 'info', 'Phím M')
+      if (dist < 4) {
+        setMeasureLine(null)
+        showToast('Đã xoá thước đo', 'info', 'Phím M')
+      } else {
+        showToast(
+          `Khoảng cách đo: ${dist}px (${Math.abs(current.curX - current.startX)} × ${Math.abs(current.curY - current.startY)} px) — Nhấp vào số đo để xoá`,
+          'info',
+          'Phím M'
+        )
+        setTool('select')
+      }
       return
     }
     if (current.tool === 'rect') {
@@ -1906,7 +1925,10 @@ const CanvasArea = ({
   }, [isInspectMode, selectedEl, originalStyles, showToast, sourceLoc?.fullPath, projectPath])
 
   useEffect(() => {
-    const handleDismissMenu = () => setCanvasContextMenu(null)
+    const handleDismissMenu = () => {
+      setCanvasContextMenu(null)
+      setCommentContextMenu(null)
+    }
     window.addEventListener('click', handleDismissMenu)
     return () => window.removeEventListener('click', handleDismissMenu)
   }, [])
@@ -6012,7 +6034,7 @@ const CanvasArea = ({
             />
           )}
 
-          {/* Thước đo khoảng cách pixel trên Canvas (M) */}
+          {/* Thước đo khoảng cách pixel trên Canvas (M) — Nhấp chuột trái hoặc phải vào thước để xoá */}
           {measureLine && (
             <svg
               style={{
@@ -6024,6 +6046,28 @@ const CanvasArea = ({
                 zIndex: 76,
               }}
             >
+              {/* Đường bắt click rộng để dễ bấm xoá thước */}
+              <line
+                x1={measureLine.startX}
+                y1={measureLine.startY}
+                x2={measureLine.endX}
+                y2={measureLine.endY}
+                stroke="transparent"
+                strokeWidth={14}
+                style={{ pointerEvents: toolDraw ? 'none' : 'stroke', cursor: 'pointer' }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setMeasureLine(null)
+                  showToast('Đã xoá thước đo', 'info')
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setMeasureLine(null)
+                  showToast('Đã xoá thước đo', 'info')
+                }}
+              />
               <line
                 x1={measureLine.startX}
                 y1={measureLine.startY}
@@ -6037,8 +6081,22 @@ const CanvasArea = ({
               <circle cx={measureLine.endX} cy={measureLine.endY} r={4} fill="#f43f5e" />
               <g
                 transform={`translate(${Math.round((measureLine.startX + measureLine.endX) / 2)}, ${Math.round((measureLine.startY + measureLine.endY) / 2 - 10)})`}
+                style={{ pointerEvents: toolDraw ? 'none' : 'all', cursor: 'pointer' }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setMeasureLine(null)
+                  showToast('Đã xoá thước đo', 'info')
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setMeasureLine(null)
+                  showToast('Đã xoá thước đo', 'info')
+                }}
               >
-                <rect x={-36} y={-14} width={72} height={20} rx={5} fill="#f43f5e" />
+                <title>Nhấp chuột để xoá thước đo</title>
+                <rect x={-44} y={-14} width={88} height={20} rx={5} fill="#f43f5e" />
                 <text
                   x={0}
                   y={0}
@@ -6054,47 +6112,276 @@ const CanvasArea = ({
                       measureLine.endY - measureLine.startY
                     )
                   )}
-                  px
+                  px ×
                 </text>
               </g>
             </svg>
           )}
 
-          {/* Các ghim Ghi chú trên Canvas (C) */}
-          {canvasComments.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                setCanvasComments((prev) => prev.filter((c) => c.id !== item.id))
-                showToast(`Đã xoá ${item.text}`, 'info')
-              }}
-              title={`${item.text} (Nhấp để xoá ghim)`}
-              style={{
-                position: 'absolute',
-                left: item.x,
-                top: item.y,
-                transform: 'translate(-50%, -100%)',
-                zIndex: 77,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '3px 8px',
-                borderRadius: '999px 999px 999px 2px',
-                background: '#f59e0b',
-                color: '#0f172a',
-                border: '1.5px solid #ffffff',
-                fontSize: 10.5,
-                fontWeight: 700,
-                cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
-              }}
-            >
-              <MessageSquare size={11} />
-              <span>{item.text}</span>
-            </button>
-          ))}
+          {/* Các thẻ Ghi chú trên Canvas (C): Chuột trái để nhập ghi chú, chuột phải để mở menu thao tác */}
+          {canvasComments.map((item) => {
+            const isEditing = editingCommentId === item.id
+            return (
+              <div
+                key={item.id}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setCommentContextMenu(null)
+                  if (!isEditing) {
+                    setEditingCommentId(item.id)
+                    setEditingCommentText(item.text)
+                  }
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setCommentContextMenu({ id: item.id, x: e.clientX, y: e.clientY })
+                }}
+                title="Chuột trái: Nhập/sửa ghi chú • Chuột phải: Tùy chọn thẻ ghi chú"
+                style={{
+                  position: 'absolute',
+                  left: item.x,
+                  top: item.y,
+                  transform: 'translate(-50%, -100%)',
+                  zIndex: isEditing ? 85 : 77,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: isEditing ? '4px 6px' : '4px 10px',
+                  borderRadius: '12px 12px 12px 2px',
+                  background: item.resolved ? '#22c55e' : '#f59e0b',
+                  color: '#0f172a',
+                  border: '1.5px solid #ffffff',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: isEditing ? 'text' : 'pointer',
+                  boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+                  maxWidth: 280,
+                }}
+              >
+                <MessageSquare size={12} style={{ flexShrink: 0 }} />
+                {isEditing ? (
+                  <input
+                    type="text"
+                    autoFocus
+                    value={editingCommentText}
+                    onChange={(e) => setEditingCommentText(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      e.stopPropagation()
+                      if (e.key === 'Enter') {
+                        const clean = editingCommentText.trim() || item.text
+                        setCanvasComments((prev) =>
+                          prev.map((c) => (c.id === item.id ? { ...c, text: clean } : c))
+                        )
+                        setEditingCommentId(null)
+                        showToast('Đã lưu nội dung ghi chú', 'ok')
+                      } else if (e.key === 'Escape') {
+                        setEditingCommentId(null)
+                      }
+                    }}
+                    onBlur={() => {
+                      const clean = editingCommentText.trim() || item.text
+                      setCanvasComments((prev) =>
+                        prev.map((c) => (c.id === item.id ? { ...c, text: clean } : c))
+                      )
+                      setEditingCommentId(null)
+                    }}
+                    placeholder="Nhập ghi chú..."
+                    style={{
+                      width: 170,
+                      padding: '2px 6px',
+                      borderRadius: 6,
+                      border: '1px solid rgba(15,23,42,0.25)',
+                      background: '#ffffff',
+                      color: '#0f172a',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      outline: 'none',
+                    }}
+                  />
+                ) : (
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      textDecoration: item.resolved ? 'line-through' : 'none',
+                    }}
+                  >
+                    {item.text}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+
+          {/* Menu chuột phải cho thẻ Ghi chú */}
+          {commentContextMenu && (() => {
+            const targetComment = canvasComments.find((c) => c.id === commentContextMenu.id)
+            if (!targetComment) return null
+            return (
+              <div
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  position: 'fixed',
+                  left: commentContextMenu.x,
+                  top: commentContextMenu.y,
+                  zIndex: 9999,
+                  minWidth: 190,
+                  padding: 5,
+                  borderRadius: 10,
+                  background: '#0f172a',
+                  border: '1px solid rgba(148, 163, 184, 0.25)',
+                  boxShadow: '0 10px 28px rgba(0,0,0,0.45)',
+                  color: '#f8fafc',
+                  fontSize: 12,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingCommentId(targetComment.id)
+                    setEditingCommentText(targetComment.text)
+                    setCommentContextMenu(null)
+                  }}
+                  style={{
+                    textAlign: 'left',
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#f8fafc',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  ✏️ Sửa nội dung ghi chú
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCanvasComments((prev) =>
+                      prev.map((c) => (c.id === targetComment.id ? { ...c, resolved: !c.resolved } : c))
+                    )
+                    setCommentContextMenu(null)
+                    showToast(
+                      targetComment.resolved ? 'Đã mở lại ghi chú' : 'Đã đánh dấu hoàn thành ghi chú',
+                      'ok'
+                    )
+                  }}
+                  style={{
+                    textAlign: 'left',
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#f8fafc',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  {targetComment.resolved ? '🔄 Mở lại ghi chú' : '✅ Đánh dấu đã xong'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(targetComment.text).catch(() => {})
+                    setCommentContextMenu(null)
+                    showToast('Đã sao chép nội dung ghi chú', 'ok')
+                  }}
+                  style={{
+                    textAlign: 'left',
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#f8fafc',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  📋 Sao chép nội dung
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCanvasComments((prev) => [
+                      ...prev,
+                      {
+                        ...targetComment,
+                        id: `comment-${Date.now()}`,
+                        x: targetComment.x + 20,
+                        y: targetComment.y + 20,
+                      },
+                    ])
+                    setCommentContextMenu(null)
+                    showToast('Đã nhân bản thẻ ghi chú', 'ok')
+                  }}
+                  style={{
+                    textAlign: 'left',
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#f8fafc',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  📑 Nhân bản thẻ ghi chú
+                </button>
+                <div style={{ height: 1, background: 'rgba(148, 163, 184, 0.2)', margin: '2px 4px' }} />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCanvasComments((prev) => prev.filter((c) => c.id !== targetComment.id))
+                    setCommentContextMenu(null)
+                    showToast(`Đã xoá "${targetComment.text}"`, 'info')
+                  }}
+                  style={{
+                    textAlign: 'left',
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#f87171',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  🗑️ Xoá thẻ ghi chú này
+                </button>
+                {canvasComments.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCanvasComments([])
+                      setCommentContextMenu(null)
+                      showToast('Đã xoá toàn bộ ghi chú trên Canvas', 'info')
+                    }}
+                    style={{
+                      textAlign: 'left',
+                      padding: '6px 10px',
+                      borderRadius: 6,
+                      border: 'none',
+                      background: 'transparent',
+                      color: '#f87171',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                    }}
+                  >
+                    🧹 Xoá tất cả ghi chú ({canvasComments.length})
+                  </button>
+                )}
+              </div>
+            )
+          })()}
 
           {isInspectMode && multiSelection.length >= 2 && (
             <div
