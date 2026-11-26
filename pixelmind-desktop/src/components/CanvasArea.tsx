@@ -1364,8 +1364,20 @@ const CanvasArea = ({
     endX: number
     endY: number
   } | null>(null)
+  const normalizeCommentRoute = useCallback(
+    (r?: string | null) => ((r || '/').split('?')[0].split('#')[0].replace(/\/+$/, '') || '/').toLowerCase(),
+    []
+  )
+  const [activeCommentRoute, setActiveCommentRoute] = useState<string>(() =>
+    ((currentRoute || '/').split('?')[0].split('#')[0].replace(/\/+$/, '') || '/').toLowerCase()
+  )
+  useEffect(() => {
+    if (currentRoute) {
+      setActiveCommentRoute(normalizeCommentRoute(currentRoute))
+    }
+  }, [currentRoute, normalizeCommentRoute])
   const [canvasComments, setCanvasComments] = useState<
-    Array<{ id: string; x: number; y: number; text: string; resolved?: boolean }>
+    Array<{ id: string; x: number; y: number; text: string; route: string; resolved?: boolean }>
   >([])
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingCommentText, setEditingCommentText] = useState('')
@@ -1441,12 +1453,14 @@ const CanvasArea = ({
       const scale = zoom / 100
       const pageX = Math.round((e.clientX - frameRect.left) / scale + iframeScroll.x)
       const pageY = Math.round((e.clientY - frameRect.top) / scale + iframeScroll.y)
-      const nextNum = canvasComments.length + 1
+      const pageRoute = normalizeCommentRoute(activeCommentRoute || currentRouteRef.current || currentRoute)
+      const pageCount = canvasComments.filter((c) => normalizeCommentRoute(c.route) === pageRoute).length
+      const nextNum = pageCount + 1
       const newId = `comment-${Date.now()}`
       const defaultText = `Ghi chú #${nextNum}`
       setCanvasComments((prev) => [
         ...prev,
-        { id: newId, x: pageX, y: pageY, text: defaultText },
+        { id: newId, x: pageX, y: pageY, text: defaultText, route: pageRoute },
       ])
       showToast(`Đã tạo ${defaultText} (Chuột trái vào thẻ để ghi chú, chuột phải để mở menu)`, 'ok', 'Phím C')
       setTool('select')
@@ -1556,11 +1570,15 @@ const CanvasArea = ({
         const previousRoute = currentRouteRef.current
         if (pathname) {
           currentRouteRef.current = pathname
+          setActiveCommentRoute(normalizeCommentRoute(pathname))
         }
-        // Chuyển trang: vùng chọn của trang cũ không còn ý nghĩa
+        // Chuyển trang: vùng chọn, thước đo và menu ghi chú của trang cũ không còn ý nghĩa
         if (pathname && pathname !== previousRoute) {
           setSelectedEl(null)
           setMultiSelection([])
+          setMeasureLine(null)
+          setEditingCommentId(null)
+          setCommentContextMenu(null)
           iframeRef.current?.contentWindow?.postMessage({ type: 'PM_CLEAR_MULTI_SELECTION' }, '*')
         }
         if (href) {
@@ -5609,8 +5627,10 @@ const CanvasArea = ({
         </div>
       )}
 
-      {/* Các thẻ Ghi chú gắn trực tiếp lên toạ độ trang web (cuộn/zoom/pan theo trang web) */}
-      {canvasComments.map((item) => {
+      {/* Các thẻ Ghi chú gắn trực tiếp lên toạ độ trang web hiện tại (chỉ hiển thị đúng trang đã ghim) */}
+      {canvasComments
+        .filter((item) => normalizeCommentRoute(item.route) === normalizeCommentRoute(activeCommentRoute))
+        .map((item) => {
         const isEditing = editingCommentId === item.id
         const isExpanded = isEditing || hoveredCommentId === item.id
         return (
@@ -6378,28 +6398,35 @@ const CanvasArea = ({
                 >
                   🗑️ Xoá thẻ ghi chú này
                 </button>
-                {canvasComments.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCanvasComments([])
-                      setCommentContextMenu(null)
-                      showToast('Đã xoá toàn bộ ghi chú trên Canvas', 'info')
-                    }}
-                    style={{
-                      textAlign: 'left',
-                      padding: '6px 10px',
-                      borderRadius: 6,
-                      border: 'none',
-                      background: 'transparent',
-                      color: '#f87171',
-                      cursor: 'pointer',
-                      fontSize: 12,
-                    }}
-                  >
-                    🧹 Xoá tất cả ghi chú ({canvasComments.length})
-                  </button>
-                )}
+                {(() => {
+                  const curPageComments = canvasComments.filter(
+                    (c) => normalizeCommentRoute(c.route) === normalizeCommentRoute(activeCommentRoute)
+                  )
+                  if (curPageComments.length <= 1) return null
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const curRoute = normalizeCommentRoute(activeCommentRoute)
+                        setCanvasComments((prev) => prev.filter((c) => normalizeCommentRoute(c.route) !== curRoute))
+                        setCommentContextMenu(null)
+                        showToast('Đã xoá toàn bộ ghi chú trên trang này', 'info')
+                      }}
+                      style={{
+                        textAlign: 'left',
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: 'none',
+                        background: 'transparent',
+                        color: '#f87171',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                      }}
+                    >
+                      🧹 Xoá tất cả ghi chú trang này ({curPageComments.length})
+                    </button>
+                  )
+                })()}
               </div>
             )
           })()}
