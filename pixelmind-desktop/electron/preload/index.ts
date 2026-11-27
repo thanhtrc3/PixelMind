@@ -419,6 +419,13 @@ const api: PixelMindApi = {
       ipcRenderer.invoke('capture:savePng', dataUrl, defaultFilename),
     copyPng: (dataUrl: string) =>
       ipcRenderer.invoke('capture:copyPng', dataUrl),
+    screenshot: (params: {
+      url?: string
+      html?: string
+      scope: 'viewport' | 'element' | 'fullPage'
+      viewport: { width: number; height: number }
+      elementRect?: { left: number; top: number; width: number; height: number } | null
+    }) => ipcRenderer.invoke('capture:screenshot', params),
   },
   pdf: {
     exportPdf: (params: PdfExportParams): Promise<PdfExportResult> =>

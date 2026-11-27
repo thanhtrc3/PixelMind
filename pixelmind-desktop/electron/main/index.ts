@@ -2151,6 +2151,101 @@ ipcMain.handle('capture:copyPng', async (_event, dataUrl: string) => {
   }
 })
 
+ipcMain.handle(
+  'capture:screenshot',
+  async (
+    _event,
+    params: {
+      url?: string
+      html?: string
+      scope: 'viewport' | 'element' | 'fullPage'
+      viewport: { width: number; height: number }
+      elementRect?: { left: number; top: number; width: number; height: number } | null
+    }
+  ) => {
+    if (!mainWindow) return null
+    const { url, html, scope, viewport, elementRect } = params
+    if (!url && !html) return null
+
+    let shotWindow: BrowserWindow | null = null
+    try {
+      const vpW = Math.max(320, Math.min(3840, Math.round(viewport.width || 1440)))
+      const vpH = Math.max(240, Math.min(2160, Math.round(viewport.height || 900)))
+
+      shotWindow = new BrowserWindow({
+        show: false,
+        width: vpW,
+        height: vpH,
+        webPreferences: {
+          offscreen: true,
+          nodeIntegration: false,
+          contextIsolation: true,
+        },
+      })
+
+      if (url) {
+        await shotWindow.loadURL(url)
+      } else if (html) {
+        await shotWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+      }
+
+      // Đợi để layout, webfonts, CSS và hình ảnh nạp hoàn chỉnh
+      await new Promise((r) => setTimeout(r, 450))
+
+      if (scope === 'fullPage') {
+        const fullHeight = await shotWindow.webContents.executeJavaScript(
+          `Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight, ${vpH})`
+        )
+        const fullWidth = await shotWindow.webContents.executeJavaScript(
+          `Math.max(document.body.scrollWidth, document.documentElement.scrollWidth, document.body.offsetWidth, ${vpW})`
+        )
+        const targetH = Math.max(vpH, Math.min(10000, Math.round(fullHeight)))
+        const targetW = Math.max(vpW, Math.min(3840, Math.round(fullWidth)))
+        shotWindow.setContentSize(targetW, targetH)
+        await new Promise((r) => setTimeout(r, 200))
+
+        const img = await shotWindow.webContents.capturePage({
+          x: 0,
+          y: 0,
+          width: targetW,
+          height: targetH,
+        })
+        return img.toDataURL()
+      }
+
+      if (scope === 'element' && elementRect && elementRect.width > 0 && elementRect.height > 0) {
+        const cropX = Math.max(0, Math.min(vpW - 1, Math.round(elementRect.left)))
+        const cropY = Math.max(0, Math.min(vpH - 1, Math.round(elementRect.top)))
+        const cropW = Math.max(1, Math.min(vpW - cropX, Math.round(elementRect.width)))
+        const cropH = Math.max(1, Math.min(vpH - cropY, Math.round(elementRect.height)))
+        const img = await shotWindow.webContents.capturePage({
+          x: cropX,
+          y: cropY,
+          width: cropW,
+          height: cropH,
+        })
+        return img.toDataURL()
+      }
+
+      // Mặc định: Chụp toàn bộ viewport sạch sẽ của trang
+      const img = await shotWindow.webContents.capturePage({
+        x: 0,
+        y: 0,
+        width: vpW,
+        height: vpH,
+      })
+      return img.toDataURL()
+    } catch (err) {
+      console.error('Failed to capture screenshot:', err)
+      return null
+    } finally {
+      if (shotWindow) {
+        shotWindow.destroy()
+      }
+    }
+  }
+)
+
 /* ───────────────────────── IPC: PDF Export (D2-17) ───────────────────────── */
 
 ipcMain.handle('pdf:export', async (_event, params: PdfExportParams): Promise<PdfExportResult> => {

@@ -1089,32 +1089,70 @@ const CanvasArea = ({
 
   const handleCapturePng = useCallback(
     async (scope: CaptureScope): Promise<string | null> => {
-      if (!api.window?.captureRect || !iframeRef.current) return null
       const iframeEl = iframeRef.current
-      const iframeBounds = iframeEl.getBoundingClientRect()
-      const doc = iframeEl.contentDocument || iframeEl.contentWindow?.document
+      if (!iframeEl) return null
 
-      let fullPageSize: { width: number; height: number } | undefined
-      if (scope === 'fullPage' && doc) {
-        const scrollW = Math.max(doc.documentElement.scrollWidth, doc.body?.scrollWidth || 0, iframeEl.clientWidth)
-        const scrollH = Math.max(doc.documentElement.scrollHeight, doc.body?.scrollHeight || 0, iframeEl.clientHeight)
-        fullPageSize = { width: scrollW, height: scrollH }
+      const liveUrl = iframeEl.contentWindow?.location?.href || currentLiveUrl || safeCanvasUrl
+      const activeVp = VIEWPORTS.find((v) => v.key === viewport) ?? VIEWPORTS[0]
+      const vpW = iframeEl.clientWidth || activeVp.w || 1440
+      const vpH = iframeEl.clientHeight || activeVp.h || 900
+
+      // Ưu tiên 1: Chụp độc lập qua offscreen window (chuẩn D2-16 sạch tuyệt đối, không dính UI PixelMind hay modal)
+      if (api.capture?.screenshot && liveUrl && /^https?:\/\//i.test(liveUrl)) {
+        try {
+          const shot = await api.capture.screenshot({
+            url: liveUrl,
+            scope,
+            viewport: { width: vpW, height: vpH },
+            elementRect: selectedEl?.rect,
+          })
+          if (shot) return shot
+        } catch (err) {
+          console.warn('[handleCapturePng] offscreen capture failed, falling back:', err)
+        }
       }
 
-      const targetRect = calculateCaptureRect({
-        scope,
-        iframeBounds,
-        elementRect: selectedEl?.rect,
-        iframeClientSize: {
-          width: iframeEl.clientWidth || iframeEl.offsetWidth,
-          height: iframeEl.clientHeight || iframeEl.offsetHeight,
-        },
-        fullPageSize,
-      })
+      // Ưu tiên 2: Fallback bằng captureRect nhưng tạm ẩn modal trong tích tắc để không bị đè vào ảnh
+      if (!api.window?.captureRect) return null
 
-      return await api.window.captureRect(targetRect)
+      const modalBackdrop = document.querySelector('.pm-modal-backdrop') as HTMLElement | null
+      if (modalBackdrop) {
+        modalBackdrop.style.visibility = 'hidden'
+      }
+
+      // Đợi repaint để khung modal biến mất khỏi màn hình trước khi chụp
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 60)))
+
+      try {
+        const iframeBounds = iframeEl.getBoundingClientRect()
+        const doc = iframeEl.contentDocument || iframeEl.contentWindow?.document
+
+        let fullPageSize: { width: number; height: number } | undefined
+        if (scope === 'fullPage' && doc) {
+          const scrollW = Math.max(doc.documentElement.scrollWidth, doc.body?.scrollWidth || 0, iframeEl.clientWidth)
+          const scrollH = Math.max(doc.documentElement.scrollHeight, doc.body?.scrollHeight || 0, iframeEl.clientHeight)
+          fullPageSize = { width: scrollW, height: scrollH }
+        }
+
+        const targetRect = calculateCaptureRect({
+          scope,
+          iframeBounds,
+          elementRect: selectedEl?.rect,
+          iframeClientSize: {
+            width: iframeEl.clientWidth || iframeEl.offsetWidth,
+            height: iframeEl.clientHeight || iframeEl.offsetHeight,
+          },
+          fullPageSize,
+        })
+
+        return await api.window.captureRect(targetRect)
+      } finally {
+        if (modalBackdrop) {
+          modalBackdrop.style.visibility = ''
+        }
+      }
     },
-    [selectedEl]
+    [selectedEl, safeCanvasUrl, currentLiveUrl, viewport]
   )
 
   const handleSaveCapturedPng = useCallback(

@@ -387,6 +387,13 @@ export interface PixelMindApi {
   capture?: {
     savePng(dataUrl: string, defaultFilename?: string): Promise<{ canceled: boolean; filePath?: string; error?: string }>
     copyPng(dataUrl: string): Promise<{ success: boolean; error?: string }>
+    screenshot?(params: {
+      url?: string
+      html?: string
+      scope: 'viewport' | 'element' | 'fullPage'
+      viewport: { width: number; height: number }
+      elementRect?: { left: number; top: number; width: number; height: number } | null
+    }): Promise<string | null>
   }
   pdf?: {
     exportPdf(params: PdfExportParams): Promise<PdfExportResult>

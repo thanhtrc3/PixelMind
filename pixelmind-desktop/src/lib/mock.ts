@@ -1031,6 +1031,9 @@ export function createBrowserMock(): PixelMindApi {
       async copyPng(_dataUrl) {
         return { success: true }
       },
+      async screenshot() {
+        return null
+      },
     },
     pdf: {
       async exportPdf(_params) {
