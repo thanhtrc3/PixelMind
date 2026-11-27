@@ -27,12 +27,28 @@ export interface AnnotationOverlayProps {
     elementOffsetY?: number
     documentX?: number
     documentY?: number
+    route?: string
   }) => void
   onUpdatePin: (id: string, content: string) => void
   onToggleResolve: (id: string, resolved: boolean) => void
   onDeletePin: (id: string) => void
   containerRef: React.RefObject<HTMLDivElement | null>
   iframeRef?: React.RefObject<HTMLIFrameElement | null>
+}
+
+/**
+ * Tạo CSS selector duy nhất cho phần tử để tìm lại chính xác khi trang tải lại
+ */
+function getUniqueCssSelector(el: HTMLElement): string {
+  if (!el || el.nodeType !== 1) return ''
+  if (el.id) return `#${el.id}`
+  const parent = el.parentElement
+  if (!parent || parent === document.documentElement) return el.tagName.toLowerCase()
+  const siblings = Array.prototype.filter.call(parent.children, (c) => c.tagName === el.tagName)
+  const index = Array.prototype.indexOf.call(siblings, el) + 1
+  const part = `${el.tagName.toLowerCase()}:nth-of-type(${index})`
+  const parentSel = getUniqueCssSelector(parent)
+  return parentSel ? `${parentSel} > ${part}` : part
 }
 
 export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
@@ -53,6 +69,15 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
   const [isEditing, setIsEditing] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
 
+  // Lưu trữ route nội bộ thực tế của iframe (tự đồng bộ khi người dùng click chuyển trang)
+  const [iframeRoute, setIframeRoute] = useState<string>(currentRoute || '/')
+
+  useEffect(() => {
+    if (currentRoute) {
+      setIframeRoute(currentRoute)
+    }
+  }, [currentRoute])
+
   // Lưu tọa độ hiển thị thực tế trên màn hình của từng ghim
   const [pinPositions, setPinPositions] = useState<
     Record<string, { left: number; top: number; isVisible: boolean }>
@@ -61,10 +86,10 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
   // Lọc danh sách ghim theo route hiện tại và trạng thái đã xử lý
   const visiblePins = useMemo(() => {
     return filterAnnotations(annotations, {
-      route: currentRoute,
+      route: iframeRoute,
       showResolved,
     })
-  }, [annotations, currentRoute, showResolved])
+  }, [annotations, iframeRoute, showResolved])
 
   const activePin = visiblePins.find((p) => p.id === activePinId)
 
@@ -85,10 +110,14 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
     const container = containerRef.current
     if (!container) return
 
-    const containerRect = container.getBoundingClientRect()
-    const iframeRect = iframe ? iframe.getBoundingClientRect() : containerRect
     const doc = iframe?.contentDocument || iframe?.contentWindow?.document
     const win = iframe?.contentWindow
+
+    const iframeOffsetLeft = iframe ? iframe.offsetLeft : 0
+    const iframeOffsetTop = iframe ? iframe.offsetTop : 0
+
+    const vpWidth = win ? win.innerWidth : (iframe ? iframe.offsetWidth : 10000)
+    const vpHeight = win ? win.innerHeight : (iframe ? iframe.offsetHeight : 10000)
 
     const newPositions: Record<string, { left: number; top: number; isVisible: boolean }> = {}
 
@@ -105,16 +134,16 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
 
       if (targetEl) {
         const r = targetEl.getBoundingClientRect()
-        // Tọa độ tính tương đối với container overlay
-        const posX = iframeRect.left - containerRect.left + r.left + (r.width * (pin.elementOffsetX ?? 50)) / 100
-        const posY = iframeRect.top - containerRect.top + r.top + (r.height * (pin.elementOffsetY ?? 50)) / 100
+        // Tọa độ tính tương đối với container overlay (container và iframe cùng toạ độ unscaled)
+        const posX = iframeOffsetLeft + r.left + (r.width * (pin.elementOffsetX ?? 50)) / 100
+        const posY = iframeOffsetTop + r.top + (r.height * (pin.elementOffsetY ?? 50)) / 100
 
         // Kiểm tra xem phần tử có nằm trong khung nhìn hiển thị của iframe không
         const isVisible =
           r.bottom > 0 &&
-          r.top < iframeRect.height &&
+          r.top < vpHeight &&
           r.right > 0 &&
-          r.left < iframeRect.width
+          r.left < vpWidth
 
         newPositions[pin.id] = {
           left: posX,
@@ -123,19 +152,21 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
         }
       } else if (win && typeof pin.documentX === 'number' && typeof pin.documentY === 'number') {
         // Fallback theo tọa độ document trừ đi scroll của iframe
-        const posX = iframeRect.left - containerRect.left + (pin.documentX - win.scrollX)
-        const posY = iframeRect.top - containerRect.top + (pin.documentY - win.scrollY)
-        const isVisible = posY > -40 && posY < containerRect.height + 40
+        const posX = iframeOffsetLeft + (pin.documentX - win.scrollX)
+        const posY = iframeOffsetTop + (pin.documentY - win.scrollY)
+        const isVisible = posY > -40 && posY < vpHeight + 40
         newPositions[pin.id] = {
           left: posX,
           top: posY,
           isVisible,
         }
       } else {
-        // Fallback cho ghim cũ theo % viewport
+        // Fallback cho ghim cũ theo % container
+        const cWidth = container.clientWidth || container.offsetWidth || 1
+        const cHeight = container.clientHeight || container.offsetHeight || 1
         newPositions[pin.id] = {
-          left: (pin.xPercent / 100) * containerRect.width,
-          top: (pin.yPercent / 100) * containerRect.height,
+          left: (pin.xPercent / 100) * cWidth,
+          top: (pin.yPercent / 100) * cHeight,
           isVisible: true,
         }
       }
@@ -165,8 +196,16 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
       container.addEventListener('scroll', handleScrollOrResize, { passive: true })
     }
 
-    // Interval nhẹ theo dõi layout shift hoặc animation
-    const interval = setInterval(updatePinPositions, 150)
+    // Interval theo dõi chuyển trang, layout shift hoặc animation
+    const interval = setInterval(() => {
+      try {
+        const curPath = iframeRef?.current?.contentWindow?.location?.pathname
+        if (curPath && curPath !== iframeRoute) {
+          setIframeRoute(curPath)
+        }
+      } catch {}
+      updatePinPositions()
+    }, 150)
 
     return () => {
       clearInterval(interval)
@@ -178,7 +217,7 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
         container.removeEventListener('scroll', handleScrollOrResize)
       }
     }
-  }, [updatePinPositions, iframeRef, containerRef])
+  }, [updatePinPositions, iframeRef, containerRef, iframeRoute])
 
   // Xử lý click tạo ghim mới khi đang bật chế độ Annotate
   const handleOverlayClick = (e: React.MouseEvent) => {
@@ -201,14 +240,25 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
     let elementOffsetY: number | undefined
     let documentX: number | undefined
     let documentY: number | undefined
+    let pinRoute = iframeRoute || currentRoute || '/'
 
     const iframe = iframeRef?.current
     if (iframe) {
       const iframeRect = iframe.getBoundingClientRect()
-      const iframeX = e.clientX - iframeRect.left
-      const iframeY = e.clientY - iframeRect.top
+      // Tỷ lệ scale của Canvas zoom (màn hình vs nội bộ iframe)
+      const scaleX = iframeRect.width > 0 && iframe.offsetWidth > 0 ? iframe.offsetWidth / iframeRect.width : 1
+      const scaleY = iframeRect.height > 0 && iframe.offsetHeight > 0 ? iframe.offsetHeight / iframeRect.height : 1
+
+      // Chuyển tọa độ click chuột thành tọa độ viewport nội bộ của iframe (đã triệt tiêu hệ số Canvas zoom)
+      const iframeX = (e.clientX - iframeRect.left) * scaleX
+      const iframeY = (e.clientY - iframeRect.top) * scaleY
+
       const doc = iframe.contentDocument || iframe.contentWindow?.document
       const win = iframe.contentWindow
+
+      if (win && win.location && win.location.pathname) {
+        pinRoute = win.location.pathname
+      }
 
       if (doc) {
         const clickedEl = doc.elementFromPoint(iframeX, iframeY) as HTMLElement | null
@@ -219,11 +269,7 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
             clickedEl.setAttribute('data-pm-uid', uid)
           }
           targetUid = uid
-          targetSelector = clickedEl.id
-            ? `#${clickedEl.id}`
-            : clickedEl.className && typeof clickedEl.className === 'string'
-            ? `.${clickedEl.className.trim().split(/\s+/)[0]}`
-            : clickedEl.tagName.toLowerCase()
+          targetSelector = getUniqueCssSelector(clickedEl)
 
           const elRect = clickedEl.getBoundingClientRect()
           if (elRect.width > 0 && elRect.height > 0) {
@@ -250,6 +296,7 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
       elementOffsetY,
       documentX,
       documentY,
+      route: pinRoute,
     })
   }
 

@@ -1011,12 +1011,13 @@ const CanvasArea = ({
       elementOffsetY?: number
       documentX?: number
       documentY?: number
+      route?: string
     }) => {
       if (!projectPath || !api.annotations?.add) {
         showToast('Cần mở dự án để tạo ghi chú', 'err')
         return
       }
-      const activeRoute = livePathname || currentRoute || '/'
+      const activeRoute = input.route || livePathname || currentRoute || '/'
       const res = await api.annotations.add(projectPath, {
         xPercent: input.xPercent,
         yPercent: input.yPercent,
