@@ -27,6 +27,7 @@ import {
   Copy,
   ExternalLink,
   Globe,
+  GripVertical,
   Hand,
   Hash,
   Image as ImageIcon,
@@ -1383,6 +1384,56 @@ const CanvasArea = ({
       return next
     })
   }, [currentRoute, showToast])
+
+  // D2-20: Tọa độ thanh chỉ báo Prototype nổi (người dùng có thể kéo thả linh hoạt, không dính với trang)
+  const [protoIndicatorPos, setProtoIndicatorPos] = useState<{ x: number; y: number } | null>(null)
+  const [isProtoDragging, setIsProtoDragging] = useState(false)
+  const protoIndicatorRef = useRef<HTMLDivElement | null>(null)
+
+  const handleProtoIndicatorMouseDown = useCallback((e: React.MouseEvent) => {
+    // Không kích hoạt kéo thả nếu người dùng bấm vào các nút bên trong (như nút Reset)
+    if ((e.target as HTMLElement).closest('button')) {
+      return
+    }
+    e.preventDefault()
+    e.stopPropagation()
+
+    const el = protoIndicatorRef.current
+    const stage = stageRef.current
+    if (!el || !stage) return
+
+    const elRect = el.getBoundingClientRect()
+    const stageRect = stage.getBoundingClientRect()
+
+    const startX = e.clientX
+    const startY = e.clientY
+    const initialElemX = elRect.left - stageRect.left
+    const initialElemY = elRect.top - stageRect.top
+
+    setIsProtoDragging(true)
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX
+      const dy = ev.clientY - startY
+
+      const maxX = Math.max(0, stageRect.width - elRect.width)
+      const maxY = Math.max(0, stageRect.height - elRect.height)
+
+      const nextX = Math.max(8, Math.min(maxX - 8, initialElemX + dx))
+      const nextY = Math.max(8, Math.min(maxY - 8, initialElemY + dy))
+
+      setProtoIndicatorPos({ x: nextX, y: nextY })
+    }
+
+    const onMouseUp = () => {
+      setIsProtoDragging(false)
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }, [])
 
   const handleStartPartLasso = useCallback(() => {
     setIsSelectingForPart(true)
@@ -6467,25 +6518,6 @@ const CanvasArea = ({
         iframeRef={iframeRef}
         stageRef={stageRef}
       />
-
-      {/* D2-20: Floating indicator khi ở chế độ Mô phỏng Prototype */}
-      {isPrototypeMode && (
-        <div className="pm-proto-active-indicator">
-          <div className="pm-proto-active-pill">
-            <Play size={11} fill="currentColor" />
-            <span>Chế độ Prototype (Click vào phần tử để chạy thử tương tác)</span>
-          </div>
-          <button
-            type="button"
-            className="pm-proto-active-reset-btn"
-            onClick={handleResetPrototypeState}
-            title="Reset trạng thái về ban đầu"
-          >
-            <RotateCcw size={11} />
-            <span>Reset trạng thái</span>
-          </button>
-        </div>
-      )}
     </>
   )
 
@@ -6722,15 +6754,6 @@ const CanvasArea = ({
             >
               <Workflow size={13} />
             </button>
-
-            {/* D2-20: Nút Reset trạng thái Prototype */}
-            <button
-              className="canvas__seg-btn icon-only"
-              onClick={handleResetPrototypeState}
-              title="Reset trạng thái mô phỏng Prototype về ban đầu"
-            >
-              <RotateCcw size={13} />
-            </button>
           </div>
 
           <div className="canvas__tools-spacer" />
@@ -6950,6 +6973,46 @@ const CanvasArea = ({
 
           {/* Lớp xem ảnh mẫu phủ kín stage nhưng KHÔNG unmount iframe Live bên dưới. */}
           {effectiveShowReference && referenceAsset && renderReferenceView()}
+
+          {/* D2-20: Floating draggable indicator khi ở chế độ Mô phỏng Prototype (tách rời khỏi trang) */}
+          {isPrototypeMode && (
+            <div
+              ref={protoIndicatorRef}
+              className={`pm-proto-active-indicator ${isProtoDragging ? 'is-dragging' : ''}`}
+              style={
+                protoIndicatorPos
+                  ? {
+                      left: protoIndicatorPos.x,
+                      top: protoIndicatorPos.y,
+                      transform: 'none',
+                    }
+                  : {
+                      bottom: 22,
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                    }
+              }
+              onMouseDown={handleProtoIndicatorMouseDown}
+              title="Nhấn giữ và kéo để di chuyển bảng điều khiển này đến vị trí mong muốn"
+            >
+              <div className="pm-proto-drag-handle" title="Kéo để di chuyển">
+                <GripVertical size={13} />
+              </div>
+              <div className="pm-proto-active-pill">
+                <Play size={11} fill="currentColor" />
+                <span>Chế độ Prototype (Click vào phần tử để chạy thử tương tác)</span>
+              </div>
+              <button
+                type="button"
+                className="pm-proto-active-reset-btn"
+                onClick={handleResetPrototypeState}
+                title="Reset trạng thái về ban đầu"
+              >
+                <RotateCcw size={11} />
+                <span>Reset trạng thái</span>
+              </button>
+            </div>
+          )}
 
           {isInspectMode && multiSelection.length >= 2 && (
             <div
