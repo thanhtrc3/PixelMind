@@ -6427,6 +6427,7 @@ const CanvasArea = ({
         onDeletePin={handleDeleteAnnotation}
         containerRef={frameContentRef}
         iframeRef={iframeRef}
+        stageRef={stageRef}
       />
 
       {/* D2-20: Floating indicator khi ở chế độ Mô phỏng Prototype */}

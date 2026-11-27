@@ -3187,7 +3187,6 @@
 
 .pm-annotation-popover {
   position: absolute;
-  transform: translate(16px, 16px);
   width: 290px;
   background: var(--panel, #181920);
   border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
@@ -3198,16 +3197,17 @@
   flex-direction: column;
   overflow: hidden;
   animation: pm-popover-in 140ms ease-out;
+  transition: top 100ms ease, left 100ms ease;
 }
 
 @keyframes pm-popover-in {
   from {
     opacity: 0;
-    transform: translate(16px, 8px) scale(0.96);
+    transform: scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translate(16px, 16px) scale(1);
+    transform: scale(1);
   }
 }
 

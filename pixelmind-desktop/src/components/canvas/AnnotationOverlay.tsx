@@ -34,6 +34,7 @@ export interface AnnotationOverlayProps {
   onDeletePin: (id: string) => void
   containerRef: React.RefObject<HTMLDivElement | null>
   iframeRef?: React.RefObject<HTMLIFrameElement | null>
+  stageRef?: React.RefObject<HTMLDivElement | null>
 }
 
 /**
@@ -64,10 +65,18 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
   onDeletePin,
   containerRef,
   iframeRef,
+  stageRef,
 }) => {
   const [editingContent, setEditingContent] = useState('')
   const [isEditing, setIsEditing] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
+
+  // Vị trí thông minh của popover (tự động tránh vật cản: panel terminal bên dưới, viền khung, inspector bên phải...)
+  const [popoverPos, setPopoverPos] = useState<{
+    left: number
+    top: number
+    placement: 'top' | 'bottom'
+  } | null>(null)
 
   // Lưu trữ route nội bộ thực tế của iframe (tự đồng bộ khi người dùng click chuyển trang)
   const [iframeRoute, setIframeRoute] = useState<string>(currentRoute || '/')
@@ -175,15 +184,145 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
     setPinPositions(newPositions)
   }, [visiblePins, iframeRef, containerRef])
 
+  // Tính toán vị trí thông minh của popover (tự động tránh vật cản: panel terminal bên dưới, viền khung, inspector bên phải...)
+  const updatePopoverPlacement = useCallback(() => {
+    if (!activePin || !containerRef.current) {
+      setPopoverPos(null)
+      return
+    }
+
+    const pinPos = pinPositions[activePin.id] || {
+      left: (activePin.xPercent / 100) * (containerRef.current.clientWidth || 800),
+      top: (activePin.yPercent / 100) * (containerRef.current.clientHeight || 600),
+      isVisible: true,
+    }
+
+    const container = containerRef.current
+    const containerRect = container.getBoundingClientRect()
+    const containerW = container.clientWidth || 800
+    const containerH = container.clientHeight || 600
+
+    const popoverEl = popoverRef.current
+    const popoverW = popoverEl?.offsetWidth || 290
+    const popoverH = popoverEl?.offsetHeight || (isEditing ? 220 : 160)
+
+    // Tỉ lệ scale thực tế giữa màn hình và container (do zoom Canvas)
+    const scale = containerRect.width > 0 && containerW > 0 ? containerRect.width / containerW : 1
+
+    // 1. Tìm chướng ngại vật phía dưới trên màn hình (Terminal Panel / Logs, thanh chỉ dẫn đáy, viền stage...)
+    let maxSafeScreenBottom = window.innerHeight - 16
+    if (stageRef?.current) {
+      const stageRect = stageRef.current.getBoundingClientRect()
+      if (stageRect.bottom > 100 && stageRect.bottom < maxSafeScreenBottom) {
+        maxSafeScreenBottom = stageRect.bottom - 12
+      }
+    }
+    const logPanel = document.querySelector('.pm-logs, [class*="pm-logs"]') as HTMLElement | null
+    if (logPanel) {
+      const r = logPanel.getBoundingClientRect()
+      if (r.top > 80 && r.top < maxSafeScreenBottom) {
+        maxSafeScreenBottom = r.top - 8
+      }
+    }
+    const canvasHint = document.querySelector('.canvas__hint') as HTMLElement | null
+    if (canvasHint) {
+      const r = canvasHint.getBoundingClientRect()
+      if (r.top > 80 && r.top < maxSafeScreenBottom) {
+        maxSafeScreenBottom = r.top - 6
+      }
+    }
+
+    // 2. Tìm chướng ngại vật cạnh phải (Inspector Sidebar)
+    let maxSafeScreenRight = window.innerWidth - 16
+    const inspectorSidebar = document.querySelector('.canvas__inspector-sidebar') as HTMLElement | null
+    if (inspectorSidebar) {
+      const r = inspectorSidebar.getBoundingClientRect()
+      if (r.left > 200 && r.left < maxSafeScreenRight) {
+        maxSafeScreenRight = r.left - 8
+      }
+    }
+
+    // 3. Tìm chướng ngại vật phía trên (Thanh công cụ Toolbar)
+    let minSafeScreenTop = 16
+    if (stageRef?.current) {
+      const stageRect = stageRef.current.getBoundingClientRect()
+      if (stageRect.top > minSafeScreenTop && stageRect.top < 250) {
+        minSafeScreenTop = stageRect.top + 8
+      }
+    }
+
+    // Tọa độ màn hình của điểm ghim
+    const pinScreenY = containerRect.top + pinPos.top * scale
+
+    // Kiểm tra đặt bên dưới (placement: bottom)
+    const candidateTopBelow = pinPos.top + 22
+    const screenBottomY = pinScreenY + (22 + popoverH) * scale
+    const isBelowBlocked =
+      candidateTopBelow + popoverH > containerH - 10 ||
+      screenBottomY > maxSafeScreenBottom
+
+    // Kiểm tra đặt bên trên (placement: top)
+    const candidateTopAbove = pinPos.top - popoverH - 18
+    const screenTopY = pinScreenY - (18 + popoverH) * scale
+    const isAboveAvailable =
+      candidateTopAbove >= 10 &&
+      screenTopY >= minSafeScreenTop
+
+    let finalTop: number
+    let placement: 'top' | 'bottom' = 'bottom'
+
+    if (isBelowBlocked && isAboveAvailable) {
+      // Phía dưới bị che/tràn (bởi terminal, đáy khung...) -> TỰ ĐỘNG LẬT LÊN TRÊN
+      finalTop = candidateTopAbove
+      placement = 'top'
+    } else if (isBelowBlocked && !isAboveAvailable) {
+      // Cả 2 phía đều chật hẹp -> Chọn phía có nhiều không gian hiển thị hơn
+      const spaceBelow = Math.min(containerH - pinPos.top, (maxSafeScreenBottom - pinScreenY) / Math.max(0.1, scale))
+      const spaceAbove = Math.min(pinPos.top, (pinScreenY - minSafeScreenTop) / Math.max(0.1, scale))
+      if (spaceAbove > spaceBelow) {
+        finalTop = Math.max(10, candidateTopAbove)
+        placement = 'top'
+      } else {
+        finalTop = Math.max(10, Math.min(containerH - popoverH - 10, candidateTopBelow))
+        placement = 'bottom'
+      }
+    } else {
+      // Phía dưới thoáng -> Giữ mặc định ở dưới
+      finalTop = candidateTopBelow
+      placement = 'bottom'
+    }
+
+    // Căn chỉnh trục ngang: tránh tràn qua thanh Inspector bên phải hoặc mép trái
+    let candidateLeft = pinPos.left - 20
+    const screenRightX = containerRect.left + (candidateLeft + popoverW) * scale
+
+    if (candidateLeft + popoverW > containerW - 16 || screenRightX > maxSafeScreenRight) {
+      const maxContainerLeft = containerW - popoverW - 16
+      const maxScreenLeft = (maxSafeScreenRight - containerRect.left) / Math.max(0.1, scale) - popoverW
+      candidateLeft = Math.min(candidateLeft, maxContainerLeft, maxScreenLeft)
+    }
+
+    const minScreenLeft = Math.max(12, (12 - containerRect.left) / Math.max(0.1, scale))
+    candidateLeft = Math.max(12, candidateLeft, minScreenLeft)
+
+    setPopoverPos({
+      left: Math.round(candidateLeft),
+      top: Math.round(finalTop),
+      placement,
+    })
+  }, [activePin, pinPositions, isEditing, containerRef, stageRef])
+
   // Lắng nghe scroll & resize của iframe để ghim di chuyển theo phần tử mượt mà
   useEffect(() => {
     updatePinPositions()
+    updatePopoverPlacement()
 
     const iframe = iframeRef?.current
     const win = iframe?.contentWindow
 
     const handleScrollOrResize = () => {
       updatePinPositions()
+      updatePopoverPlacement()
     }
 
     if (win) {
@@ -196,6 +335,8 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
       container.addEventListener('scroll', handleScrollOrResize, { passive: true })
     }
 
+    window.addEventListener('resize', handleScrollOrResize, { passive: true })
+
     // Interval theo dõi chuyển trang, layout shift hoặc animation
     const interval = setInterval(() => {
       try {
@@ -205,10 +346,12 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
         }
       } catch {}
       updatePinPositions()
+      updatePopoverPlacement()
     }, 150)
 
     return () => {
       clearInterval(interval)
+      window.removeEventListener('resize', handleScrollOrResize)
       if (win) {
         win.removeEventListener('scroll', handleScrollOrResize)
         win.removeEventListener('resize', handleScrollOrResize)
@@ -217,7 +360,15 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
         container.removeEventListener('scroll', handleScrollOrResize)
       }
     }
-  }, [updatePinPositions, iframeRef, containerRef, iframeRoute])
+  }, [updatePinPositions, updatePopoverPlacement, iframeRef, containerRef, iframeRoute])
+
+  // Cập nhật vị trí popover ngay khi activePin hoặc chế độ sửa thay đổi
+  useEffect(() => {
+    const t = setTimeout(() => {
+      updatePopoverPlacement()
+    }, 10)
+    return () => clearTimeout(t)
+  }, [activePinId, isEditing, updatePopoverPlacement])
 
   // Xử lý click tạo ghim mới khi đang bật chế độ Annotate
   const handleOverlayClick = (e: React.MouseEvent) => {
@@ -384,14 +535,22 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
       {activePin && (
         <div
           ref={popoverRef}
-          className="pm-annotation-popover"
+          className={`pm-annotation-popover ${popoverPos?.placement === 'top' ? 'placement-top' : 'placement-bottom'}`}
           style={{
-            left: pinPositions[activePin.id]
-              ? `${pinPositions[activePin.id].left}px`
-              : `${activePin.xPercent}%`,
-            top: pinPositions[activePin.id]
-              ? `${pinPositions[activePin.id].top + 8}px`
-              : `${activePin.yPercent}%`,
+            left: `${
+              popoverPos
+                ? popoverPos.left
+                : pinPositions[activePin.id]
+                ? pinPositions[activePin.id].left - 20
+                : (activePin.xPercent / 100) * (containerRef.current?.clientWidth || 800)
+            }px`,
+            top: `${
+              popoverPos
+                ? popoverPos.top
+                : pinPositions[activePin.id]
+                ? pinPositions[activePin.id].top + 22
+                : (activePin.yPercent / 100) * (containerRef.current?.clientHeight || 600)
+            }px`,
             pointerEvents: 'auto',
           }}
           onClick={(e) => e.stopPropagation()}
