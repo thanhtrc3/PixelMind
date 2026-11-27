@@ -72,6 +72,54 @@ export function getMarginsForPrint(marginType: PdfMarginType): {
 }
 
 /**
+ * Tính toán kích thước trang in tiêu chuẩn (pixels ở 96 DPI)
+ */
+export function getPaperDimensions(pageSize: PdfPageSize, landscape: boolean): { width: number; height: number } {
+  let w = 8.27
+  let h = 11.69
+  if (pageSize === 'A3') {
+    w = 11.69
+    h = 16.54
+  } else if (pageSize === 'Letter') {
+    w = 8.5
+    h = 11.0
+  } else if (pageSize === 'Legal') {
+    w = 8.5
+    h = 14.0
+  }
+  const pw = landscape ? h : w
+  const ph = landscape ? w : h
+  return {
+    width: Math.round(pw * 96 * 10) / 10,
+    height: Math.round(ph * 96 * 10) / 10,
+  }
+}
+
+/**
+ * Tự động tính toán tỷ lệ scale trang in để không bao giờ bị cắt mất phần tử bên phải
+ */
+export function calculatePrintScale(
+  pageSize: PdfPageSize,
+  landscape: boolean,
+  marginType: PdfMarginType,
+  contentWidth: number,
+  userScale?: number
+): number {
+  if (typeof userScale === 'number' && userScale !== 1.0) {
+    return Math.max(0.4, Math.min(2.0, userScale))
+  }
+  const paper = getPaperDimensions(pageSize, landscape)
+  const marginLoss = marginType === 'none' ? 0 : marginType === 'minimal' ? 38.4 : 76.8
+  const printableWidth = Math.max(200, paper.width - marginLoss)
+
+  if (contentWidth > printableWidth) {
+    const autoScale = Math.round((printableWidth / contentWidth) * 100) / 100
+    return Math.max(0.4, Math.min(1.0, autoScale))
+  }
+  return 1.0
+}
+
+/**
  * Tạo tên file xuất PDF thân thiện và an toàn
  */
 export function formatPdfFilename(

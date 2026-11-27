@@ -4,6 +4,8 @@ import {
   normalizePdfOptions,
   getMarginsForPrint,
   formatPdfFilename,
+  getPaperDimensions,
+  calculatePrintScale,
 } from '../shared/pdf.ts'
 
 test('D2-17: normalizePdfOptions áp dụng giá trị mặc định hợp lý', () => {
@@ -48,4 +50,19 @@ test('D2-17: formatPdfFilename tạo tên file PDF chuẩn xác và an toàn', (
   const landscapeFilename = formatPdfFilename('Project', '/', 'A3', true)
   assert.ok(landscapeFilename.startsWith('Project-trang-chu-A3-ngang-'))
   assert.ok(landscapeFilename.endsWith('.pdf'))
+})
+
+test('D2-17: calculatePrintScale tự động co giãn trang để không bị cắt xén góc phải', () => {
+  // Trang desktop rộng 1440px in trên khổ A4 ngang có lề default (~1045px printable width)
+  const a4LandscapeScale = calculatePrintScale('A4', true, 'default', 1440)
+  assert.ok(a4LandscapeScale < 1.0)
+  assert.ok(a4LandscapeScale >= 0.7) // Khoảng 0.72 - 0.73 để vừa khít 1440px
+
+  // Trang hẹp 800px in trên A4 ngang -> Không cần thu nhỏ (scale = 1.0)
+  const fitScale = calculatePrintScale('A4', true, 'default', 800)
+  assert.equal(fitScale, 1.0)
+
+  // Khách hàng tự chỉnh scale tùy ý -> Giữ nguyên scale của khách hàng
+  const userScale = calculatePrintScale('A4', true, 'default', 1440, 0.85)
+  assert.equal(userScale, 0.85)
 })

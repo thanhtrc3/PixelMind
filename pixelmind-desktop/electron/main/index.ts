@@ -28,6 +28,7 @@ import {
   formatPdfFilename,
   getMarginsForPrint,
   normalizePdfOptions,
+  calculatePrintScale,
   type PdfExportParams,
   type PdfExportResult,
 } from '../../shared/pdf'
@@ -2290,13 +2291,45 @@ ipcMain.handle('pdf:export', async (_event, params: PdfExportParams): Promise<Pd
     // Đợi 500ms để CSS, fonts và layout render hoàn tất
     await new Promise((r) => setTimeout(r, 500))
 
+    // Tiêm CSS in để chống tràn ngang và đảm bảo màu sắc trung thực
+    await printWindow.webContents.insertCSS(`
+      @media print {
+        html, body {
+          width: 100% !important;
+          min-width: 0 !important;
+          overflow-x: hidden !important;
+        }
+        body {
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        .container, .container-fluid, header, nav, main {
+          max-width: 100% !important;
+        }
+      }
+    `)
+
+    // Đo độ rộng nội dung trang thực tế để tự động co tỷ lệ (Scale-to-fit)
+    const contentWidth = await printWindow.webContents.executeJavaScript(
+      `Math.max(document.body.scrollWidth, document.documentElement.scrollWidth, document.body.offsetWidth, 1200)`
+    )
+
+    // Tự động tính toán scale vừa vặn khổ giấy, chống cắt mất phần tử góc phải (như nút Đăng Ký)
+    const effectiveScale = calculatePrintScale(
+      norm.pageSize,
+      norm.landscape,
+      norm.marginType,
+      contentWidth,
+      norm.scale
+    )
+
     const margins = getMarginsForPrint(norm.marginType)
     const pdfBuffer = await printWindow.webContents.printToPDF({
       pageSize: norm.pageSize,
       landscape: norm.landscape,
       printBackground: norm.printBackground,
       margins,
-      scale: norm.scale,
+      scale: effectiveScale,
       preferCSSPageSize: false,
     })
 
