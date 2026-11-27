@@ -4285,10 +4285,10 @@
   background: linear-gradient(135deg, #a855f7, #9333ea);
 }
 
-/* Floating indicator khi đang bật chế độ Prototype - có thể kéo thả linh hoạt */
+/* Floating indicator khi đang bật chế độ Prototype - có thể kéo thả linh hoạt toàn màn hình */
 .pm-proto-active-indicator {
-  position: absolute;
-  z-index: 90;
+  position: fixed;
+  z-index: 10000;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -4302,12 +4302,15 @@
   user-select: none;
   cursor: grab;
   touch-action: none;
+  will-change: left, top;
 }
 
 .pm-proto-active-indicator:active,
 .pm-proto-active-indicator.is-dragging {
-  cursor: grabbing;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.65), 0 0 22px rgba(168, 85, 247, 0.5);
+  cursor: grabbing !important;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7), 0 0 22px rgba(168, 85, 247, 0.5);
+  transition: none !important;
+  animation: none !important;
 }
 
 .pm-proto-drag-handle {
@@ -4319,7 +4322,7 @@
 }
 
 .pm-proto-active-indicator.is-dragging .pm-proto-drag-handle {
-  cursor: grabbing;
+  cursor: grabbing !important;
   color: #c084fc;
 }
 
@@ -4334,7 +4337,7 @@
 }
 
 .pm-proto-active-indicator.is-dragging .pm-proto-active-pill {
-  cursor: grabbing;
+  cursor: grabbing !important;
 }
 
 .pm-proto-active-reset-btn {
